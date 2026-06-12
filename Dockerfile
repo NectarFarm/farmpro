@@ -10,7 +10,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# ── Stage 3: build app + generate DB migration files from schema ───────────────
+# ── Stage 3: build the Next.js app ───────────────────────────────────────────
 FROM base AS builder
 WORKDIR /app
 
@@ -21,9 +21,6 @@ COPY . .
 # These are NOT used at runtime — the real values come from docker-compose.
 ENV DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy
 ENV SESSION_SECRET=00000000000000000000000000000000
-
-# Generate Drizzle migration SQL from db/schema.ts (no DB needed)
-RUN pnpm db:generate
 
 # Build the Next.js app
 RUN pnpm build
@@ -40,8 +37,10 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 
-# Config + source needed at runtime / for migration commands
+# Migration files (committed to git — never regenerated in Docker)
 COPY --from=builder /app/drizzle ./drizzle
+
+# Config + source needed at runtime / for migration commands
 COPY --from=builder /app/db ./db
 COPY --from=builder /app/scripts ./scripts
 COPY package.json pnpm-lock.yaml drizzle.config.ts next.config.ts ./
