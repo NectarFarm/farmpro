@@ -1,0 +1,59 @@
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: farmpro
+      POSTGRES_USER: farmpro
+      POSTGRES_PASSWORD: farmpro_secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farmpro -d farmpro"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── DB migrations + seed (runs once, exits 0 on success) ────────────────────
+  migrate:
+    build:
+      context: .
+      target: app
+    command: >
+      sh -c "pnpm db:migrate && pnpm db:seed"
+    environment:
+      DATABASE_URL: postgresql://farmpro:farmpro_secret@db:5432/farmpro
+      SESSION_SECRET: ${SESSION_SECRET:-change_me_to_a_long_random_string_at_least_32_chars}
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # ── Next.js application ──────────────────────────────────────────────────────
+  farmpro:
+    build:
+      context: .
+      target: app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-13000}:13000"
+    environment:
+      DATABASE_URL: postgresql://farmpro:farmpro_secret@db:5432/farmpro
+      SESSION_SECRET: ${SESSION_SECRET:-change_me_to_a_long_random_string_at_least_32_chars}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:13000}
+      NODE_ENV: production
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:13000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  postgres_data:

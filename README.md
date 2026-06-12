@@ -1,53 +1,89 @@
-# vibe-web-template
+# Poultry Farm Management System
 
-A general-purpose Next.js web application template with database initialization and AI-friendly foundations.
+A comprehensive, full-stack management platform designed to streamline poultry farm operations, track bird lifecycles, and monitor financial performance. This system provides granular control over production, inventory, and sales through a role-based architecture.
 
-## Features
+## 🚀 Key Modules
 
-- **Standardized Utilities**: Prediction-first wrappers for `fetch`, `env` validation, and a leveled `logger`.
-- **Database Ready**: Drizzle ORM + PostgreSQL initialization pre-configured.
-- **UI System**: Tailwind CSS 4, the full Radix UI primitive set (shadcn-style components under `components/ui/`), and `sonner` for notifications.
-- **Forms**: React Hook Form + Zod resolvers.
-- **AI-Friendly**: Ships with `docs/AI_GUIDE.md` to keep AI-generated code consistent.
+### 📊 Dashboard & Analytics
+*   **Real-time KPIs:** Monitor active bird counts, revenue, operational costs, and mortality rates.
+*   **Production Trends:** Visualized egg collection and daily revenue charts using Recharts.
+*   **Temporal Filtering:** Analyze performance across 7 days, 30 days, monthly, or annual views.
 
-## Tech Stack
+### 🐣 Flock Lifecycle Management
+*   **Stage Tracking:** Manage batches through distinct stages: *Brooder* → *Grower* → *Layer* → *Disposal/Sale Stock*.
+*   **Health Logs:** Comprehensive vaccination scheduling and mortality tracking with automated rate calculations.
+*   **Valuation Engine:** Real-time break-even analysis and margin tracking per flock based on cumulative costs.
 
-- Next.js 16 (App Router)
-- React 19 / TypeScript 5
-- Tailwind CSS 4
-- Drizzle ORM + PostgreSQL (`postgres` driver)
-- Zod + React Hook Form
-- Zustand (state management)
-- Vercel Analytics + optional Umami script injection
+### 🥚 Production & Inventory
+*   **Egg Collection:** Detailed logging of daily collections with dedicated tracking for breakages and sellable stock.
+*   **Feed Management:** Inventory tracking across multiple feed types (Starter, Grower, Layer, Finisher).
+*   **FCR Analysis:** Integrated Feed Conversion Ratio (FCR) recommendations to optimize bird nutrition and reduce waste.
 
-## Getting Started
+### 💰 Financials & Sales
+*   **Expense Tracking:** Categorized logging for feeds, vaccines, labor, utilities, and chicks.
+*   **Budgeting:** Monthly and cycle-based budget planning with variance analysis.
+*   **Sales Workflow:** Secure sales recording for eggs and birds with a mandatory approval workflow for record deletions.
 
-1. **Install dependencies**:
+### 👥 Multi-Portal Access
+*   **Farm Owner:** Full administrative access to financials, settings, and reporting.
+*   **Employee Portal:** Streamlined interface for logging daily operational data (Eggs, Feed, Mortality).
+*   **Customer Portal:** Restricted access for registered buyers to view live pricing and submit order requests.
+
+## 🛠 Tech Stack
+
+*   **Frontend:** [Next.js 15+](https://nextjs.org/) (App Router), TypeScript, Tailwind CSS
+*   **State Management:** [Zustand](https://github.com/pmndrs/zustand)
+*   **Database:** PostgreSQL with [Drizzle ORM](https://orm.drizzle.team/)
+*   **Visualization:** [Recharts](https://recharts.org/)
+*   **Icons:** Lucide React
+
+## 📂 Project Structure
+
+```text
+├── app/              # Next.js App Router (Pages & API Routes)
+├── components/       # UI Components & Role-based Page Modules
+├── db/               # Database Schema & Drizzle Configuration
+├── lib/              # Core Logic, Store, PDF Generation, & Utils
+├── public/           # Static Assets
+└── scripts/          # Database Seeding & Build Utilities
+```
+
+## ⚙️ Getting Started
+
+### Prerequisites
+*   Node.js (LTS)
+*   PostgreSQL
+*   pnpm (recommended)
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   ```
+
+2. Install dependencies:
    ```bash
    pnpm install
    ```
 
-2. **Environment variables**:
-   Copy `.env.example` to `.env` and configure at minimum `DATABASE_URL`. Umami analytics variables (`NEXT_PUBLIC_UMAMI_SCRIPT_URL`, `NEXT_PUBLIC_UMAMI_WEBSITE_ID`) are optional and only injected in production.
+3. Configure environment variables (`.env`):
+   ```env
+   DATABASE_URL=postgresql://user:password@localhost:5432/poultry_db
+   ```
 
-3. **Run development server** (port 13000):
+4. Initialize the database:
+   ```bash
+   pnpm db:generate
+   pnpm db:push
+   pnpm db:seed
+   ```
+
+5. Start the development server:
    ```bash
    pnpm dev
    ```
 
-4. **Database commands**:
-   - `pnpm db:generate` — generate migrations
-   - `pnpm db:migrate` — run migrations
-   - `pnpm db:studio` — open Drizzle Studio
-
-## Project Structure
-
-- `app/` — Next.js App Router (`layout.tsx`, `page.tsx`, `api/`).
-- `components/` — `AgentationGuard.tsx` plus shadcn-style primitives in `components/ui/`.
-- `db/` — Drizzle client (`db/index.ts`).
-- `lib/` — Core utilities: `request.ts`, `env.ts`, `logger.ts`, `errors.ts`, `utils.ts`, `agentationFeedbackMode.ts`.
-- `hooks/` — Shared hooks (`use-mobile.ts`, `use-toast.ts`).
-- `utils/` — `cn.ts` (clsx + tailwind-merge).
-- `docs/` — `AI_GUIDE.md` (AI/developer conventions).
-- `Dockerfile` — Multi-stage node:22-slim build exposing port 13000.
+## 📄 License
+This project is licensed under the MIT License.
 # farmpro
