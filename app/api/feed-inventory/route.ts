@@ -10,7 +10,11 @@ export async function GET() {
   try {
     await requireSession()
     const rows = await db.select().from(feedInventory)
-    return NextResponse.json(rows)
+    return NextResponse.json(rows.map(r => ({
+      ...r,
+      currentStockKg: Number(r.currentStockKg),
+      reorderLevelKg: Number(r.reorderLevelKg),
+    })))
   } catch (error) {
     const { error: message, status } = handleApiError(error)
     return NextResponse.json({ error: message }, { status })
@@ -30,7 +34,11 @@ export async function PUT(req: NextRequest) {
       .where(eq(feedInventory.feedType, body.feedType))
       .returning()
 
-    return NextResponse.json(row)
+    return NextResponse.json({
+      ...row,
+      currentStockKg: Number(row.currentStockKg),
+      reorderLevelKg: Number(row.reorderLevelKg),
+    })
   } catch (error) {
     const { error: message, status } = handleApiError(error)
     return NextResponse.json({ error: message }, { status })
