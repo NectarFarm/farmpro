@@ -12,7 +12,7 @@ interface AddSaleFormProps {
   onClose: () => void;
 }
 function AddSaleForm({ onClose }: AddSaleFormProps) {
-  const { customers, flocks, eggCollections, sales: allSales, addSale, updateFlock } = useFarmStore();
+  const { customers, flocks, eggCollections, sales: allSales, addSale } = useFarmStore();
   const [form, setForm] = useState({
     customerId: "",
     flockId: "",
@@ -73,10 +73,6 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
       createdAt: new Date().toISOString(),
     };
     addSale(sale);
-    // Reduce flock bird count when birds are sold via this form
-    if (form.product === "birds" && form.flockId && selectedFlock) {
-      updateFlock(form.flockId, { currentCount: Math.max(0, selectedFlock.currentCount - saleQty) });
-    }
     toast.success("Sale recorded successfully");
     onClose();
   };

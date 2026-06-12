@@ -1,6 +1,6 @@
 "use client";
 import { useState, useMemo } from "react";
-import { Egg, Wheat, Skull, CheckCircle, Bird } from "lucide-react";
+import { Egg, Wheat, Skull, CheckCircle, Bird, AlertTriangle } from "lucide-react";
 import { useFarmStore } from "@/lib/store";
 import { generateId } from "@/lib/utils";
 import { toast } from "sonner";
@@ -21,14 +21,13 @@ const inputCls = "border border-gray-200 rounded-lg px-3 py-2 text-sm w-full foc
 export default function EmployeePage() {
   const {
     session, flocks,
-    addEggCollection, addFeedRecord, addMortalityRecord, addFeedDispenseRecord,
-    eggCollections, feedRecords, mortalityRecords,
+    addEggCollection, addMortalityRecord, addFeedDispenseRecord,
+    eggCollections, feedDispenseRecords, mortalityRecords, feedInventory,
   } = useFarmStore();
 
   const layerFlocks = flocks.filter(f => f.stage === "layer");
   const allFlocks = flocks;
 
-  // FCR Recommendations (grams per bird per day)
   const FCR_RECS: Record<string, number> = {
     brooder: 15,
     grower: 30,
@@ -47,7 +46,6 @@ export default function EmployeePage() {
   const [feedDate, setFeedDate] = useState(today());
   const [feedQty, setFeedQty] = useState("");
   const [feedType, setFeedType] = useState<"starter" | "grower" | "layer" | "finisher">("layer");
-  const [feedSource, setFeedSource] = useState<"purchased" | "produced">("purchased");
   const [feedNotes, setFeedNotes] = useState("");
 
   // Mortality form
@@ -56,6 +54,19 @@ export default function EmployeePage() {
   const [mortCount, setMortCount] = useState("");
   const [mortCause, setMortCause] = useState("");
 
+  const selectedInventory = useMemo(
+    () => feedInventory.find(fi => fi.feedType === feedType),
+    [feedInventory, feedType]
+  );
+
+  const stockWarning = useMemo(() => {
+    const qty = parseFloat(feedQty);
+    if (!isNaN(qty) && qty > 0 && selectedInventory && qty > selectedInventory.currentStockKg) {
+      return `Only ${selectedInventory.currentStockKg.toFixed(1)} kg available in stock`;
+    }
+    return null;
+  }, [feedQty, selectedInventory]);
+
   function submitEgg() {
     if (!eggFlock) { toast.error("Select a flock"); return; }
     const cnt = parseInt(eggCount);
@@ -63,14 +74,14 @@ export default function EmployeePage() {
     if (isNaN(cnt) || cnt < 0) { toast.error("Enter a valid egg count"); return; }
     if (brk < 0 || brk > cnt) { toast.error("Broken count cannot exceed total count"); return; }
     if (eggDate > today()) { toast.error("Date cannot be in the future"); return; }
-    addEggCollection({ 
-      id: generateId(), 
-      flockId: eggFlock, 
-      date: eggDate, 
-      count: cnt, 
-      broken: brk, 
-      sellable: cnt - brk, 
-      createdAt: new Date().toISOString() 
+    addEggCollection({
+      id: generateId(),
+      flockId: eggFlock,
+      date: eggDate,
+      count: cnt,
+      broken: brk,
+      sellable: cnt - brk,
+      createdAt: new Date().toISOString(),
     });
     toast.success(`Logged ${cnt} eggs (${brk} broken)`);
     setEggCount("");
@@ -82,18 +93,19 @@ export default function EmployeePage() {
     const qty = parseFloat(feedQty);
     if (isNaN(qty) || qty <= 0) { toast.error("Enter valid quantity"); return; }
     if (feedDate > today()) { toast.error("Date cannot be in the future"); return; }
+    if (stockWarning) { toast.error(stockWarning); return; }
     addFeedDispenseRecord({
-      id: generateId(), 
-      flockId: feedFlock, 
+      id: generateId(),
+      flockId: feedFlock,
       date: feedDate,
-      quantityKg: qty, 
-      feedType, 
-      feedSource,
+      quantityKg: qty,
+      feedType,
+      feedSource: "purchased",
       notes: feedNotes || undefined,
       createdAt: new Date().toISOString(),
     });
-    toast.success(`Logged ${qty} kg of ${feedType} dispensed (${feedSource})`);
-    setFeedQty(""); 
+    toast.success(`Dispensed ${qty} kg of ${feedType} feed`);
+    setFeedQty("");
     setFeedNotes("");
   }
 
@@ -110,8 +122,10 @@ export default function EmployeePage() {
   // Today's summary
   const todayStr = today();
   const todayEggs = useMemo(() => eggCollections.filter(e => e.date === todayStr), [eggCollections, todayStr]);
-  const todayFeed = useMemo(() => feedRecords.filter(r => r.date === todayStr), [feedRecords, todayStr]);
+  const todayFeed = useMemo(() => feedDispenseRecords.filter(r => r.date === todayStr), [feedDispenseRecords, todayStr]);
   const todayMort = useMemo(() => mortalityRecords.filter(r => r.date === todayStr), [mortalityRecords, todayStr]);
+
+  const selectedFlock = allFlocks.find(f => f.id === feedFlock);
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-2xl mx-auto">
@@ -164,29 +178,55 @@ export default function EmployeePage() {
             {allFlocks.map(f => <option key={f.id} value={f.id}>{f.name} ({f.currentCount} birds)</option>)}
           </select>
         </Field>
-        {feedFlock && (
+        {selectedFlock && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-            <strong>Recommendation:</strong> Based on {allFlocks.find(f => f.id === feedFlock)?.currentCount} birds at {allFlocks.find(f => f.id === feedFlock)?.stage} stage, we recommend 
-            {" "}<strong>{(((allFlocks.find(f => f.id === feedFlock)?.currentCount ?? 0) * (FCR_RECS[allFlocks.find(f => f.id === feedFlock)?.stage ?? ""] ?? 0)) / 1000).toFixed(1)} kg</strong> per day.
+            <strong>Recommendation:</strong> {selectedFlock.currentCount} birds at {selectedFlock.stage} stage —{" "}
+            <strong>{((selectedFlock.currentCount * (FCR_RECS[selectedFlock.stage] ?? 0)) / 1000).toFixed(1)} kg</strong> per day.
           </div>
         )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date"><input type="date" value={feedDate} max={today()} onChange={e => setFeedDate(e.target.value)} className={inputCls} /></Field>
           <Field label="Feed Type">
-            <select value={feedType} onChange={e => setFeedType(e.target.value as typeof feedType)} className={inputCls}>
-              {(["starter","grower","layer","finisher"] as const).map(t => <option key={t} value={t}>{t}</option>)}
+            <select
+              value={feedType}
+              onChange={e => setFeedType(e.target.value as typeof feedType)}
+              className={inputCls}
+            >
+              {feedInventory.map(fi => (
+                <option key={fi.feedType} value={fi.feedType}>
+                  {fi.feedType.charAt(0).toUpperCase() + fi.feedType.slice(1)} — {fi.currentStockKg.toFixed(1)} kg in stock
+                </option>
+              ))}
             </select>
           </Field>
-          <Field label="Source">
-            <select value={feedSource} onChange={e => setFeedSource(e.target.value as any)} className={inputCls}>
-              <option value="purchased">Purchased</option>
-              <option value="produced">Produced on-farm</option>
-            </select>
+          <Field label="Qty (kg)">
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={feedQty}
+              onChange={e => setFeedQty(e.target.value)}
+              className={inputCls + (stockWarning ? " border-red-400 focus:ring-red-400" : "")}
+              placeholder="0"
+            />
           </Field>
-          <Field label="Qty (kg)"><input type="number" min="0" step="0.1" value={feedQty} onChange={e => setFeedQty(e.target.value)} className={inputCls} placeholder="0" /></Field>
-          <Field label="Notes (optional)"><input type="text" value={feedNotes} onChange={e => setFeedNotes(e.target.value)} className={inputCls} placeholder="e.g. morning session" /></Field>
+          <Field label="Notes (optional)">
+            <input type="text" value={feedNotes} onChange={e => setFeedNotes(e.target.value)} className={inputCls} placeholder="e.g. morning session" />
+          </Field>
         </div>
-        <button onClick={submitFeed} className="w-full py-2.5 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 transition-colors">Submit Feed Log</button>
+        {stockWarning && (
+          <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {stockWarning}
+          </div>
+        )}
+        <button
+          onClick={submitFeed}
+          disabled={!!stockWarning}
+          className="w-full py-2.5 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          Submit Feed Log
+        </button>
       </div>
 
       {/* Log Mortality */}

@@ -30,8 +30,26 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — never commit .env; .env.example is safe to commit
+.env
+.env.local
+.env.*.local
 !.env.example
+
+# mobile / capacitor (not part of this web deployment)
+android/
+ios/
+capacitor.config.json
+capacitor.config.ts
+scripts/build-apk.sh
+
+# cloudflare / wrangler (not our deployment target)
+wrangler.toml
+open-next.config.ts
+
+# editor / IDE project files
+.project
+.gitlab-ci.yml
 
 # vercel
 .vercel

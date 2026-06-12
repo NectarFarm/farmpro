@@ -270,7 +270,13 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
     withApi('POST', '/api/bird-stage-sales', s);
   },
   deleteBirdStageSale: (id) => {
-    set((s) => ({ birdStageSales: s.birdStageSales.filter(x => x.id !== id) }));
+    const sale = get().birdStageSales.find(x => x.id === id);
+    set((s) => {
+      const newFlocks = sale
+        ? s.flocks.map(f => f.id === sale.flockId ? { ...f, currentCount: f.currentCount + sale.quantity } : f)
+        : s.flocks;
+      return { birdStageSales: s.birdStageSales.filter(x => x.id !== id), flocks: newFlocks };
+    });
     withApi('DELETE', `/api/bird-stage-sales/${id}`);
   },
 
@@ -388,7 +394,14 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
   // ── Feed Dispense ───────────────────────────────────────────────────────────
   feedDispenseRecords: [],
   addFeedDispenseRecord: (r) => {
-    set((s) => ({ feedDispenseRecords: [...s.feedDispenseRecords, r] }));
+    set((s) => ({
+      feedDispenseRecords: [...s.feedDispenseRecords, r],
+      feedInventory: s.feedInventory.map(fi =>
+        fi.feedType === r.feedType
+          ? { ...fi, currentStockKg: Math.max(0, fi.currentStockKg - r.quantityKg), lastUpdated: new Date().toISOString() }
+          : fi
+      ),
+    }));
     withApi('POST', '/api/feed-dispense', r);
   },
 
@@ -428,11 +441,22 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
   // ── Sales ───────────────────────────────────────────────────────────────────
   sales: [],
   addSale: (s) => {
-    set((state) => ({ sales: [...state.sales, s] }));
+    set((state) => {
+      const newFlocks = s.product === 'birds' && s.flockId
+        ? state.flocks.map(f => f.id === s.flockId ? { ...f, currentCount: Math.max(0, f.currentCount - s.quantity) } : f)
+        : state.flocks;
+      return { sales: [...state.sales, s], flocks: newFlocks };
+    });
     withApi('POST', '/api/sales', s);
   },
   deleteSale: (id) => {
-    set((s) => ({ sales: s.sales.filter(x => x.id !== id) }));
+    const sale = get().sales.find(x => x.id === id);
+    set((s) => {
+      const newFlocks = sale?.product === 'birds' && sale.flockId
+        ? s.flocks.map(f => f.id === sale.flockId ? { ...f, currentCount: f.currentCount + sale.quantity } : f)
+        : s.flocks;
+      return { sales: s.sales.filter(x => x.id !== id), flocks: newFlocks };
+    });
     withApi('DELETE', `/api/sales/${id}`);
   },
   requestSaleDeletion: (id, reason, requestedBy) => {
@@ -446,7 +470,13 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
     withApi('PUT', `/api/sales/${id}`, updates);
   },
   approveSaleDeletion: (id) => {
-    set((s) => ({ sales: s.sales.filter(x => x.id !== id) }));
+    const sale = get().sales.find(x => x.id === id);
+    set((s) => {
+      const newFlocks = sale?.product === 'birds' && sale.flockId
+        ? s.flocks.map(f => f.id === sale.flockId ? { ...f, currentCount: f.currentCount + sale.quantity } : f)
+        : s.flocks;
+      return { sales: s.sales.filter(x => x.id !== id), flocks: newFlocks };
+    });
     withApi('DELETE', `/api/sales/${id}`);
   },
   rejectSaleDeletion: (id) => {
@@ -615,10 +645,12 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
       flocks: state.flocks,
       mortalityRecords: state.mortalityRecords,
       feedRecords: state.feedRecords,
+      feedDispenseRecords: state.feedDispenseRecords,
       vaccinationRecords: state.vaccinationRecords,
       eggCollections: state.eggCollections,
       customers: state.customers,
       sales: state.sales,
+      birdStageSales: state.birdStageSales,
       expenses: state.expenses,
       budgets: state.budgets,
       cages: state.cages,

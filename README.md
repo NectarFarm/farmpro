@@ -1,106 +1,73 @@
-# Poultry Farm Management System
+# FarmPro — Poultry Farm Management System
 
-A comprehensive, full-stack management platform designed to streamline poultry farm operations, track bird lifecycles, and monitor financial performance. This system provides granular control over production, inventory, and sales through a role-based architecture.
+Web-based management platform for Kenyan poultry operations. Role-based access for farm owner, employees, and customers.
 
-## 🚀 Key Modules
+## Running the app
 
-### 📊 Dashboard & Analytics
-*   **Real-time KPIs:** Monitor active bird counts, revenue, operational costs, and mortality rates.
-*   **Production Trends:** Visualized egg collection and daily revenue charts using Recharts.
-*   **Temporal Filtering:** Analyze performance across 7 days, 30 days, monthly, or annual views.
-
-### 🐣 Flock Lifecycle Management
-*   **Stage Tracking:** Manage batches through distinct stages: *Brooder* → *Grower* → *Layer* → *Disposal/Sale Stock*.
-*   **Health Logs:** Comprehensive vaccination scheduling and mortality tracking with automated rate calculations.
-*   **Valuation Engine:** Real-time break-even analysis and margin tracking per flock based on cumulative costs.
-
-### 🥚 Production & Inventory
-*   **Egg Collection:** Detailed logging of daily collections with dedicated tracking for breakages and sellable stock.
-*   **Feed Management:** Inventory tracking across multiple feed types (Starter, Grower, Layer, Finisher).
-*   **FCR Analysis:** Integrated Feed Conversion Ratio (FCR) recommendations to optimize bird nutrition and reduce waste.
-
-### 💰 Financials & Sales
-*   **Expense Tracking:** Categorized logging for feeds, vaccines, labor, utilities, and chicks.
-*   **Budgeting:** Monthly and cycle-based budget planning with variance analysis.
-*   **Sales Workflow:** Secure sales recording for eggs and birds with a mandatory approval workflow for record deletions.
-
-### 👥 Multi-Portal Access
-*   **Farm Owner:** Full administrative access to financials, settings, and reporting.
-*   **Employee Portal:** Streamlined interface for logging daily operational data (Eggs, Feed, Mortality).
-*   **Customer Portal:** Restricted access for registered buyers to view live pricing and submit order requests.
-
-## 🛠 Tech Stack
-
-*   **Frontend:** [Next.js 15+](https://nextjs.org/) (App Router), TypeScript, Tailwind CSS
-*   **State Management:** [Zustand](https://github.com/pmndrs/zustand)
-*   **Database:** PostgreSQL with [Drizzle ORM](https://orm.drizzle.team/)
-*   **Visualization:** [Recharts](https://recharts.org/)
-*   **Icons:** Lucide React
-
-## 📂 Project Structure
-
-```text
-├── app/              # Next.js App Router (Pages & API Routes)
-├── components/       # UI Components & Role-based Page Modules
-├── db/               # Database Schema & Drizzle Configuration
-├── lib/              # Core Logic, Store, PDF Generation, & Utils
-├── public/           # Static Assets
-└── scripts/          # Database Seeding & Build Utilities
+```bash
+cp .env.example .env          # set SESSION_SECRET (min 32 chars)
+docker compose up --build -d  # builds, migrates, seeds, starts on :13000
 ```
 
-## ⚙️ Getting Started
+That's it. The compose file handles Postgres, migrations, and seeding automatically.
 
-### Prerequisites
-*   Node.js (LTS)
-*   PostgreSQL
-*   Docker & Docker Compose (optional, for containerized deployment)
-*   pnpm (recommended)
+Default owner PIN: `1234`
 
-### Docker Deployment (Recommended)
+## Local development
 
-The easiest way to get the system running with all its dependencies is using Docker:
+```bash
+pnpm install
+# fill DATABASE_URL and SESSION_SECRET in .env
+pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
+pnpm dev                      # runs on :3000
+```
 
-1.  **Configure Environment:** Copy `.env.example` to `.env` and update your database credentials.
-2.  **Launch Containers:**
-    ```bash
-    docker-compose up -d
-    ```
-    This will start the Next.js application and a PostgreSQL database instance.
-3.  **Initialize Database:**
-    ```bash
-    docker-compose exec farmpro pnpm db:push
-    docker-compose exec farmpro pnpm db:seed
-    ```
+## What it does
 
-### Local Installation (Manual)
+| Module | Highlights |
+|---|---|
+| **Dashboard** | KPI cards (birds, revenue, costs, mortality), egg & revenue charts, 7d / 30d / month / year filters |
+| **Flock Manager** | Lifecycle stages: Brooder → Grower → Layer → Disposal/Sale Stock. Per-flock tabs for vaccinations, mortality, feed, egg collection (with breakages), and valuation |
+| **Sales** | Egg and bird sales with live stock availability checks. Two-step deletion: employees request with a reason, owner approves |
+| **Finance** | P&L statement (egg sales + bird stage sales vs. expenses), 6-month revenue/expense chart, per-category budgets |
+| **Inventory** | Feed stock levels (Starter/Grower/Layer/Finisher), configurable reorder alerts, stock-add history |
+| **Employees** | Add employees with PINs. Employees log egg collections, feed, and mortality via a simplified portal |
+| **Customers** | Customer profiles with order history. Customer portal for pricing and order requests |
+| **Settings** | Farm name, pricing, employee & customer PIN management |
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   ```
+## Tech stack
 
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
+- **Next.js 16** (App Router, server components + API routes)
+- **PostgreSQL** + **Drizzle ORM**
+- **Zustand** (API-backed store, optimistic updates)
+- **Tailwind CSS v4** + shadcn/ui
+- **Recharts**
 
-3. Configure environment variables (`.env`):
-   ```env
-   DATABASE_URL=postgresql://user:password@localhost:5432/poultry_db
-   ```
+## Auth
 
-4. Initialize the database:
-   ```bash
-   pnpm db:generate
-   pnpm db:push
-   pnpm db:seed
-   ```
+PIN-based, three roles: `owner` / `employee` / `customer`. HTTP-only session cookies, SHA-256 PIN hashing. Default owner PIN is `1234` — change it in Settings after first login.
 
-5. Start the development server:
-   ```bash
-   pnpm dev
-   ```
+## Environment variables
 
-## 📄 License
-This project is licensed under the MIT License.
-# farmpro
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | Yes | Postgres connection string |
+| `SESSION_SECRET` | Yes | Min 32 chars, used to sign session cookies |
+| `PORT` | No | Default `13000` |
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [Requirements](docs/requirements.md) | Functional and non-functional requirements, data requirements |
+| [System Design](docs/system-design.md) | Architecture, database schema, API map, auth design, deployment model |
+| [Data Flow & Diagrams](docs/data-flow.md) | Mermaid flowcharts: ER diagram, state machines, sequence diagrams |
+| [Test Plan](docs/test-plan.md) | Unit, API, E2E, security, and performance tests + pre-deployment checklist |
+
+## Not yet implemented (roadmap)
+
+- FCR-based reorder level suggestions in Inventory
+- PDF/Excel export for Inventory (currently JSON)
+- Payroll automation
