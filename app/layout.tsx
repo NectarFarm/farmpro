@@ -4,8 +4,6 @@ import { Plus_Jakarta_Sans } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "sonner";
 import "./globals.css";
-import jsonMetadata from "../metadata.json";
-
 const plusJakarta = Plus_Jakarta_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
@@ -13,7 +11,6 @@ const plusJakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  ...jsonMetadata,
   title: "FarmPro – Poultry Farm Management",
   description: "Enterprise-grade poultry farm management system",
 };
