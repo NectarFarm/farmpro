@@ -53,9 +53,26 @@ A comprehensive, full-stack management platform designed to streamline poultry f
 ### Prerequisites
 *   Node.js (LTS)
 *   PostgreSQL
+*   Docker & Docker Compose (optional, for containerized deployment)
 *   pnpm (recommended)
 
-### Installation
+### Docker Deployment (Recommended)
+
+The easiest way to get the system running with all its dependencies is using Docker:
+
+1.  **Configure Environment:** Copy `.env.example` to `.env` and update your database credentials.
+2.  **Launch Containers:**
+    ```bash
+    docker-compose up -d
+    ```
+    This will start the Next.js application and a PostgreSQL database instance.
+3.  **Initialize Database:**
+    ```bash
+    docker-compose exec farmpro pnpm db:push
+    docker-compose exec farmpro pnpm db:seed
+    ```
+
+### Local Installation (Manual)
 
 1. Clone the repository:
    ```bash
