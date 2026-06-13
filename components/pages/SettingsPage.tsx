@@ -1,10 +1,10 @@
 "use client";
 import { useState } from "react";
-import { Settings, User, Lock, Building2, Trash2, Plus, Download, Upload, DollarSign, Edit2, Check, X, Phone, ShieldCheck } from "lucide-react";
+import { Settings, User, Lock, Building2, Trash2, Plus, Download, Upload, DollarSign, Edit2, Check, X, Phone, ShieldCheck, GripVertical, Bird } from "lucide-react";
 import { useFarmStore, hashPin } from "@/lib/store";
 import { formatCurrency, generateId } from "@/lib/utils";
 import { toast } from "sonner";
-import type { EmployeeSalary, CustomerPortalUser } from "@/lib/types";
+import type { EmployeeSalary, CustomerPortalUser, FlockStageConfig } from "@/lib/types";
 
 const inputCls = "w-full px-3 py-2 rounded-xl border border-border bg-input text-sm outline-none focus:ring-2 focus:ring-primary/30";
 const btnPrimary = "flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-primary hover:opacity-90 transition-all";
@@ -224,45 +224,181 @@ function CustomerPortalSection() {
 
 // ── Pricing Section ───────────────────────────────────────────────────────────
 function PricingSection() {
-  const { pricePerEgg, pricePerTray, pricePerChick, setPricing, birdStagePricing, setBirdStagePricing } = useFarmStore();
+  const { pricePerEgg, pricePerTray, pricePerChick, setPricing } = useFarmStore();
   const [egg, setEgg] = useState(String(pricePerEgg));
   const [tray, setTray] = useState(String(pricePerTray));
   const [chick, setChick] = useState(String(pricePerChick));
-  const [bSB, setBSB] = useState(String(birdStagePricing.brooder));
-  const [bSG, setBSG] = useState(String(birdStagePricing.grower));
-  const [bSL, setBSL] = useState(String(birdStagePricing.layer));
   function save() {
     const e = Number(egg), t = Number(tray), c = Number(chick);
     if (e <= 0 || t <= 0 || c <= 0) { toast.error("All prices must be > 0"); return; }
     setPricing({ pricePerEgg: e, pricePerTray: t, pricePerChick: c });
-    setBirdStagePricing({ brooder: Number(bSB) || 150, grower: Number(bSG) || 350, layer: Number(bSL) || 600 });
     toast.success("Pricing updated");
   }
   return (
     <div className="space-y-4">
-      <div>
-        <p className="text-xs font-medium text-foreground mb-2">Egg & Chick Prices (Customer Portal)</p>
-        <div className="grid grid-cols-3 gap-3">
-          {[{ label: "Per Egg (Ksh)", val: egg, set: setEgg }, { label: "Per Tray (Ksh)", val: tray, set: setTray }, { label: "Per Chick (Ksh)", val: chick, set: setChick }].map(item => (
-            <div key={item.label}>
-              <label className="text-xs text-muted-foreground block mb-1">{item.label}</label>
-              <input type="number" min="1" value={item.val} onChange={e => item.set(e.target.value)} className={inputCls} />
-            </div>
-          ))}
-        </div>
+      <div className="grid grid-cols-3 gap-3">
+        {[{ label: "Per Egg (Ksh)", val: egg, set: setEgg }, { label: "Per Tray (Ksh)", val: tray, set: setTray }, { label: "Per Chick (Ksh)", val: chick, set: setChick }].map(item => (
+          <div key={item.label}>
+            <label className="text-xs text-muted-foreground block mb-1">{item.label}</label>
+            <input type="number" min="1" value={item.val} onChange={e => item.set(e.target.value)} className={inputCls} />
+          </div>
+        ))}
       </div>
-      <div>
-        <p className="text-xs font-medium text-foreground mb-2">Bird Selling Price by Stage (for valuation & break-even)</p>
-        <div className="grid grid-cols-3 gap-3">
-          {[{ label: "Brooder (Ksh)", val: bSB, set: setBSB }, { label: "Grower (Ksh)", val: bSG, set: setBSG }, { label: "Layer (Ksh)", val: bSL, set: setBSL }].map(item => (
-            <div key={item.label}>
-              <label className="text-xs text-muted-foreground block mb-1">{item.label}</label>
-              <input type="number" min="1" value={item.val} onChange={e => item.set(e.target.value)} className={inputCls} />
+      <button onClick={save} className={btnPrimary}><Check className="w-3.5 h-3.5" /> Save Prices</button>
+    </div>
+  );
+}
+
+// ── Flock Stages Section ──────────────────────────────────────────────────────
+const ROLE_LABELS: Record<string, string> = { sold: "Terminal · Sold", disposed: "Terminal · Disposed" };
+
+function FlockStagesSection() {
+  const { flockStages, addFlockStage, updateFlockStage, deleteFlockStage } = useFarmStore();
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: "", role: "", pricePerBird: "0" });
+  const s = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  function handleAdd() {
+    if (!form.name.trim()) { toast.error("Stage name is required"); return; }
+    const id = form.name.trim().toLowerCase().replace(/\s+/g, "-");
+    if (flockStages.find(st => st.id === id)) { toast.error("A stage with that name already exists"); return; }
+    const maxOrder = flockStages.reduce((m, st) => Math.max(m, st.displayOrder), -1);
+    const stage: FlockStageConfig = {
+      id, name: form.name.trim(),
+      displayOrder: maxOrder + 1,
+      role: form.role || null,
+      pricePerBird: Number(form.pricePerBird) || 0,
+    };
+    addFlockStage(stage);
+    toast.success(`Stage "${stage.name}" added`);
+    setForm({ name: "", role: "", pricePerBird: "0" });
+  }
+
+  function handleUpdate(id: string) {
+    const st = flockStages.find(x => x.id === id);
+    if (!st) return;
+    updateFlockStage(id, {
+      name: form.name.trim() || st.name,
+      role: form.role || null,
+      pricePerBird: Number(form.pricePerBird) || 0,
+    });
+    toast.success("Stage updated");
+    setEditId(null);
+  }
+
+  function moveUp(st: FlockStageConfig) {
+    const sorted = [...flockStages].sort((a, b) => a.displayOrder - b.displayOrder);
+    const idx = sorted.findIndex(x => x.id === st.id);
+    if (idx <= 0) return;
+    const prev = sorted[idx - 1];
+    updateFlockStage(st.id, { displayOrder: prev.displayOrder });
+    updateFlockStage(prev.id, { displayOrder: st.displayOrder });
+  }
+
+  function moveDown(st: FlockStageConfig) {
+    const sorted = [...flockStages].sort((a, b) => a.displayOrder - b.displayOrder);
+    const idx = sorted.findIndex(x => x.id === st.id);
+    if (idx >= sorted.length - 1) return;
+    const next = sorted[idx + 1];
+    updateFlockStage(st.id, { displayOrder: next.displayOrder });
+    updateFlockStage(next.id, { displayOrder: st.displayOrder });
+  }
+
+  const sorted = [...flockStages].sort((a, b) => a.displayOrder - b.displayOrder);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Define the lifecycle stages birds move through. Growth stages have a selling price per bird used in valuation.
+        Terminal stages (Sold / Disposed) mark end-of-life — no further advancement from them.
+      </p>
+
+      {sorted.map((st, idx) => (
+        <div key={st.id} className="rounded-xl border border-border p-3">
+          {editId === st.id ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Stage Name</label>
+                  <input value={form.name} onChange={e => s("name", e.target.value)} className={inputCls} placeholder={st.name} />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Role</label>
+                  <select value={form.role} onChange={e => s("role", e.target.value)} className={inputCls}>
+                    <option value="">Growth (normal)</option>
+                    <option value="sold">Terminal · Sold</option>
+                    <option value="disposed">Terminal · Disposed</option>
+                  </select>
+                </div>
+              </div>
+              {!form.role && (
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Price per Bird (Ksh)</label>
+                  <input type="number" min="0" value={form.pricePerBird} onChange={e => s("pricePerBird", e.target.value)} className={inputCls} />
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button onClick={() => handleUpdate(st.id)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs bg-primary text-white"><Check className="w-3 h-3" /> Save</button>
+                <button onClick={() => setEditId(null)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs bg-muted text-muted-foreground"><X className="w-3 h-3" /> Cancel</button>
+              </div>
             </div>
-          ))}
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-0.5 text-muted-foreground">
+                <button onClick={() => moveUp(st)} disabled={idx === 0} className="disabled:opacity-20 hover:text-foreground"><GripVertical className="w-3 h-3" /></button>
+                <button onClick={() => moveDown(st)} disabled={idx === sorted.length - 1} className="disabled:opacity-20 hover:text-foreground rotate-180"><GripVertical className="w-3 h-3" /></button>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{st.name}</span>
+                  {st.role && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                      {ROLE_LABELS[st.role] ?? st.role}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {st.role ? "No selling price (terminal)" : `Price: ${formatCurrency(st.pricePerBird)}/bird`}
+                </div>
+              </div>
+              <div className="flex gap-1.5">
+                <button onClick={() => {
+                  setEditId(st.id);
+                  setForm({ name: st.name, role: st.role ?? "", pricePerBird: String(st.pricePerBird) });
+                }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"><Edit2 className="w-3.5 h-3.5" /></button>
+                <button onClick={() => { deleteFlockStage(st.id); toast.success(`Stage "${st.name}" removed`); }}
+                  className="p-1.5 rounded-lg hover:bg-destructive/10 text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+          )}
         </div>
+      ))}
+
+      {/* Add stage form */}
+      <div className="rounded-xl border border-dashed border-border p-3 space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add Stage</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Name</label>
+            <input value={form.name} onChange={e => s("name", e.target.value)} className={inputCls} placeholder="e.g. Finisher" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Role</label>
+            <select value={form.role} onChange={e => s("role", e.target.value)} className={inputCls}>
+              <option value="">Growth (normal)</option>
+              <option value="sold">Terminal · Sold</option>
+              <option value="disposed">Terminal · Disposed</option>
+            </select>
+          </div>
+        </div>
+        {!form.role && (
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Price per Bird (Ksh)</label>
+            <input type="number" min="0" value={form.pricePerBird} onChange={e => s("pricePerBird", e.target.value)} className={inputCls} placeholder="0" />
+          </div>
+        )}
+        <button onClick={handleAdd} className={btnPrimary}><Plus className="w-3.5 h-3.5" /> Add Stage</button>
       </div>
-      <button onClick={save} className={btnPrimary}><Check className="w-3.5 h-3.5" /> Save All Prices</button>
     </div>
   );
 }
@@ -276,7 +412,12 @@ export default function SettingsPage() {
 
   const [farmName, setFarmName] = useState(() => typeof window !== "undefined" ? localStorage.getItem("farmName") ?? "" : "");
   const [ownerName, setOwnerName] = useState(() => typeof window !== "undefined" ? localStorage.getItem("ownerName") ?? "" : "");
-  function saveFarmInfo() { localStorage.setItem("farmName", farmName); localStorage.setItem("ownerName", ownerName); toast.success("Farm info saved"); }
+  function saveFarmInfo() {
+    localStorage.setItem("farmName", farmName);
+    localStorage.setItem("ownerName", ownerName);
+    window.dispatchEvent(new Event("storage"));
+    toast.success("Farm info saved");
+  }
 
   const [curPin, setCurPin] = useState(""); const [newPin, setNewPin] = useState(""); const [confPin, setConfPin] = useState("");
   function handlePinChange() {
@@ -327,8 +468,12 @@ export default function SettingsPage() {
         <button onClick={saveFarmInfo} className={btnPrimary}><Check className="w-3.5 h-3.5" /> Save</button>
       </Section>
 
-      <Section title="Product Pricing" icon={<DollarSign className="w-4 h-4 text-primary" />} subtitle="Shown in customer portal and used for order estimates">
+      <Section title="Egg & Chick Pricing" icon={<DollarSign className="w-4 h-4 text-primary" />} subtitle="Shown in customer portal and used for order estimates">
         <PricingSection />
+      </Section>
+
+      <Section title="Flock Stages" icon={<Bird className="w-4 h-4 text-primary" />} subtitle="Configure the lifecycle stages birds move through and their selling price per stage">
+        <FlockStagesSection />
       </Section>
 
       <Section title="Employee Management" icon={<User className="w-4 h-4 text-primary" />} subtitle="Add employees who can log in via the Employee portal">

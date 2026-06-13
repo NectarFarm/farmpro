@@ -46,8 +46,8 @@ FarmPro covers the complete operational lifecycle of a poultry farm: bird acquis
 | ID | Requirement |
 |---|---|
 | FLOCK-01 | System shall support creating named flock cohorts with: name, breed, source, acquisition date, initial count, purchase cost per chick, initial weight |
-| FLOCK-02 | Every flock shall have a lifecycle stage: Brooder → Grower → Layer → Disposal → Sold |
-| FLOCK-03 | Owner/employee shall be able to manually advance a flock to the next stage |
+| FLOCK-02 | Every flock shall have a lifecycle stage. Stages are farmer-configurable (see STAGE requirements) with default stages: Brooder → Grower → Layer → Disposal → Sold |
+| FLOCK-03 | Owner/employee shall be able to manually advance a flock to any later stage |
 | FLOCK-04 | System shall track current bird count, updated on mortality and sales events |
 | FLOCK-05 | Flocks shall be assignable to a physical cage/pen |
 | FLOCK-06 | Owner shall be able to delete a flock (cascades to all linked records) |
@@ -156,7 +156,19 @@ FarmPro covers the complete operational lifecycle of a poultry farm: bird acquis
 | INV-04 | Egg stock summary shall show: total collected, total sold, available |
 | INV-05 | Owner shall be able to export all farm data as a JSON file |
 
-### 2.12 Customer Management (CUST)
+### 2.12 Configurable Flock Stages (STAGE)
+
+| ID | Requirement |
+|---|---|
+| STAGE-01 | Owner shall be able to define, rename, reorder, and delete flock lifecycle stages |
+| STAGE-02 | Each stage shall have: id (slug), display name, display order, role (growth / sold / disposed), and price per bird |
+| STAGE-03 | Stages with role `null` are growth stages; a stage with role `sold` terminates the flock as sold; a stage with role `disposed` terminates it as disposed |
+| STAGE-04 | Price per bird configured on a stage shall be used as the default valuation price in the Flock Valuation tab |
+| STAGE-05 | System shall ship with default stages: Brooder (0), Grower (1), Layer (2), Disposal (disposed, 3), Sold (sold, 4) |
+| STAGE-06 | Stage configuration shall be managed from the Settings page under "Flock Stages" |
+| STAGE-07 | Stages shall be stored in the `flock_stages` table; the `flocks.stage` and `bird_stage_sales.stage` columns store stage id as text |
+
+### 2.13 Customer Management (CUST)
 
 | ID | Requirement |
 |---|---|
@@ -165,7 +177,7 @@ FarmPro covers the complete operational lifecycle of a poultry farm: bird acquis
 | CUST-03 | Customer search shall support lookup by name, phone, and email |
 | CUST-04 | Owner shall be able to update or delete customer records |
 
-### 2.13 Order Management (ORD)
+### 2.14 Order Management (ORD)
 
 | ID | Requirement |
 |---|---|
@@ -176,7 +188,7 @@ FarmPro covers the complete operational lifecycle of a poultry farm: bird acquis
 | ORD-05 | Owner shall be able to cancel an order at any status |
 | ORD-06 | Dashboard shall display count of pending, confirmed, and unpaid orders |
 
-### 2.14 Employee Management (EMP)
+### 2.15 Employee Management (EMP)
 
 | ID | Requirement |
 |---|---|
@@ -186,7 +198,7 @@ FarmPro covers the complete operational lifecycle of a poultry farm: bird acquis
 | EMP-04 | Owner shall be able to configure monthly salary and pay day for each employee |
 | EMP-05 | Salary expense entries shall be auto-generated on the configured pay day |
 
-### 2.15 Dashboard (DASH)
+### 2.16 Dashboard (DASH)
 
 | ID | Requirement |
 |---|---|
@@ -197,7 +209,7 @@ FarmPro covers the complete operational lifecycle of a poultry farm: bird acquis
 | DASH-05 | Dashboard shall show unread alert count with navigation |
 | DASH-06 | Dashboard shall show the 4 most recently active flocks |
 
-### 2.16 Analytics (ANA)
+### 2.17 Analytics (ANA)
 
 | ID | Requirement |
 |---|---|
@@ -206,7 +218,7 @@ FarmPro covers the complete operational lifecycle of a poultry farm: bird acquis
 | ANA-03 | System shall show per-customer demand over time |
 | ANA-04 | System shall show price trend over the selected period |
 
-### 2.17 Alerts (ALERT)
+### 2.18 Alerts (ALERT)
 
 | ID | Requirement |
 |---|---|

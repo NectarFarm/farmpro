@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Egg, LayoutDashboard, Bird, DollarSign, ShoppingCart, Users, BarChart2, Package, Settings, Leaf, ClipboardList } from "lucide-react";
 import type { PageId } from "./AppShell";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,19 @@ const navItems: { id: PageId; label: string; icon: React.ElementType; descriptio
 ];
 
 export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
+  const [farmName, setFarmName] = useState("FarmPro");
+
+  useEffect(() => {
+    const stored = localStorage.getItem("farmName");
+    if (stored) setFarmName(stored);
+    const handler = () => {
+      const v = localStorage.getItem("farmName");
+      if (v) setFarmName(v);
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
+
   return (
     <aside className="w-60 h-full flex flex-col overflow-hidden"
       style={{ background: "var(--sidebar)", borderRight: "1px solid var(--sidebar-border)" }}>
@@ -33,7 +47,7 @@ export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
           <Egg className="w-4 h-4 text-white" />
         </div>
         <div>
-          <div className="text-sm font-bold" style={{ color: "var(--sidebar-foreground)" }}>FarmPro</div>
+          <div className="text-sm font-bold" style={{ color: "var(--sidebar-foreground)" }}>{farmName}</div>
           <div className="text-[10px]" style={{ color: "oklch(0.6 0.06 148)" }}>Poultry Management</div>
         </div>
       </div>

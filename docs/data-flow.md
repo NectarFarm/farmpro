@@ -136,7 +136,7 @@ sequenceDiagram
 
 ## 5. Flock Lifecycle State Machine
 
-A flock moves through these stages in order. Moving backwards is not permitted.
+A flock moves through stages in order of `displayOrder`. Stages are farmer-configurable (see Settings → Flock Stages). Moving backwards is not permitted. The default stage set is shown below; any stage can be renamed, reordered, or replaced.
 
 ```mermaid
 stateDiagram-v2
@@ -153,10 +153,10 @@ stateDiagram-v2
     Disposal --> [*] : deleteFlock()
     Sold --> [*] : deleteFlock()
 
-    note right of Brooder : 0–6 weeks\nFeed: Starter
-    note right of Grower : 6–16 weeks\nFeed: Grower
-    note right of Layer : 16+ weeks\nFeed: Layer\nEgg production begins
-    note right of Disposal : Preparing for culling\nFeed: Layer/Finisher
+    note right of Brooder : default stage 0\nrole: growth
+    note right of Grower : default stage 1\nrole: growth
+    note right of Layer : default stage 2\nrole: growth\nEgg production begins
+    note right of Disposal : default stage 3\nrole: disposed (terminal)
     note right of Sold : Birds sold\nFlock closed
 ```
 
@@ -333,9 +333,14 @@ erDiagram
         numeric pricePerEgg
         numeric pricePerTray
         numeric pricePerChick
-        numeric birdPricingBrooder
-        numeric birdPricingGrower
-        numeric birdPricingLayer
+    }
+
+    flock_stages {
+        text id PK
+        text name
+        integer displayOrder
+        text role
+        numeric pricePerBird
     }
 
     sessions {
@@ -554,6 +559,8 @@ erDiagram
     customers ||--o{ birdStageSales : "may buy birds"
     customers ||--o{ orderRequests : "places orders"
     sales }o--o| flocks : "references flock"
+    flocks }o--|| flock_stages : "references stage"
+    birdStageSales }o--|| flock_stages : "references stage"
 ```
 
 ---

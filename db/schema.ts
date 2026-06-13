@@ -2,9 +2,19 @@ import {
   pgTable, pgEnum, text, integer, numeric, boolean, timestamp,
 } from 'drizzle-orm/pg-core'
 
+// ─── Flock Stages (configurable) ──────────────────────────────────────────────
+
+export const flockStages = pgTable('flock_stages', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  displayOrder: integer('display_order').notNull().default(0),
+  role: text('role'), // null = growth, 'sold' = terminal sold, 'disposed' = terminal disposed
+  pricePerBird: numeric('price_per_bird', { precision: 10, scale: 2 }).notNull().default('0'),
+})
+
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-export const flockStageEnum = pgEnum('flock_stage', ['brooder', 'grower', 'layer', 'disposal', 'sold'])
+// flock_stage enum removed — stages are now stored in the flock_stages table
 export const feedTypeEnum = pgEnum('feed_type', ['starter', 'grower', 'layer', 'finisher'])
 export const feedSourceEnum = pgEnum('feed_source', ['purchased', 'produced'])
 export const customerTypeEnum = pgEnum('customer_type', ['retail', 'restaurant', 'bakery', 'wholesale'])
@@ -25,9 +35,6 @@ export const settings = pgTable('settings', {
   pricePerEgg: numeric('price_per_egg', { precision: 10, scale: 2 }).notNull().default('18'),
   pricePerTray: numeric('price_per_tray', { precision: 10, scale: 2 }).notNull().default('450'),
   pricePerChick: numeric('price_per_chick', { precision: 10, scale: 2 }).notNull().default('120'),
-  birdPricingBrooder: numeric('bird_pricing_brooder', { precision: 10, scale: 2 }).notNull().default('150'),
-  birdPricingGrower: numeric('bird_pricing_grower', { precision: 10, scale: 2 }).notNull().default('350'),
-  birdPricingLayer: numeric('bird_pricing_layer', { precision: 10, scale: 2 }).notNull().default('600'),
 })
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
@@ -73,7 +80,7 @@ export const flocks = pgTable('flocks', {
   purchaseCostPerChick: numeric('purchase_cost_per_chick', { precision: 10, scale: 2 }).notNull(),
   initialWeight: numeric('initial_weight', { precision: 10, scale: 2 }).notNull(),
   breed: text('breed').notNull(),
-  stage: flockStageEnum('stage').notNull(),
+  stage: text('stage').notNull(),
   cageId: text('cage_id').references(() => cages.id, { onDelete: 'set null' }),
   notes: text('notes'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -272,7 +279,7 @@ export const orderRequests = pgTable('order_requests', {
 export const birdStageSales = pgTable('bird_stage_sales', {
   id: text('id').primaryKey(),
   flockId: text('flock_id').notNull().references(() => flocks.id, { onDelete: 'cascade' }),
-  stage: flockStageEnum('stage').notNull(),
+  stage: text('stage').notNull(),
   quantity: integer('quantity').notNull(),
   pricePerBird: numeric('price_per_bird', { precision: 10, scale: 2 }).notNull(),
   breakEvenPrice: numeric('break_even_price', { precision: 10, scale: 2 }).notNull(),

@@ -1,6 +1,15 @@
 // ─── Core Types for Poultry Farm Management App ───────────────────────────
 
-export type FlockStage = 'brooder' | 'grower' | 'layer' | 'disposal' | 'sold';
+/** A farmer-configurable flock lifecycle stage */
+export interface FlockStageConfig {
+  id: string;
+  name: string;
+  displayOrder: number;
+  role: string | null; // null = growth stage, 'sold' = terminal sold, 'disposed' = terminal disposal
+  pricePerBird: number;
+}
+
+export type FlockStage = string; // references FlockStageConfig.id
 
 export interface Flock {
   id: string;
@@ -216,14 +225,6 @@ export interface EggAvailability {
   available: number;
   pricePerEgg: number;
   pricePerTray: number;
-}
-
-// ── Bird Stage Pricing ─────────────────────────────────────────────────────────
-/** Owner-configurable selling price per bird at each growth stage */
-export interface BirdStagePricing {
-  brooder: number;   // KSh per bird
-  grower: number;
-  layer: number;
 }
 
 /** Records a bird sale at a stage (before "sold" end-of-lay) */

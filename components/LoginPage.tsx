@@ -30,7 +30,10 @@ export default function LoginPage() {
     e.preventDefault();
     setSubmitting(true);
     const ok = await login(pin, "owner");
-    if (ok) { toast.success("Welcome back, Owner!"); }
+    if (ok) {
+      const name = typeof window !== "undefined" ? localStorage.getItem("ownerName") : null;
+      toast.success(name ? `Welcome back, ${name}!` : "Welcome back, Owner!");
+    }
     else { toast.error("Incorrect PIN. Default PIN: 1234"); }
     setPin(""); setSubmitting(false);
   }
