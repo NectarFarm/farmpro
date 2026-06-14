@@ -1,9 +1,8 @@
+# Explicit build-script decisions for pnpm v11. None of these need to build:
+# esbuild ships its prebuilt binary via the @esbuild/<platform> package.
 allowBuilds:
-  core-js: set this to true or false
-  esbuild: set this to true or false
-  sharp: set this to true or false
-  unrs-resolver: set this to true or false
-  workerd: set this to true or false
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
+  core-js: false
+  esbuild: false
+  sharp: false
+  unrs-resolver: false
+  workerd: false

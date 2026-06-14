@@ -21,8 +21,29 @@ pnpm install
 pnpm db:generate
 pnpm db:migrate
 pnpm db:seed
-pnpm dev                      # runs on :3000
+pnpm dev                      # runs on :13000
 ```
+
+## Testing
+
+Unit and component tests run on [Vitest](https://vitest.dev/) with React Testing Library (jsdom). No database or running server is required — backend logic is tested through pure functions, and store/data-flow integrity is tested directly against the Zustand store with `fetch` stubbed.
+
+```bash
+pnpm test              # run the whole suite once
+pnpm test:watch        # re-run on change while developing
+pnpm test path/to/file # run a single file, e.g. pnpm test lib/__tests__/store.test.ts
+```
+
+What's covered:
+
+| Area | File | What it guards |
+|---|---|---|
+| **Backend utils** | [lib/__tests__/utils.test.ts](lib/__tests__/utils.test.ts) | `stripMeta` strips server timestamps, mortality-rate math, currency/date formatting, demand regression |
+| **Backend errors** | [lib/__tests__/errors.test.ts](lib/__tests__/errors.test.ts) | HTTP status mapping; unknown errors masked as 500 (no internal leak) |
+| **Data integrity** | [lib/__tests__/store.test.ts](lib/__tests__/store.test.ts) | Bird sales / stage sales / mortality decrement & restore flock counts; feed records & dispensing decrement inventory; counts clamp at 0; salary auto-generation is idempotent |
+| **Employee portal** | [components/pages/__tests__/EmployeePage.test.tsx](components/pages/__tests__/EmployeePage.test.tsx) | Flock dropdowns list active flocks, exclude terminal (sold/disposed) flocks, and work with custom (renamed) stage ids |
+
+Tests live in `__tests__/` folders next to the code they cover, named `*.test.ts(x)`. The store tests mirror the server-side side-effects in [app/api/](app/api/), so the optimistic client updates and the database writes stay in agreement.
 
 ## What it does
 
@@ -56,6 +77,8 @@ PIN-based, three roles: `owner` / `employee` / `customer`. HTTP-only session coo
 | `DATABASE_URL` | Yes | Postgres connection string |
 | `SESSION_SECRET` | Yes | Min 32 chars, used to sign session cookies |
 | `PORT` | No | Default `13000` |
+| `AT_USERNAME` | No | Africa's Talking username for order-status SMS (server-side only) |
+| `AT_API_KEY` | No | Africa's Talking API key. If unset, SMS runs in demo mode (logs only) |
 
 ## Documentation
 
