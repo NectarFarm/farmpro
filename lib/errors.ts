@@ -30,6 +30,13 @@ export class NotFoundError extends AppError {
   }
 }
 
+export class ConflictError extends AppError {
+  constructor(message: string = 'Request conflicts with the current state') {
+    super(message, 409, 'CONFLICT')
+    this.name = 'ConflictError'
+  }
+}
+
 export function handleApiError(error: unknown) {
   if (error instanceof AppError) {
     return {
