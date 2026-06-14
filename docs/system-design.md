@@ -330,7 +330,7 @@ Certain store actions update multiple collections atomically:
 ├── mortality          GET, POST  (POST → decrements flock count)
 ├── feed-records       GET, POST  (POST → decrements feedInventory)
 ├── feed-dispense      GET, POST  (POST → decrements feedInventory)
-├── feed-inventory     GET, PUT   (PUT → sets absolute stock level)
+├── feed-inventory     GET, PUT   (PUT → sets absolute stock level / reorder threshold)
 ├── vaccinations       GET, POST
 ├── vaccinations/[id]  GET, PUT
 ├── egg-collections    GET, POST
@@ -359,6 +359,7 @@ Certain store actions update multiple collections atomically:
 ├── settings           GET, PUT
 ├── cages              GET, POST
 ├── cages/[id]         PUT, DELETE
+├── sms                POST (server-side Africa's Talking proxy; keys never sent to browser)
 └── health             GET (no auth)
 ```
 
