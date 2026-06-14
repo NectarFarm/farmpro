@@ -330,6 +330,7 @@ erDiagram
     settings {
         text id PK
         text ownerPinHash
+        text enterpriseType
         numeric pricePerEgg
         numeric pricePerTray
         numeric pricePerChick
@@ -341,6 +342,12 @@ erDiagram
         integer displayOrder
         text role
         numeric pricePerBird
+    }
+
+    location_types {
+        text id PK
+        text name
+        integer displayOrder
     }
 
     sessions {
@@ -561,6 +568,7 @@ erDiagram
     sales }o--o| flocks : "references flock"
     flocks }o--|| flock_stages : "references stage"
     birdStageSales }o--|| flock_stages : "references stage"
+    cages }o--|| location_types : "references type"
 ```
 
 ---

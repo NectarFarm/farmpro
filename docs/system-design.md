@@ -162,6 +162,7 @@ The schema has one central entity (`flocks`) that most operational records refer
 - `employees` ← `employeeSalaries` (1:1, cascade delete)
 - `cages` ← `flocks` (optional FK via cageId)
 - `flock_stages` ← `flocks` (logical FK via stage text id)
+- `location_types` ← `cages` (logical FK via type text id)
 - `feedInventory` — singleton-per-type (4 rows, unique feedType)
 
 ### 4.2 Table Reference
@@ -169,10 +170,11 @@ The schema has one central entity (`flocks`) that most operational records refer
 | Table | PK | Key Fields | Side Effects on Write |
 |---|---|---|---|
 | `flock_stages` | `id` (text slug) | name, displayOrder, role, pricePerBird | — |
-| `settings` | `id='default'` | ownerPinHash, pricePerEgg, pricePerTray, pricePerChick | — |
+| `location_types` | `id` (text slug) | name, displayOrder | — |
+| `settings` | `id='default'` | ownerPinHash, enterpriseType, pricePerEgg, pricePerTray, pricePerChick | — |
 | `sessions` | `id` | userType, userId, expiresAt | — |
 | `employees` | `id` | name, pinHash | — |
-| `cages` | `id` | name, type, capacity | — |
+| `cages` | `id` | name, type (text, FK → location_types.id), capacity | — |
 | `flocks` | `id` | stage (text, FK → flock_stages.id), currentCount, initialCount | Updated by mortality/sale writes |
 | `mortalityRecords` | `id` | flockId, count | Decrements flock.currentCount |
 | `feedRecords` | `id` | flockId, feedType, quantityKg, costPerKg | Tracked for cost; decrements feedInventory |
@@ -356,7 +358,9 @@ Certain store actions update multiple collections atomically:
 ├── alerts/[id]        PUT (mark read)
 ├── flock-stages       GET, POST
 ├── flock-stages/[id]  PUT, DELETE
-├── settings           GET, PUT
+├── location-types     GET, POST
+├── location-types/[id] PUT, DELETE
+├── settings           GET, PUT  (PUT also updates enterprise_type)
 ├── cages              GET, POST
 ├── cages/[id]         PUT, DELETE
 ├── sms                POST (server-side Africa's Talking proxy; keys never sent to browser)

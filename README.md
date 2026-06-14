@@ -1,6 +1,8 @@
-# FarmPro — Poultry Farm Management System
+# FarmPro — Farm Management System
 
-Web-based management platform for Kenyan poultry operations. Role-based access for farm owner, employees, and customers.
+Web-based farm management platform built for Kenyan farms. Role-based access for farm owner, employees, and customers.
+
+Poultry is fully supported today; the system is being generalised into a **multi-enterprise** platform (livestock/pigs, fish/aquaculture, and crops) via a configuration-driven design — see [Multi-Enterprise Roadmap](docs/multi-enterprise.md). A farm picks an **enterprise type** in Settings, and the configurable lists (stages, location types, and more) adapt the system to that enterprise.
 
 ## Running the app
 
@@ -56,7 +58,7 @@ Tests live in `__tests__/` folders next to the code they cover, named `*.test.ts
 | **Inventory** | Feed stock levels (Starter/Grower/Layer/Finisher), configurable reorder alerts, stock-add history |
 | **Employees** | Add employees with PINs. Employees log egg collections, feed, and mortality via a simplified portal |
 | **Customers** | Customer profiles with order history. Customer portal for pricing and order requests |
-| **Settings** | Farm name, egg/chick pricing, configurable flock stages (name, order, price per bird, terminal role), employee & customer PIN management |
+| **Settings** | Farm name, **enterprise type** (poultry/pigs/fish/crops/mixed), egg/chick pricing, configurable flock stages (name, order, price per bird, terminal role), configurable **location types** (cage/pen/pond/field…), employee & customer PIN management |
 
 ## Tech stack
 
@@ -87,7 +89,9 @@ PIN-based, three roles: `owner` / `employee` / `customer`. HTTP-only session coo
 | [Requirements](docs/requirements.md) | Functional and non-functional requirements, data requirements |
 | [System Design](docs/system-design.md) | Architecture, database schema, API map, auth design, deployment model |
 | [Data Flow & Diagrams](docs/data-flow.md) | Mermaid flowcharts: ER diagram, state machines, sequence diagrams |
+| [Multi-Enterprise Roadmap](docs/multi-enterprise.md) | How FarmPro generalises to livestock, fish, and crops |
 | [Test Plan](docs/test-plan.md) | Unit, API, E2E, security, and performance tests + pre-deployment checklist |
+| [Contributing](docs/CONTRIBUTING.md) | Coding standards and conventions for contributors |
 
 ## Not yet implemented (roadmap)
 

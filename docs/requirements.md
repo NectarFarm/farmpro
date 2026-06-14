@@ -227,6 +227,19 @@ FarmPro covers the complete operational lifecycle of a poultry farm: bird acquis
 | ALERT-03 | Unread alert count shall be visible in the navigation sidebar |
 | ALERT-04 | Alerts shall include a navigation link to the relevant page/section |
 
+### 2.19 Multi-Enterprise & Configuration (ENT)
+
+See the [Multi-Enterprise Roadmap](multi-enterprise.md) for the full phased plan.
+
+| ID | Requirement |
+|---|---|
+| ENT-01 | Each farm shall have an enterprise type: `poultry`, `pigs`, `fish`, `crops`, or `mixed`, set in Settings and stored in `settings.enterprise_type` (default `poultry`) |
+| ENT-02 | Enterprise type shall drive vocabulary and which modules are shown (delivered progressively per the roadmap) |
+| ENT-03 | Owner shall be able to define, rename, reorder, and delete **location types** (cage / pen / pond / tank / field …) |
+| ENT-04 | Location types shall be stored in the `location_types` table; `cages.type` stores a location-type id as text |
+| ENT-05 | Defaults shall preserve existing poultry behaviour so current farms are unaffected after upgrade |
+| ENT-06 | Hardcoded poultry enums shall be migrated to configurable lookup tables over the roadmap phases (stages ✓, location types ✓; input/product/cost-category types planned) |
+
 ---
 
 ## 3. Non-Functional Requirements
