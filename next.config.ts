@@ -6,7 +6,7 @@ dotenv.config({ path: '.env', override: true });
 
 // When CAPACITOR_BUILD=1 we produce a fully-static export that Capacitor
 // copies into the Android WebView. Otherwise the app runs as normal Next.js.
-const isCapacitor = process.env.CAPACITOR_BUILD === "1";
+const isCapacitor = process.env.CAPACITOR_BUILD === '1';
 
 const nextConfig: NextConfig = {
   reactStrictMode: false,
@@ -16,15 +16,15 @@ const nextConfig: NextConfig = {
   },
 
   serverExternalPackages: [],
-  allowedDevOrigins: ["**.*.*"],
+  allowedDevOrigins: ['**.*.*'],
 
   // Static export settings for Capacitor APK
   ...(isCapacitor && {
-    output: "export",
-    distDir: "out",
+    output: 'export',
+    distDir: 'out',
     images: { unoptimized: true },
     trailingSlash: true,
-    basePath: "",
+    basePath: '',
   }),
 };
 

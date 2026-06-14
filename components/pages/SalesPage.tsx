@@ -1,11 +1,11 @@
-"use client";
+'use client';
 
-import { useState, useMemo } from "react";
-import { useFarmStore } from "@/lib/store";
-import type { Sale, ProductType } from "@/lib/types";
-import { formatDate, formatCurrency, generateId } from "@/lib/utils";
-import { Plus, Trash2, Filter, ShoppingCart, Egg, Bird, AlertTriangle, CheckCircle, XCircle, Clock } from "lucide-react";
-import { toast } from "sonner";
+import { useState, useMemo } from 'react';
+import { useFarmStore } from '@/lib/store';
+import type { Sale, ProductType } from '@/lib/types';
+import { formatDate, formatCurrency, generateId } from '@/lib/utils';
+import { Plus, Trash2, Filter, ShoppingCart, Egg, Bird, AlertTriangle, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { toast } from 'sonner';
 
 // ─── Add Sale Form ──────────────────────────────────────────────────────────
 interface AddSaleFormProps {
@@ -14,13 +14,13 @@ interface AddSaleFormProps {
 function AddSaleForm({ onClose }: AddSaleFormProps) {
   const { customers, flocks, eggCollections, sales: allSales, addSale } = useFarmStore();
   const [form, setForm] = useState({
-    customerId: "",
-    flockId: "",
-    product: "eggs" as ProductType,
-    quantity: "",
-    pricePerUnit: "",
-    date: new Date().toISOString().split("T")[0],
-    notes: "",
+    customerId: '',
+    flockId: '',
+    product: 'eggs' as ProductType,
+    quantity: '',
+    pricePerUnit: '',
+    date: new Date().toISOString().split('T')[0],
+    notes: '',
   });
 
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
@@ -28,7 +28,7 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
   // Available stock
   const availableEggs = useMemo(() => {
     const totalSellable = eggCollections.reduce((s, e) => s + (e.sellable ?? e.count), 0);
-    const totalSold = allSales.filter(s => s.product === "eggs").reduce((s, x) => s + x.quantity, 0);
+    const totalSold = allSales.filter(s => s.product === 'eggs').reduce((s, x) => s + x.quantity, 0);
     return Math.max(0, totalSellable - totalSold);
   }, [eggCollections, allSales]);
 
@@ -39,10 +39,10 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
 
   const stockWarning = useMemo(() => {
     if (!qty) return null;
-    if (form.product === "eggs" && qty > availableEggs) {
+    if (form.product === 'eggs' && qty > availableEggs) {
       return `Only ${availableEggs.toLocaleString()} sellable eggs in stock`;
     }
-    if (form.product === "birds" && form.flockId && selectedFlock && qty > availableBirds) {
+    if (form.product === 'birds' && form.flockId && selectedFlock && qty > availableBirds) {
       return `Only ${availableBirds.toLocaleString()} birds available in ${selectedFlock.name}`;
     }
     return null;
@@ -51,7 +51,7 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.customerId || !form.quantity || !form.pricePerUnit) {
-      toast.error("Customer, quantity and price are required");
+      toast.error('Customer, quantity and price are required');
       return;
     }
     if (stockWarning) {
@@ -73,11 +73,11 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
       createdAt: new Date().toISOString(),
     };
     addSale(sale);
-    toast.success("Sale recorded successfully");
+    toast.success('Sale recorded successfully');
     onClose();
   };
 
-  const inputCls = "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary";
+  const inputCls = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -87,7 +87,7 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
           {/* Customer */}
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Customer *</label>
-            <select value={form.customerId} onChange={(e) => set("customerId", e.target.value)} className={inputCls}>
+            <select value={form.customerId} onChange={(e) => set('customerId', e.target.value)} className={inputCls}>
               <option value="">Select customer…</option>
               {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -97,25 +97,25 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Product *</label>
             <div className="flex gap-3">
-              {(["eggs", "birds"] as ProductType[]).map((p) => (
+              {(['eggs', 'birds'] as ProductType[]).map((p) => (
                 <label key={p} className="flex items-center gap-2 text-sm cursor-pointer">
                   <input type="radio" name="product" value={p} checked={form.product === p}
-                    onChange={() => set("product", p)} className="accent-primary" />
+                    onChange={() => set('product', p)} className="accent-primary" />
                   <span className="capitalize">{p}</span>
                 </label>
               ))}
             </div>
             {/* Live stock availability hint */}
             <div className="mt-1.5 text-xs">
-              {form.product === "eggs" ? (
+              {form.product === 'eggs' ? (
                 <span className="text-muted-foreground">
-                  Available: <span className={`font-semibold ${availableEggs === 0 ? "text-red-500" : "text-green-600"}`}>
+                  Available: <span className={`font-semibold ${availableEggs === 0 ? 'text-red-500' : 'text-green-600'}`}>
                     {availableEggs.toLocaleString()} eggs
                   </span>
                 </span>
               ) : form.flockId && selectedFlock ? (
                 <span className="text-muted-foreground">
-                  In flock: <span className={`font-semibold ${availableBirds === 0 ? "text-red-500" : "text-green-600"}`}>
+                  In flock: <span className={`font-semibold ${availableBirds === 0 ? 'text-red-500' : 'text-green-600'}`}>
                     {availableBirds.toLocaleString()} birds
                   </span>
                 </span>
@@ -128,9 +128,9 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
           {/* Flock */}
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">
-              Flock {form.product === "birds" ? "(select to update stock)" : "(optional)"}
+              Flock {form.product === 'birds' ? '(select to update stock)' : '(optional)'}
             </label>
-            <select value={form.flockId} onChange={(e) => set("flockId", e.target.value)} className={inputCls}>
+            <select value={form.flockId} onChange={(e) => set('flockId', e.target.value)} className={inputCls}>
               <option value="">None</option>
               {flocks.map((f) => <option key={f.id} value={f.id}>{f.name} ({f.currentCount.toLocaleString()} birds)</option>)}
             </select>
@@ -140,13 +140,13 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Quantity *</label>
-              <input type="number" min="1" value={form.quantity} onChange={(e) => set("quantity", e.target.value)}
-                className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary ${stockWarning ? "border-red-400 bg-red-50 dark:bg-red-950/20" : "border-border bg-background"}`}
+              <input type="number" min="1" value={form.quantity} onChange={(e) => set('quantity', e.target.value)}
+                className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary ${stockWarning ? 'border-red-400 bg-red-50 dark:bg-red-950/20' : 'border-border bg-background'}`}
                 placeholder="0" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Price / Unit *</label>
-              <input type="number" min="0" step="0.01" value={form.pricePerUnit} onChange={(e) => set("pricePerUnit", e.target.value)}
+              <input type="number" min="0" step="0.01" value={form.pricePerUnit} onChange={(e) => set('pricePerUnit', e.target.value)}
                 className={inputCls} placeholder="0.00" />
             </div>
           </div>
@@ -169,7 +169,7 @@ function AddSaleForm({ onClose }: AddSaleFormProps) {
           {/* Date */}
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Date *</label>
-            <input type="date" value={form.date} onChange={(e) => set("date", e.target.value)} className={inputCls} />
+            <input type="date" value={form.date} onChange={(e) => set('date', e.target.value)} className={inputCls} />
           </div>
 
           {/* Actions */}
@@ -196,22 +196,22 @@ interface DeleteModalProps {
   onClose: () => void;
 }
 function DeleteReasonModal({ isOwner, onConfirm, onClose }: DeleteModalProps) {
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState('');
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reason.trim()) { toast.error("A reason is required"); return; }
+    if (!reason.trim()) { toast.error('A reason is required'); return; }
     onConfirm(reason.trim());
   };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="glass-card rounded-2xl p-5 w-full max-w-sm shadow-2xl">
         <h3 className="font-bold text-base mb-1">
-          {isOwner ? "Delete Sale" : "Request Deletion"}
+          {isOwner ? 'Delete Sale' : 'Request Deletion'}
         </h3>
         <p className="text-xs text-muted-foreground mb-4">
           {isOwner
-            ? "Provide a reason for this deletion (mandatory for audit trail)."
-            : "Your request will be sent to the farm owner for approval before the record is removed."}
+            ? 'Provide a reason for this deletion (mandatory for audit trail).'
+            : 'Your request will be sent to the farm owner for approval before the record is removed.'}
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3}
@@ -223,8 +223,8 @@ function DeleteReasonModal({ isOwner, onConfirm, onClose }: DeleteModalProps) {
               Cancel
             </button>
             <button type="submit"
-              className={`flex-1 rounded-xl py-2 text-sm font-semibold transition-opacity text-white hover:opacity-90 ${isOwner ? "bg-red-500" : "bg-amber-500"}`}>
-              {isOwner ? "Delete" : "Submit Request"}
+              className={`flex-1 rounded-xl py-2 text-sm font-semibold transition-opacity text-white hover:opacity-90 ${isOwner ? 'bg-red-500' : 'bg-amber-500'}`}>
+              {isOwner ? 'Delete' : 'Submit Request'}
             </button>
           </div>
         </form>
@@ -237,13 +237,13 @@ function DeleteReasonModal({ isOwner, onConfirm, onClose }: DeleteModalProps) {
 export default function SalesPage() {
   const { sales, birdStageSales, customers, session, deleteSale, requestSaleDeletion, approveSaleDeletion, rejectSaleDeletion } = useFarmStore();
   const [showAdd, setShowAdd] = useState(false);
-  const [filterCustomer, setFilterCustomer] = useState("");
-  const [filterProduct, setFilterProduct] = useState<"all" | ProductType>("all");
-  const [filterFrom, setFilterFrom] = useState("");
-  const [filterTo, setFilterTo] = useState("");
+  const [filterCustomer, setFilterCustomer] = useState('');
+  const [filterProduct, setFilterProduct] = useState<'all' | ProductType>('all');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
   const [deleteModal, setDeleteModal] = useState<{ saleId: string } | null>(null);
 
-  const isOwner = session?.type === "owner";
+  const isOwner = session?.type === 'owner';
 
   // Stats — include birdStageSales in totals
   const totalRevenue = useMemo(() => {
@@ -251,9 +251,9 @@ export default function SalesPage() {
     const birdStageRev = birdStageSales.reduce((s, x) => s + x.totalAmount, 0);
     return salesRev + birdStageRev;
   }, [sales, birdStageSales]);
-  const eggRevenue = useMemo(() => sales.filter((x) => x.product === "eggs").reduce((s, x) => s + x.totalAmount, 0), [sales]);
+  const eggRevenue = useMemo(() => sales.filter((x) => x.product === 'eggs').reduce((s, x) => s + x.totalAmount, 0), [sales]);
   const birdRevenue = useMemo(() => {
-    const fromSales = sales.filter((x) => x.product === "birds").reduce((s, x) => s + x.totalAmount, 0);
+    const fromSales = sales.filter((x) => x.product === 'birds').reduce((s, x) => s + x.totalAmount, 0);
     const fromValuation = birdStageSales.reduce((s, x) => s + x.totalAmount, 0);
     return fromSales + fromValuation;
   }, [sales, birdStageSales]);
@@ -262,7 +262,7 @@ export default function SalesPage() {
   const filtered = useMemo(() => {
     return sales.filter((s) => {
       if (filterCustomer && s.customerId !== filterCustomer) return false;
-      if (filterProduct !== "all" && s.product !== filterProduct) return false;
+      if (filterProduct !== 'all' && s.product !== filterProduct) return false;
       if (filterFrom && s.date < filterFrom) return false;
       if (filterTo && s.date > filterTo) return false;
       return true;
@@ -279,10 +279,10 @@ export default function SalesPage() {
     return Object.entries(map)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
-      .map(([id, rev]) => ({ id, rev, name: customers.find((c) => c.id === id)?.name ?? "Unknown" }));
+      .map(([id, rev]) => ({ id, rev, name: customers.find((c) => c.id === id)?.name ?? 'Unknown' }));
   }, [sales, customers]);
 
-  const getCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const getCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? '—';
 
   const handleDeleteClick = (saleId: string) => setDeleteModal({ saleId });
 
@@ -291,29 +291,29 @@ export default function SalesPage() {
     const { saleId } = deleteModal;
     if (isOwner) {
       deleteSale(saleId);
-      toast.success("Sale deleted");
+      toast.success('Sale deleted');
     } else {
-      requestSaleDeletion(saleId, reason, session?.employeeName ?? "Employee");
-      toast.success("Deletion request submitted — awaiting owner approval");
+      requestSaleDeletion(saleId, reason, session?.employeeName ?? 'Employee');
+      toast.success('Deletion request submitted — awaiting owner approval');
     }
     setDeleteModal(null);
   };
 
   const handleApprove = (saleId: string) => {
     approveSaleDeletion(saleId);
-    toast.success("Sale deletion approved");
+    toast.success('Sale deletion approved');
   };
 
   const handleReject = (saleId: string) => {
     rejectSaleDeletion(saleId);
-    toast.info("Deletion request rejected");
+    toast.info('Deletion request rejected');
   };
 
   const stats = [
-    { label: "Total Sales", value: sales.length.toString(), icon: ShoppingCart, color: "oklch(0.52 0.17 148)", bg: "oklch(0.52 0.17 148 / 0.12)" },
-    { label: "Total Revenue", value: formatCurrency(totalRevenue), icon: ShoppingCart, color: "oklch(0.42 0.14 148)", bg: "oklch(0.42 0.14 148 / 0.12)" },
-    { label: "Egg Revenue", value: formatCurrency(eggRevenue), icon: Egg, color: "oklch(0.65 0.14 85)", bg: "oklch(0.65 0.14 85 / 0.12)" },
-    { label: "Bird Revenue", value: formatCurrency(birdRevenue), icon: Bird, color: "oklch(0.57 0.24 27)", bg: "oklch(0.57 0.24 27 / 0.12)" },
+    { label: 'Total Sales', value: sales.length.toString(), icon: ShoppingCart, color: 'oklch(0.52 0.17 148)', bg: 'oklch(0.52 0.17 148 / 0.12)' },
+    { label: 'Total Revenue', value: formatCurrency(totalRevenue), icon: ShoppingCart, color: 'oklch(0.42 0.14 148)', bg: 'oklch(0.42 0.14 148 / 0.12)' },
+    { label: 'Egg Revenue', value: formatCurrency(eggRevenue), icon: Egg, color: 'oklch(0.65 0.14 85)', bg: 'oklch(0.65 0.14 85 / 0.12)' },
+    { label: 'Bird Revenue', value: formatCurrency(birdRevenue), icon: Bird, color: 'oklch(0.57 0.24 27)', bg: 'oklch(0.57 0.24 27 / 0.12)' },
   ];
 
   return (
@@ -361,7 +361,7 @@ export default function SalesPage() {
           <div className="flex items-center gap-2 mb-2">
             <Clock className="w-4 h-4 text-amber-600" />
             <span className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-              {pendingDeletions.length} pending deletion request{pendingDeletions.length !== 1 ? "s" : ""}
+              {pendingDeletions.length} pending deletion request{pendingDeletions.length !== 1 ? 's' : ''}
             </span>
           </div>
           <div className="space-y-2">
@@ -405,7 +405,7 @@ export default function SalesPage() {
             <option value="">All Customers</option>
             {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <select value={filterProduct} onChange={(e) => setFilterProduct(e.target.value as "all" | ProductType)}
+          <select value={filterProduct} onChange={(e) => setFilterProduct(e.target.value as 'all' | ProductType)}
             className="rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
             <option value="all">All Products</option>
             <option value="eggs">Eggs</option>
@@ -444,16 +444,16 @@ export default function SalesPage() {
                 <tbody className="divide-y divide-border">
                   {filtered.map((sale) => (
                     <tr key={sale.id}
-                      className={`hover:bg-muted/20 transition-colors ${sale.deletionRequested ? "bg-amber-50/40 dark:bg-amber-950/10" : ""}`}>
+                      className={`hover:bg-muted/20 transition-colors ${sale.deletionRequested ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDate(sale.date)}</td>
                       <td className="px-4 py-3 font-medium text-foreground text-xs">{getCustomerName(sale.customerId)}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                          sale.product === "eggs"
-                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                          sale.product === 'eggs'
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                         }`}>
-                          {sale.product === "eggs" ? <Egg className="w-2.5 h-2.5" /> : <Bird className="w-2.5 h-2.5" />}
+                          {sale.product === 'eggs' ? <Egg className="w-2.5 h-2.5" /> : <Bird className="w-2.5 h-2.5" />}
                           {sale.product}
                         </span>
                       </td>
@@ -480,7 +480,7 @@ export default function SalesPage() {
                           )
                         ) : (
                           <button onClick={() => handleDeleteClick(sale.id)}
-                            title={isOwner ? "Delete sale" : "Request deletion"}
+                            title={isOwner ? 'Delete sale' : 'Request deletion'}
                             className="p-1 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -504,7 +504,7 @@ export default function SalesPage() {
             topCustomers.map((tc, idx) => (
               <div key={tc.id} className="flex items-center gap-3 rounded-xl bg-muted/30 p-3">
                 <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                  style={{ background: idx === 0 ? "oklch(0.65 0.14 85)" : idx === 1 ? "oklch(0.52 0.17 148)" : "oklch(0.55 0.10 260)" }}>
+                  style={{ background: idx === 0 ? 'oklch(0.65 0.14 85)' : idx === 1 ? 'oklch(0.52 0.17 148)' : 'oklch(0.55 0.10 260)' }}>
                   #{idx + 1}
                 </div>
                 <div className="flex-1 min-w-0">

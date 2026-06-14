@@ -1,18 +1,18 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { useFarmStore } from "@/lib/store";
-import type { Customer, CustomerType } from "@/lib/types";
-import { formatDate, formatCurrency, generateId } from "@/lib/utils";
-import { Plus, Trash2, Edit2, User, Phone, Mail, MapPin, ShoppingBag } from "lucide-react";
-import { toast } from "sonner";
+import { useState } from 'react';
+import { useFarmStore } from '@/lib/store';
+import type { Customer, CustomerType } from '@/lib/types';
+import { formatDate, formatCurrency, generateId } from '@/lib/utils';
+import { Plus, Trash2, Edit2, User, Phone, Mail, MapPin, ShoppingBag } from 'lucide-react';
+import { toast } from 'sonner';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const TYPE_COLORS: Record<CustomerType, string> = {
-  retail:     "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  restaurant: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-  bakery:     "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400",
-  wholesale:  "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+  retail:     'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  restaurant: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  bakery:     'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+  wholesale:  'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
 };
 
 // ─── Customer Form ──────────────────────────────────────────────────────────
@@ -23,25 +23,25 @@ interface FormProps {
 function CustomerForm({ initial, onClose }: FormProps) {
   const { addCustomer, updateCustomer } = useFarmStore();
   const [form, setForm] = useState({
-    name:    initial?.name    ?? "",
-    phone:   initial?.phone   ?? "",
-    email:   initial?.email   ?? "",
-    address: initial?.address ?? "",
-    type:    initial?.type    ?? "retail" as CustomerType,
-    notes:   initial?.notes   ?? "",
+    name:    initial?.name    ?? '',
+    phone:   initial?.phone   ?? '',
+    email:   initial?.email   ?? '',
+    address: initial?.address ?? '',
+    type:    initial?.type    ?? 'retail' as CustomerType,
+    notes:   initial?.notes   ?? '',
   });
 
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.phone) { toast.error("Name and phone are required"); return; }
+    if (!form.name || !form.phone) { toast.error('Name and phone are required'); return; }
     if (initial) {
       updateCustomer(initial.id, form);
-      toast.success("Customer updated");
+      toast.success('Customer updated');
     } else {
       addCustomer({ id: generateId(), ...form, createdAt: new Date().toISOString() });
-      toast.success("Customer added");
+      toast.success('Customer added');
     }
     onClose();
   };
@@ -49,41 +49,41 @@ function CustomerForm({ initial, onClose }: FormProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="glass-card rounded-2xl p-5 w-full max-w-md shadow-2xl">
-        <h3 className="font-bold text-base text-foreground mb-4">{initial ? "Edit" : "Add"} Customer</h3>
+        <h3 className="font-bold text-base text-foreground mb-4">{initial ? 'Edit' : 'Add'} Customer</h3>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Name *</label>
-              <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Full name"
+              <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Full name"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Phone *</label>
-              <input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+1 555 …"
+              <input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+1 555 …"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
-              <select value={form.type} onChange={(e) => set("type", e.target.value)}
+              <select value={form.type} onChange={(e) => set('type', e.target.value)}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
-                {(["retail","restaurant","bakery","wholesale"] as CustomerType[]).map((t) => (
+                {(['retail','restaurant','bakery','wholesale'] as CustomerType[]).map((t) => (
                   <option key={t} value={t} className="capitalize">{t.charAt(0).toUpperCase()+t.slice(1)}</option>
                 ))}
               </select>
             </div>
             <div className="col-span-2">
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
-              <input value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="email@example.com"
+              <input value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="email@example.com"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
             </div>
             <div className="col-span-2">
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Address</label>
-              <input value={form.address} onChange={(e) => set("address", e.target.value)} placeholder="Street, City…"
+              <input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Street, City…"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
             </div>
             <div className="col-span-2">
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Notes</label>
-              <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} placeholder="Additional notes…"
+              <textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} rows={2} placeholder="Additional notes…"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none" />
             </div>
           </div>
@@ -94,7 +94,7 @@ function CustomerForm({ initial, onClose }: FormProps) {
             </button>
             <button type="submit"
               className="flex-1 rounded-xl bg-primary py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity">
-              {initial ? "Update" : "Add Customer"}
+              {initial ? 'Update' : 'Add Customer'}
             </button>
           </div>
         </form>
@@ -115,10 +115,10 @@ function CustomerDetail({ customer, onEdit, onClose }: DetailProps) {
   const totalRevenue = custSales.reduce((s, x) => s + x.totalAmount, 0);
 
   const handleDelete = () => {
-    if (custSales.length > 0) { toast.error("Cannot delete customer with sales records"); return; }
+    if (custSales.length > 0) { toast.error('Cannot delete customer with sales records'); return; }
     if (!confirm(`Delete ${customer.name}?`)) return;
     deleteCustomer(customer.id);
-    toast.success("Customer deleted");
+    toast.success('Customer deleted');
     onClose();
   };
 
@@ -194,14 +194,14 @@ export default function CustomersPage() {
   const [showForm, setShowForm] = useState(false);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState('');
 
   const selected = customers.find((c) => c.id === selectedId) ?? null;
 
   const filtered = customers.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.phone.includes(search) ||
-    (c.email ?? "").toLowerCase().includes(search.toLowerCase())
+    (c.email ?? '').toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -231,7 +231,7 @@ export default function CustomersPage() {
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, phone, or email…"
           className="flex-1 bg-transparent text-sm focus:outline-none text-foreground placeholder:text-muted-foreground" />
         {search && (
-          <button onClick={() => setSearch("")} className="text-xs text-muted-foreground hover:text-foreground">✕</button>
+          <button onClick={() => setSearch('')} className="text-xs text-muted-foreground hover:text-foreground">✕</button>
         )}
       </div>
 
@@ -241,13 +241,13 @@ export default function CustomersPage() {
         <div className="lg:col-span-3 space-y-2">
           {filtered.length === 0 ? (
             <div className="glass-card rounded-2xl p-8 text-center text-sm text-muted-foreground">
-              {search ? "No customers match your search" : "No customers yet. Add your first customer!"}
+              {search ? 'No customers match your search' : 'No customers yet. Add your first customer!'}
             </div>
           ) : (
             filtered.map((c) => (
               <button key={c.id} onClick={() => setSelectedId(c.id === selectedId ? null : c.id)}
                 className={`w-full text-left glass-card rounded-2xl p-4 transition-all hover:shadow-md ${
-                  selectedId === c.id ? "ring-2 ring-primary" : ""
+                  selectedId === c.id ? 'ring-2 ring-primary' : ''
                 }`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3 min-w-0">
