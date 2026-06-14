@@ -136,7 +136,7 @@ interface FarmStore {
   // Feed Inventory
   feedInventory: FeedInventory[];
   updateFeedInventory: (feedType: string, delta: number) => void;
-  setFeedInventory: (items: FeedInventory[]) => void;
+  setReorderLevel: (feedType: string, reorderLevelKg: number) => void;
 
   // Alerts
   alerts: Alert[];
@@ -572,7 +572,16 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
     const item = get().feedInventory.find(fi => fi.feedType === feedType);
     if (item) withApi('PUT', '/api/feed-inventory', { feedType, currentStockKg: item.currentStockKg });
   },
-  setFeedInventory: (items) => set({ feedInventory: items }),
+  setReorderLevel: (feedType, reorderLevelKg) => {
+    set((state) => ({
+      feedInventory: state.feedInventory.map(fi =>
+        fi.feedType === feedType
+          ? { ...fi, reorderLevelKg, lastUpdated: new Date().toISOString() }
+          : fi
+      ),
+    }));
+    withApi('PUT', '/api/feed-inventory', { feedType, reorderLevelKg });
+  },
 
   // ── Alerts ──────────────────────────────────────────────────────────────────
   alerts: [],
@@ -700,6 +709,9 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
         initialized: true,
         loading: false,
       });
+
+      // Auto-generate any salary expenses due today (idempotent — dedups per month)
+      get().triggerSalaryExpenses();
     } catch {
       set({ initialized: true, loading: false });
     }
