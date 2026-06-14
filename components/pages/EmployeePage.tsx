@@ -20,13 +20,21 @@ const inputCls = 'border border-gray-200 rounded-lg px-3 py-2 text-sm w-full foc
 
 export default function EmployeePage() {
   const {
-    session, flocks,
+    session, flocks, flockStages,
     addEggCollection, addMortalityRecord, addFeedDispenseRecord,
     eggCollections, feedDispenseRecords, mortalityRecords, feedInventory,
   } = useFarmStore();
 
-  const layerFlocks = flocks.filter(f => f.stage === 'layer');
-  const allFlocks = flocks;
+  // Exclude terminal (sold/disposed) flocks from data-entry dropdowns — they hold no live birds.
+  // Uses the configurable stage roles rather than a hardcoded stage id.
+  const terminalStageIds = useMemo(
+    () => new Set(flockStages.filter(s => s.role === 'sold' || s.role === 'disposed').map(s => s.id)),
+    [flockStages]
+  );
+  const activeFlocks = useMemo(
+    () => flocks.filter(f => !terminalStageIds.has(f.stage)),
+    [flocks, terminalStageIds]
+  );
 
   const FCR_RECS: Record<string, number> = {
     brooder: 15,
@@ -125,7 +133,7 @@ export default function EmployeePage() {
   const todayFeed = useMemo(() => feedDispenseRecords.filter(r => r.date === todayStr), [feedDispenseRecords, todayStr]);
   const todayMort = useMemo(() => mortalityRecords.filter(r => r.date === todayStr), [mortalityRecords, todayStr]);
 
-  const selectedFlock = allFlocks.find(f => f.id === feedFlock);
+  const selectedFlock = activeFlocks.find(f => f.id === feedFlock);
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-2xl mx-auto">
@@ -152,10 +160,10 @@ export default function EmployeePage() {
         <h2 className="font-semibold text-gray-800 flex items-center gap-2 text-base">
           <Egg className="w-5 h-5 text-yellow-500" /> Log Egg Collection
         </h2>
-        <Field label="Flock (layer)">
+        <Field label="Flock">
           <select value={eggFlock} onChange={e => setEggFlock(e.target.value)} className={inputCls}>
             <option value="">Select flock…</option>
-            {layerFlocks.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            {activeFlocks.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         </Field>
         <div className="grid grid-cols-2 gap-3">
@@ -175,13 +183,13 @@ export default function EmployeePage() {
         <Field label="Flock">
           <select value={feedFlock} onChange={e => setFeedFlock(e.target.value)} className={inputCls}>
             <option value="">Select flock…</option>
-            {allFlocks.map(f => <option key={f.id} value={f.id}>{f.name} ({f.currentCount} birds)</option>)}
+            {activeFlocks.map(f => <option key={f.id} value={f.id}>{f.name} ({f.currentCount} birds)</option>)}
           </select>
         </Field>
-        {selectedFlock && (
+        {selectedFlock && FCR_RECS[selectedFlock.stage] != null && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
             <strong>Recommendation:</strong> {selectedFlock.currentCount} birds at {selectedFlock.stage} stage —{' '}
-            <strong>{((selectedFlock.currentCount * (FCR_RECS[selectedFlock.stage] ?? 0)) / 1000).toFixed(1)} kg</strong> per day.
+            <strong>{((selectedFlock.currentCount * FCR_RECS[selectedFlock.stage]) / 1000).toFixed(1)} kg</strong> per day.
           </div>
         )}
         <div className="grid grid-cols-2 gap-3">
@@ -237,7 +245,7 @@ export default function EmployeePage() {
         <Field label="Flock">
           <select value={mortFlock} onChange={e => setMortFlock(e.target.value)} className={inputCls}>
             <option value="">Select flock…</option>
-            {allFlocks.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            {activeFlocks.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         </Field>
         <div className="grid grid-cols-2 gap-3">

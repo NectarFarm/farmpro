@@ -36,7 +36,6 @@ export function generateId(): string {
 
 // Strip server-managed timestamp fields before passing a request body to Drizzle.
 // Drizzle's `timestamp` columns expect Date objects; JSON bodies carry strings.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function stripMeta<T = any>(body: T): T {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { createdAt: _c, updatedAt: _u, lastUpdated: _l, ...rest } = body as Record<string, unknown>

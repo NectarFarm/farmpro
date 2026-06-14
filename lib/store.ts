@@ -383,7 +383,20 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
     withApi('PUT', `/api/flocks/${id}`, updates);
   },
   deleteFlock: (id) => {
-    set((s) => ({ flocks: s.flocks.filter(f => f.id !== id) }));
+    set((s) => ({
+      flocks: s.flocks.filter(f => f.id !== id),
+      // Mirror the DB ON DELETE CASCADE so client state matches without a reload.
+      mortalityRecords: s.mortalityRecords.filter(r => r.flockId !== id),
+      feedRecords: s.feedRecords.filter(r => r.flockId !== id),
+      feedDispenseRecords: s.feedDispenseRecords.filter(r => r.flockId !== id),
+      vaccinationRecords: s.vaccinationRecords.filter(r => r.flockId !== id),
+      eggCollections: s.eggCollections.filter(r => r.flockId !== id),
+      birdStageSales: s.birdStageSales.filter(r => r.flockId !== id),
+      // Mirror ON DELETE SET NULL — keep the financial records, just clear the link.
+      sales: s.sales.map(x => x.flockId === id ? { ...x, flockId: undefined } : x),
+      budgets: s.budgets.map(x => x.flockId === id ? { ...x, flockId: undefined } : x),
+      expenses: s.expenses.map(x => x.flockId === id ? { ...x, flockId: undefined } : x),
+    }));
     withApi('DELETE', `/api/flocks/${id}`);
   },
 
@@ -457,6 +470,13 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
     withApi('PUT', `/api/customers/${id}`, updates);
   },
   deleteCustomer: (id) => {
+    const st = get();
+    const saleCount = st.sales.filter(x => x.customerId === id).length;
+    const orderCount = st.orderRequests.filter(x => x.customerId === id).length;
+    if (saleCount > 0 || orderCount > 0) {
+      toast.error(`Cannot delete: ${saleCount} sale(s) and ${orderCount} order(s) are linked to this customer. Remove those first.`);
+      return;
+    }
     set((s) => ({ customers: s.customers.filter(c => c.id !== id) }));
     withApi('DELETE', `/api/customers/${id}`);
   },
