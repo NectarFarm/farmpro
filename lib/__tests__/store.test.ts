@@ -273,3 +273,35 @@ describe('deleteFlock cascade (client mirror of DB)', () => {
     expect(get().expenses[0].flockId).toBeUndefined();
   });
 });
+
+describe('enterprise type + location types (multi-enterprise foundation)', () => {
+  beforeEach(() => {
+    useFarmStore.setState({
+      enterpriseType: 'poultry',
+      locationTypes: [
+        { id: 'cage', name: 'Cage', displayOrder: 0 },
+        { id: 'pen', name: 'Pen', displayOrder: 1 },
+      ],
+    });
+  });
+
+  it('switches the enterprise type', () => {
+    get().setEnterpriseType('fish');
+    expect(get().enterpriseType).toBe('fish');
+  });
+
+  it('adds a location type kept in display order', () => {
+    get().addLocationType({ id: 'pond', name: 'Pond', displayOrder: 2 });
+    expect(get().locationTypes.map(t => t.id)).toEqual(['cage', 'pen', 'pond']);
+  });
+
+  it('renames a location type', () => {
+    get().updateLocationType('pen', { name: 'Sty' });
+    expect(get().locationTypes.find(t => t.id === 'pen')!.name).toBe('Sty');
+  });
+
+  it('deletes a location type', () => {
+    get().deleteLocationType('cage');
+    expect(get().locationTypes.map(t => t.id)).toEqual(['pen']);
+  });
+});

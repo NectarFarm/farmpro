@@ -4,10 +4,18 @@ import { Settings, User, Lock, Building2, Trash2, Plus, Download, Upload, Dollar
 import { useFarmStore, hashPin } from '@/lib/store';
 import { formatCurrency, generateId } from '@/lib/utils';
 import { toast } from 'sonner';
-import type { EmployeeSalary, CustomerPortalUser, FlockStageConfig } from '@/lib/types';
+import type { EmployeeSalary, CustomerPortalUser, FlockStageConfig, LocationType, EnterpriseType } from '@/lib/types';
 
 const inputCls = 'w-full px-3 py-2 rounded-xl border border-border bg-input text-sm outline-none focus:ring-2 focus:ring-primary/30';
 const btnPrimary = 'flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-primary hover:opacity-90 transition-all';
+
+const ENTERPRISE_TYPES: { value: EnterpriseType; label: string }[] = [
+  { value: 'poultry', label: 'Poultry (birds / eggs)' },
+  { value: 'pigs', label: 'Pigs / other livestock' },
+  { value: 'fish', label: 'Fish / aquaculture' },
+  { value: 'crops', label: 'Crops' },
+  { value: 'mixed', label: 'Mixed farm' },
+];
 
 function Section({ title, icon, subtitle, children }: { title: string; icon: React.ReactNode; subtitle?: string; children: React.ReactNode }) {
   return (
@@ -403,10 +411,89 @@ function FlockStagesSection() {
   );
 }
 
+function LocationTypesSection() {
+  const { locationTypes, addLocationType, updateLocationType, deleteLocationType } = useFarmStore();
+  const [editId, setEditId] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [newName, setNewName] = useState('');
+
+  function handleAdd() {
+    if (!newName.trim()) { toast.error('Location type name is required'); return; }
+    const id = newName.trim().toLowerCase().replace(/\s+/g, '-');
+    if (locationTypes.find(t => t.id === id)) { toast.error('A location type with that name already exists'); return; }
+    const maxOrder = locationTypes.reduce((m, t) => Math.max(m, t.displayOrder), -1);
+    addLocationType({ id, name: newName.trim(), displayOrder: maxOrder + 1 });
+    toast.success(`Location type "${newName.trim()}" added`);
+    setNewName('');
+  }
+
+  function handleUpdate(t: LocationType) {
+    updateLocationType(t.id, { name: name.trim() || t.name });
+    toast.success('Location type updated');
+    setEditId(null);
+  }
+
+  function move(t: LocationType, dir: -1 | 1) {
+    const sorted = [...locationTypes].sort((a, b) => a.displayOrder - b.displayOrder);
+    const idx = sorted.findIndex(x => x.id === t.id);
+    const swap = sorted[idx + dir];
+    if (!swap) return;
+    updateLocationType(t.id, { displayOrder: swap.displayOrder });
+    updateLocationType(swap.id, { displayOrder: t.displayOrder });
+  }
+
+  const sorted = [...locationTypes].sort((a, b) => a.displayOrder - b.displayOrder);
+
+  return (
+    <div className="space-y-3">
+      {sorted.length === 0 && <p className="text-xs text-muted-foreground">No location types yet.</p>}
+      {sorted.map((t, idx) => (
+        <div key={t.id} className="rounded-xl border border-border p-3">
+          {editId === t.id ? (
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <label className="text-xs text-muted-foreground block mb-1">Name</label>
+                <input value={name} onChange={e => setName(e.target.value)} className={inputCls} placeholder={t.name} />
+              </div>
+              <button onClick={() => handleUpdate(t)} className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs bg-primary text-white"><Check className="w-3 h-3" /> Save</button>
+              <button onClick={() => setEditId(null)} className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs bg-muted text-muted-foreground"><X className="w-3 h-3" /> Cancel</button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-0.5 text-muted-foreground">
+                <button onClick={() => move(t, -1)} disabled={idx === 0} className="disabled:opacity-20 hover:text-foreground"><GripVertical className="w-3 h-3" /></button>
+                <button onClick={() => move(t, 1)} disabled={idx === sorted.length - 1} className="disabled:opacity-20 hover:text-foreground rotate-180"><GripVertical className="w-3 h-3" /></button>
+              </div>
+              <span className="flex-1 text-sm font-medium">{t.name}</span>
+              <div className="flex gap-1.5">
+                <button onClick={() => { setEditId(t.id); setName(t.name); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"><Edit2 className="w-3.5 h-3.5" /></button>
+                <button onClick={() => { deleteLocationType(t.id); toast.success(`Location type "${t.name}" removed`); }}
+                  className="p-1.5 rounded-lg hover:bg-destructive/10 text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="rounded-xl border border-dashed border-border p-3 space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add Location Type</p>
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <label className="text-xs text-muted-foreground block mb-1">Name</label>
+            <input value={newName} onChange={e => setNewName(e.target.value)} className={inputCls} placeholder="e.g. Pond, Pen, Field" />
+          </div>
+          <button onClick={handleAdd} className={btnPrimary}><Plus className="w-3.5 h-3.5" /> Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const {
     employees, addEmployee, removeEmployee,
     cages, addCage, deleteCage,
+    locationTypes, enterpriseType, setEnterpriseType,
     exportData,
   } = useFarmStore();
 
@@ -440,12 +527,14 @@ export default function SettingsPage() {
   const [budgetThreshold, setBudgetThreshold] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('budgetThreshold') ?? '90' : '90');
   function saveThresholds() { localStorage.setItem('mortThreshold', mortThreshold); localStorage.setItem('budgetThreshold', budgetThreshold); toast.success('Thresholds saved'); }
 
-  const [cageName, setCageName] = useState(''); const [cageType, setCageType] = useState<'brooder'|'grower'|'layer'>('layer'); const [cageCap, setCageCap] = useState('');
+  const [cageName, setCageName] = useState(''); const [cageType, setCageType] = useState(''); const [cageCap, setCageCap] = useState('');
+  const cageTypeValue = cageType || locationTypes[0]?.id || '';
   function handleAddCage() {
     if (!cageName.trim()) { toast.error('Enter cage name'); return; }
+    if (!cageTypeValue) { toast.error('Add a location type first'); return; }
     const cap = parseInt(cageCap); if (isNaN(cap) || cap <= 0) { toast.error('Enter valid capacity'); return; }
-    addCage({ id: generateId(), name: cageName.trim(), type: cageType, capacity: cap, createdAt: new Date().toISOString() });
-    toast.success('Cage added'); setCageName(''); setCageCap('');
+    addCage({ id: generateId(), name: cageName.trim(), type: cageTypeValue, capacity: cap, createdAt: new Date().toISOString() });
+    toast.success('Location added'); setCageName(''); setCageCap('');
   }
 
   function handleExport() {
@@ -466,6 +555,13 @@ export default function SettingsPage() {
           <div><label className="text-xs text-muted-foreground block mb-1">Owner Name</label><input value={ownerName} onChange={e => setOwnerName(e.target.value)} className={inputCls} placeholder="Jane Wanjiku" /></div>
         </div>
         <button onClick={saveFarmInfo} className={btnPrimary}><Check className="w-3.5 h-3.5" /> Save</button>
+        <div className="mt-3 pt-3 border-t border-border">
+          <label className="text-xs text-muted-foreground block mb-1">Enterprise Type</label>
+          <select value={enterpriseType} onChange={e => { setEnterpriseType(e.target.value as typeof enterpriseType); toast.success('Enterprise type updated'); }} className={inputCls}>
+            {ENTERPRISE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          <p className="text-[11px] text-muted-foreground mt-1">What you farm — sets the vocabulary and which modules are shown.</p>
+        </div>
       </Section>
 
       <Section title="Egg & Chick Pricing" icon={<DollarSign className="w-4 h-4 text-primary" />} subtitle="Shown in customer portal and used for order estimates">
@@ -474,6 +570,10 @@ export default function SettingsPage() {
 
       <Section title="Flock Stages" icon={<Bird className="w-4 h-4 text-primary" />} subtitle="Configure the lifecycle stages birds move through and their selling price per stage">
         <FlockStagesSection />
+      </Section>
+
+      <Section title="Location Types" icon={<Building2 className="w-4 h-4 text-primary" />} subtitle="Kinds of housing/areas on your farm — cage, pen, pond, tank, field, plot…">
+        <LocationTypesSection />
       </Section>
 
       <Section title="Employee Management" icon={<User className="w-4 h-4 text-primary" />} subtitle="Add employees who can log in via the Employee portal">
@@ -532,7 +632,7 @@ export default function SettingsPage() {
         </div>
         <div className="flex gap-2 items-end flex-wrap">
           <div className="flex-1 min-w-28"><label className="text-xs text-muted-foreground block mb-1">Name</label><input value={cageName} onChange={e => setCageName(e.target.value)} className={inputCls} placeholder="Cage A" /></div>
-          <div><label className="text-xs text-muted-foreground block mb-1">Type</label><select value={cageType} onChange={e => setCageType(e.target.value as typeof cageType)} className={inputCls}>{(['brooder','grower','layer'] as const).map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+          <div><label className="text-xs text-muted-foreground block mb-1">Type</label><select value={cageTypeValue} onChange={e => setCageType(e.target.value)} className={inputCls}>{locationTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
           <div className="w-24"><label className="text-xs text-muted-foreground block mb-1">Capacity</label><input type="number" min="1" value={cageCap} onChange={e => setCageCap(e.target.value)} className={inputCls} /></div>
           <button onClick={handleAddCage} className={btnPrimary}><Plus className="w-3.5 h-3.5" /> Add</button>
         </div>

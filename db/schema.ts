@@ -21,7 +21,7 @@ export const customerTypeEnum = pgEnum('customer_type', ['retail', 'restaurant',
 export const productTypeEnum = pgEnum('product_type', ['eggs', 'birds'])
 export const costCategoryEnum = pgEnum('cost_category', ['feed', 'vaccines', 'medications', 'labour', 'utilities', 'chicks', 'miscellaneous'])
 export const budgetPeriodEnum = pgEnum('budget_period', ['monthly', 'cycle'])
-export const cageTypeEnum = pgEnum('cage_type', ['brooder', 'grower', 'layer'])
+// cage_type enum removed — location kinds are now stored in the location_types table
 export const alertTypeEnum = pgEnum('alert_type', ['vaccination_overdue', 'high_mortality', 'budget_alert', 'low_feed', 'cage_capacity'])
 export const sessionUserTypeEnum = pgEnum('session_user_type', ['owner', 'employee', 'customer'])
 export const orderStatusEnum = pgEnum('order_status', ['pending', 'confirmed', 'delivered', 'paid', 'cancelled'])
@@ -32,9 +32,19 @@ export const orderProductEnum = pgEnum('order_product', ['eggs', 'tray', 'chicks
 export const settings = pgTable('settings', {
   id: text('id').primaryKey().default('default'),
   ownerPinHash: text('owner_pin_hash').notNull(),
+  // What kind of farm this is — drives vocabulary and which modules show.
+  enterpriseType: text('enterprise_type').notNull().default('poultry'),
   pricePerEgg: numeric('price_per_egg', { precision: 10, scale: 2 }).notNull().default('18'),
   pricePerTray: numeric('price_per_tray', { precision: 10, scale: 2 }).notNull().default('450'),
   pricePerChick: numeric('price_per_chick', { precision: 10, scale: 2 }).notNull().default('120'),
+})
+
+// ─── Location types (configurable: cage / pen / pond / tank / field …) ─────────
+
+export const locationTypes = pgTable('location_types', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  displayOrder: integer('display_order').notNull().default(0),
 })
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
@@ -63,7 +73,7 @@ export const employees = pgTable('employees', {
 export const cages = pgTable('cages', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  type: cageTypeEnum('type').notNull(),
+  type: text('type').notNull(), // references location_types.id
   capacity: integer('capacity').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })

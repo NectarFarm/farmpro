@@ -24,6 +24,7 @@ export async function PUT(req: NextRequest) {
     const body = await req.json()
 
     const updates: Record<string, unknown> = {}
+    if (body.enterpriseType !== undefined) updates.enterpriseType = String(body.enterpriseType)
     if (body.pricePerEgg !== undefined) updates.pricePerEgg = String(body.pricePerEgg)
     if (body.pricePerTray !== undefined) updates.pricePerTray = String(body.pricePerTray)
     if (body.pricePerChick !== undefined) updates.pricePerChick = String(body.pricePerChick)

@@ -6,6 +6,7 @@ import type {
   Cage, FeedInventory, Alert, Employee, UserSession,
   EmployeeSalary, OrderRequest, FlockStageConfig,
   BirdStageSale, CustomerPortalUser, FeedDispenseRecord,
+  LocationType, EnterpriseType,
 } from './types';
 
 // ─── API helper ───────────────────────────────────────────────────────────────
@@ -39,6 +40,10 @@ interface FarmStore {
   updateEmployee: (id: string, updates: { name?: string; pin?: string }) => Promise<void>;
   removeEmployee: (id: string) => Promise<void>;
 
+  // Enterprise type (poultry / pigs / fish / crops / mixed)
+  enterpriseType: EnterpriseType;
+  setEnterpriseType: (t: EnterpriseType) => void;
+
   // Pricing
   pricePerEgg: number;
   pricePerTray: number;
@@ -50,6 +55,12 @@ interface FarmStore {
   addFlockStage: (s: FlockStageConfig) => void;
   updateFlockStage: (id: string, updates: Partial<FlockStageConfig>) => void;
   deleteFlockStage: (id: string) => void;
+
+  // Location Types (cage / pen / pond / field …)
+  locationTypes: LocationType[];
+  addLocationType: (t: LocationType) => void;
+  updateLocationType: (id: string, updates: Partial<LocationType>) => void;
+  deleteLocationType: (id: string) => void;
 
   // Bird Stage Sales
   birdStageSales: BirdStageSale[];
@@ -178,6 +189,14 @@ const DEFAULT_STAGES: FlockStageConfig[] = [
   { id: 'sold',     name: 'Sold',     displayOrder: 4, role: 'sold',     pricePerBird: 0   },
 ];
 
+// ─── Default location types (fallback before API loads) ───────────────────────
+
+const DEFAULT_LOCATION_TYPES: LocationType[] = [
+  { id: 'brooder', name: 'Brooder', displayOrder: 0 },
+  { id: 'grower',  name: 'Grower',  displayOrder: 1 },
+  { id: 'layer',   name: 'Layer',   displayOrder: 2 },
+];
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useFarmStore = create<FarmStore>()((set, get) => ({
@@ -222,6 +241,7 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
       expenses: [], budgets: [], cages: [], alerts: [], employees: [],
       employeeSalaries: [], orderRequests: [], birdStageSales: [],
       customerPortalUsers: [], flockStages: DEFAULT_STAGES,
+      locationTypes: DEFAULT_LOCATION_TYPES, enterpriseType: 'poultry',
     });
   },
 
@@ -248,6 +268,13 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
   removeEmployee: async (id) => {
     set((s) => ({ employees: s.employees.filter(e => e.id !== id) }));
     withApi('DELETE', `/api/employees/${id}`);
+  },
+
+  // ── Enterprise type ─────────────────────────────────────────────────────────
+  enterpriseType: 'poultry',
+  setEnterpriseType: (t) => {
+    set({ enterpriseType: t });
+    withApi('PUT', '/api/settings', { enterpriseType: t });
   },
 
   // ── Pricing ─────────────────────────────────────────────────────────────────
@@ -278,6 +305,26 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
   deleteFlockStage: (id) => {
     set((state) => ({ flockStages: state.flockStages.filter(s => s.id !== id) }));
     withApi('DELETE', `/api/flock-stages/${id}`);
+  },
+
+  // ── Location Types ──────────────────────────────────────────────────────────
+  locationTypes: DEFAULT_LOCATION_TYPES,
+
+  addLocationType: (t) => {
+    set((state) => ({ locationTypes: [...state.locationTypes, t].sort((a, b) => a.displayOrder - b.displayOrder) }));
+    withApi('POST', '/api/location-types', t);
+  },
+  updateLocationType: (id, updates) => {
+    set((state) => ({
+      locationTypes: state.locationTypes
+        .map(t => t.id === id ? { ...t, ...updates } : t)
+        .sort((a, b) => a.displayOrder - b.displayOrder),
+    }));
+    withApi('PUT', `/api/location-types/${id}`, updates);
+  },
+  deleteLocationType: (id) => {
+    set((state) => ({ locationTypes: state.locationTypes.filter(t => t.id !== id) }));
+    withApi('DELETE', `/api/location-types/${id}`);
   },
 
   // ── Bird Stage Sales ────────────────────────────────────────────────────────
@@ -628,6 +675,7 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
         salesRes, expensesRes, budgetsRes, cagesRes,
         feedInvRes, alertsRes, empRes, salariesRes,
         orderReqRes, birdSalesRes, settingsRes, stagesRes,
+        locationTypesRes,
       ] = await Promise.allSettled([
         api<Flock[]>('/api/flocks'),
         api<MortalityRecord[]>('/api/mortality'),
@@ -649,6 +697,7 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
         api<BirdStageSale[]>('/api/bird-stage-sales'),
         api<Record<string, string>>('/api/settings'),
         api<FlockStageConfig[]>('/api/flock-stages'),
+        api<LocationType[]>('/api/location-types'),
       ]);
 
       const val = <T>(r: PromiseSettledResult<T>, fallback: T): T =>
@@ -718,6 +767,7 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
           breakEvenPrice: n(s.breakEvenPrice),
           totalAmount: n(s.totalAmount),
         })),
+        enterpriseType: (cfg.enterpriseType as EnterpriseType) || 'poultry',
         pricePerEgg: cfg.pricePerEgg ? Number(cfg.pricePerEgg) : 18,
         pricePerTray: cfg.pricePerTray ? Number(cfg.pricePerTray) : 450,
         pricePerChick: cfg.pricePerChick ? Number(cfg.pricePerChick) : 120,
@@ -725,6 +775,10 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
           ...s,
           displayOrder: Number(s.displayOrder),
           pricePerBird: Number(s.pricePerBird),
+        })),
+        locationTypes: val(locationTypesRes, DEFAULT_LOCATION_TYPES).map(t => ({
+          ...t,
+          displayOrder: Number(t.displayOrder),
         })),
         initialized: true,
         loading: false,

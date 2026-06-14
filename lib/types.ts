@@ -138,10 +138,20 @@ export interface Budget {
   createdAt: string;
 }
 
+/** What kind of farm this is — drives vocabulary and which modules are shown. */
+export type EnterpriseType = 'poultry' | 'pigs' | 'fish' | 'crops' | 'mixed';
+
+/** A farmer-configurable kind of physical location (cage / pen / pond / field …) */
+export interface LocationType {
+  id: string;
+  name: string;
+  displayOrder: number;
+}
+
 export interface Cage {
   id: string;
   name: string;
-  type: 'brooder' | 'grower' | 'layer';
+  type: string; // references LocationType.id
   capacity: number;
   createdAt: string;
 }
