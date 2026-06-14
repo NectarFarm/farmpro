@@ -1,9 +1,9 @@
-"use client";
+'use client';
 import type {
   Flock, Sale, Expense, FeedRecord, VaccinationRecord,
   EggCollection, MortalityRecord, Customer, EmployeeSalary,
-} from "./types";
-import { formatDate, formatCurrency, calcMortalityRate } from "./utils";
+} from './types';
+import { formatDate, formatCurrency, calcMortalityRate } from './utils';
 
 export interface ReportData {
   flocks: Flock[];
@@ -40,11 +40,11 @@ const C = {
 // canvas renders at 2× for sharpness
 
 function makeCanvas(pdfW: number, pdfH: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
-  const cvs = document.createElement("canvas");
+  const cvs = document.createElement('canvas');
   const PX = 4; // pixels per mm (retina-ish)
   cvs.width  = Math.round(pdfW  * PX);
   cvs.height = Math.round(pdfH * PX);
-  const ctx = cvs.getContext("2d")!;
+  const ctx = cvs.getContext('2d')!;
   ctx.scale(PX, PX);
   return [cvs, ctx];
 }
@@ -63,11 +63,11 @@ function drawBarChart(
   const max = Math.max(...values, 1);
 
   // Background
-  ctx.fillStyle = "#f9fbe7";
+  ctx.fillStyle = '#f9fbe7';
   ctx.fillRect(0, 0, pdfW, pdfH);
 
   // Grid lines
-  ctx.strokeStyle = "#c8e6c9";
+  ctx.strokeStyle = '#c8e6c9';
   ctx.lineWidth = 0.3;
   for (let i = 0; i <= 4; i++) {
     const gy = PAD_TOP + (i / 4) * chartH;
@@ -81,7 +81,7 @@ function drawBarChart(
     const bh  = (v / max) * chartH;
     const bx  = PAD_L + i * (chartW / n) + gap / 2;
     const by  = PAD_TOP + chartH - bh;
-    const col = colors?.[i] ?? (i % 2 === 0 ? "#2e7d32" : "#558b2f");
+    const col = colors?.[i] ?? (i % 2 === 0 ? '#2e7d32' : '#558b2f');
 
     // Bar
     ctx.fillStyle = col;
@@ -92,9 +92,9 @@ function drawBarChart(
 
     // Value label ABOVE bar — inside canvas top padding
     if (v > 0) {
-      ctx.fillStyle = "#1b5e20";
-      ctx.font = "bold 6px sans-serif";
-      ctx.textAlign = "center";
+      ctx.fillStyle = '#1b5e20';
+      ctx.font = 'bold 6px sans-serif';
+      ctx.textAlign = 'center';
       const label = v >= 100000
         ? `${(v/1000).toFixed(0)}k`
         : v >= 1000 ? `${(v/1000).toFixed(1)}k` : String(Math.round(v));
@@ -102,9 +102,9 @@ function drawBarChart(
     }
 
     // X axis label
-    ctx.fillStyle = "#555";
-    ctx.font = "5px sans-serif";
-    ctx.textAlign = "center";
+    ctx.fillStyle = '#555';
+    ctx.font = '5px sans-serif';
+    ctx.textAlign = 'center';
     ctx.fillText(labels[i], bx + barW / 2, pdfH - 3);
   });
 
@@ -124,10 +124,10 @@ function drawLineChart(
   const allVals = datasets.flatMap(d => d.values);
   const max = Math.max(...allVals, 1);
 
-  ctx.fillStyle = "#f9fbe7"; ctx.fillRect(0, 0, pdfW, pdfH);
+  ctx.fillStyle = '#f9fbe7'; ctx.fillRect(0, 0, pdfW, pdfH);
 
   // Grid
-  ctx.strokeStyle = "#c8e6c9"; ctx.lineWidth = 0.3;
+  ctx.strokeStyle = '#c8e6c9'; ctx.lineWidth = 0.3;
   for (let i = 0; i <= 4; i++) {
     const gy = PAD_TOP + (i / 4) * chartH;
     ctx.beginPath(); ctx.moveTo(PAD_L, gy); ctx.lineTo(pdfW - PAD_R, gy); ctx.stroke();
@@ -159,7 +159,7 @@ function drawLineChart(
   // X labels — only show a few to avoid overlap
   const step = chartW / Math.max(labels.length - 1, 1);
   const showEvery = Math.ceil(labels.length / 8);
-  ctx.fillStyle = "#666"; ctx.font = "5px sans-serif"; ctx.textAlign = "center";
+  ctx.fillStyle = '#666'; ctx.font = '5px sans-serif'; ctx.textAlign = 'center';
   labels.forEach((l, i) => {
     if (i % showEvery !== 0 && i !== labels.length - 1) return;
     ctx.fillText(l, PAD_L + i * step, pdfH - 3);
@@ -169,42 +169,42 @@ function drawLineChart(
 }
 
 // ── Section header ─────────────────────────────────────────────────────────────
-function sectionHeader(doc: import("jspdf").jsPDF, title: string, y: number, W: number) {
+function sectionHeader(doc: import('jspdf').jsPDF, title: string, y: number, W: number) {
   doc.setFillColor(...C.ltGreen);
-  doc.roundedRect(14, y - 4, W - 28, 11, 2, 2, "F");
+  doc.roundedRect(14, y - 4, W - 28, 11, 2, 2, 'F');
   doc.setDrawColor(...C.primary); doc.setLineWidth(0.6);
   doc.line(14, y - 4, 14, y + 7);
-  doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(...C.primary);
+  doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...C.primary);
   doc.text(title, 18, y + 3.5);
-  doc.setFont("helvetica", "normal"); doc.setTextColor(...C.dark);
+  doc.setFont('helvetica', 'normal'); doc.setTextColor(...C.dark);
 }
 
 // ── Chart embed helper ─────────────────────────────────────────────────────────
 // pdfW, pdfH: size in mm inside the PDF
 function embedChart(
-  doc: import("jspdf").jsPDF,
+  doc: import('jspdf').jsPDF,
   canvas: HTMLCanvasElement,
   x: number, y: number,
   pdfW: number, pdfH: number
 ) {
   // Thin border box
   doc.setDrawColor(...C.ltGreen); doc.setLineWidth(0.3);
-  doc.roundedRect(x - 1, y - 1, pdfW + 2, pdfH + 2, 1, 1, "S");
-  doc.addImage(canvas.toDataURL("image/png"), "PNG", x, y, pdfW, pdfH);
+  doc.roundedRect(x - 1, y - 1, pdfW + 2, pdfH + 2, 1, 1, 'S');
+  doc.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, pdfW, pdfH);
 }
 
 // ── Main export ────────────────────────────────────────────────────────────────
 export async function generateFarmReport(data: ReportData): Promise<void> {
-  const { default: jsPDF } = await import("jspdf");
-  const { default: autoTable } = await import("jspdf-autotable");
+  const { default: jsPDF } = await import('jspdf');
+  const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc  = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const doc  = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W    = doc.internal.pageSize.getWidth();   // 210 mm
   const CNTW = W - 28;                             // 182 mm content width
   const CHRT_H = 50;                               // standard chart height mm
 
   const enabled = new Set(
-    data.enabledSections ?? ["pnl","opsCost","salaries","flocks","eggs","vaccination","customers","expenses","sales"]
+    data.enabledSections ?? ['pnl','opsCost','salaries','flocks','eggs','vaccination','customers','expenses','sales']
   );
 
   let y = 0;
@@ -218,23 +218,23 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
   function pageFooter() {
     const pg = (doc.internal as any).getNumberOfPages();
     doc.setFontSize(7.5); doc.setTextColor(...C.muted);
-    doc.text(`FarmPro · ${data.farmName ?? "Poultry Farm"} · Page ${pg}`, W / 2, 291, { align: "center" });
+    doc.text(`FarmPro · ${data.farmName ?? 'Poultry Farm'} · Page ${pg}`, W / 2, 291, { align: 'center' });
   }
 
   // ── Cover ──────────────────────────────────────────────────────────────────
-  doc.setFillColor(...C.primary); doc.rect(0, 0, W, 44, "F");
+  doc.setFillColor(...C.primary); doc.rect(0, 0, W, 44, 'F');
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(22); doc.setFont("helvetica", "bold");
-  doc.text(data.farmName ?? "FarmPro", 14, 18);
-  doc.setFontSize(11); doc.setFont("helvetica", "normal");
-  doc.text("Poultry Farm Management Report", 14, 28);
+  doc.setFontSize(22); doc.setFont('helvetica', 'bold');
+  doc.text(data.farmName ?? 'FarmPro', 14, 18);
+  doc.setFontSize(11); doc.setFont('helvetica', 'normal');
+  doc.text('Poultry Farm Management Report', 14, 28);
   doc.setFontSize(9);
-  doc.text(`Period: ${data.periodLabel}  ·  Generated: ${new Date().toLocaleDateString("en-KE")}`, 14, 37);
+  doc.text(`Period: ${data.periodLabel}  ·  Generated: ${new Date().toLocaleDateString('en-KE')}`, 14, 37);
   y = 54;
 
   // ── P&L ───────────────────────────────────────────────────────────────────
-  if (enabled.has("pnl")) {
-    checkY(30); sectionHeader(doc, "Profit & Loss Statement", y, W); y += 12;
+  if (enabled.has('pnl')) {
+    checkY(30); sectionHeader(doc, 'Profit & Loss Statement', y, W); y += 12;
 
     const revenue  = data.sales.filter(s => inRange(s.date)).reduce((a,s) => a + s.totalAmount, 0);
     const expCost  = data.expenses.filter(e => inRange(e.date)).reduce((a,e) => a + e.amount, 0);
@@ -244,25 +244,25 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
     const net      = revenue - totalExp;
 
     const rows = [
-      ["Total Revenue",      formatCurrency(revenue), ""],
-      ["Feed Costs",         formatCurrency(feedCost), totalExp > 0 ? `${((feedCost/totalExp)*100).toFixed(1)}%` : "—"],
-      ["Vaccination Costs",  formatCurrency(vacCost),  totalExp > 0 ? `${((vacCost/totalExp)*100).toFixed(1)}%`  : "—"],
-      ["Other Expenses",     formatCurrency(expCost),  totalExp > 0 ? `${((expCost/totalExp)*100).toFixed(1)}%`  : "—"],
-      ["Total Expenses",     formatCurrency(totalExp), "100%"],
-      [net >= 0 ? "NET PROFIT" : "NET LOSS", formatCurrency(Math.abs(net)), ""],
+      ['Total Revenue',      formatCurrency(revenue), ''],
+      ['Feed Costs',         formatCurrency(feedCost), totalExp > 0 ? `${((feedCost/totalExp)*100).toFixed(1)}%` : '—'],
+      ['Vaccination Costs',  formatCurrency(vacCost),  totalExp > 0 ? `${((vacCost/totalExp)*100).toFixed(1)}%`  : '—'],
+      ['Other Expenses',     formatCurrency(expCost),  totalExp > 0 ? `${((expCost/totalExp)*100).toFixed(1)}%`  : '—'],
+      ['Total Expenses',     formatCurrency(totalExp), '100%'],
+      [net >= 0 ? 'NET PROFIT' : 'NET LOSS', formatCurrency(Math.abs(net)), ''],
     ];
 
     autoTable(doc, {
       startY: y,
-      head: [["Item", "Amount", "% of Expenses"]],
+      head: [['Item', 'Amount', '% of Expenses']],
       body: rows,
-      theme: "striped",
-      headStyles: { fillColor: C.primary, textColor: [255,255,255], fontStyle: "bold", fontSize: 9 },
+      theme: 'striped',
+      headStyles: { fillColor: C.primary, textColor: [255,255,255], fontStyle: 'bold', fontSize: 9 },
       bodyStyles: { fontSize: 9 },
       margin: { left: 14, right: 14 },
       didParseCell: d => {
         if (d.row.index === rows.length - 1) {
-          d.cell.styles.fontStyle    = "bold";
+          d.cell.styles.fontStyle    = 'bold';
           d.cell.styles.textColor    = net >= 0 ? C.greenFg : C.red;
           d.cell.styles.fillColor    = net >= 0 ? C.greenBg : C.redBg;
         }
@@ -274,10 +274,10 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
     try {
       checkY(CHRT_H + 8);
       const canvas = drawBarChart(
-        ["Revenue", "Expenses", net >= 0 ? "Profit" : "Loss"],
+        ['Revenue', 'Expenses', net >= 0 ? 'Profit' : 'Loss'],
         [Math.round(revenue), Math.round(totalExp), Math.round(Math.abs(net))],
         CNTW, CHRT_H,
-        ["#2e7d32", "#c62828", net >= 0 ? "#388e3c" : "#d32f2f"]
+        ['#2e7d32', '#c62828', net >= 0 ? '#388e3c' : '#d32f2f']
       );
       embedChart(doc, canvas, 14, y, CNTW, CHRT_H);
       y += CHRT_H + 6;
@@ -285,26 +285,26 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
   }
 
   // ── Cost of Operations ─────────────────────────────────────────────────────
-  if (enabled.has("opsCost")) {
-    checkY(30); sectionHeader(doc, "Cost of Operations", y, W); y += 12;
+  if (enabled.has('opsCost')) {
+    checkY(30); sectionHeader(doc, 'Cost of Operations', y, W); y += 12;
 
     const catMap: Record<string, number> = {};
     data.expenses.filter(e => inRange(e.date)).forEach(e => { catMap[e.category] = (catMap[e.category] ?? 0) + e.amount; });
-    data.feedRecords.filter(r => inRange(r.date)).forEach(r => { catMap["feed"] = (catMap["feed"] ?? 0) + r.totalCost; });
-    data.employeeSalaries.forEach(sal => { catMap["labour"] = (catMap["labour"] ?? 0) + sal.amount; });
+    data.feedRecords.filter(r => inRange(r.date)).forEach(r => { catMap['feed'] = (catMap['feed'] ?? 0) + r.totalCost; });
+    data.employeeSalaries.forEach(sal => { catMap['labour'] = (catMap['labour'] ?? 0) + sal.amount; });
     const totalOps = Object.values(catMap).reduce((a,v) => a+v, 0);
 
     const opsRows = Object.entries(catMap).map(([k,v]) => [
       k.charAt(0).toUpperCase() + k.slice(1),
       formatCurrency(v),
-      totalOps > 0 ? `${((v/totalOps)*100).toFixed(1)}%` : "—",
+      totalOps > 0 ? `${((v/totalOps)*100).toFixed(1)}%` : '—',
     ]);
 
     autoTable(doc, {
       startY: y,
-      head: [["Category", "Amount", "% Share"]],
-      body: opsRows.length ? opsRows : [["No data","—","—"]],
-      theme: "striped",
+      head: [['Category', 'Amount', '% Share']],
+      body: opsRows.length ? opsRows : [['No data','—','—']],
+      theme: 'striped',
       headStyles: { fillColor: C.primary, textColor: [255,255,255], fontSize: 9 },
       bodyStyles: { fontSize: 9 },
       margin: { left: 14, right: 14 },
@@ -317,7 +317,7 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
         checkY(CHRT_H + 8);
         const cats   = Object.keys(catMap);
         const vals   = Object.values(catMap).map(Math.round);
-        const cols   = ["#2e7d32","#558b2f","#33691e","#1b5e20","#c62828","#ef6c00","#795548"];
+        const cols   = ['#2e7d32','#558b2f','#33691e','#1b5e20','#c62828','#ef6c00','#795548'];
         const canvas = drawBarChart(cats.map(k => k.slice(0,7)), vals, CNTW, CHRT_H, cols);
         embedChart(doc, canvas, 14, y, CNTW, CHRT_H);
         y += CHRT_H + 6;
@@ -326,26 +326,26 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
   }
 
   // ── Salary Expenses ────────────────────────────────────────────────────────
-  if (enabled.has("salaries") && data.employeeSalaries.length > 0) {
-    checkY(30); sectionHeader(doc, "Employee Salary Schedule", y, W); y += 12;
+  if (enabled.has('salaries') && data.employeeSalaries.length > 0) {
+    checkY(30); sectionHeader(doc, 'Employee Salary Schedule', y, W); y += 12;
 
     const salRows = data.employeeSalaries.map(s => [
-      s.employeeName, formatCurrency(s.amount), `${s.payDayOfMonth}th`, s.notes ?? "—",
+      s.employeeName, formatCurrency(s.amount), `${s.payDayOfMonth}th`, s.notes ?? '—',
     ]);
     const total = data.employeeSalaries.reduce((a,s) => a+s.amount, 0);
-    salRows.push(["TOTAL", formatCurrency(total), "", ""]);
+    salRows.push(['TOTAL', formatCurrency(total), '', '']);
 
     autoTable(doc, {
       startY: y,
-      head: [["Employee", "Monthly Salary", "Pay Day", "Notes"]],
+      head: [['Employee', 'Monthly Salary', 'Pay Day', 'Notes']],
       body: salRows,
-      theme: "striped",
+      theme: 'striped',
       headStyles: { fillColor: C.primary, textColor: [255,255,255], fontSize: 9 },
       bodyStyles: { fontSize: 9 },
       margin: { left: 14, right: 14 },
       didParseCell: d => {
         if (d.row.index === salRows.length - 1) {
-          d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = C.ltGreen;
+          d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = C.ltGreen;
         }
       },
     });
@@ -353,8 +353,8 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
   }
 
   // ── Flock Performance ──────────────────────────────────────────────────────
-  if (enabled.has("flocks")) {
-    checkY(30); sectionHeader(doc, "Flock Performance", y, W); y += 12;
+  if (enabled.has('flocks')) {
+    checkY(30); sectionHeader(doc, 'Flock Performance', y, W); y += 12;
 
     const flockRows = data.flocks.map(f => {
       const deaths  = data.mortalityRecords.filter(m => m.flockId === f.id).reduce((a,m) => a+m.count, 0);
@@ -371,14 +371,14 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
 
     autoTable(doc, {
       startY: y,
-      head: [["Flock","Stage","Birds","Mortality%","Total Eggs","Feed Used"]],
-      body: flockRows.length ? flockRows : [["No flocks","","","","",""]],
-      theme: "striped",
+      head: [['Flock','Stage','Birds','Mortality%','Total Eggs','Feed Used']],
+      body: flockRows.length ? flockRows : [['No flocks','','','','','']],
+      theme: 'striped',
       headStyles: { fillColor: C.primary, textColor: [255,255,255], fontSize: 8 },
       bodyStyles: { fontSize: 8 },
       margin: { left: 14, right: 14 },
       didParseCell: d => {
-        if (d.column.index === 3 && d.section === "body" && parseFloat(d.cell.text[0]) > 5)
+        if (d.column.index === 3 && d.section === 'body' && parseFloat(d.cell.text[0]) > 5)
           d.cell.styles.textColor = C.red;
       },
     });
@@ -386,14 +386,14 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
   }
 
   // ── Egg Production ─────────────────────────────────────────────────────────
-  if (enabled.has("eggs")) {
-    checkY(30); sectionHeader(doc, "Egg Production Summary", y, W); y += 12;
+  if (enabled.has('eggs')) {
+    checkY(30); sectionHeader(doc, 'Egg Production Summary', y, W); y += 12;
 
     const periodEggs = data.eggCollections.filter(e => inRange(e.date));
     const total  = periodEggs.reduce((a,e) => a+e.count, 0);
     const days   = new Set(periodEggs.map(e => e.date)).size;
-    const avg    = days > 0 ? (total / days).toFixed(0) : "0";
-    const eggRev = data.sales.filter(s => inRange(s.date) && s.product === "eggs").reduce((a,s) => a+s.totalAmount, 0);
+    const avg    = days > 0 ? (total / days).toFixed(0) : '0';
+    const eggRev = data.sales.filter(s => inRange(s.date) && s.product === 'eggs').reduce((a,s) => a+s.totalAmount, 0);
 
     doc.setFontSize(9); doc.setTextColor(...C.dark);
     const bullets = [
@@ -402,7 +402,7 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
       `Egg Revenue (period): ${formatCurrency(eggRev)}`,
       `Active Collection Days: ${days}`,
     ];
-    bullets.forEach(b => { doc.text("• " + b, 16, y); y += 6; });
+    bullets.forEach(b => { doc.text('• ' + b, 16, y); y += 6; });
     y += 2;
 
     // Build 30-day daily data correctly
@@ -410,18 +410,18 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
       const dayMap: Record<string, number> = {};
       for (let i = 29; i >= 0; i--) {
         const d = new Date(); d.setDate(d.getDate() - i);
-        dayMap[d.toISOString().split("T")[0]] = 0;
+        dayMap[d.toISOString().split('T')[0]] = 0;
       }
       periodEggs.forEach(e => { if (dayMap[e.date] !== undefined) dayMap[e.date] += e.count; });
 
       const allKeys  = Object.keys(dayMap);
       const allVals  = allKeys.map(k => dayMap[k]);
       // Show every 5th label on x-axis
-      const xLabels  = allKeys.map((k,i) => i % 5 === 0 ? k.slice(5) : "");
+      const xLabels  = allKeys.map((k,i) => i % 5 === 0 ? k.slice(5) : '');
 
       checkY(CHRT_H + 8);
       const canvas = drawLineChart(
-        xLabels, [{ values: allVals, color: "#2e7d32", label: "Eggs" }],
+        xLabels, [{ values: allVals, color: '#2e7d32', label: 'Eggs' }],
         CNTW, CHRT_H
       );
       embedChart(doc, canvas, 14, y, CNTW, CHRT_H);
@@ -430,34 +430,34 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
   }
 
   // ── Vaccination Schedule ───────────────────────────────────────────────────
-  if (enabled.has("vaccination")) {
-    checkY(30); sectionHeader(doc, "Vaccination Schedule", y, W); y += 12;
+  if (enabled.has('vaccination')) {
+    checkY(30); sectionHeader(doc, 'Vaccination Schedule', y, W); y += 12;
 
     const allVacc = data.vaccinationRecords.map(v => {
       const flock   = data.flocks.find(f => f.id === v.flockId);
       const overdue = !v.completedDate && new Date(v.scheduledDate) < new Date();
-      const status  = v.completedDate ? "Done ✓" : overdue ? "OVERDUE" : "Scheduled";
+      const status  = v.completedDate ? 'Done ✓' : overdue ? 'OVERDUE' : 'Scheduled';
       return [
-        flock?.name ?? "Unknown", v.vaccineName,
+        flock?.name ?? 'Unknown', v.vaccineName,
         formatDate(v.scheduledDate),
-        v.completedDate ? formatDate(v.completedDate) : "—",
+        v.completedDate ? formatDate(v.completedDate) : '—',
         status,
         formatCurrency(v.cost),
       ];
-    }).sort((a,b) => a[4] === "OVERDUE" ? -1 : 1);
+    }).sort((a,b) => a[4] === 'OVERDUE' ? -1 : 1);
 
     autoTable(doc, {
       startY: y,
-      head: [["Flock","Vaccine","Scheduled","Completed","Status","Cost"]],
-      body: allVacc.length ? allVacc : [["No records","","","","",""]],
-      theme: "striped",
+      head: [['Flock','Vaccine','Scheduled','Completed','Status','Cost']],
+      body: allVacc.length ? allVacc : [['No records','','','','','']],
+      theme: 'striped',
       headStyles: { fillColor: C.primary, textColor: [255,255,255], fontSize: 8 },
       bodyStyles: { fontSize: 8 },
       margin: { left: 14, right: 14 },
       didParseCell: d => {
-        if (d.column.index === 4 && d.section === "body") {
-          if (d.cell.text[0] === "OVERDUE")      { d.cell.styles.textColor = C.red;     d.cell.styles.fontStyle = "bold"; }
-          else if (d.cell.text[0].startsWith("Done")) d.cell.styles.textColor = C.greenFg;
+        if (d.column.index === 4 && d.section === 'body') {
+          if (d.cell.text[0] === 'OVERDUE')      { d.cell.styles.textColor = C.red;     d.cell.styles.fontStyle = 'bold'; }
+          else if (d.cell.text[0].startsWith('Done')) d.cell.styles.textColor = C.greenFg;
         }
       },
     });
@@ -465,8 +465,8 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
   }
 
   // ── Top Customers ──────────────────────────────────────────────────────────
-  if (enabled.has("customers")) {
-    checkY(30); sectionHeader(doc, "Top Customers by Revenue", y, W); y += 12;
+  if (enabled.has('customers')) {
+    checkY(30); sectionHeader(doc, 'Top Customers by Revenue', y, W); y += 12;
 
     const revMap: Record<string,number> = {};
     data.sales.filter(s => inRange(s.date)).forEach(s => {
@@ -477,17 +477,17 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
       .map(([id,rev],i) => {
         const c = data.customers.find(cu => cu.id === id);
         const orders = data.sales.filter(s => s.customerId === id && inRange(s.date)).length;
-        return [`${i+1}`, c?.name ?? "?", c?.type ?? "—", orders.toString(), formatCurrency(rev)];
+        return [`${i+1}`, c?.name ?? '?', c?.type ?? '—', orders.toString(), formatCurrency(rev)];
       });
 
     autoTable(doc, {
       startY: y,
-      head: [["#","Customer","Type","Orders","Revenue"]],
-      body: topRows.length ? topRows : [["—","No data","","",""]],
-      theme: "striped",
+      head: [['#','Customer','Type','Orders','Revenue']],
+      body: topRows.length ? topRows : [['—','No data','','','']],
+      theme: 'striped',
       headStyles: { fillColor: C.primary, textColor: [255,255,255], fontSize: 9 },
       bodyStyles: { fontSize: 9 },
-      columnStyles: { 4: { halign: "right", fontStyle: "bold" } },
+      columnStyles: { 4: { halign: 'right', fontStyle: 'bold' } },
       margin: { left: 14, right: 14 },
     });
     y = (doc as any).lastAutoTable.finalY + 6;
@@ -506,36 +506,36 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
   }
 
   // ── Expense Breakdown ──────────────────────────────────────────────────────
-  if (enabled.has("expenses")) {
-    checkY(30); sectionHeader(doc, "Expense Breakdown", y, W); y += 12;
+  if (enabled.has('expenses')) {
+    checkY(30); sectionHeader(doc, 'Expense Breakdown', y, W); y += 12;
 
     const catMap2: Record<string,number> = {};
     data.expenses.filter(e => inRange(e.date)).forEach(e => { catMap2[e.category] = (catMap2[e.category] ?? 0) + e.amount; });
-    data.feedRecords.filter(r => inRange(r.date)).forEach(r => { catMap2["feed"] = (catMap2["feed"] ?? 0) + r.totalCost; });
+    data.feedRecords.filter(r => inRange(r.date)).forEach(r => { catMap2['feed'] = (catMap2['feed'] ?? 0) + r.totalCost; });
     const tot2 = Object.values(catMap2).reduce((a,v) => a+v, 0);
 
     const expRows = Object.entries(catMap2).map(([k,v]) => [
       k.charAt(0).toUpperCase()+k.slice(1),
       formatCurrency(v),
-      tot2 > 0 ? `${((v/tot2)*100).toFixed(1)}%` : "—",
+      tot2 > 0 ? `${((v/tot2)*100).toFixed(1)}%` : '—',
     ]);
 
     autoTable(doc, {
       startY: y,
-      head: [["Category","Amount","% Total"]],
-      body: expRows.length ? expRows : [["No expenses","—","—"]],
-      theme: "striped",
+      head: [['Category','Amount','% Total']],
+      body: expRows.length ? expRows : [['No expenses','—','—']],
+      theme: 'striped',
       headStyles: { fillColor: C.primary, textColor: [255,255,255], fontSize: 9 },
       bodyStyles: { fontSize: 9 },
-      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
       margin: { left: 14, right: 14 },
     });
     y = (doc as any).lastAutoTable.finalY + 6;
   }
 
   // ── Sales Records ──────────────────────────────────────────────────────────
-  if (enabled.has("sales")) {
-    checkY(30); sectionHeader(doc, "Sales Records (last 30)", y, W); y += 12;
+  if (enabled.has('sales')) {
+    checkY(30); sectionHeader(doc, 'Sales Records (last 30)', y, W); y += 12;
 
     const sRows = data.sales
       .filter(s => inRange(s.date))
@@ -544,7 +544,7 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
       .map(s => {
         const c = data.customers.find(cu => cu.id === s.customerId);
         return [
-          formatDate(s.date), c?.name ?? "—",
+          formatDate(s.date), c?.name ?? '—',
           s.product.toUpperCase(),
           s.quantity.toLocaleString(),
           formatCurrency(s.pricePerUnit),
@@ -554,17 +554,17 @@ export async function generateFarmReport(data: ReportData): Promise<void> {
 
     autoTable(doc, {
       startY: y,
-      head: [["Date","Customer","Product","Qty","Price/Unit","Total"]],
-      body: sRows.length ? sRows : [["No sales","","","","",""]],
-      theme: "striped",
+      head: [['Date','Customer','Product','Qty','Price/Unit','Total']],
+      body: sRows.length ? sRows : [['No sales','','','','','']],
+      theme: 'striped',
       headStyles: { fillColor: C.primary, textColor: [255,255,255], fontSize: 8 },
       bodyStyles: { fontSize: 8 },
-      columnStyles: { 5: { halign: "right", fontStyle: "bold" } },
+      columnStyles: { 5: { halign: 'right', fontStyle: 'bold' } },
       margin: { left: 14, right: 14 },
     });
   }
 
   pageFooter();
-  const fname = `FarmPro_${data.periodLabel.replace(/\s+/g,"_")}_${new Date().toISOString().slice(0,10)}.pdf`;
+  const fname = `FarmPro_${data.periodLabel.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.pdf`;
   doc.save(fname);
 }

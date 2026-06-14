@@ -161,17 +161,19 @@ The schema has one central entity (`flocks`) that most operational records refer
 - `customers` ← `customerPortalUsers` (1:1, cascade delete)
 - `employees` ← `employeeSalaries` (1:1, cascade delete)
 - `cages` ← `flocks` (optional FK via cageId)
+- `flock_stages` ← `flocks` (logical FK via stage text id)
 - `feedInventory` — singleton-per-type (4 rows, unique feedType)
 
 ### 4.2 Table Reference
 
 | Table | PK | Key Fields | Side Effects on Write |
 |---|---|---|---|
-| `settings` | `id='default'` | ownerPinHash, prices, stagePricing | — |
+| `flock_stages` | `id` (text slug) | name, displayOrder, role, pricePerBird | — |
+| `settings` | `id='default'` | ownerPinHash, pricePerEgg, pricePerTray, pricePerChick | — |
 | `sessions` | `id` | userType, userId, expiresAt | — |
 | `employees` | `id` | name, pinHash | — |
 | `cages` | `id` | name, type, capacity | — |
-| `flocks` | `id` | stage, currentCount, initialCount | Updated by mortality/sale writes |
+| `flocks` | `id` | stage (text, FK → flock_stages.id), currentCount, initialCount | Updated by mortality/sale writes |
 | `mortalityRecords` | `id` | flockId, count | Decrements flock.currentCount |
 | `feedRecords` | `id` | flockId, feedType, quantityKg, costPerKg | Tracked for cost; decrements feedInventory |
 | `feedDispenseRecords` | `id` | flockId, feedType, quantityKg | Decrements feedInventory.currentStockKg |
@@ -328,7 +330,7 @@ Certain store actions update multiple collections atomically:
 ├── mortality          GET, POST  (POST → decrements flock count)
 ├── feed-records       GET, POST  (POST → decrements feedInventory)
 ├── feed-dispense      GET, POST  (POST → decrements feedInventory)
-├── feed-inventory     GET, PUT   (PUT → sets absolute stock level)
+├── feed-inventory     GET, PUT   (PUT → sets absolute stock level / reorder threshold)
 ├── vaccinations       GET, POST
 ├── vaccinations/[id]  GET, PUT
 ├── egg-collections    GET, POST
@@ -352,9 +354,12 @@ Certain store actions update multiple collections atomically:
 ├── order-requests/[id] PUT, DELETE
 ├── alerts             GET, POST, DELETE (DELETE = clear all)
 ├── alerts/[id]        PUT (mark read)
+├── flock-stages       GET, POST
+├── flock-stages/[id]  PUT, DELETE
 ├── settings           GET, PUT
 ├── cages              GET, POST
 ├── cages/[id]         PUT, DELETE
+├── sms                POST (server-side Africa's Talking proxy; keys never sent to browser)
 └── health             GET (no auth)
 ```
 

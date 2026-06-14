@@ -1,16 +1,16 @@
-"use client";
+'use client';
 
-import { useFarmStore } from "@/lib/store";
-import EmployeePage from "@/components/pages/EmployeePage";
-import { Egg, LogOut, User } from "lucide-react";
-import { toast } from "sonner";
+import { useFarmStore } from '@/lib/store';
+import EmployeePage from '@/components/pages/EmployeePage';
+import { Egg, LogOut, User } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function EmployeeShell() {
   const { session, setSession } = useFarmStore();
 
   function handleLogout() {
     setSession(null);
-    toast.info("Logged out");
+    toast.info('Logged out');
   }
 
   return (
@@ -19,7 +19,7 @@ export default function EmployeeShell() {
       <header className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-border/60 bg-card/50 backdrop-blur-sm">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: "oklch(0.42 0.14 148 / 0.12)" }}>
+            style={{ background: 'oklch(0.42 0.14 148 / 0.12)' }}>
             <Egg className="w-4 h-4 text-primary" />
           </div>
           <div>
@@ -31,10 +31,10 @@ export default function EmployeeShell() {
         <div className="flex items-center gap-3">
           {/* Employee name badge */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl"
-            style={{ background: "oklch(0.42 0.14 148 / 0.1)" }}>
+            style={{ background: 'oklch(0.42 0.14 148 / 0.1)' }}>
             <User className="w-3.5 h-3.5 text-primary" />
             <span className="text-xs font-semibold text-primary">
-              {session?.employeeName ?? "Employee"}
+              {session?.employeeName ?? 'Employee'}
             </span>
           </div>
 

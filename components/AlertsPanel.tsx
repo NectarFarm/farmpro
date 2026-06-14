@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { useFarmStore } from "@/lib/store";
-import { Bell, X, Check, AlertTriangle, Syringe, Trash2 } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { useFarmStore } from '@/lib/store';
+import { Bell, X, Check, AlertTriangle, Syringe, Trash2 } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 
 interface AlertsPanelProps {
   onClose: () => void;
@@ -22,23 +22,23 @@ export default function AlertsPanel({ onClose, onNavigate }: AlertsPanelProps) {
   };
 
   const colorMap: Record<string, string> = {
-    vaccination_overdue: "oklch(0.55 0.18 40)",
-    high_mortality: "oklch(0.57 0.24 27)",
-    budget_alert: "oklch(0.6 0.18 85)",
-    low_feed: "oklch(0.5 0.12 250)",
-    cage_capacity: "oklch(0.55 0.15 200)",
+    vaccination_overdue: 'oklch(0.55 0.18 40)',
+    high_mortality: 'oklch(0.57 0.24 27)',
+    budget_alert: 'oklch(0.6 0.18 85)',
+    low_feed: 'oklch(0.5 0.12 250)',
+    cage_capacity: 'oklch(0.55 0.15 200)',
   };
 
   return (
     <div className="fixed right-0 top-0 bottom-0 w-80 z-50 flex flex-col shadow-2xl"
-      style={{ background: "var(--card)", borderLeft: "1px solid var(--border)" }}>
+      style={{ background: 'var(--card)', borderLeft: '1px solid var(--border)' }}>
       <div className="h-14 flex items-center justify-between px-4 border-b border-border">
         <div className="flex items-center gap-2">
           <Bell className="w-4 h-4 text-primary" />
           <span className="font-semibold text-sm">Alerts</span>
           {sorted.filter(a => !a.read).length > 0 && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold text-white"
-              style={{ background: "oklch(0.57 0.24 27)" }}>
+              style={{ background: 'oklch(0.57 0.24 27)' }}>
               {sorted.filter(a => !a.read).length}
             </span>
           )}
@@ -60,7 +60,7 @@ export default function AlertsPanel({ onClose, onNavigate }: AlertsPanelProps) {
         {sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-8">
             <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
-              style={{ background: "oklch(0.42 0.14 148 / 0.1)" }}>
+              style={{ background: 'oklch(0.42 0.14 148 / 0.1)' }}>
               <Bell className="w-5 h-5 text-primary/50" />
             </div>
             <p className="text-sm font-medium text-muted-foreground">All clear!</p>
@@ -68,14 +68,14 @@ export default function AlertsPanel({ onClose, onNavigate }: AlertsPanelProps) {
           </div>
         ) : sorted.map(alert => {
           const Icon = iconMap[alert.type] || AlertTriangle;
-          const color = colorMap[alert.type] || "oklch(0.55 0.12 148)";
+          const color = colorMap[alert.type] || 'oklch(0.55 0.12 148)';
           return (
             <div key={alert.id}
-              className={`p-3 rounded-xl border cursor-pointer transition-all hover:shadow-sm ${alert.read ? "opacity-50" : ""}`}
-              style={{ background: alert.read ? "var(--muted)" : "var(--card)", borderColor: "var(--border)" }}
+              className={`p-3 rounded-xl border cursor-pointer transition-all hover:shadow-sm ${alert.read ? 'opacity-50' : ''}`}
+              style={{ background: alert.read ? 'var(--muted)' : 'var(--card)', borderColor: 'var(--border)' }}
               onClick={() => {
                 markAlertRead(alert.id);
-                if (alert.route) onNavigate(alert.route.replace("/", ""));
+                if (alert.route) onNavigate(alert.route.replace('/', ''));
               }}>
               <div className="flex items-start gap-2.5">
                 <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5"

@@ -29,13 +29,13 @@ pnpm dev                      # runs on :3000
 | Module | Highlights |
 |---|---|
 | **Dashboard** | KPI cards (birds, revenue, costs, mortality), egg & revenue charts, 7d / 30d / month / year filters |
-| **Flock Manager** | Lifecycle stages: Brooder → Grower → Layer → Disposal/Sale Stock. Per-flock tabs for vaccinations, mortality, feed, egg collection (with breakages), and valuation |
+| **Flock Manager** | Configurable lifecycle stages (default: Brooder → Grower → Layer → Disposal/Sold). Per-flock tabs for vaccinations, mortality, feed, egg collection (with breakages), and valuation |
 | **Sales** | Egg and bird sales with live stock availability checks. Two-step deletion: employees request with a reason, owner approves |
 | **Finance** | P&L statement (egg sales + bird stage sales vs. expenses), 6-month revenue/expense chart, per-category budgets |
 | **Inventory** | Feed stock levels (Starter/Grower/Layer/Finisher), configurable reorder alerts, stock-add history |
 | **Employees** | Add employees with PINs. Employees log egg collections, feed, and mortality via a simplified portal |
 | **Customers** | Customer profiles with order history. Customer portal for pricing and order requests |
-| **Settings** | Farm name, pricing, employee & customer PIN management |
+| **Settings** | Farm name, egg/chick pricing, configurable flock stages (name, order, price per bird, terminal role), employee & customer PIN management |
 
 ## Tech stack
 

@@ -1,29 +1,27 @@
-"use client";
-import { useState, useMemo } from "react";
-import { useFarmStore } from "@/lib/store";
-import type { Flock, FeedRecord, MortalityRecord, VaccinationRecord, EggCollection, FlockStage } from "@/lib/types";
-import { formatDate, formatCurrency, generateId, calcMortalityRate, formatDateShort } from "@/lib/utils";
-import { Plus, Bird, ChevronDown, Syringe, Skull, Egg, Wheat, Trash2, CheckCircle, Clock, AlertCircle, X, Edit2, ArrowRight, TrendingUp, DollarSign, ShoppingBag } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { toast } from "sonner";
+'use client';
+import { useState, useMemo } from 'react';
+import { useFarmStore } from '@/lib/store';
+import type { Flock, FeedRecord, MortalityRecord, VaccinationRecord, EggCollection, FlockStageConfig } from '@/lib/types';
+import { formatDate, formatCurrency, generateId, calcMortalityRate, formatDateShort } from '@/lib/utils';
+import { Plus, Bird, Syringe, Skull, Egg, Wheat, Trash2, CheckCircle, Clock, AlertCircle, X, ArrowRight, TrendingUp } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { toast } from 'sonner';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-const STAGE_ORDER: FlockStage[] = ["brooder", "grower", "layer", "disposal", "sold"];
-const STAGE_LABELS: Record<FlockStage, string> = { brooder: "Brooder", grower: "Grower", layer: "Layer", disposal: "Disposal / Sale Stock", sold: "Sold" };
-const nextStage = (s: FlockStage): FlockStage => STAGE_ORDER[Math.min(STAGE_ORDER.indexOf(s) + 1, STAGE_ORDER.length - 1)];
-const stageCls: Record<FlockStage, string> = {
-  brooder: "stage-brooder",
-  grower: "stage-grower",
-  layer: "stage-layer",
-  disposal: "stage-sold",
-  sold: "stage-sold",
-};
 
-const INPUT = "w-full px-3 py-2 rounded-xl border border-border bg-input text-sm outline-none focus:ring-2 focus:ring-primary/30";
-const BTN_PRIMARY = "bg-primary text-white rounded-xl px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity";
-const BTN_GHOST = "rounded-xl px-3 py-1.5 text-sm font-medium border border-border hover:bg-muted/40 transition-colors";
+const STAGE_COLORS = ['stage-brooder', 'stage-grower', 'stage-layer'];
 
-type Tab = "vaccinations" | "mortality" | "feed" | "eggs" | "valuation";
+function getStageCls(stage: FlockStageConfig | undefined): string {
+  if (!stage) return 'bg-muted text-muted-foreground';
+  if (stage.role === 'sold' || stage.role === 'disposed') return 'stage-sold';
+  return STAGE_COLORS[stage.displayOrder % STAGE_COLORS.length] ?? 'stage-brooder';
+}
+
+const INPUT = 'w-full px-3 py-2 rounded-xl border border-border bg-input text-sm outline-none focus:ring-2 focus:ring-primary/30';
+const BTN_PRIMARY = 'bg-primary text-white rounded-xl px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity';
+const BTN_GHOST = 'rounded-xl px-3 py-1.5 text-sm font-medium border border-border hover:bg-muted/40 transition-colors';
+
+type Tab = 'vaccinations' | 'mortality' | 'feed' | 'eggs' | 'valuation';
 
 // ── main component ────────────────────────────────────────────────────────────
 export default function FlocksPage() {
@@ -34,11 +32,11 @@ export default function FlocksPage() {
     vaccinationRecords, addVaccinationRecord, updateVaccinationRecord,
     eggCollections, addEggCollection,
     sales, customers,
-    birdStagePricing, birdStageSales, addBirdStageSale, expenses, vaccinationRecords: allVaccRecords,
+    flockStages, birdStageSales, addBirdStageSale, expenses, vaccinationRecords: allVaccRecords,
   } = useFarmStore();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("vaccinations");
+  const [activeTab, setActiveTab] = useState<Tab>('vaccinations');
   const [showAddFlock, setShowAddFlock] = useState(false);
   const [advanceModal, setAdvanceModal] = useState<Flock | null>(null);
 
@@ -60,9 +58,10 @@ export default function FlocksPage() {
       {/* Flock Cards */}
       <FlockList
         flocks={flocks}
+        flockStages={flockStages}
         mortalityRecords={mortalityRecords}
         selectedId={selectedId}
-        onSelect={(id) => { setSelectedId(id === selectedId ? null : id); setActiveTab("vaccinations"); }}
+        onSelect={(id) => { setSelectedId(id === selectedId ? null : id); setActiveTab('vaccinations'); }}
         onDelete={deleteFlock}
         onAdvanceStage={setAdvanceModal}
       />
@@ -71,6 +70,7 @@ export default function FlocksPage() {
       {selectedFlock && (
         <DetailPanel
           flock={selectedFlock}
+          flockStages={flockStages}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           mortalityRecords={mortalityRecords.filter(r => r.flockId === selectedFlock.id)}
@@ -78,17 +78,16 @@ export default function FlocksPage() {
           vaccinationRecords={vaccinationRecords.filter(r => r.flockId === selectedFlock.id)}
           eggCollections={eggCollections.filter(r => r.flockId === selectedFlock.id)}
           sales={sales.filter(s => s.flockId === selectedFlock.id)}
-          onAddMortality={(r) => { addMortalityRecord(r); toast.success("Mortality logged"); }}
-          onAddFeed={(r) => { addFeedRecord(r); toast.success("Feed logged"); }}
-          onAddVaccination={(r) => { addVaccinationRecord(r); toast.success("Vaccination added"); }}
-          onCompleteVaccination={(id) => { updateVaccinationRecord(id, { completedDate: new Date().toISOString() }); toast.success("Marked complete"); }}
-          onAddEgg={(e) => { addEggCollection(e); toast.success("Egg collection saved"); }}
+          onAddMortality={(r) => { addMortalityRecord(r); toast.success('Mortality logged'); }}
+          onAddFeed={(r) => { addFeedRecord(r); toast.success('Feed logged'); }}
+          onAddVaccination={(r) => { addVaccinationRecord(r); toast.success('Vaccination added'); }}
+          onCompleteVaccination={(id) => { updateVaccinationRecord(id, { completedDate: new Date().toISOString() }); toast.success('Marked complete'); }}
+          onAddEgg={(e) => { addEggCollection(e); toast.success('Egg collection saved'); }}
           allFeedRecords={feedRecords}
           allExpenses={expenses}
           allVaccRecords={allVaccRecords}
-          birdStagePricing={birdStagePricing}
           birdStageSales={birdStageSales.filter(s => s.flockId === selectedFlock.id)}
-          onAddBirdStageSale={(s) => { addBirdStageSale(s); toast.success("Bird sale recorded"); }}
+          onAddBirdStageSale={(s) => { addBirdStageSale(s); toast.success('Bird sale recorded'); }}
           allCustomers={customers}
         />
       )}
@@ -96,11 +95,12 @@ export default function FlocksPage() {
       {/* Add Flock Modal */}
       {showAddFlock && (
         <AddFlockModal
+          flockStages={flockStages}
           onClose={() => setShowAddFlock(false)}
           onSave={(data) => {
             addFlock({ id: generateId(), currentCount: data.initialCount, createdAt: new Date().toISOString(), ...data });
             setShowAddFlock(false);
-            toast.success("Flock added!");
+            toast.success('Flock added!');
           }}
         />
       )}
@@ -108,11 +108,13 @@ export default function FlocksPage() {
       {advanceModal && (
         <AdvanceStageModal
           flock={advanceModal}
+          flockStages={flockStages}
           onClose={() => setAdvanceModal(null)}
           onSave={(ns) => {
             updateFlock(advanceModal.id, { stage: ns });
             setAdvanceModal(null);
-            toast.success(`${advanceModal.name} advanced to ${STAGE_LABELS[ns]}`);
+            const label = flockStages.find(s => s.id === ns)?.name ?? ns;
+            toast.success(`${advanceModal.name} advanced to ${label}`);
           }}
         />
       )}
@@ -121,8 +123,9 @@ export default function FlocksPage() {
 }
 
 // ── FlockList ─────────────────────────────────────────────────────────────────
-function FlockList({ flocks, mortalityRecords, selectedId, onSelect, onDelete, onAdvanceStage }: {
+function FlockList({ flocks, flockStages, mortalityRecords, selectedId, onSelect, onDelete, onAdvanceStage }: {
   flocks: Flock[];
+  flockStages: FlockStageConfig[];
   mortalityRecords: MortalityRecord[];
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -139,12 +142,14 @@ function FlockList({ flocks, mortalityRecords, selectedId, onSelect, onDelete, o
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {flocks.map(flock => {
+        const stageConfig = flockStages.find(s => s.id === flock.stage);
+        const isTerminal = stageConfig?.role === 'sold' || stageConfig?.role === 'disposed';
         const deaths = mortalityRecords.filter(r => r.flockId === flock.id).reduce((s, r) => s + r.count, 0);
         const rate = calcMortalityRate(flock.initialCount, deaths);
         const selected = flock.id === selectedId;
         return (
           <div key={flock.id}
-            className={`glass-card rounded-2xl p-4 cursor-pointer transition-all border-2 ${selected ? "border-primary/60" : "border-transparent"}`}
+            className={`glass-card rounded-2xl p-4 cursor-pointer transition-all border-2 ${selected ? 'border-primary/60' : 'border-transparent'}`}
             onClick={() => onSelect(flock.id)}
           >
             <div className="flex items-start justify-between mb-2">
@@ -152,7 +157,9 @@ function FlockList({ flocks, mortalityRecords, selectedId, onSelect, onDelete, o
                 <h3 className="font-semibold text-base">{flock.name}</h3>
                 <p className="text-xs text-muted-foreground">{flock.breed}</p>
               </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${stageCls[flock.stage]}`}>{flock.stage}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStageCls(stageConfig)}`}>
+                {stageConfig?.name ?? flock.stage}
+              </span>
             </div>
             <div className="flex items-center gap-3 text-sm mb-2">
               <span><span className="font-semibold">{flock.currentCount}</span><span className="text-muted-foreground">/{flock.initialCount} birds</span></span>
@@ -162,8 +169,8 @@ function FlockList({ flocks, mortalityRecords, selectedId, onSelect, onDelete, o
               Acquired {formatDate(flock.dateAcquired)} · Cost {formatCurrency(flock.purchaseCostPerChick * flock.initialCount)}
             </div>
             <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-              {flock.stage !== "sold" && (
-                <button className={BTN_GHOST + " flex items-center gap-1 text-xs"} onClick={() => onAdvanceStage(flock)}>
+              {!isTerminal && (
+                <button className={BTN_GHOST + ' flex items-center gap-1 text-xs'} onClick={() => onAdvanceStage(flock)}>
                   <ArrowRight size={12} /> Advance Stage
                 </button>
               )}
@@ -179,34 +186,33 @@ function FlockList({ flocks, mortalityRecords, selectedId, onSelect, onDelete, o
 }
 
 // ── DetailPanel ───────────────────────────────────────────────────────────────
-function DetailPanel({ flock, activeTab, setActiveTab, mortalityRecords, feedRecords, vaccinationRecords, eggCollections, sales, onAddMortality, onAddFeed, onAddVaccination, onCompleteVaccination, onAddEgg, allFeedRecords, allExpenses, allVaccRecords, birdStagePricing, birdStageSales, onAddBirdStageSale, allCustomers }: {
-  flock: Flock; activeTab: Tab; setActiveTab: (t: Tab) => void;
+function DetailPanel({ flock, flockStages, activeTab, setActiveTab, mortalityRecords, feedRecords, vaccinationRecords, eggCollections, sales, onAddMortality, onAddFeed, onAddVaccination, onCompleteVaccination, onAddEgg, allFeedRecords, allExpenses, allVaccRecords, birdStageSales, onAddBirdStageSale, allCustomers }: {
+  flock: Flock; flockStages: FlockStageConfig[]; activeTab: Tab; setActiveTab: (t: Tab) => void;
   mortalityRecords: MortalityRecord[]; feedRecords: FeedRecord[];
   vaccinationRecords: VaccinationRecord[]; eggCollections: EggCollection[];
   sales: { product: string; totalAmount: number; quantity: number }[];
   onAddMortality: (r: MortalityRecord) => void; onAddFeed: (r: FeedRecord) => void;
   onAddVaccination: (r: VaccinationRecord) => void; onCompleteVaccination: (id: string) => void;
   onAddEgg: (e: EggCollection) => void;
-  allFeedRecords: FeedRecord[]; allExpenses: import("@/lib/types").Expense[];
-  allVaccRecords: VaccinationRecord[]; birdStagePricing: import("@/lib/types").BirdStagePricing;
-  birdStageSales: import("@/lib/types").BirdStageSale[];
-  onAddBirdStageSale: (s: import("@/lib/types").BirdStageSale) => void;
-  allCustomers: import("@/lib/types").Customer[];
+  allFeedRecords: FeedRecord[]; allExpenses: import('@/lib/types').Expense[];
+  allVaccRecords: VaccinationRecord[];
+  birdStageSales: import('@/lib/types').BirdStageSale[];
+  onAddBirdStageSale: (s: import('@/lib/types').BirdStageSale) => void;
+  allCustomers: import('@/lib/types').Customer[];
 }) {
-  const tabs: { id: Tab; label: string; Icon: any }[] = [
-    { id: "vaccinations", label: "Vaccinations", Icon: Syringe },
-    { id: "mortality", label: "Mortality", Icon: Skull },
-    { id: "feed", label: "Feed", Icon: Wheat },
-    { id: "eggs", label: "Eggs", Icon: Egg },
-    { id: "valuation", label: "Valuation", Icon: TrendingUp },
+  const tabs: { id: Tab; label: string; Icon: React.ElementType }[] = [
+    { id: 'vaccinations', label: 'Vaccinations', Icon: Syringe },
+    { id: 'mortality', label: 'Mortality', Icon: Skull },
+    { id: 'feed', label: 'Feed', Icon: Wheat },
+    { id: 'eggs', label: 'Eggs', Icon: Egg },
+    { id: 'valuation', label: 'Valuation', Icon: TrendingUp },
   ];
 
-  // Profit calc
   const purchaseCost = flock.purchaseCostPerChick * flock.initialCount;
   const feedCost = feedRecords.reduce((s, r) => s + r.totalCost, 0);
   const vaccineCost = vaccinationRecords.reduce((s, r) => s + r.cost, 0);
-  const eggRevenue = sales.filter(s => s.product === "eggs").reduce((s, r) => s + r.totalAmount, 0);
-  const birdRevenue = sales.filter(s => s.product === "birds").reduce((s, r) => s + r.totalAmount, 0);
+  const eggRevenue = sales.filter(s => s.product === 'eggs').reduce((s, r) => s + r.totalAmount, 0);
+  const birdRevenue = sales.filter(s => s.product === 'birds').reduce((s, r) => s + r.totalAmount, 0);
   const net = eggRevenue + birdRevenue - purchaseCost - feedCost - vaccineCost;
 
   return (
@@ -214,37 +220,36 @@ function DetailPanel({ flock, activeTab, setActiveTab, mortalityRecords, feedRec
       <div className="flex items-center gap-2 border-b border-border pb-3">
         {tabs.map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${activeTab === t.id ? "bg-primary text-white" : "hover:bg-muted/40"}`}>
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${activeTab === t.id ? 'bg-primary text-white' : 'hover:bg-muted/40'}`}>
             <t.Icon size={13} />{t.label}
           </button>
         ))}
       </div>
 
-      {activeTab === "vaccinations" && <VaccinationsTab flock={flock} records={vaccinationRecords} onAdd={onAddVaccination} onComplete={onCompleteVaccination} />}
-      {activeTab === "mortality" && <MortalityTab flock={flock} records={mortalityRecords} onAdd={onAddMortality} />}
-      {activeTab === "feed" && <FeedTab flock={flock} records={feedRecords} onAdd={onAddFeed} />}
-      {activeTab === "eggs" && <EggsTab flock={flock} records={eggCollections} onAdd={onAddEgg} />}
-      {activeTab === "valuation" && (
-        <ValuationTab flock={flock} feedRecords={allFeedRecords} vaccRecords={allVaccRecords}
-          expenses={allExpenses} birdStagePricing={birdStagePricing}
-          birdStageSales={birdStageSales} onAddSale={onAddBirdStageSale} customers={allCustomers} />
+      {activeTab === 'vaccinations' && <VaccinationsTab flock={flock} records={vaccinationRecords} onAdd={onAddVaccination} onComplete={onCompleteVaccination} />}
+      {activeTab === 'mortality' && <MortalityTab flock={flock} records={mortalityRecords} onAdd={onAddMortality} />}
+      {activeTab === 'feed' && <FeedTab flock={flock} records={feedRecords} onAdd={onAddFeed} />}
+      {activeTab === 'eggs' && <EggsTab flock={flock} records={eggCollections} onAdd={onAddEgg} />}
+      {activeTab === 'valuation' && (
+        <ValuationTab flock={flock} flockStages={flockStages} feedRecords={allFeedRecords} vaccRecords={allVaccRecords}
+          expenses={allExpenses} birdStageSales={birdStageSales} onAddSale={onAddBirdStageSale} customers={allCustomers} />
       )}
 
       {/* Profit Panel */}
       <div className="border-t border-border pt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
         {[
-          ["Purchase Cost", formatCurrency(purchaseCost)],
-          ["Feed Cost", formatCurrency(feedCost)],
-          ["Vaccine Cost", formatCurrency(vaccineCost)],
-          ["Egg Revenue", formatCurrency(eggRevenue)],
-          ["Bird Revenue", formatCurrency(birdRevenue)],
+          ['Purchase Cost', formatCurrency(purchaseCost)],
+          ['Feed Cost', formatCurrency(feedCost)],
+          ['Vaccine Cost', formatCurrency(vaccineCost)],
+          ['Egg Revenue', formatCurrency(eggRevenue)],
+          ['Bird Revenue', formatCurrency(birdRevenue)],
         ].map(([label, val]) => (
           <div key={label} className="bg-muted/30 rounded-xl p-2">
             <p className="text-xs text-muted-foreground">{label}</p>
             <p className="font-semibold">{val}</p>
           </div>
         ))}
-        <div className={`rounded-xl p-2 ${net >= 0 ? "bg-green-500/10 text-green-700" : "bg-red-500/10 text-red-700"}`}>
+        <div className={`rounded-xl p-2 ${net >= 0 ? 'bg-green-500/10 text-green-700' : 'bg-red-500/10 text-red-700'}`}>
           <p className="text-xs opacity-70">Net Profit</p>
           <p className="font-bold">{formatCurrency(net)}</p>
         </div>
@@ -256,12 +261,12 @@ function DetailPanel({ flock, activeTab, setActiveTab, mortalityRecords, feedRec
 // ── Sub-tabs ──────────────────────────────────────────────────────────────────
 function VaccinationsTab({ flock, records, onAdd, onComplete }: { flock: Flock; records: VaccinationRecord[]; onAdd: (r: VaccinationRecord) => void; onComplete: (id: string) => void }) {
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ vaccineName: "", scheduledDate: "", cost: "", notes: "" });
+  const [form, setForm] = useState({ vaccineName: '', scheduledDate: '', cost: '', notes: '' });
   const today = new Date().toISOString().slice(0, 10);
   const submit = () => {
     if (!form.vaccineName || !form.scheduledDate) return;
     onAdd({ id: generateId(), flockId: flock.id, vaccineName: form.vaccineName, scheduledDate: form.scheduledDate, cost: parseFloat(form.cost) || 0, notes: form.notes, createdAt: new Date().toISOString() });
-    setForm({ vaccineName: "", scheduledDate: "", cost: "", notes: "" }); setShow(false);
+    setForm({ vaccineName: '', scheduledDate: '', cost: '', notes: '' }); setShow(false);
   };
   return (
     <div className="space-y-2">
@@ -288,31 +293,31 @@ function VaccinationsTab({ flock, records, onAdd, onComplete }: { flock: Flock; 
           <input className={INPUT} placeholder="Notes (optional)" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           <div className="flex gap-2"><button className={BTN_PRIMARY} onClick={submit}>Save</button><button className={BTN_GHOST} onClick={() => setShow(false)}>Cancel</button></div>
         </div>
-      ) : <button className={BTN_GHOST + " flex items-center gap-1.5 text-xs"} onClick={() => setShow(true)}><Plus size={12} />Add Vaccination</button>}
+      ) : <button className={BTN_GHOST + ' flex items-center gap-1.5 text-xs'} onClick={() => setShow(true)}><Plus size={12} />Add Vaccination</button>}
     </div>
   );
 }
 
 function MortalityTab({ flock, records, onAdd }: { flock: Flock; records: MortalityRecord[]; onAdd: (r: MortalityRecord) => void }) {
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), count: "", cause: "" });
+  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), count: '', cause: '' });
   const totalDeaths = records.reduce((s, r) => s + r.count, 0);
   const rate = calcMortalityRate(flock.initialCount, totalDeaths);
   const submit = () => {
     if (!form.count) return;
     onAdd({ id: generateId(), flockId: flock.id, date: form.date, count: parseInt(form.count), cause: form.cause, createdAt: new Date().toISOString() });
-    setForm({ date: new Date().toISOString().slice(0, 10), count: "", cause: "" }); setShow(false);
+    setForm({ date: new Date().toISOString().slice(0, 10), count: '', cause: '' }); setShow(false);
   };
   return (
     <div className="space-y-2">
       <div className="flex gap-3 text-sm mb-1">
         <span>Total deaths: <b>{totalDeaths}</b></span>
-        <span className={rate > 5 ? "text-red-600 font-semibold" : "text-muted-foreground"}>Rate: {rate.toFixed(1)}%</span>
+        <span className={rate > 5 ? 'text-red-600 font-semibold' : 'text-muted-foreground'}>Rate: {rate.toFixed(1)}%</span>
       </div>
       {records.map(r => (
         <div key={r.id} className="flex items-center gap-3 bg-muted/20 rounded-xl px-3 py-2 text-sm">
           <Skull size={14} className="text-red-400 shrink-0" />
-          <span className="flex-1">{formatDateShort(r.date)} — <b>{r.count}</b> bird{r.count !== 1 ? "s" : ""}{r.cause ? ` · ${r.cause}` : ""}</span>
+          <span className="flex-1">{formatDateShort(r.date)} — <b>{r.count}</b> bird{r.count !== 1 ? 's' : ''}{r.cause ? ` · ${r.cause}` : ''}</span>
         </div>
       ))}
       {show ? (
@@ -324,19 +329,19 @@ function MortalityTab({ flock, records, onAdd }: { flock: Flock; records: Mortal
           <input className={INPUT} placeholder="Cause (optional)" value={form.cause} onChange={e => setForm(f => ({ ...f, cause: e.target.value }))} />
           <div className="flex gap-2"><button className={BTN_PRIMARY} onClick={submit}>Log</button><button className={BTN_GHOST} onClick={() => setShow(false)}>Cancel</button></div>
         </div>
-      ) : <button className={BTN_GHOST + " flex items-center gap-1.5 text-xs"} onClick={() => setShow(true)}><Plus size={12} />Log Mortality</button>}
+      ) : <button className={BTN_GHOST + ' flex items-center gap-1.5 text-xs'} onClick={() => setShow(true)}><Plus size={12} />Log Mortality</button>}
     </div>
   );
 }
 
 function FeedTab({ flock, records, onAdd }: { flock: Flock; records: FeedRecord[]; onAdd: (r: FeedRecord) => void }) {
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), quantityKg: "", feedType: "starter" as FeedRecord["feedType"], feedSource: "purchased" as FeedRecord["feedSource"], costPerKg: "" });
+  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), quantityKg: '', feedType: 'starter' as FeedRecord['feedType'], feedSource: 'purchased' as FeedRecord['feedSource'], costPerKg: '' });
   const submit = () => {
     if (!form.quantityKg || !form.costPerKg) return;
     const qty = parseFloat(form.quantityKg), cpk = parseFloat(form.costPerKg);
     onAdd({ id: generateId(), flockId: flock.id, date: form.date, quantityKg: qty, feedType: form.feedType, feedSource: form.feedSource, costPerKg: cpk, totalCost: qty * cpk, createdAt: new Date().toISOString() });
-    setForm({ date: new Date().toISOString().slice(0, 10), quantityKg: "", feedType: "starter", feedSource: "purchased", costPerKg: "" }); setShow(false);
+    setForm({ date: new Date().toISOString().slice(0, 10), quantityKg: '', feedType: 'starter', feedSource: 'purchased', costPerKg: '' }); setShow(false);
   };
   const chartData = useMemo(() => {
     const now = Date.now(); const cutoff = now - 30 * 86400000;
@@ -364,11 +369,11 @@ function FeedTab({ flock, records, onAdd }: { flock: Flock; records: FeedRecord[
         <div className="bg-muted/20 rounded-xl p-3 space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <input className={INPUT} type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
-            <select className={INPUT} value={form.feedType} onChange={e => setForm(f => ({ ...f, feedType: e.target.value as FeedRecord["feedType"] }))}>
-              {(["starter","grower","layer","finisher"] as FeedRecord["feedType"][]).map(t => <option key={t} value={t}>{t}</option>)}
+            <select className={INPUT} value={form.feedType} onChange={e => setForm(f => ({ ...f, feedType: e.target.value as FeedRecord['feedType'] }))}>
+              {(['starter','grower','layer','finisher'] as FeedRecord['feedType'][]).map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
-          <select className={INPUT} value={form.feedSource} onChange={e => setForm(f => ({ ...f, feedSource: e.target.value as FeedRecord["feedSource"] }))}>
+          <select className={INPUT} value={form.feedSource} onChange={e => setForm(f => ({ ...f, feedSource: e.target.value as FeedRecord['feedSource'] }))}>
             <option value="purchased">Purchased</option>
             <option value="produced">Produced on-farm</option>
           </select>
@@ -378,25 +383,25 @@ function FeedTab({ flock, records, onAdd }: { flock: Flock; records: FeedRecord[
           </div>
           <div className="flex gap-2"><button className={BTN_PRIMARY} onClick={submit}>Save</button><button className={BTN_GHOST} onClick={() => setShow(false)}>Cancel</button></div>
         </div>
-      ) : <button className={BTN_GHOST + " flex items-center gap-1.5 text-xs"} onClick={() => setShow(true)}><Plus size={12} />Log Feed</button>}
+      ) : <button className={BTN_GHOST + ' flex items-center gap-1.5 text-xs'} onClick={() => setShow(true)}><Plus size={12} />Log Feed</button>}
     </div>
   );
 }
 
 function EggsTab({ flock, records, onAdd }: { flock: Flock; records: EggCollection[]; onAdd: (e: EggCollection) => void }) {
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), count: "", broken: "0", notes: "" });
+  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), count: '', broken: '0', notes: '' });
   const totalCollected = records.reduce((s, r) => s + r.count, 0);
   const totalBroken = records.reduce((s, r) => s + (r.broken ?? 0), 0);
   const totalSellable = records.reduce((s, r) => s + (r.sellable ?? r.count), 0);
-  const avg = records.length ? (totalCollected / records.length).toFixed(1) : "0";
+  const avg = records.length ? (totalCollected / records.length).toFixed(1) : '0';
   const previewSellable = Math.max(0, (parseInt(form.count) || 0) - (parseInt(form.broken) || 0));
   const submit = () => {
     if (!form.count) return;
     const count = parseInt(form.count) || 0;
     const broken = Math.min(parseInt(form.broken) || 0, count);
     onAdd({ id: generateId(), flockId: flock.id, date: form.date, count, broken, sellable: count - broken, notes: form.notes || undefined, createdAt: new Date().toISOString() });
-    setForm({ date: new Date().toISOString().slice(0, 10), count: "", broken: "0", notes: "" }); setShow(false);
+    setForm({ date: new Date().toISOString().slice(0, 10), count: '', broken: '0', notes: '' }); setShow(false);
   };
   return (
     <div className="space-y-2">
@@ -428,30 +433,33 @@ function EggsTab({ flock, records, onAdd }: { flock: Flock; records: EggCollecti
             </div>
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Sellable (auto)</label>
-              <div className={INPUT + " bg-muted/30 text-muted-foreground cursor-default"}>{previewSellable}</div>
+              <div className={INPUT + ' bg-muted/30 text-muted-foreground cursor-default'}>{previewSellable}</div>
             </div>
           </div>
           <input className={INPUT} placeholder="Notes (optional)" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           <div className="flex gap-2"><button className={BTN_PRIMARY} onClick={submit}>Save</button><button className={BTN_GHOST} onClick={() => setShow(false)}>Cancel</button></div>
         </div>
-      ) : <button className={BTN_GHOST + " flex items-center gap-1.5 text-xs"} onClick={() => setShow(true)}><Plus size={12} />Log Collection</button>}
+      ) : <button className={BTN_GHOST + ' flex items-center gap-1.5 text-xs'} onClick={() => setShow(true)}><Plus size={12} />Log Collection</button>}
     </div>
   );
 }
 
 // ── AddFlockModal ─────────────────────────────────────────────────────────────
-function AddFlockModal({ onClose, onSave }: {
+function AddFlockModal({ flockStages, onClose, onSave }: {
+  flockStages: FlockStageConfig[];
   onClose: () => void;
-  onSave: (data: Omit<Flock, "id" | "currentCount" | "createdAt">) => void;
+  onSave: (data: Omit<Flock, 'id' | 'currentCount' | 'createdAt'>) => void;
 }) {
+  const growthStages = flockStages.filter(s => !s.role);
+  const defaultStage = growthStages[0]?.id ?? flockStages[0]?.id ?? '';
   const [form, setForm] = useState({
-    name: "", dateAcquired: new Date().toISOString().slice(0, 10),
-    source: "", initialCount: "", purchaseCostPerChick: "",
-    initialWeight: "", breed: "", stage: "brooder" as FlockStage, notes: "",
+    name: '', dateAcquired: new Date().toISOString().slice(0, 10),
+    source: '', initialCount: '', purchaseCostPerChick: '',
+    initialWeight: '', breed: '', stage: defaultStage, notes: '',
   });
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const s = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
   const submit = () => {
-    if (!form.name || !form.initialCount) { toast.error("Name and count required"); return; }
+    if (!form.name || !form.initialCount) { toast.error('Name and count required'); return; }
     onSave({
       name: form.name, dateAcquired: form.dateAcquired, source: form.source,
       initialCount: parseInt(form.initialCount) || 0,
@@ -468,20 +476,22 @@ function AddFlockModal({ onClose, onSave }: {
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted/40"><X size={16} /></button>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <input className={INPUT + " col-span-2"} placeholder="Flock name *" value={form.name} onChange={e => set("name", e.target.value)} />
-          <input className={INPUT} placeholder="Breed" value={form.breed} onChange={e => set("breed", e.target.value)} />
-          <input className={INPUT} placeholder="Source / Supplier" value={form.source} onChange={e => set("source", e.target.value)} />
-          <input className={INPUT} type="date" value={form.dateAcquired} onChange={e => set("dateAcquired", e.target.value)} />
-          <input className={INPUT} type="number" min="1" placeholder="Initial count *" value={form.initialCount} onChange={e => set("initialCount", e.target.value)} />
-          <input className={INPUT} type="number" placeholder="Cost/Bird (Ksh)" value={form.purchaseCostPerChick} onChange={e => set("purchaseCostPerChick", e.target.value)} />
-          <input className={INPUT} type="number" placeholder="Initial weight (g)" value={form.initialWeight} onChange={e => set("initialWeight", e.target.value)} />
-          <select className={INPUT + " col-span-2"} value={form.stage} onChange={e => set("stage", e.target.value)}>
-            {(["brooder","grower","layer"] as FlockStage[]).map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+          <input className={INPUT + ' col-span-2'} placeholder="Flock name *" value={form.name} onChange={e => s('name', e.target.value)} />
+          <input className={INPUT} placeholder="Breed" value={form.breed} onChange={e => s('breed', e.target.value)} />
+          <input className={INPUT} placeholder="Source / Supplier" value={form.source} onChange={e => s('source', e.target.value)} />
+          <input className={INPUT} type="date" value={form.dateAcquired} onChange={e => s('dateAcquired', e.target.value)} />
+          <input className={INPUT} type="number" min="1" placeholder="Initial count *" value={form.initialCount} onChange={e => s('initialCount', e.target.value)} />
+          <input className={INPUT} type="number" placeholder="Cost/Bird (Ksh)" value={form.purchaseCostPerChick} onChange={e => s('purchaseCostPerChick', e.target.value)} />
+          <input className={INPUT} type="number" placeholder="Initial weight (g)" value={form.initialWeight} onChange={e => s('initialWeight', e.target.value)} />
+          <select className={INPUT + ' col-span-2'} value={form.stage} onChange={e => s('stage', e.target.value)}>
+            {growthStages.map(st => (
+              <option key={st.id} value={st.id}>{st.name}</option>
+            ))}
           </select>
-          <textarea className={INPUT + " col-span-2 resize-none"} rows={2} placeholder="Notes (optional)" value={form.notes} onChange={e => set("notes", e.target.value)} />
+          <textarea className={INPUT + ' col-span-2 resize-none'} rows={2} placeholder="Notes (optional)" value={form.notes} onChange={e => s('notes', e.target.value)} />
         </div>
         <div className="flex gap-2 pt-1">
-          <button className={BTN_PRIMARY + " flex-1"} onClick={submit}>Add Flock</button>
+          <button className={BTN_PRIMARY + ' flex-1'} onClick={submit}>Add Flock</button>
           <button className={BTN_GHOST} onClick={onClose}>Cancel</button>
         </div>
       </div>
@@ -490,21 +500,20 @@ function AddFlockModal({ onClose, onSave }: {
 }
 
 // ── ValuationTab ───────────────────────────────────────────────────────────────
-function ValuationTab({ flock, feedRecords, vaccRecords, expenses, birdStagePricing, birdStageSales, onAddSale, customers }: {
+function ValuationTab({ flock, flockStages, feedRecords, vaccRecords, expenses, birdStageSales, onAddSale, customers }: {
   flock: Flock;
-  feedRecords: import("@/lib/types").FeedRecord[];
+  flockStages: FlockStageConfig[];
+  feedRecords: import('@/lib/types').FeedRecord[];
   vaccRecords: VaccinationRecord[];
-  expenses: import("@/lib/types").Expense[];
-  birdStagePricing: import("@/lib/types").BirdStagePricing;
-  birdStageSales: import("@/lib/types").BirdStageSale[];
-  onAddSale: (s: import("@/lib/types").BirdStageSale) => void;
-  customers: import("@/lib/types").Customer[];
+  expenses: import('@/lib/types').Expense[];
+  birdStageSales: import('@/lib/types').BirdStageSale[];
+  onAddSale: (s: import('@/lib/types').BirdStageSale) => void;
+  customers: import('@/lib/types').Customer[];
 }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ qty: "", price: "", customerId: "", date: new Date().toISOString().split("T")[0], notes: "" });
+  const [form, setForm] = useState({ qty: '', price: '', customerId: '', date: new Date().toISOString().split('T')[0], notes: '' });
   const sf = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
-  // ── Break-even calculation ─────────────────────────────────────────────────
   const flockFeed = feedRecords.filter(r => r.flockId === flock.id);
   const flockVacc = vaccRecords.filter(r => r.flockId === flock.id);
   const flockExp  = expenses.filter(e => e.flockId === flock.id);
@@ -515,24 +524,21 @@ function ValuationTab({ flock, feedRecords, vaccRecords, expenses, birdStagePric
   const purchaseCost  = flock.purchaseCostPerChick * flock.initialCount;
   const totalCostToDate = purchaseCost + totalFeedCost + totalVaccCost + totalOtherExp;
 
-  // Cost per surviving bird right now
   const surviving = Math.max(1, flock.currentCount);
   const costPerBirdNow = totalCostToDate / surviving;
 
-  // Break-even at each stage = cost per bird at that point
-  const stageBreakEven: Record<string, number> = {
-    brooder: costPerBirdNow, // currently at this stage
-    grower:  costPerBirdNow * 1.35,  // estimated 35% more feed ahead
-    layer:   costPerBirdNow * 1.80,  // estimated 80% more by layer
-  };
-  const configuredPrice = birdStagePricing[flock.stage as keyof typeof birdStagePricing] ?? 0;
+  const currentStage = flockStages.find(s => s.id === flock.stage);
+  const configuredPrice = currentStage?.pricePerBird ?? 0;
   const marginAtConfigured = configuredPrice - costPerBirdNow;
+
+  // Growth stages only (non-terminal) for break-even comparison
+  const growthStages = flockStages.filter(s => !s.role);
 
   function submitSale() {
     const qty = parseInt(form.qty);
     const price = parseFloat(form.price);
     if (!qty || qty <= 0 || qty > flock.currentCount) { toast.error(`Qty must be 1–${flock.currentCount}`); return; }
-    if (!price || price <= 0) { toast.error("Enter valid price per bird"); return; }
+    if (!price || price <= 0) { toast.error('Enter valid price per bird'); return; }
     onAddSale({
       id: generateId(), flockId: flock.id, stage: flock.stage,
       quantity: qty, pricePerBird: price,
@@ -543,21 +549,18 @@ function ValuationTab({ flock, feedRecords, vaccRecords, expenses, birdStagePric
       createdAt: new Date().toISOString(),
     });
     setShowForm(false);
-    setForm({ qty: "", price: "", customerId: "", date: new Date().toISOString().split("T")[0], notes: "" });
+    setForm({ qty: '', price: '', customerId: '', date: new Date().toISOString().split('T')[0], notes: '' });
   }
-
-  const totalBirdRevenue = birdStageSales.reduce((s, r) => s + r.totalAmount, 0);
-  const totalBirdsSold   = birdStageSales.reduce((s, r) => s + r.quantity, 0);
 
   return (
     <div className="space-y-4">
       {/* Cost summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {[
-          { label: "Total Cost to Date", value: formatCurrency(totalCostToDate), sub: "All costs incurred", color: "oklch(0.57 0.24 27)" },
-          { label: "Cost per Bird Now", value: formatCurrency(costPerBirdNow), sub: `${flock.currentCount} birds alive`, color: "oklch(0.55 0.18 40)" },
-          { label: "Configured Price", value: formatCurrency(configuredPrice), sub: `${flock.stage} stage`, color: "oklch(0.42 0.14 148)" },
-          { label: "Margin per Bird", value: formatCurrency(marginAtConfigured), sub: marginAtConfigured >= 0 ? "Profit if sold now" : "Loss if sold now", color: marginAtConfigured >= 0 ? "oklch(0.42 0.14 148)" : "oklch(0.57 0.24 27)" },
+          { label: 'Total Cost to Date', value: formatCurrency(totalCostToDate), sub: 'All costs incurred', color: 'oklch(0.57 0.24 27)' },
+          { label: 'Cost per Bird Now', value: formatCurrency(costPerBirdNow), sub: `${flock.currentCount} birds alive`, color: 'oklch(0.55 0.18 40)' },
+          { label: 'Configured Price', value: formatCurrency(configuredPrice), sub: currentStage?.name ?? flock.stage, color: 'oklch(0.42 0.14 148)' },
+          { label: 'Margin per Bird', value: formatCurrency(marginAtConfigured), sub: marginAtConfigured >= 0 ? 'Profit if sold now' : 'Loss if sold now', color: marginAtConfigured >= 0 ? 'oklch(0.42 0.14 148)' : 'oklch(0.57 0.24 27)' },
         ].map(c => (
           <div key={c.label} className="rounded-xl p-3 border border-border">
             <div className="text-lg font-bold" style={{ color: c.color }}>{c.value}</div>
@@ -568,30 +571,30 @@ function ValuationTab({ flock, feedRecords, vaccRecords, expenses, birdStagePric
       </div>
 
       {/* Break-even per stage */}
-      <div>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Estimated Break-Even Price by Stage</p>
-        <div className="grid grid-cols-3 gap-2">
-          {(["brooder","grower","layer"] as const).map(stage => {
-            const be = stageBreakEven[stage];
-            const sp = birdStagePricing[stage];
-            const profit = sp - be;
-            return (
-              <div key={stage} className={`rounded-xl p-3 border ${flock.stage === stage ? "border-primary" : "border-border"}`}
-                style={{ background: flock.stage === stage ? "oklch(0.42 0.14 148 / 0.06)" : "" }}>
-                <div className="flex items-center gap-1 mb-1">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded stage-${stage}`}>{stage.toUpperCase()}</span>
-                  {flock.stage === stage && <span className="text-[9px] text-primary font-semibold">NOW</span>}
+      {growthStages.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Configured Price vs Break-Even by Stage</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {growthStages.map(stage => {
+              const profit = stage.pricePerBird - costPerBirdNow;
+              return (
+                <div key={stage.id} className={`rounded-xl p-3 border ${flock.stage === stage.id ? 'border-primary' : 'border-border'}`}
+                  style={{ background: flock.stage === stage.id ? 'oklch(0.42 0.14 148 / 0.06)' : '' }}>
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${getStageCls(stage)}`}>{stage.name.toUpperCase()}</span>
+                    {flock.stage === stage.id && <span className="text-[9px] text-primary font-semibold">NOW</span>}
+                  </div>
+                  <div className="text-sm font-bold text-foreground">Break-even: {formatCurrency(costPerBirdNow)}</div>
+                  <div className="text-xs text-muted-foreground">Your price: {formatCurrency(stage.pricePerBird)}</div>
+                  <div className={`text-xs font-semibold mt-0.5 ${profit >= 0 ? 'text-primary' : 'text-destructive'}`}>
+                    {profit >= 0 ? `+${formatCurrency(profit)}` : formatCurrency(profit)} margin
+                  </div>
                 </div>
-                <div className="text-sm font-bold text-foreground">Break-even: {formatCurrency(be)}</div>
-                <div className="text-xs text-muted-foreground">Your price: {formatCurrency(sp)}</div>
-                <div className={`text-xs font-semibold mt-0.5 ${profit >= 0 ? "text-primary" : "text-destructive"}`}>
-                  {profit >= 0 ? `+${formatCurrency(profit)}` : formatCurrency(profit)} margin
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Record a bird sale */}
       <div>
@@ -599,7 +602,7 @@ function ValuationTab({ flock, feedRecords, vaccRecords, expenses, birdStagePric
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bird Sales at This Stage</p>
           <button onClick={() => setShowForm(!showForm)}
             className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-white"
-            style={{ background: "oklch(0.42 0.14 148)" }}>
+            style={{ background: 'oklch(0.42 0.14 148)' }}>
             <Plus size={12} /> Record Sale
           </button>
         </div>
@@ -609,38 +612,38 @@ function ValuationTab({ flock, feedRecords, vaccRecords, expenses, birdStagePric
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">Qty to sell (max {flock.currentCount})</label>
-                <input type="number" min="1" max={flock.currentCount} value={form.qty} onChange={e => sf("qty", e.target.value)} className={INPUT} />
+                <input type="number" min="1" max={flock.currentCount} value={form.qty} onChange={e => sf('qty', e.target.value)} className={INPUT} />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">Price per bird (Ksh)</label>
-                <input type="number" min="1" value={form.price} onChange={e => sf("price", e.target.value)} className={INPUT}
+                <input type="number" min="1" value={form.price} onChange={e => sf('price', e.target.value)} className={INPUT}
                   placeholder={`≥ ${Math.ceil(costPerBirdNow)} to break even`} />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">Date</label>
-                <input type="date" value={form.date} onChange={e => sf("date", e.target.value)} className={INPUT} />
+                <input type="date" value={form.date} onChange={e => sf('date', e.target.value)} className={INPUT} />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">Customer (optional)</label>
-                <select value={form.customerId} onChange={e => sf("customerId", e.target.value)} className={INPUT}>
+                <select value={form.customerId} onChange={e => sf('customerId', e.target.value)} className={INPUT}>
                   <option value="">Walk-in / unknown</option>
                   {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             </div>
-            <input value={form.notes} onChange={e => sf("notes", e.target.value)} className={INPUT} placeholder="Notes (optional)" />
+            <input value={form.notes} onChange={e => sf('notes', e.target.value)} className={INPUT} placeholder="Notes (optional)" />
             {form.qty && form.price && (
-              <div className="rounded-lg px-3 py-2 text-xs" style={{ background: "oklch(0.42 0.14 148 / 0.08)" }}>
+              <div className="rounded-lg px-3 py-2 text-xs" style={{ background: 'oklch(0.42 0.14 148 / 0.08)' }}>
                 Total: <strong>{formatCurrency(Number(form.qty) * Number(form.price))}</strong>
-                {" · "}
+                {' · '}
                 {Number(form.price) >= costPerBirdNow
                   ? <span className="text-primary font-semibold">Profit: {formatCurrency((Number(form.price) - costPerBirdNow) * Number(form.qty))}</span>
                   : <span className="text-destructive font-semibold">Loss: {formatCurrency((costPerBirdNow - Number(form.price)) * Number(form.qty))}</span>}
               </div>
             )}
             <div className="flex gap-2">
-              <button onClick={submitSale} className={BTN_PRIMARY + " text-xs py-1.5"}>Save Sale</button>
-              <button onClick={() => setShowForm(false)} className={BTN_GHOST + " text-xs py-1.5"}>Cancel</button>
+              <button onClick={submitSale} className={BTN_PRIMARY + ' text-xs py-1.5'}>Save Sale</button>
+              <button onClick={() => setShowForm(false)} className={BTN_GHOST + ' text-xs py-1.5'}>Cancel</button>
             </div>
           </div>
         )}
@@ -649,13 +652,14 @@ function ValuationTab({ flock, feedRecords, vaccRecords, expenses, birdStagePric
         {birdStageSales.map(sale => {
           const cust = customers.find(c => c.id === sale.customerId);
           const profit = (sale.pricePerBird - sale.breakEvenPrice) * sale.quantity;
+          const stageLabel = flockStages.find(s => s.id === sale.stage)?.name ?? sale.stage;
           return (
             <div key={sale.id} className="flex items-center justify-between py-2 border-t border-border/50 text-xs">
               <div>
                 <span className="font-medium text-foreground">{sale.quantity} birds @ {formatCurrency(sale.pricePerBird)}</span>
-                <span className="text-muted-foreground ml-1.5">· {cust?.name ?? "Walk-in"} · {formatDate(sale.date)}</span>
-                <span className={`ml-1.5 font-semibold ${profit >= 0 ? "text-primary" : "text-destructive"}`}>
-                  ({profit >= 0 ? "+" : ""}{formatCurrency(profit)})
+                <span className="text-muted-foreground ml-1.5">· {stageLabel} · {cust?.name ?? 'Walk-in'} · {formatDate(sale.date)}</span>
+                <span className={`ml-1.5 font-semibold ${profit >= 0 ? 'text-primary' : 'text-destructive'}`}>
+                  ({profit >= 0 ? '+' : ''}{formatCurrency(profit)})
                 </span>
               </div>
               <span className="font-bold text-foreground">{formatCurrency(sale.totalAmount)}</span>
@@ -674,29 +678,45 @@ function ValuationTab({ flock, feedRecords, vaccRecords, expenses, birdStagePric
   );
 }
 
-function AdvanceStageModal({ flock, onClose, onSave }: { flock: Flock; onClose: () => void; onSave: (ns: FlockStage) => void }) {
-  const [stage, setStage] = useState<FlockStage>(nextStage(flock.stage));
+// ── AdvanceStageModal ─────────────────────────────────────────────────────────
+function AdvanceStageModal({ flock, flockStages, onClose, onSave }: {
+  flock: Flock;
+  flockStages: FlockStageConfig[];
+  onClose: () => void;
+  onSave: (ns: string) => void;
+}) {
+  const currentOrder = flockStages.find(s => s.id === flock.stage)?.displayOrder ?? -1;
+  const nextStages = flockStages.filter(s => s.displayOrder > currentOrder);
+  const [stage, setStage] = useState(nextStages[0]?.id ?? '');
+  const currentName = flockStages.find(s => s.id === flock.stage)?.name ?? flock.stage;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="glass-card rounded-2xl p-5 w-full max-w-sm space-y-4 shadow-2xl" onClick={e => e.stopPropagation()}>
         <div>
           <h2 className="font-bold text-lg">Advance Stage</h2>
-          <p className="text-xs text-muted-foreground">Moving <b>{flock.name}</b> from {STAGE_LABELS[flock.stage]}</p>
+          <p className="text-xs text-muted-foreground">Moving <b>{flock.name}</b> from {currentName}</p>
         </div>
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground uppercase mb-1.5 block">Select New Stage</label>
-          <div className="grid grid-cols-1 gap-2">
-            {STAGE_ORDER.slice(STAGE_ORDER.indexOf(flock.stage) + 1).map(s => (
-              <button key={s} onClick={() => setStage(s)}
-                className={`flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${stage === s ? "border-primary bg-primary/5" : "border-border hover:bg-muted/30"}`}>
-                <span className="text-sm font-medium">{STAGE_LABELS[s]}</span>
-                {stage === s && <CheckCircle className="w-4 h-4 text-primary" />}
-              </button>
-            ))}
+        {nextStages.length === 0 ? (
+          <p className="text-sm text-muted-foreground">This flock is already at the final stage.</p>
+        ) : (
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase mb-1.5 block">Select New Stage</label>
+            <div className="grid grid-cols-1 gap-2">
+              {nextStages.map(s => (
+                <button key={s.id} onClick={() => setStage(s.id)}
+                  className={`flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${stage === s.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/30'}`}>
+                  <span className="text-sm font-medium">{s.name}</span>
+                  {stage === s.id && <CheckCircle className="w-4 h-4 text-primary" />}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
         <div className="flex gap-2">
-          <button className={BTN_PRIMARY + " flex-1"} onClick={() => onSave(stage)}>Confirm Advancement</button>
+          {nextStages.length > 0 && (
+            <button className={BTN_PRIMARY + ' flex-1'} onClick={() => onSave(stage)}>Confirm Advancement</button>
+          )}
           <button className={BTN_GHOST} onClick={onClose}>Cancel</button>
         </div>
       </div>

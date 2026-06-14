@@ -1,14 +1,14 @@
-"use client";
-import { useMemo, useState } from "react";
-import { BarChart2, TrendingUp, Egg, DollarSign } from "lucide-react";
+'use client';
+import { useMemo, useState } from 'react';
+import { BarChart2, TrendingUp, Egg, DollarSign } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
-} from "recharts";
-import { useFarmStore } from "@/lib/store";
-import { linearRegression, formatCurrency, formatDateShort } from "@/lib/utils";
+} from 'recharts';
+import { useFarmStore } from '@/lib/store';
+import { linearRegression, formatCurrency, formatDateShort } from '@/lib/utils';
 
-type Period = "7d" | "30d" | "90d" | "custom";
+type Period = '7d' | '30d' | '90d' | 'custom';
 
 function subDays(n: number) {
   const d = new Date();
@@ -35,14 +35,14 @@ function kpiCard(icon: React.ReactNode, label: string, value: string, sub: strin
 
 export default function AnalyticsPage() {
   const { eggCollections, sales, customers } = useFarmStore();
-  const [period, setPeriod] = useState<Period>("30d");
+  const [period, setPeriod] = useState<Period>('30d');
   const [customFrom, setCustomFrom] = useState(isoDate(subDays(30)));
   const [customTo, setCustomTo] = useState(isoDate(new Date()));
 
   const { from, to } = useMemo(() => {
-    if (period === "7d") return { from: isoDate(subDays(7)), to: isoDate(new Date()) };
-    if (period === "30d") return { from: isoDate(subDays(30)), to: isoDate(new Date()) };
-    if (period === "90d") return { from: isoDate(subDays(90)), to: isoDate(new Date()) };
+    if (period === '7d') return { from: isoDate(subDays(7)), to: isoDate(new Date()) };
+    if (period === '30d') return { from: isoDate(subDays(30)), to: isoDate(new Date()) };
+    if (period === '90d') return { from: isoDate(subDays(90)), to: isoDate(new Date()) };
     return { from: customFrom, to: customTo };
   }, [period, customFrom, customTo]);
 
@@ -52,7 +52,7 @@ export default function AnalyticsPage() {
   );
 
   const filteredSales = useMemo(
-    () => sales.filter(s => s.date >= from && s.date <= to && s.product === "eggs"),
+    () => sales.filter(s => s.date >= from && s.date <= to && s.product === 'eggs'),
     [sales, from, to]
   );
 
@@ -140,12 +140,12 @@ export default function AnalyticsPage() {
   const totalSoldEggs = filteredSales.reduce((s, sale) => s + sale.quantity, 0);
   const avgEggPrice = totalSoldEggs > 0 ? totalRevenue / totalSoldEggs : 0;
   const bestCustomer = useMemo(() => {
-    if (!top5Customers.length) return "—";
-    return customers.find(c => c.id === top5Customers[0])?.name ?? "—";
+    if (!top5Customers.length) return '—';
+    return customers.find(c => c.id === top5Customers[0])?.name ?? '—';
   }, [top5Customers, customers]);
 
-  const COLORS = ["#16a34a", "#2563eb", "#d97706", "#dc2626", "#7c3aed"];
-  const periodBtns: Period[] = ["7d", "30d", "90d", "custom"];
+  const COLORS = ['#16a34a', '#2563eb', '#d97706', '#dc2626', '#7c3aed'];
+  const periodBtns: Period[] = ['7d', '30d', '90d', 'custom'];
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto">
@@ -164,12 +164,12 @@ export default function AnalyticsPage() {
           <button
             key={p}
             onClick={() => setPeriod(p)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${period === p ? "bg-green-600 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${period === p ? 'bg-green-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
           >
-            {p === "custom" ? "Custom" : p.toUpperCase()}
+            {p === 'custom' ? 'Custom' : p.toUpperCase()}
           </button>
         ))}
-        {period === "custom" && (
+        {period === 'custom' && (
           <div className="flex gap-2 items-center">
             <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
               className="border border-gray-200 rounded-lg px-2 py-1 text-sm" />
@@ -182,10 +182,10 @@ export default function AnalyticsPage() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {kpiCard(<Egg className="w-4 h-4" />, "Avg Daily Eggs", avgDailyEggs.toLocaleString(), `${totalEggs.toLocaleString()} total`)}
-        {kpiCard(<DollarSign className="w-4 h-4" />, "Total Revenue", formatCurrency(totalRevenue), "in period")}
-        {kpiCard(<TrendingUp className="w-4 h-4" />, "Avg Price/Egg", formatCurrency(avgEggPrice), "weighted avg")}
-        {kpiCard(<BarChart2 className="w-4 h-4" />, "Best Customer", bestCustomer, "by volume")}
+        {kpiCard(<Egg className="w-4 h-4" />, 'Avg Daily Eggs', avgDailyEggs.toLocaleString(), `${totalEggs.toLocaleString()} total`)}
+        {kpiCard(<DollarSign className="w-4 h-4" />, 'Total Revenue', formatCurrency(totalRevenue), 'in period')}
+        {kpiCard(<TrendingUp className="w-4 h-4" />, 'Avg Price/Egg', formatCurrency(avgEggPrice), 'weighted avg')}
+        {kpiCard(<BarChart2 className="w-4 h-4" />, 'Best Customer', bestCustomer, 'by volume')}
       </div>
 
       {/* Egg production line chart */}

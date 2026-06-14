@@ -1,9 +1,9 @@
-"use client";
-import { useState, useMemo } from "react";
-import { Egg, Wheat, Skull, CheckCircle, Bird, AlertTriangle } from "lucide-react";
-import { useFarmStore } from "@/lib/store";
-import { generateId } from "@/lib/utils";
-import { toast } from "sonner";
+'use client';
+import { useState, useMemo } from 'react';
+import { Egg, Wheat, Skull, CheckCircle, Bird, AlertTriangle } from 'lucide-react';
+import { useFarmStore } from '@/lib/store';
+import { generateId } from '@/lib/utils';
+import { toast } from 'sonner';
 
 function today() { return new Date().toISOString().slice(0, 10); }
 
@@ -16,7 +16,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-const inputCls = "border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-500";
+const inputCls = 'border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-500';
 
 export default function EmployeePage() {
   const {
@@ -25,7 +25,7 @@ export default function EmployeePage() {
     eggCollections, feedDispenseRecords, mortalityRecords, feedInventory,
   } = useFarmStore();
 
-  const layerFlocks = flocks.filter(f => f.stage === "layer");
+  const layerFlocks = flocks.filter(f => f.stage === 'layer');
   const allFlocks = flocks;
 
   const FCR_RECS: Record<string, number> = {
@@ -36,23 +36,23 @@ export default function EmployeePage() {
   };
 
   // Egg form
-  const [eggFlock, setEggFlock] = useState("");
+  const [eggFlock, setEggFlock] = useState('');
   const [eggDate, setEggDate] = useState(today());
-  const [eggCount, setEggCount] = useState("");
-  const [eggBroken, setEggBroken] = useState("0");
+  const [eggCount, setEggCount] = useState('');
+  const [eggBroken, setEggBroken] = useState('0');
 
   // Feed form
-  const [feedFlock, setFeedFlock] = useState("");
+  const [feedFlock, setFeedFlock] = useState('');
   const [feedDate, setFeedDate] = useState(today());
-  const [feedQty, setFeedQty] = useState("");
-  const [feedType, setFeedType] = useState<"starter" | "grower" | "layer" | "finisher">("layer");
-  const [feedNotes, setFeedNotes] = useState("");
+  const [feedQty, setFeedQty] = useState('');
+  const [feedType, setFeedType] = useState<'starter' | 'grower' | 'layer' | 'finisher'>('layer');
+  const [feedNotes, setFeedNotes] = useState('');
 
   // Mortality form
-  const [mortFlock, setMortFlock] = useState("");
+  const [mortFlock, setMortFlock] = useState('');
   const [mortDate, setMortDate] = useState(today());
-  const [mortCount, setMortCount] = useState("");
-  const [mortCause, setMortCause] = useState("");
+  const [mortCount, setMortCount] = useState('');
+  const [mortCause, setMortCause] = useState('');
 
   const selectedInventory = useMemo(
     () => feedInventory.find(fi => fi.feedType === feedType),
@@ -68,12 +68,12 @@ export default function EmployeePage() {
   }, [feedQty, selectedInventory]);
 
   function submitEgg() {
-    if (!eggFlock) { toast.error("Select a flock"); return; }
+    if (!eggFlock) { toast.error('Select a flock'); return; }
     const cnt = parseInt(eggCount);
     const brk = parseInt(eggBroken) || 0;
-    if (isNaN(cnt) || cnt < 0) { toast.error("Enter a valid egg count"); return; }
-    if (brk < 0 || brk > cnt) { toast.error("Broken count cannot exceed total count"); return; }
-    if (eggDate > today()) { toast.error("Date cannot be in the future"); return; }
+    if (isNaN(cnt) || cnt < 0) { toast.error('Enter a valid egg count'); return; }
+    if (brk < 0 || brk > cnt) { toast.error('Broken count cannot exceed total count'); return; }
+    if (eggDate > today()) { toast.error('Date cannot be in the future'); return; }
     addEggCollection({
       id: generateId(),
       flockId: eggFlock,
@@ -84,15 +84,15 @@ export default function EmployeePage() {
       createdAt: new Date().toISOString(),
     });
     toast.success(`Logged ${cnt} eggs (${brk} broken)`);
-    setEggCount("");
-    setEggBroken("0");
+    setEggCount('');
+    setEggBroken('0');
   }
 
   function submitFeed() {
-    if (!feedFlock) { toast.error("Select a flock"); return; }
+    if (!feedFlock) { toast.error('Select a flock'); return; }
     const qty = parseFloat(feedQty);
-    if (isNaN(qty) || qty <= 0) { toast.error("Enter valid quantity"); return; }
-    if (feedDate > today()) { toast.error("Date cannot be in the future"); return; }
+    if (isNaN(qty) || qty <= 0) { toast.error('Enter valid quantity'); return; }
+    if (feedDate > today()) { toast.error('Date cannot be in the future'); return; }
     if (stockWarning) { toast.error(stockWarning); return; }
     addFeedDispenseRecord({
       id: generateId(),
@@ -100,23 +100,23 @@ export default function EmployeePage() {
       date: feedDate,
       quantityKg: qty,
       feedType,
-      feedSource: "purchased",
+      feedSource: 'purchased',
       notes: feedNotes || undefined,
       createdAt: new Date().toISOString(),
     });
     toast.success(`Dispensed ${qty} kg of ${feedType} feed`);
-    setFeedQty("");
-    setFeedNotes("");
+    setFeedQty('');
+    setFeedNotes('');
   }
 
   function submitMortality() {
-    if (!mortFlock) { toast.error("Select a flock"); return; }
+    if (!mortFlock) { toast.error('Select a flock'); return; }
     const cnt = parseInt(mortCount);
-    if (isNaN(cnt) || cnt < 0) { toast.error("Enter a valid count"); return; }
-    if (mortDate > today()) { toast.error("Date cannot be in the future"); return; }
+    if (isNaN(cnt) || cnt < 0) { toast.error('Enter a valid count'); return; }
+    if (mortDate > today()) { toast.error('Date cannot be in the future'); return; }
     addMortalityRecord({ id: generateId(), flockId: mortFlock, date: mortDate, count: cnt, cause: mortCause, createdAt: new Date().toISOString() });
     toast.success(`Logged ${cnt} mortality`);
-    setMortCount(""); setMortCause("");
+    setMortCount(''); setMortCause('');
   }
 
   // Today's summary
@@ -132,7 +132,7 @@ export default function EmployeePage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
           <Bird className="w-6 h-6 text-green-600" />
-          Welcome{session?.employeeName ? `, ${session.employeeName}` : ""}!
+          Welcome{session?.employeeName ? `, ${session.employeeName}` : ''}!
         </h1>
         <p className="text-sm text-gray-500 mt-1">Quick data entry for farm operations – egg collection, feeding, and health records</p>
       </div>
@@ -162,7 +162,7 @@ export default function EmployeePage() {
           <Field label="Date"><input type="date" value={eggDate} max={today()} onChange={e => setEggDate(e.target.value)} className={inputCls} /></Field>
           <Field label="Total Collected"><input type="number" min="0" value={eggCount} onChange={e => setEggCount(e.target.value)} className={inputCls} placeholder="0" /></Field>
           <Field label="Broken Eggs"><input type="number" min="0" value={eggBroken} onChange={e => setEggBroken(e.target.value)} className={inputCls} placeholder="0" /></Field>
-          <Field label="Sellable (auto)"><div className={inputCls + " bg-gray-50 text-gray-500"}>{Math.max(0, (parseInt(eggCount) || 0) - (parseInt(eggBroken) || 0))}</div></Field>
+          <Field label="Sellable (auto)"><div className={inputCls + ' bg-gray-50 text-gray-500'}>{Math.max(0, (parseInt(eggCount) || 0) - (parseInt(eggBroken) || 0))}</div></Field>
         </div>
         <button onClick={submitEgg} className="w-full py-2.5 bg-yellow-500 text-white rounded-lg font-medium hover:bg-yellow-600 transition-colors">Submit Collection</button>
       </div>
@@ -180,7 +180,7 @@ export default function EmployeePage() {
         </Field>
         {selectedFlock && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-            <strong>Recommendation:</strong> {selectedFlock.currentCount} birds at {selectedFlock.stage} stage —{" "}
+            <strong>Recommendation:</strong> {selectedFlock.currentCount} birds at {selectedFlock.stage} stage —{' '}
             <strong>{((selectedFlock.currentCount * (FCR_RECS[selectedFlock.stage] ?? 0)) / 1000).toFixed(1)} kg</strong> per day.
           </div>
         )}
@@ -206,7 +206,7 @@ export default function EmployeePage() {
               step="0.1"
               value={feedQty}
               onChange={e => setFeedQty(e.target.value)}
-              className={inputCls + (stockWarning ? " border-red-400 focus:ring-red-400" : "")}
+              className={inputCls + (stockWarning ? ' border-red-400 focus:ring-red-400' : '')}
               placeholder="0"
             />
           </Field>

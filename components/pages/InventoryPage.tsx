@@ -1,70 +1,70 @@
-"use client";
-import { useState } from "react";
-import { Package, Plus, AlertTriangle, TrendingDown, Download } from "lucide-react";
-import { useFarmStore } from "@/lib/store";
-import { generateId } from "@/lib/utils";
-import type { FeedInventory } from "@/lib/types";
-import { toast } from "sonner";
+'use client';
+import { useState } from 'react';
+import { Package, Plus, AlertTriangle, TrendingDown, Download } from 'lucide-react';
+import { useFarmStore } from '@/lib/store';
+import { generateId } from '@/lib/utils';
+import type { FeedInventory } from '@/lib/types';
+import { toast } from 'sonner';
 
-const FEED_TYPES = ["starter", "grower", "layer", "finisher"] as const;
+const FEED_TYPES = ['starter', 'grower', 'layer', 'finisher'] as const;
 type FeedType = typeof FEED_TYPES[number];
 
 function stockStatus(current: number, reorder: number): { label: string; color: string } {
-  if (current <= 0) return { label: "CRITICAL", color: "bg-red-100 text-red-700" };
-  if (current <= reorder) return { label: "LOW", color: "bg-yellow-100 text-yellow-700" };
-  return { label: "OK", color: "bg-green-100 text-green-700" };
+  if (current <= 0) return { label: 'CRITICAL', color: 'bg-red-100 text-red-700' };
+  if (current <= reorder) return { label: 'LOW', color: 'bg-yellow-100 text-yellow-700' };
+  return { label: 'OK', color: 'bg-green-100 text-green-700' };
 }
 
 export default function InventoryPage() {
   const {
-    feedInventory, updateFeedInventory, setFeedInventory,
+    feedInventory, updateFeedInventory, setReorderLevel,
     feedRecords, eggCollections, sales,
     addExpense, exportData,
   } = useFarmStore();
   const { flocks } = useFarmStore();
 
-  const [addFeedType, setAddFeedType] = useState<FeedType>("layer");
-  const [addFeedSource, setAddFeedSource] = useState<"purchased" | "produced">("purchased");
-  const [addQty, setAddQty] = useState("");
-  const [addCostPerKg, setAddCostPerKg] = useState("");
+  const [addFeedType, setAddFeedType] = useState<FeedType>('layer');
+  const [addFeedSource, setAddFeedSource] = useState<'purchased' | 'produced'>('purchased');
+  const [addQty, setAddQty] = useState('');
+  const [addCostPerKg, setAddCostPerKg] = useState('');
 
   const [reorderEdits, setReorderEdits] = useState<Record<string, string>>({});
 
   const totalEggsCollected = eggCollections.reduce((s, e) => s + e.count, 0);
-  const totalEggsSold = sales.filter(s => s.product === "eggs").reduce((s, sale) => s + sale.quantity, 0);
+  const totalEggsSold = sales.filter(s => s.product === 'eggs').reduce((s, sale) => s + sale.quantity, 0);
   const eggStock = totalEggsCollected - totalEggsSold;
 
   function handleAddStock() {
     const qty = parseFloat(addQty);
     const cost = parseFloat(addCostPerKg);
     if (!qty || qty <= 0 || !cost || cost <= 0) {
-      toast.error("Enter valid quantity and cost per kg");
+      toast.error('Enter valid quantity and cost per kg');
       return;
     }
     updateFeedInventory(addFeedType, qty);
     addExpense({
-      id: generateId(), category: "feed",
+      id: generateId(), category: 'feed',
       description: `Restocked ${addFeedType} feed (${qty} kg) - ${addFeedSource}`,
       amount: qty * cost, date: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString(),
     });
     toast.success(`Added ${qty} kg of ${addFeedType} feed (${addFeedSource})`);
-    setAddQty(""); setAddCostPerKg("");
+    setAddQty(''); setAddCostPerKg('');
   }
 
   function handleReorderSave(fi: FeedInventory) {
-    const val = parseFloat(reorderEdits[fi.id] ?? "");
-    if (isNaN(val) || val < 0) { toast.error("Enter a valid reorder level"); return; }
-    setFeedInventory(feedInventory.map(f => f.id === fi.id ? { ...f, reorderLevelKg: val } : f));
-    toast.success("Reorder level updated");
+    const val = parseFloat(reorderEdits[fi.id] ?? '');
+    if (isNaN(val) || val < 0) { toast.error('Enter a valid reorder level'); return; }
+    setReorderLevel(fi.feedType, val);
+    toast.success('Reorder level updated');
   }
 
   function handleExport() {
     const json = exportData();
-    const blob = new Blob([json], { type: "application/json" });
+    const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "farm-data.json"; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = 'farm-data.json'; a.click();
     URL.revokeObjectURL(url);
-    toast.success("Data exported");
+    toast.success('Data exported');
   }
 
   const last30Feed = [...feedRecords]
@@ -87,7 +87,7 @@ export default function InventoryPage() {
       </div>
 
       {/* Egg stock summary */}
-      <div className={`rounded-xl border p-4 flex items-center gap-3 ${eggStock < 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
+      <div className={`rounded-xl border p-4 flex items-center gap-3 ${eggStock < 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
         {eggStock < 0 ? <AlertTriangle className="w-5 h-5 text-red-600" /> : <TrendingDown className="w-5 h-5 text-green-600" />}
         <div>
           <p className="font-semibold text-gray-800">Egg Stock: {eggStock.toLocaleString()} eggs</p>
@@ -114,7 +114,7 @@ export default function InventoryPage() {
               <p className="text-xs text-gray-400">Reorder at {fi.reorderLevelKg} kg</p>
               <div className="flex gap-1 items-center mt-1">
                 <input type="number" placeholder="New reorder (kg)"
-                  value={reorderEdits[fi.id] ?? ""}
+                  value={reorderEdits[fi.id] ?? ''}
                   onChange={e => setReorderEdits(r => ({ ...r, [fi.id]: e.target.value }))}
                   className="border border-gray-200 rounded px-2 py-1 text-xs w-full" />
                 <button onClick={() => handleReorderSave(fi)}

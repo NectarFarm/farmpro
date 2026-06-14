@@ -4,7 +4,7 @@ import type {
   Flock, MortalityRecord, FeedRecord, VaccinationRecord,
   EggCollection, Customer, Sale, Expense, Budget,
   Cage, FeedInventory, Alert, Employee, UserSession,
-  EmployeeSalary, OrderRequest, BirdStagePricing,
+  EmployeeSalary, OrderRequest, FlockStageConfig,
   BirdStageSale, CustomerPortalUser, FeedDispenseRecord,
 } from './types';
 
@@ -43,9 +43,13 @@ interface FarmStore {
   pricePerEgg: number;
   pricePerTray: number;
   pricePerChick: number;
-  birdStagePricing: BirdStagePricing;
   setPricing: (p: Partial<{ pricePerEgg: number; pricePerTray: number; pricePerChick: number }>) => void;
-  setBirdStagePricing: (p: Partial<BirdStagePricing>) => void;
+
+  // Flock Stages
+  flockStages: FlockStageConfig[];
+  addFlockStage: (s: FlockStageConfig) => void;
+  updateFlockStage: (id: string, updates: Partial<FlockStageConfig>) => void;
+  deleteFlockStage: (id: string) => void;
 
   // Bird Stage Sales
   birdStageSales: BirdStageSale[];
@@ -132,7 +136,7 @@ interface FarmStore {
   // Feed Inventory
   feedInventory: FeedInventory[];
   updateFeedInventory: (feedType: string, delta: number) => void;
-  setFeedInventory: (items: FeedInventory[]) => void;
+  setReorderLevel: (feedType: string, reorderLevelKg: number) => void;
 
   // Alerts
   alerts: Alert[];
@@ -163,6 +167,16 @@ function withApi<T>(
     }
   });
 }
+
+// ─── Default stages (fallback before API loads) ───────────────────────────────
+
+const DEFAULT_STAGES: FlockStageConfig[] = [
+  { id: 'brooder',  name: 'Brooder',  displayOrder: 0, role: null,       pricePerBird: 150 },
+  { id: 'grower',   name: 'Grower',   displayOrder: 1, role: null,       pricePerBird: 350 },
+  { id: 'layer',    name: 'Layer',    displayOrder: 2, role: null,       pricePerBird: 600 },
+  { id: 'disposal', name: 'Disposal', displayOrder: 3, role: 'disposed', pricePerBird: 0   },
+  { id: 'sold',     name: 'Sold',     displayOrder: 4, role: 'sold',     pricePerBird: 0   },
+];
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
@@ -207,7 +221,7 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
       vaccinationRecords: [], eggCollections: [], customers: [], sales: [],
       expenses: [], budgets: [], cages: [], alerts: [], employees: [],
       employeeSalaries: [], orderRequests: [], birdStageSales: [],
-      customerPortalUsers: [],
+      customerPortalUsers: [], flockStages: DEFAULT_STAGES,
     });
   },
 
@@ -240,21 +254,30 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
   pricePerEgg: 18,
   pricePerTray: 450,
   pricePerChick: 120,
-  birdStagePricing: { brooder: 150, grower: 350, layer: 600 },
 
   setPricing: (p) => {
     set((s) => ({ ...s, ...p }));
     withApi('PUT', '/api/settings', p);
   },
 
-  setBirdStagePricing: (p) => {
-    set((s) => ({ birdStagePricing: { ...s.birdStagePricing, ...p } }));
-    const { birdPricingBrooder, birdPricingGrower, birdPricingLayer } = {
-      birdPricingBrooder: p.brooder,
-      birdPricingGrower: p.grower,
-      birdPricingLayer: p.layer,
-    };
-    withApi('PUT', '/api/settings', { birdPricingBrooder, birdPricingGrower, birdPricingLayer });
+  // ── Flock Stages ────────────────────────────────────────────────────────────
+  flockStages: DEFAULT_STAGES,
+
+  addFlockStage: (s) => {
+    set((state) => ({ flockStages: [...state.flockStages, s].sort((a, b) => a.displayOrder - b.displayOrder) }));
+    withApi('POST', '/api/flock-stages', s);
+  },
+  updateFlockStage: (id, updates) => {
+    set((state) => ({
+      flockStages: state.flockStages
+        .map(s => s.id === id ? { ...s, ...updates } : s)
+        .sort((a, b) => a.displayOrder - b.displayOrder),
+    }));
+    withApi('PUT', `/api/flock-stages/${id}`, updates);
+  },
+  deleteFlockStage: (id) => {
+    set((state) => ({ flockStages: state.flockStages.filter(s => s.id !== id) }));
+    withApi('DELETE', `/api/flock-stages/${id}`);
   },
 
   // ── Bird Stage Sales ────────────────────────────────────────────────────────
@@ -549,7 +572,16 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
     const item = get().feedInventory.find(fi => fi.feedType === feedType);
     if (item) withApi('PUT', '/api/feed-inventory', { feedType, currentStockKg: item.currentStockKg });
   },
-  setFeedInventory: (items) => set({ feedInventory: items }),
+  setReorderLevel: (feedType, reorderLevelKg) => {
+    set((state) => ({
+      feedInventory: state.feedInventory.map(fi =>
+        fi.feedType === feedType
+          ? { ...fi, reorderLevelKg, lastUpdated: new Date().toISOString() }
+          : fi
+      ),
+    }));
+    withApi('PUT', '/api/feed-inventory', { feedType, reorderLevelKg });
+  },
 
   // ── Alerts ──────────────────────────────────────────────────────────────────
   alerts: [],
@@ -575,7 +607,7 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
         vaccsRes, eggsRes, customersRes, cpuRes,
         salesRes, expensesRes, budgetsRes, cagesRes,
         feedInvRes, alertsRes, empRes, salariesRes,
-        orderReqRes, birdSalesRes, settingsRes,
+        orderReqRes, birdSalesRes, settingsRes, stagesRes,
       ] = await Promise.allSettled([
         api<Flock[]>('/api/flocks'),
         api<MortalityRecord[]>('/api/mortality'),
@@ -596,6 +628,7 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
         api<OrderRequest[]>('/api/order-requests'),
         api<BirdStageSale[]>('/api/bird-stage-sales'),
         api<Record<string, string>>('/api/settings'),
+        api<FlockStageConfig[]>('/api/flock-stages'),
       ]);
 
       const val = <T>(r: PromiseSettledResult<T>, fallback: T): T =>
@@ -604,36 +637,81 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
       const cfg = val(settingsRes, {} as Record<string, string>);
       const inv = val(feedInvRes, get().feedInventory);
 
+      const n = (v: unknown) => Number(v ?? 0);
+
       set({
-        flocks: val(flocksRes, []),
-        mortalityRecords: val(mortalityRes, []),
-        feedRecords: val(feedRes, []),
-        feedDispenseRecords: val(feedDispRes, []),
-        vaccinationRecords: val(vaccsRes, []),
-        eggCollections: val(eggsRes, []),
+        flocks: val(flocksRes, []).map(f => ({
+          ...f,
+          initialCount: n(f.initialCount),
+          currentCount: n(f.currentCount),
+          purchaseCostPerChick: n(f.purchaseCostPerChick),
+          initialWeight: n(f.initialWeight),
+        })),
+        mortalityRecords: val(mortalityRes, []).map(r => ({ ...r, count: n(r.count) })),
+        feedRecords: val(feedRes, []).map(r => ({
+          ...r,
+          quantityKg: n(r.quantityKg),
+          costPerKg: n(r.costPerKg),
+          totalCost: n(r.totalCost),
+        })),
+        feedDispenseRecords: val(feedDispRes, []).map(r => ({ ...r, quantityKg: n(r.quantityKg) })),
+        vaccinationRecords: val(vaccsRes, []).map(r => ({ ...r, cost: n(r.cost) })),
+        eggCollections: val(eggsRes, []).map(r => ({
+          ...r,
+          count: n(r.count),
+          broken: n(r.broken),
+          sellable: n(r.sellable),
+        })),
         customers: val(customersRes, []),
         customerPortalUsers: val(cpuRes, []),
-        sales: val(salesRes, []),
-        expenses: val(expensesRes, []),
-        budgets: val(budgetsRes, []),
-        cages: val(cagesRes, []),
-        feedInventory: inv.length ? inv : get().feedInventory,
+        sales: val(salesRes, []).map(s => ({
+          ...s,
+          quantity: n(s.quantity),
+          pricePerUnit: n(s.pricePerUnit),
+          totalAmount: n(s.totalAmount),
+        })),
+        expenses: val(expensesRes, []).map(e => ({ ...e, amount: n(e.amount) })),
+        budgets: val(budgetsRes, []).map(b => ({ ...b, amount: n(b.amount) })),
+        cages: val(cagesRes, []).map(c => ({ ...c, capacity: n(c.capacity) })),
+        feedInventory: (inv.length ? inv : get().feedInventory).map(i => ({
+          ...i,
+          currentStockKg: n(i.currentStockKg),
+          reorderLevelKg: n(i.reorderLevelKg),
+        })),
         alerts: val(alertsRes, []),
         employees: val(empRes, []),
-        employeeSalaries: val(salariesRes, []),
-        orderRequests: val(orderReqRes, []),
-        birdStageSales: val(birdSalesRes, []),
+        employeeSalaries: val(salariesRes, []).map(s => ({
+          ...s,
+          amount: n(s.amount),
+          payDayOfMonth: n(s.payDayOfMonth),
+        })),
+        orderRequests: val(orderReqRes, []).map(o => ({
+          ...o,
+          quantity: n(o.quantity),
+          pricePerUnit: n(o.pricePerUnit),
+          totalAmount: n(o.totalAmount),
+        })),
+        birdStageSales: val(birdSalesRes, []).map(s => ({
+          ...s,
+          quantity: n(s.quantity),
+          pricePerBird: n(s.pricePerBird),
+          breakEvenPrice: n(s.breakEvenPrice),
+          totalAmount: n(s.totalAmount),
+        })),
         pricePerEgg: cfg.pricePerEgg ? Number(cfg.pricePerEgg) : 18,
         pricePerTray: cfg.pricePerTray ? Number(cfg.pricePerTray) : 450,
         pricePerChick: cfg.pricePerChick ? Number(cfg.pricePerChick) : 120,
-        birdStagePricing: {
-          brooder: cfg.birdPricingBrooder ? Number(cfg.birdPricingBrooder) : 150,
-          grower: cfg.birdPricingGrower ? Number(cfg.birdPricingGrower) : 350,
-          layer: cfg.birdPricingLayer ? Number(cfg.birdPricingLayer) : 600,
-        },
+        flockStages: val(stagesRes, DEFAULT_STAGES).map(s => ({
+          ...s,
+          displayOrder: Number(s.displayOrder),
+          pricePerBird: Number(s.pricePerBird),
+        })),
         initialized: true,
         loading: false,
       });
+
+      // Auto-generate any salary expenses due today (idempotent — dedups per month)
+      get().triggerSalaryExpenses();
     } catch {
       set({ initialized: true, loading: false });
     }

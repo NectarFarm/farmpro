@@ -27,9 +27,6 @@ export async function PUT(req: NextRequest) {
     if (body.pricePerEgg !== undefined) updates.pricePerEgg = String(body.pricePerEgg)
     if (body.pricePerTray !== undefined) updates.pricePerTray = String(body.pricePerTray)
     if (body.pricePerChick !== undefined) updates.pricePerChick = String(body.pricePerChick)
-    if (body.birdPricingBrooder !== undefined) updates.birdPricingBrooder = String(body.birdPricingBrooder)
-    if (body.birdPricingGrower !== undefined) updates.birdPricingGrower = String(body.birdPricingGrower)
-    if (body.birdPricingLayer !== undefined) updates.birdPricingLayer = String(body.birdPricingLayer)
     if (body.newOwnerPin) updates.ownerPinHash = hashPin(String(body.newOwnerPin))
 
     await ensureSettings()
