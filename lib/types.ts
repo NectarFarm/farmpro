@@ -1,3 +1,35 @@
+// ─── SaaS platform: admins + farmers (tenants) ────────────────────────────
+
+/** Platform owner who manages all farmers from /admin. */
+export interface PlatformAdmin {
+  id: string;
+  email: string;
+  name?: string;
+  createdAt: string;
+}
+
+export type FarmerStatus = 'active' | 'trial' | 'suspended';
+
+/** Per-farmer feature entitlements. null/undefined ⇒ use enterprise-type defaults. */
+export interface FarmerPermissions {
+  modules?: Record<string, boolean>;  // e.g. { eggs: true, finance: true, crops: false }
+  cards?: Record<string, boolean>;    // dashboard cards
+  sidebar?: Record<string, boolean>;  // sidebar items
+}
+
+/** A farmer = one tenant of the platform. */
+export interface Farmer {
+  id: string;
+  farmName: string;
+  ownerName?: string;
+  email?: string;
+  phone?: string;
+  enterpriseType: EnterpriseType;
+  status: FarmerStatus;
+  permissions?: FarmerPermissions | null;
+  createdAt: string;
+}
+
 // ─── Core Types for Poultry Farm Management App ───────────────────────────
 
 /** A farmer-configurable flock lifecycle stage */

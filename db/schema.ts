@@ -1,6 +1,29 @@
 import {
-  pgTable, pgEnum, text, integer, numeric, boolean, timestamp,
+  pgTable, pgEnum, text, integer, numeric, boolean, timestamp, jsonb,
 } from 'drizzle-orm/pg-core'
+
+// ─── SaaS platform: admins + farmers (tenants) ────────────────────────────────
+// Platform owner(s) who manage all farmers from /admin.
+export const platformAdmins = pgTable('platform_admins', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  name: text('name'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// A farmer = one tenant. Every domain table will gain farmer_id (see PR B).
+export const farmers = pgTable('farmers', {
+  id: text('id').primaryKey(),
+  farmName: text('farm_name').notNull(),
+  ownerName: text('owner_name'),
+  email: text('email').unique(),
+  phone: text('phone'),
+  enterpriseType: text('enterprise_type').notNull().default('poultry'),
+  status: text('status').notNull().default('active'), // active | trial | suspended
+  permissions: jsonb('permissions'), // null = use enterprise-type defaults
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
 
 // ─── Flock Stages (configurable) ──────────────────────────────────────────────
 
