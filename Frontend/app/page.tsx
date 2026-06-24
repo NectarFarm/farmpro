@@ -1,0 +1,43 @@
+'use client';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/lib/stores/auth';
+
+export default function RootPage() {
+  const router = useRouter();
+  const { user } = useAuthStore();
+
+  useEffect(() => {
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+    if (user.role === 'super_admin') {
+      router.replace('/admin/dashboard');
+    } else if (user.role === 'worker') {
+      router.replace('/worker/home');
+    } else if (user.role === 'owner' || user.role === 'manager') {
+      router.replace('/owner/dashboard');
+    } else if (user.role === 'vet') {
+      router.replace('/vet/units');
+    } else if (user.role === 'auditor') {
+      router.replace('/auditor/dashboard');
+    } else {
+      router.replace('/login');
+    }
+  }, [user, router]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-green-50">
+      <div className="text-center">
+        <div className="text-5xl mb-4">🌾</div>
+        <h1 className="text-2xl font-bold text-green-800">IFMS</h1>
+        <p className="text-green-600 mt-1">Integrated Farm Management System</p>
+        <div className="mt-4 flex gap-3 justify-center">
+          <a href="/worker/login" className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">Worker Login</a>
+          <a href="/owner/login" className="px-4 py-2 bg-gray-800 text-white rounded-lg font-semibold text-sm">Owner Login</a>
+        </div>
+      </div>
+    </div>
+  );
+}

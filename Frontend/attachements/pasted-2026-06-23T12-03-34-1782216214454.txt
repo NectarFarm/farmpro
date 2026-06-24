@@ -1,0 +1,13 @@
+ Build the IFMS frontend — two React + TypeScript apps in one repo: a mobile-first PWA for farm workers and a web app for owners/managers. Build the screens and flows exactly as specified
+  ▎ in DESIGN.md (it has every screen, all six personas, empty/error/offline states, and a component list). Use SRS.md as the reference for what each screen does and its validation rules, 
+  ▎ and read only §3, §6, §9, §14 of ARCHITECTURE.md for the client rules.
+  ▎
+  ▎ Hard constraints:
+  ▎ - The app talks only to a Django REST API (mock the endpoints for now). Never call Supabase directly and never embed any secret or service key.
+  ▎ - Offline-first: worker actions save to IndexedDB (Dexie) first with a client-generated UUID, show instant "saved," and sync later. Build the offline badge + pending-queue UI.
+  ▎ - Auth: owner = email/password; worker = phone + PIN with offline unlock.
+  ▎ - Follow the design rules: status shown by color + icon + text (sunlight-readable), large touch targets, numeric keypad for counts (not steppers), camera capture with GPS taken from the 
+  ▎ device API, not photo EXIF.
+  ▎ - Field-level permissions are server-driven: render forms from a worker-profile config so hidden fields simply don't appear — don't hardcode what's hidden.
+  ▎
+  ▎ Deliver a runnable repo (frontend/worker, frontend/owner, frontend/shared) with mock data, so screens and flows are clickable end-to-end.

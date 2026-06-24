@@ -1,0 +1,10 @@
+# Declares which dependency build scripts pnpm may run. pnpm 10+ errors
+# (ERR_PNPM_IGNORED_BUILDS) on any build-script dep that is neither allowed
+# nor explicitly ignored — so every flagged package must appear in one list.
+onlyBuiltDependencies:
+  - esbuild        # needs its platform binary (used by tsx → db:seed)
+ignoredBuiltDependencies:
+  - core-js        # polyfill, no build needed
+  - sharp          # avoid native libvips compile; not required at runtime
+  - unrs-resolver
+  - workerd        # Cloudflare-only, unused in the Docker/Node runtime

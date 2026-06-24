@@ -1,0 +1,391 @@
+# IFMS — Design Document (UX/UI & Interaction Specification)
+
+| Field | Value |
+|---|---|
+| **Product** | Integrated Farm Management System (IFMS) |
+| **Document type** | Design / Interaction Specification |
+| **Version** | 1.0 (Baseline, supersedes earlier draft) |
+| **Status** | For development — pilot |
+| **Source of truth** | **SRS v1.0** — every screen here cites the `FR-`/`BR-`/`NFR-` it implements |
+| **Audience** | UI/UX designers, frontend engineers, QA, owner (Kutswa) |
+
+> **Reading contract.** The SRS says *what* and *why*; this document says *how it looks and behaves*. Where the two ever disagree, the SRS wins and this doc is corrected. Anything here that is **not** backed by an SRS ID is flagged `[SCOPE+]` so it does not silently inflate the MVP — see §13.
+
+---
+
+## 1. Design Philosophy
+
+| Principle | UI manifestation | SRS link |
+|---|---|---|
+| **Two-minute rule** | Daily entries finish in < 2 min; minimal typing; the *right* control per data type (keypad for counts, stepper for small adjustments, toggle for states) | `NFR-U-2` |
+| **Owner control, worker simplicity** | Worker sees only owner-exposed fields; hidden monetary fields are **stripped server-side before payload**, not CSS-hidden | `FR-M16-1/2`, `NFR-SEC-2` |
+| **Offline-first = no waiting** | Every tap writes locally first and confirms instantly; a persistent connectivity badge; no blocking spinners on the field path | `FR-M17-*` |
+| **Accountability through evidence** | Camera + GPS are primary, not buried; capture rules are owner-configured, not hardcoded | `FR-M9-1/2`, `FR-M18-1` |
+| **Designed for the field, not the office** | Readable in direct sunlight; usable with one hand, gloves, dust; never relies on color alone | `NFR-U-1/3` (extends) |
+
+---
+
+## 2. Design System Foundations
+
+### 2.1 The "never color alone" rule (field-critical)
+Workers use cheap screens **outdoors in direct sun**, where color washes out and colour-blind users can't rely on hue. **Every status is encoded three ways: color + icon + text label.**
+
+| Status | Color | Icon | Text |
+|---|---|---|---|
+| OK / Normal | Green | ✓ | "OK" |
+| Warning | Amber | ▲ | "LOW" / "DUE" |
+| Critical | Red | ⛔ | "BLOCKED" / "OVERDUE" |
+| Offline/queued | Grey | ⤬ | "OFFLINE" |
+
+- `DS-1` Minimum contrast ratio 4.5:1; a **high-contrast / sunlight mode** toggle in worker settings.
+- `DS-2` Status is never conveyed by color alone (WCAG 1.4.1).
+
+### 2.2 Touch & ergonomics
+- `DS-3` Minimum touch target **48×48 dp**; primary action buttons full-width, ≥ 56 dp tall.
+- `DS-4` Critical irreversible actions (mortality, sale, population adjustment) use a **distinct color + confirmation**, never adjacent to "next".
+- `DS-5` Portrait-only for worker app; one-thumb reachable primary actions (bottom of screen).
+
+### 2.3 Input control selection (corrects the earlier draft's stepper error)
+Choosing the wrong control breaks the two-minute rule. The rule:
+
+| Data shape | Control | Example | Why |
+|---|---|---|---|
+| **Large/arbitrary count** | **Large numeric keypad** (direct entry) + optional `+/−` for fine correction | eggs (48), feed kg (5.0) | Tapping `+` 48 times is absurd |
+| **Small count (0–5)** | Stepper `+/−` | deaths, culls | Fast, typo-proof |
+| **Fixed state (3–4 options)** | Big segmented toggle | water Low/OK/Full | One tap, no menu |
+| **Selection from a list** | **Searchable** dropdown showing live context | batch, feed type (shows "Layer Mash — 42 kg left") | Avoids scrolling, surfaces stock |
+| **Decimal measure** | Keypad with unit suffix | weight 1.85 kg, pH 7.2 | Precision needed |
+| **Evidence** | Camera capture (see §2.4) | mortality photo | Accountability |
+
+### 2.4 Camera & geotag (corrects the EXIF error)
+- `DS-6` **GPS is captured independently from the device location API at the moment of capture and attached to the record** — the system does **not** rely on photo EXIF, because client-side compression (`NFR-P-3`, ~300 KB) strips EXIF on most Android pipelines. The photo and its `{lat,lng,accuracy,timestamp,captured_by}` are stored as separate, linked fields. `FR-M9-1`, `FR-M18-1`
+- `DS-7` Photo requirement is read from the **worker profile config** (`FR-M16-1`), never hardcoded. The capture button shows "Required" or "Optional" based on the live threshold (`FR-M9-2`).
+- `DS-8` If GPS is unavailable, capture still succeeds; the record is tagged `geo: unavailable` (degraded, not blocked).
+
+### 2.5 Typography & language
+- `DS-9` Body ≥ 16 sp; numeric entry fields ≥ 22 sp; labels never below 14 sp.
+- `DS-10` **Runtime EN/SW toggle** on the login screen and in settings, switchable offline (`NFR-L-2`).
+
+---
+
+## 3. Persona → UI Surface Matrix (all six personas)
+
+The earlier draft designed only Owner and Worker. The SRS defines six user classes (`§2.2`); **all are specified here.**
+
+| Persona | Device | Lands on | Can do | Cannot do | SRS |
+|---|---|---|---|---|---|
+| **Owner / Admin** | Web (full) + Mobile (viewer) | Dashboard | Everything: setup, config, costing, reports, manage people | — | `FR-M19-2` |
+| **Manager** | Web + Mobile | Operations dashboard (no financials) | Assign tasks, view production/health, run ops reports, record data | See costs/margins/revenue, configure worker profiles, manage employees, export financials | `FR-M19-2`, `FR-M13-1` |
+| **Worker** | Mobile (Android-first) | Today's Tasks | Record assigned data offline | See anything owner hid; configure; view reports | `FR-M16-*` |
+| **Vet / Agronomist** (external) | Mobile/Web | Assigned-units health view | Read health/sampling history, add advisory note / prescription on assigned units only | See financials, other units, edit production records | `FR-M5-5` |
+| **Auditor / Investor** (read-only, time-boxed) | Web | Scoped report set | View reports/dashboards via expiring link; export if granted | Edit anything; see beyond scope/time window | `FR-M15-6`, `SEC-1` |
+| **Super-Admin** (platform operator) | Web (ops console) | Tenant list | Tenant lifecycle, support sessions | **No direct unlogged data access** — brokered, audited, time-boxed only | `SEC-3` |
+
+---
+
+## 4. Information Architecture
+
+### 4.1 Worker mobile (Android/PWA) — corrected & completed
+```
+Splash (offline-ready check) → Login (Phone + PIN / biometric, EN/SW toggle)
+│
+├─ HOME / TODAY'S TASKS  ◄ default
+│   ├─ Header: greeting · OFFLINE/SYNC badge · pending-queue count
+│   ├─ Task cards (color+icon+text: ⛔Overdue ▲Due ✓Routine)
+│   ├─ Alert cards (e.g., "▲ LOW: Layer Mash 8 kg")
+│   └─ FAB (+): New record
+│
+├─ RECORD FLOWS  (each works fully offline)
+│   ├─ Morning Round (guided: site → unit → fields → next)
+│   │     • Poultry card  • Pig card  • Fish/Pond card (incl. WATER QUALITY)  ← added
+│   ├─ Feeding Log
+│   ├─ Mortality / Cull (camera per config)
+│   ├─ Health / Vaccination (consumes lot, sets withdrawal)
+│   ├─ Weight Sampling (ADG)                       ← added (FR-M6-1)
+│   ├─ Water-Quality Reading (DO/pH/temp/ammonia)  ← added (FR-M6-2)
+│   ├─ Physical Count / Reconciliation             ← added (FR-M3-7)
+│   └─ Closing Stock Count (variance)              ← added (FR-M4-4)
+│
+└─ PROFILE
+    ├─ Today's completed records   ├─ High-contrast/sunlight mode
+    ├─ Language EN/SW              └─ Logout
+```
+
+### 4.2 Owner web portal
+```
+Login (email/phone + password) 〔2FA = [SCOPE+], see §13〕
+│
+├─ DASHBOARD ◄ default — KPI cards (sparklines) · production chart · activity feed · alerts
+├─ FARM
+│   ├─ Production Units (tree + heatmap)   ├─ Batches (table: age, FCR, mortality, margin)
+│   └─ Breeding (sows/dams & litters — FR-BR-1)
+├─ INVENTORY & FINANCE
+│   ├─ Inventory & Lots (FIFO, expiry)     ├─ Feed Formulation (recipe builder — FR-M4-3)
+│   ├─ Closing-Stock & Variance review     ├─ Sales · Purchases (ledger)
+│   └─ Batch P&L cards
+├─ PEOPLE & CONFIG
+│   ├─ Employees & roles                   ├─ ★ Worker Portal Config (field-level)
+│   ├─ Task templates & schedules          └─ Alert rules
+└─ REPORTS
+    ├─ Impact (baseline-vs-period)  ├─ Financials  ├─ Compliance & Withdrawal log  └─ Export
+```
+
+### 4.3 Manager portal
+Same shell as Owner web/mobile, **financial nodes and Worker-Portal-Config removed**; Inventory shows quantities but **not costs**; Batches show production/health/FCR but **not margin/cost** (`FR-M19-2`). Manager can assign tasks and record data.
+
+### 4.4 Vet/Agronomist portal (lightweight)
+```
+Login → Assigned Units list → Unit/Batch Health Timeline (read)
+   → [+ Advisory Note] / [+ Prescription] (treatment recommendation, dose, withdrawal note)
+```
+No financials, no other units (`FR-M5-5`).
+
+### 4.5 Auditor portal (read-only, time-boxed)
+```
+Expiring link → scoped Dashboard + Report set (read) → Export (if granted)
+Banner: "Read-only · access expires {date}"  (SEC-1, FR-M15-6)
+```
+
+---
+
+## 5. Global States (the unhappy & empty paths the draft omitted)
+
+### 5.1 Connectivity & sync (`FR-M17-*`)
+| State | UI |
+|---|---|
+| Offline | Persistent grey pill: "⤬ OFFLINE · 5 queued" |
+| Syncing | Header cloud icon animates: "Syncing 5…" |
+| Saved locally | Bottom toast: "✓ Saved — will sync" |
+| Sync done | Toast: "✓ Synced to owner" |
+| **Conflict** (`FR-M17-3`) | Red badge on sync icon → **Resolve Conflict** screen showing *mine* vs *server* side-by-side, capture times, and "Keep mine / Keep server"; loser preserved in conflict log |
+
+### 5.2 Empty / first-run states (added — pilot day 1 must not look broken)
+| Screen | Empty state |
+|---|---|
+| Worker Home | "No tasks yet. Your manager will assign them. Pull to refresh." + illustration |
+| Owner Dashboard | "No data yet — this fills in as your team records. Finish setup →" with setup-progress meter |
+| Batch list | "No batches. Add your first batch" CTA → wizard step 3 |
+| Reports | "Reports appear after ~7 days of data. Baseline is being captured." (`FR-M15-3`) |
+
+### 5.3 Validation / error states → mapped to business rules (added)
+The UI must show **rule-specific** messages, not a generic error.
+
+| Attempted action | UI response | Rule |
+|---|---|---|
+| Feed out more than on hand | Inline: "Only 37 kg of Layer Mash on hand" — submit disabled | `BR-1` |
+| Record more deaths than alive | "Batch has 85 birds; cannot record 90 deaths" | `BR-2` |
+| Harvest/sell more than alive | "Only 485 birds in batch" | `BR-3` |
+| Mortality without required photo | Submit disabled; camera button pulses + "Photo required" | `BR-5` |
+| **Sell within withdrawal/PHI window** | **Blocked/warn modal — see §6.9** | `BR-WD` |
+| Physical count ≠ derived | Forces reason before accepting | `BR-12` |
+| Expired lot consumption | "This lot expired {date}" — block or warn per config | `BR-7` |
+
+### 5.4 Loading
+- Skeleton placeholders on web (`NFR-P-2`); never a full-screen blocking spinner on the worker path.
+
+---
+
+## 6. Persona Journeys (screen-level)
+
+### 6.1 Worker — Login
+PIN/biometric (no password typing at 6 a.m.); EN/SW toggle visible; lands on Today's Tasks. Connectivity badge shows immediately. `FR-M19-1`
+
+### 6.2 Worker — Morning Round (incl. fish/water-quality — corrected egg control)
+Guided session: **Start Round** (timestamp) → pick site → iterate units.
+
+**Poultry cage card** (note: egg count is a **keypad**, not a stepper; "Abnormal?" has **no pre-selected default**):
+```
+┌──────────────────────────────────────────────┐
+│ Cage A1 · Layer #003 · 85 birds             │
+│ ──────────────────────────────────────────   │
+│ 💧 Water     [ Low ] [ OK ✓ ] [ Full ]     │  ← toggle
+│ 🌾 Feed left   [   5   ] kg     (keypad)    │
+│ 🥚 Eggs        [  48   ]        (keypad)    │  ← was stepper (fixed)
+│    cracked     [   2   ]                     │
+│ ▲ Abnormal?    ( ) No   ( ) Yes  — required │  ← no default (fixed)
+│ ──────────────────────────────────────────   │
+│ [ SAVE & NEXT ]                              │
+└──────────────────────────────────────────────┘
+```
+
+**Fish/pond card (added — `FR-M6-2`):**
+```
+┌──────────────────────────────────────────────┐
+│ Pond 3 · Tilapia #011                        │
+│ Water colour   [Clear][Green✓][Murky]        │
+│ Temp °C  [27.5]   DO mg/L [5.8]   pH [7.2]   │  ← keypads, safe-range hints
+│ Ammonia  [0.2]  ▲ shows AMBER if out of range│  (alert on sync, FR-M6-2)
+│ 🌾 Feed given  [ 2.0 ] kg                     │
+│ [ SAVE & NEXT ]                              │
+└──────────────────────────────────────────────┘
+```
+End Round → summary ("48 eggs, 5 kg feed, 1 pond reading") → Finish → queued offline. `FR-M13-5`
+
+### 6.3 Worker — Record Mortality (corrected: configurable threshold, real GPS)
+```
+┌──────────────────────────────────────────────┐
+│ ⛔ Record Mortality                          │
+│ Unit  [ Cage A1 ▼ ]   (or scan QR)           │
+│ Batch  Layer #003 · 85 → 83                  │
+│ Deaths [ − ] 2 [ + ]            (stepper, small count) │
+│ Cause  [ Sudden death ▼ ] (optional)         │
+│ ─────────────────────────────────────────    │
+│ [ 📷 TAKE PHOTO ]  Photo: REQUIRED           │  ← label from config (FR-M9-2)
+│   📍 GPS captured ✓ 07:16  (device API, not EXIF) │
+│ ▲ Rate now 2.3% (threshold 2.0%)             │
+│ [ SUBMIT ]  (red, confirm)                    │
+└──────────────────────────────────────────────┘
+```
+On submit: population → 83; mortality alert raised; audit event written. `FR-M9-1/2/3`, `DS-6/7`
+
+### 6.4 Worker — Feeding Log
+Searchable feed dropdown shows live stock; quantity keypad; leftover/refusal optional; on submit decrements lot (FIFO) and adds to batch feed cost; low-stock alert if crossing threshold. `FR-M4-2/5`
+
+### 6.5 Worker — Health / Vaccination
+Batch → product (from inventory lot) → dose/route → optional photo → submit. System sets `next_due` and **`withdrawal_until`** and schedules reminder. Confirmation explicitly states: "Withdrawal until {date} — no sale of product before then." `FR-M5-1/2/3`
+
+### 6.6 Worker — Weight Sampling (added — `FR-M6-1`)
+```
+Batch → Sample size [10] → Avg weight [1.85] kg  →  Save
+System shows: "ADG 48 g/day · projected 2.5 kg by day 49"
+```
+
+### 6.7 Worker — Physical Count / Reconciliation (added — `FR-M3-7`, `BR-12`)
+```
+┌──────────────────────────────────────────────┐
+│ Physical Count · Pen B (Pigs)                │
+│ System expects: 94   (opening − deaths − sales)│
+│ You counted:    [ 91 ]                        │
+│ ▲ Variance −3 — reason required:             │
+│ [ Missing — suspected theft ▼ ] + note       │
+│ [ SUBMIT ADJUSTMENT ]                         │
+└──────────────────────────────────────────────┘
+```
+Creates an audited Population Adjustment (never silent). `FR-M3-7`, `BR-10/12`
+
+### 6.8 Worker — Closing Stock (added — `FR-M4-4`)
+Per item, enter remaining qty → system computes consumption (opening + receipts − closing) and **flags variance** vs logged feedings on the owner dashboard.
+
+### 6.9 Owner — Worker Portal Config (the moat) with **blocked-state honesty**
+Field-level matrix (visible / required / editable per field), module toggles, alert thresholds, **mortality photo threshold set here** (feeds §6.3). Live phone-preview is `[SCOPE+]` (§13).
+```
+FIELD                  VISIBLE  REQUIRED  EDITABLE
+Feed unit cost (KES)     ✗        ✗        ✗
+Feed quantity (kg)       ✓        ✓        ✓
+Egg sale price           ✗        ✗        ✗
+Mortality cause          ✓        ✓        ✓
+Batch profit/loss        ✗        ✗        ✗
+Photo required if deaths > [ 1 ]   ← drives FR-M9-2
+```
+`FR-M16-1/2`. Hidden fields are stripped server-side (`NFR-SEC-2`).
+
+### 6.10 Owner — Batch Detail + Record Sale (corrected numbers + withdrawal-blocked state)
+Header: `Broiler #005 · day 42 · 500 → 485`. KPI row: `FCR 2.4 (target ≤2.8 ✓) · Mortality 3.0% ✓ · Cost/kg KES 351`. Cost donut: Feed 75% / Chicks 16% / Meds 5% / Labor 4%.
+
+**Coherent costing example (replaces the earlier incoherent one):**
+> Cost-to-date ≈ KES 375,000 (chicks 60k + feed 280k + meds 20k + labor 15k). A **full harvest** of 485 birds × 2.2 kg = 1,067 kg × KES 400 = **426,800 revenue → gross margin +51,800**; cost/kg = 375,000 ÷ 1,067 = **KES 351**. A **partial** sale of 50 birds (≈110 kg → ~44,000) does **not** flip the batch positive — gross margin is *cumulative* (revenue-to-date − cost-to-date) and stays negative until enough is sold. The UI shows cumulative bars filling toward break-even, never a misleading instant flip. `FR-M10-1/4/6`
+
+**Record Sale modal — withdrawal check, both outcomes (`BR-WD`, `FR-M11-1`):**
+```
+Clear case:   ✓ "Cleared for sale — withdrawal elapsed (last dose 12 days ago)."
+Blocked case: ⛔ "BLOCKED — Newcastle vaccine withdrawal until 2026-07-02 (5 days left).
+                 Selling this product is unsafe.  [ Override w/ reason ▾ (owner only, audited) ]"
+```
+
+### 6.11 Owner — Setup Wizard
+Steps 1 Farm → 2 Units → 3 Batches (qty, age, cost) → 4 Inventory → 5 Employees+PIN → 6 Worker profile → 7 Thresholds. Enterprise **template grid** (🐔 Layers/Broilers · 🐖 Fatten/Breed · 🐟 Tilapia/Catfish · 🌽 Maize) pre-fills units, stages, schedules. Resumable; minimal viable setup in < 15 min. `FR-M1-2/3/4`
+
+### 6.12 Manager — daily flow
+Operations dashboard (no money): assign/track tasks, review production & health, run production/mortality reports, record data. Financial widgets simply absent. `FR-M19-2`, `FR-M13-1`
+
+### 6.13 Vet/Agronomist — review & prescribe
+Assigned-units list → batch health timeline (vaccinations, treatments, mortality curve, photos) → **+ Prescription** (product, dose, withdrawal note) → owner/worker notified; appears as a suggested task. `FR-M5-5`
+
+### 6.14 Auditor — verify
+Open expiring link → read-only dashboard + impact/financial reports within scope → export if granted. Persistent "Read-only · expires {date}" banner. `FR-M15-6`
+
+---
+
+## 7. Component Library (interaction patterns)
+
+| Component | Use | Behavior |
+|---|---|---|
+| Segmented toggle | water level, yes/no | one tap; selected = filled + icon + text |
+| Numeric keypad field | eggs, kg, weights, pH | large digits, unit suffix, decimal where valid |
+| Stepper `+/−` | small counts (deaths) | haptic; bounds-checked to population (`BR-2`) |
+| Searchable select | batch, feed, product | shows live stock/context in label |
+| Camera capture | evidence | native camera → thumbnail → separate GPS attach (`DS-6`) |
+| Status chip | any status | **color + icon + text** always (`DS-1/2`) |
+| Confirm sheet | mortality, sale, adjustment | summary + explicit confirm for irreversible acts |
+| Conflict resolver | sync conflict | side-by-side mine/server (`FR-M17-3`) |
+
+---
+
+## 8. Data Visualization (owner/auditor)
+
+| Chart | Where | Shows |
+|---|---|---|
+| Sparkline | KPI cards | 30-day FCR / mortality trend |
+| Grouped bar | dashboard | production by species + revenue overlay |
+| **Cumulative cost vs revenue** | batch detail | two areas; intersection = break-even (`FR-M10-6`) — honest cumulative, no instant flips |
+| Mortality-by-day-of-cycle | health report | spikes annotated with events (e.g., "vaccine day 14") |
+| Farm heatmap | units | stocking density / mortality by unit |
+
+---
+
+## 9. Responsiveness & Navigation
+- Worker: portrait-only; bottom tab bar (Home · Record · Camera · Profile); swipe between units in Morning Round; pull-to-refresh = manual sync.
+- Owner web: 1920→768 px; heavy config/reports gated to ≥ tablet; **owner mobile = viewer** (dashboards, approvals, alerts) — not heavy configuration. `NFR-U-1`
+
+---
+
+## 10. Accessibility & Field Conditions
+- `A11Y-1` Color never sole signal (`DS-2`); sunlight/high-contrast mode (`DS-1`).
+- `A11Y-2` Targets ≥ 48 dp; primary actions one-thumb reachable.
+- `A11Y-3` EN/SW runtime toggle (`NFR-L-2`); icons accompany text for low literacy.
+- `A11Y-4` Works on ≤ 2 GB RAM Android without crashing (`NFR-U-3`).
+- `A11Y-5` Usable with dusty/wet hands: large targets, no tiny long-press-only actions.
+
+---
+
+## 11. Open Design Decisions (need owner input before/at build)
+1. QR codes on units — print/stick at pilot, or skip for v1? (affects §6.3 scan)
+2. Worker biometric vs PIN-only on shared phones — default?
+3. Sunlight mode: manual toggle vs auto via ambient sensor?
+4. Withdrawal override: owner-only with reason (current assumption) — confirm.
+5. Owner mobile: viewer-only confirmed, or allow light config?
+
+---
+
+## 12. Traceability (UI surface → SRS)
+| UI surface | SRS |
+|---|---|
+| Morning Round cards (incl. pond) | `FR-M13-5`, `FR-M6-2`, `FR-M7-1` |
+| Mortality + photo + GPS | `FR-M9-1/2/3`, `DS-6/7` |
+| Feeding / closing stock / variance | `FR-M4-2/4/5` |
+| Health / withdrawal | `FR-M5-1/2/3`, `BR-WD` |
+| Weight sampling | `FR-M6-1` |
+| Physical count | `FR-M3-7`, `BR-12` |
+| Worker portal config | `FR-M16-1/2`, `NFR-SEC-2` |
+| Batch P&L + sale | `FR-M10-*`, `FR-M11-1` |
+| Setup wizard | `FR-M1-2/3/4` |
+| Manager portal | `FR-M19-2`, `FR-M13-1` |
+| Vet portal | `FR-M5-5` |
+| Auditor portal | `FR-M15-6`, `SEC-1` |
+| Offline/conflict/empty/error states | `FR-M17-*`, `BR-1/2/3/5/7/12` |
+
+---
+
+## 13. `[SCOPE+]` — items NOT in SRS v1.0 (do not build for MVP without a decision)
+| Item | Where introduced | Recommendation |
+|---|---|---|
+| Owner 2FA at login | §4.2 | Defer to Phase 2 unless investor security requires; add `FR` first |
+| Live phone-mockup preview in worker config | §6.9 | Nice-to-have; Phase 2 |
+| QR scan on units | §6.3 | Optional; decide in §11 |
+| Auto sunlight mode via ambient sensor | §10 | Manual toggle for MVP |
+
+> Nothing in this list ships in the MVP unless it is first added to the SRS with its own `FR-`/`NFR-` ID. This keeps the design honest to the spec.
+
+---
+
+*End of Design Document v1.0. Build the `M`-priority SRS items using these layouts; the SRS state machines (§4.3) decide when controls are enabled, this document decides how they look and behave. Unhappy paths, empty states, and all six personas are now specified — the inception is complete enough to start.*

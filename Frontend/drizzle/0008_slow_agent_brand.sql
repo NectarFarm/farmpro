@@ -1,0 +1,2 @@
+ALTER TABLE "tenants" ADD COLUMN "plan" text DEFAULT 'pro' NOT NULL;--> statement-breakpoint
+ALTER TABLE "tenants" ADD COLUMN "features" jsonb DEFAULT '["setup_guide","ai_advisor","reports","activity_log","alerts","finance"]'::jsonb NOT NULL;

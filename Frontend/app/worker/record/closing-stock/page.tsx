@@ -1,0 +1,107 @@
+'use client';
+import { PackageOpen } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/lib/stores/auth';
+import { useSyncStore } from '@/lib/stores/sync';
+import { api } from '@/lib/api';
+import { enqueuePendingRecord } from '@/lib/offline/db';
+import type { InventoryItem, InventoryLot } from '@/lib/types';
+
+export default function ClosingStockPage() {
+  const { user } = useAuthStore();
+  const { setPendingCount, pendingCount } = useSyncStore();
+  const router = useRouter();
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [lots, setLots] = useState<InventoryLot[]>([]);
+  const [counts, setCounts] = useState<Record<string,string>>({});
+  const [toast, setToast] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    Promise.all([api.getItems(), api.getLots()]).then(([i,l]) => {
+      const feedItems = i.filter(it => it.category.startsWith('FEED'));
+      setItems(feedItems);
+      setLots(l);
+    });
+  }, []);
+
+  const getOnHand = (itemId: string) => lots.filter(l => l.itemId === itemId).reduce((s,l) => s + l.qtyOnHand, 0);
+  const getVariance = (itemId: string) => {
+    const entered = parseFloat(counts[itemId] || '');
+    if (isNaN(entered)) return null;
+    return entered - getOnHand(itemId);
+  };
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    const capturedAt = new Date().toISOString();
+    for (const item of items) {
+      if (counts[item.id] !== undefined && counts[item.id] !== '') {
+        const clientUuid = crypto.randomUUID();
+        await enqueuePendingRecord('closing_stock', {
+          clientUuid, itemId: item.id, closingQty: parseFloat(counts[item.id]),
+          recordedBy: user?.id, capturedAt,
+        }, clientUuid);
+      }
+    }
+    setPendingCount(pendingCount + Object.keys(counts).length);
+    setToast('✓ Saved — will sync');
+    setLoading(false);
+    setTimeout(() => router.replace('/worker/home'), 1500);
+  };
+
+  return (
+    <div className="p-4 flex flex-col gap-5">
+      <div className="bg-teal-700 text-white rounded-2xl px-5 py-4">
+        <h1 className="text-2xl font-bold flex items-center gap-2"><PackageOpen className="w-6 h-6 shrink-0" /><span>Closing Stock Count</span></h1>
+        <p className="text-teal-200 text-sm">Enter remaining quantities for each feed item</p>
+      </div>
+
+      {items.length === 0 && (
+        <div className="text-center py-10 text-gray-400">Loading items…</div>
+      )}
+
+      {items.map(item => {
+        const onHand = getOnHand(item.id);
+        const variance = getVariance(item.id);
+        const hasVariance = variance !== null && Math.abs(variance) > 0.5;
+        return (
+          <div key={item.id} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-2">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-bold text-gray-900">{item.name}</p>
+                <p className="text-xs text-gray-500">System: {onHand} {item.unit} on hand</p>
+              </div>
+              {onHand <= item.lowStockThreshold && (
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">▲ LOW</span>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-600 shrink-0">Counted ({item.unit})</label>
+              <input
+                type="number" step="0.1" min="0"
+                value={counts[item.id] ?? ''}
+                onChange={e => setCounts(c => ({ ...c, [item.id]: e.target.value }))}
+                placeholder={`e.g. ${onHand}`}
+                className="flex-1 border-2 border-gray-300 rounded-xl px-4 py-2 text-xl font-bold text-center min-h-[52px]"
+              />
+            </div>
+            {hasVariance && variance !== null && (
+              <p className={`text-sm font-semibold rounded-lg px-3 py-1 ${variance < 0 ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'}`}>
+                {variance < 0 ? '⚠ Shortage' : '+ Surplus'} {Math.abs(variance).toFixed(1)} {item.unit} — variance will be flagged (BR-11)
+              </p>
+            )}
+          </div>
+        );
+      })}
+
+      <button onClick={handleSubmit} disabled={loading || Object.keys(counts).length === 0}
+        className="w-full min-h-[56px] bg-teal-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
+        {loading ? 'Saving…' : 'SUBMIT ALL'}
+      </button>
+
+      {toast && <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-700 text-white px-5 py-3 rounded-xl font-semibold shadow-lg">{toast}</div>}
+    </div>
+  );
+}

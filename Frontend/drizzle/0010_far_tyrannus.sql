@@ -1,0 +1,1 @@
+ALTER TABLE "sales" ADD COLUMN "base_qty" double precision;

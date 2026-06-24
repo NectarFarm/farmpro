@@ -1,0 +1,140 @@
+'use client';
+import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/lib/stores/auth';
+import { useSyncStore } from '@/lib/stores/sync';
+import { api } from '@/lib/api';
+import type { Task, Alert } from '@/lib/types';
+import { StatusChip } from '@/components/worker/StatusChip';
+import Link from 'next/link';
+import { Egg, Sunrise, Skull, Wheat, Syringe, Scale, ListOrdered, PackageOpen, Plus } from 'lucide-react';
+
+const taskIcon = (type: string) => ({ morning_round:'🌅', vaccination:'💉', stock_count:'📦', feeding:'🌾', sampling:'⚖️', custom:'✅' }[type] ?? '📋');
+
+export default function WorkerHomePage() {
+  const { user } = useAuthStore();
+  const { pendingCount } = useSyncStore();
+  const router = useRouter();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) { router.replace('/worker/login'); return; }
+    Promise.all([api.getTasks(user.id), api.getAlerts()]).then(([t, a]) => {
+      setTasks(t); setAlerts(a.filter(al => !al.acknowledged)); setLoading(false);
+    });
+  }, [user, router]);
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  const statusOf = (t: Task) => {
+    if (t.overdue || t.status === 'MISSED') return 'critical';
+    if (t.status === 'DONE') return 'ok';
+    if (new Date(t.dueAt) < new Date()) return 'warning';
+    return 'info';
+  };
+
+  const statusLabel = (t: Task) => {
+    if (t.status === 'DONE') return '✓ Done';
+    if (t.overdue || t.status === 'MISSED') return '⛔ Overdue';
+    return '▲ Due';
+  };
+
+  const alertStatus = (a: Alert) => a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'info';
+
+  const recordLinks = [
+    { href:'/worker/record/collect', Icon: Egg, label:'Collect Products' },
+    { href:'/worker/record/morning-round', Icon: Sunrise, label:'Morning Round' },
+    { href:'/worker/record/mortality', Icon: Skull, label:'Mortality' },
+    { href:'/worker/record/feeding', Icon: Wheat, label:'Feeding' },
+    { href:'/worker/record/health', Icon: Syringe, label:'Health / Vaccine' },
+    { href:'/worker/record/weight-sampling', Icon: Scale, label:'Weight Sample' },
+    { href:'/worker/record/physical-count', Icon: ListOrdered, label:'Physical Count' },
+    { href:'/worker/record/closing-stock', Icon: PackageOpen, label:'Closing Stock' },
+  ];
+
+  return (
+    <div className="p-4 flex flex-col gap-5">
+      {/* Greeting */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">{greeting}, {user?.name?.split(' ')[0] ?? 'Worker'}</h1>
+          <p className="text-sm text-gray-500">{new Date().toLocaleDateString('en-KE', { weekday:'long', day:'numeric', month:'long' })}</p>
+        </div>
+        {pendingCount > 0 && (
+          <span className="bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-3 py-1 text-sm font-bold">
+            ↑ {pendingCount} pending
+          </span>
+        )}
+      </div>
+
+      {/* Alerts */}
+      {alerts.length > 0 && (
+        <section>
+          <h2 className="text-base font-semibold text-gray-700 mb-2">⚠ Alerts</h2>
+          <div className="flex flex-col gap-2">
+            {alerts.map(a => (
+              <div key={a.id} className={`rounded-xl px-4 py-3 border flex items-start gap-3 ${a.severity === 'critical' ? 'bg-red-50 border-red-300' : a.severity === 'warning' ? 'bg-amber-50 border-amber-300' : 'bg-blue-50 border-blue-300'}`}>
+                <StatusChip status={alertStatus(a)} size="sm" label={a.severity.toUpperCase()} />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-900 text-sm">{a.title}</p>
+                  <p className="text-gray-600 text-xs mt-0.5">{a.message}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Today's Tasks */}
+      <section>
+        <h2 className="text-base font-semibold text-gray-700 mb-2">📋 Today&apos;s Tasks</h2>
+        {loading && <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-200 rounded-xl animate-pulse" />)}</div>}
+        {!loading && tasks.length === 0 && (
+          <div className="text-center py-10 px-4 bg-white rounded-xl border border-dashed border-gray-300">
+            <div className="text-4xl mb-3">📋</div>
+            <p className="text-gray-500 text-sm">No tasks yet. Your manager will assign them.<br />Pull to refresh.</p>
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          {tasks.map(t => {
+            const href = t.type === 'morning_round' ? '/worker/record/morning-round'
+              : t.type === 'vaccination' ? '/worker/record/health'
+              : t.type === 'sampling' ? '/worker/record/weight-sampling'
+              : t.type === 'stock_count' ? '/worker/record/physical-count'
+              : '/worker/record/feeding';
+            return (
+              <Link key={t.id} href={t.status === 'DONE' ? '#' : href}>
+                <div className={`rounded-xl px-4 py-3 border flex items-center gap-3 ${t.overdue || t.status === 'MISSED' ? 'bg-red-50 border-red-300' : t.status === 'DONE' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                  <span className="text-2xl">{taskIcon(t.type)}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900">{t.title}</p>
+                    <p className="text-xs text-gray-500">{new Date(t.dueAt).toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' })}</p>
+                  </div>
+                  <StatusChip status={statusOf(t)} size="sm" label={statusLabel(t)} />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Quick Record Links */}
+      <section>
+        <h2 className="text-base font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><Plus className="w-4 h-4" /> Record</h2>
+        <div className="grid grid-cols-2 gap-2">
+          {recordLinks.map(r => (
+            <Link key={r.href} href={r.href}>
+              <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3 active:bg-gray-50 min-h-[56px]">
+                <span className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center shrink-0"><r.Icon className="w-5 h-5" strokeWidth={2} /></span>
+                <span className="text-sm font-semibold text-gray-700">{r.label}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}

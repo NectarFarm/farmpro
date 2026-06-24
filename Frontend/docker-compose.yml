@@ -1,0 +1,63 @@
+name: ifms
+
+# One command brings up the whole system:
+#   docker compose up --build
+# Order: db (Postgres) → migrate (runs drizzle migrations + seed, then exits) → app.
+# App on http://localhost:13000 · Postgres on localhost:55432.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ifms}
+      POSTGRES_DB: ifms
+    volumes:
+      - ifms_pgdata:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ifms"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # One-shot: apply schema migrations, then seed. Idempotent (safe to re-run).
+  migrate:
+    build:
+      context: .
+      target: builder
+    command: sh -c "pnpm db:migrate && pnpm db:seed"
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-ifms}@db:5432/ifms
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: runner
+      args:
+        NEXT_PUBLIC_USE_REAL_API: "true"
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-ifms}@db:5432/ifms
+      # Override SESSION_SECRET in production with a long random value.
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-session-secret-please}
+      NEXT_PUBLIC_USE_REAL_API: "true"
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
+    ports:
+      - "${APP_PORT:-13000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  ifms_pgdata:
+    name: ifms_pgdata
