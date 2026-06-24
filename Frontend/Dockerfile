@@ -26,6 +26,9 @@ ARG NEXT_PUBLIC_USE_REAL_API=true
 ENV NEXT_PUBLIC_USE_REAL_API=$NEXT_PUBLIC_USE_REAL_API
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Gate the image on the unit suite — broken core logic never produces an image,
+# so the containers can't start on bad code.
+RUN pnpm test:unit
 RUN pnpm run build
 
 # --- runner: minimal production image, non-root ---

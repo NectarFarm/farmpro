@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Frontend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ifms
+          POSTGRES_DB: ifms
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:ifms@localhost:55432/ifms
+      SESSION_SECRET: ci-session-secret-at-least-32-characters-long
+      NEXT_PUBLIC_USE_REAL_API: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: Frontend/pnpm-lock.yaml
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: Migrate + seed
+        run: pnpm db:migrate && pnpm db:seed
+
+      - name: Build
+        run: pnpm build
+
+      - name: Start app
+        run: |
+          pnpm start &
+          for i in $(seq 1 60); do curl -fsS http://localhost:13000/api/health && break; sleep 2; done
+
+      - name: Integration tests
+        run: pnpm test:integration
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: pnpm test:e2e
+        env:
+          E2E_BASE_URL: http://localhost:13000

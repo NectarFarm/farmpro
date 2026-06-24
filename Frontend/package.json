@@ -11,6 +11,12 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx db/seed.ts",
+    "test": "vitest run tests/unit",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:ci": "vitest run tests/unit tests/integration",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "build:worker": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare build && wrangler dev",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv env.d.ts"
@@ -75,6 +81,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
     "@opennextjs/cloudflare": "^1.19.10",
+    "@playwright/test": "^1.61.0",
     "@tailwindcss/postcss": "^4.2.0",
     "@types/node": "^22",
     "@types/react": "19.2.14",
@@ -87,6 +94,7 @@
     "tsx": "^4.19.2",
     "tw-animate-css": "1.3.3",
     "typescript": "5.7.3",
+    "vitest": "^2.1.9",
     "wrangler": "^4.86.0"
   }
 }

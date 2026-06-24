@@ -36,6 +36,25 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Startup test gate: runs unit + integration against a real app+DB. The `app`
+  # service only starts if this exits 0, so red tests block the containers.
+  tests:
+    build:
+      context: .
+      target: builder
+    command: sh scripts/ci-gate.sh
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-ifms}@db:5432/ifms
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-session-secret-please}
+      NEXT_PUBLIC_USE_REAL_API: "true"
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   app:
     build:
       context: .
@@ -56,6 +75,8 @@ services:
       db:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      tests:
         condition: service_completed_successfully
 
 volumes:
