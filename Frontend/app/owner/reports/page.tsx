@@ -1,26 +1,36 @@
 'use client';
 import React, { useState } from 'react';
 
-const REPORTS = [
-  { id:'pl', icon:'💰', title:'Profit & Loss', desc:'By species, batch, and unit', tags:['finance'], available:true },
-  { id:'production', icon:'📊', title:'Production Summary', desc:'Eggs, meat, fish, crop yield', tags:['ops'], available:true },
-  { id:'fcr', icon:'🌾', title:'FCR & ADG Analysis', desc:'Feed efficiency and growth rates', tags:['ops','performance'], available:true },
-  { id:'mortality', icon:'📉', title:'Mortality Report', desc:'Day-of-cycle curve, causes', tags:['ops','health'], available:true },
-  { id:'feed_var', icon:'📦', title:'Inventory & Feed Variance', desc:'Consumption vs. counted closing stock', tags:['ops'], available:true },
-  { id:'sales', icon:'🛒', title:'Sales & Receivables', desc:'Revenue, credit balances, withdrawal log', tags:['finance'], available:true },
-  { id:'vax', icon:'💉', title:'Vaccination & Withdrawal Log', desc:'Treatment compliance, food-safety audit', tags:['health','compliance'], available:true },
-  { id:'labor', icon:'👥', title:'Labor & Task Completion', desc:'Worker tasks, completion rates', tags:['ops'], available:true },
-  { id:'baseline', icon:'📈', title:'Baseline vs Period Impact', desc:'Month-1 baseline vs current — for funding', tags:['finance','investor'], available:true },
-  { id:'batch_card', icon:'🐄', title:'Batch Performance Card', desc:'Per-batch FCR, mortality, P&L close-out', tags:['performance'], available:true },
+type Scope = 'range' | 'lifecycle';
+interface Report { id: string; icon: string; title: string; desc: string; cat: 'finance' | 'ops' | 'health' | 'performance'; scope: Scope; }
+
+const REPORTS: Report[] = [
+  // Date-filtered transaction logs + period financials.
+  { id: 'baseline', icon: '📈', title: 'Period Financial Summary', desc: 'Revenue − expenses for the chosen dates — the headline P&L for funders.', cat: 'finance', scope: 'range' },
+  { id: 'sales', icon: '🛒', title: 'Sales & Receivables', desc: 'Every sale in the period: product, qty, price, buyer.', cat: 'finance', scope: 'range' },
+  { id: 'production', icon: '📊', title: 'Production Summary', desc: 'Eggs, meat, fish, crop collected per day.', cat: 'ops', scope: 'range' },
+  { id: 'mortality', icon: '📉', title: 'Mortality Report', desc: 'Deaths and recorded causes, by date.', cat: 'health', scope: 'range' },
+  { id: 'vax', icon: '💉', title: 'Vaccination & Treatment Log', desc: 'Treatments applied — food-safety / withdrawal audit.', cat: 'health', scope: 'range' },
+  { id: 'feed_var', icon: '📦', title: 'Feed Consumption', desc: 'Feed drawn down per batch over the period.', cat: 'ops', scope: 'range' },
+  { id: 'labor', icon: '👥', title: 'Labour & Task Cost', desc: 'Logged worker hours and their cost.', cat: 'ops', scope: 'range' },
+  // Full-lifecycle batch economics (all-time; not date-filtered).
+  { id: 'pl', icon: '💰', title: 'Profit & Loss by Batch', desc: 'Feed, health, labour, salaries, overhead vs revenue — with a bottom-line total.', cat: 'finance', scope: 'lifecycle' },
+  { id: 'batch_card', icon: '🐔', title: 'Batch Performance Card', desc: 'FCR, mortality, survived/sold/on-farm, cost & margin per batch.', cat: 'performance', scope: 'lifecycle' },
+  { id: 'fcr', icon: '🌾', title: 'FCR & Efficiency', desc: 'Feed conversion per batch, species-aware (per dozen / per kg).', cat: 'performance', scope: 'lifecycle' },
 ];
 
+const CAT_ACCENT: Record<Report['cat'], string> = {
+  finance: 'border-l-emerald-500', ops: 'border-l-sky-500', health: 'border-l-rose-500', performance: 'border-l-violet-500',
+};
+
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+
 export default function ReportsPage() {
-  const [filter, setFilter] = useState<'all'|'finance'|'ops'|'health'|'performance'>('all');
   const [generated, setGenerated] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState('');
-  const [dateFrom, setDateFrom] = useState('2026-01-01');
-  const [dateTo, setDateTo] = useState('2026-06-30');
+  const [dateFrom, setDateFrom] = useState(iso(new Date(Date.now() - 90 * 86400000)));
+  const [dateTo, setDateTo] = useState(iso(new Date()));
   const [linkEmail, setLinkEmail] = useState('');
   const [linkDays, setLinkDays] = useState(7);
   const [link, setLink] = useState('');
@@ -28,27 +38,22 @@ export default function ReportsPage() {
   const [copied, setCopied] = useState(false);
 
   const generateLink = async () => {
-    setLinkBusy(true); setLink('');
+    setLinkBusy(true); setLink(''); setErr('');
     try {
       const res = await fetch('/api/auditor-link', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: linkEmail, days: linkDays }),
       });
       if (!res.ok) throw new Error(res.status === 403 ? 'Owner only' : 'Failed to generate link');
-      const data = await res.json();
-      setLink(data.url);
+      setLink((await res.json()).url);
     } catch (e) { setErr((e as Error).message); } finally { setLinkBusy(false); }
   };
-
-  const filtered = REPORTS.filter(r => filter === 'all' || r.tags.includes(filter));
 
   const runExport = async (id: string, fmt: 'PDF' | 'Excel' | 'CSV') => {
     setErr(''); setBusy(`${id}:${fmt}`);
     try {
       const res = await fetch(`/api/reports/${id}?from=${dateFrom}&to=${dateTo}`, { credentials: 'include' });
-      if (!res.ok) {
-        throw new Error(res.status === 401 ? 'Please sign in again' : res.status === 403 ? 'Not permitted for your role' : `Report failed (${res.status})`);
-      }
+      if (!res.ok) throw new Error(res.status === 401 ? 'Please sign in again' : res.status === 403 ? 'Not permitted for your role' : `Report failed (${res.status})`);
       const data = await res.json();
       const { exportReport } = await import('@/lib/export');
       await exportReport(data, fmt);
@@ -58,75 +63,83 @@ export default function ReportsPage() {
     } finally { setBusy(null); }
   };
 
+  const Card = ({ r }: { r: Report }) => (
+    <div className={`bg-white border border-gray-200 border-l-4 ${CAT_ACCENT[r.cat]} rounded-xl p-4 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow`}>
+      <div className="flex items-start gap-3">
+        <span className="text-2xl leading-none">{r.icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-bold text-gray-900">{r.title}</h3>
+            <span className="text-[10px] uppercase tracking-wide font-bold text-gray-400">{r.cat}</span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">{r.desc}</p>
+        </div>
+      </div>
+      {generated === r.id && (
+        <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 text-green-700 text-xs font-semibold">✓ Generated — downloading…</div>
+      )}
+      <div className="flex gap-2">
+        {(['PDF', 'Excel', 'CSV'] as const).map(fmt => (
+          <button key={fmt} disabled={busy !== null} onClick={() => runExport(r.id, fmt)}
+            className="flex-1 py-2 bg-gray-50 hover:bg-green-50 hover:text-green-700 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 disabled:opacity-40 transition-colors">
+            {busy === `${r.id}:${fmt}` ? '…' : (fmt === 'PDF' ? '📄' : fmt === 'Excel' ? '📊' : '📋')} {fmt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const rangeReports = REPORTS.filter(r => r.scope === 'range');
+  const lifecycleReports = REPORTS.filter(r => r.scope === 'lifecycle');
+
   return (
-    <div className="p-6 flex flex-col gap-6 max-w-5xl">
+    <div className="p-6 flex flex-col gap-7 max-w-5xl">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">📈 Reports</h1>
-        <p className="text-gray-500 text-sm mt-1">Export PDF, Excel, or CSV — generated live from your data.</p>
+        <p className="text-gray-500 text-sm mt-1">Board- and funder-ready exports — PDF, Excel or CSV, generated live from your data.</p>
       </div>
 
       {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 
-      {/* Date range */}
-      <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center gap-4 flex-wrap">
-        <span className="font-semibold text-gray-700 text-sm">Date range:</span>
-        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-        <span className="text-gray-400">→</span>
-        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-        <span className="text-xs text-gray-400">All reports filtered to this range</span>
-      </div>
-
-      {/* Filter */}
-      <div className="flex gap-2 flex-wrap">
-        {['all','finance','ops','health','performance'].map(f => (
-          <button key={f} onClick={() => setFilter(f as typeof filter)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize ${filter === f ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
-            {f}
-          </button>
-        ))}
-      </div>
-
-      {/* Report cards */}
-      <div className="grid md:grid-cols-2 gap-4">
-        {filtered.map(r => (
-          <div key={r.id} className={`bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-3 ${!r.available ? 'opacity-50' : ''}`}>
-            <div className="flex items-start gap-3">
-              <span className="text-3xl">{r.icon}</span>
-              <div className="flex-1">
-                <h3 className="font-bold text-gray-900">{r.title}</h3>
-                <p className="text-xs text-gray-500 mt-0.5">{r.desc}</p>
-                <div className="flex gap-1 mt-1">
-                  {r.tags.map(t => <span key={t} className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-xs">{t}</span>)}
-                </div>
-              </div>
-            </div>
-            {generated === r.id && (
-              <div className="bg-green-50 border border-green-200 rounded-xl px-3 py-2 text-green-700 text-sm font-semibold">
-                ✓ Report ready — downloading…
-              </div>
-            )}
-            <div className="flex gap-2">
-              {(['PDF','Excel','CSV'] as const).map(fmt => (
-                <button key={fmt} disabled={busy !== null} onClick={() => runExport(r.id, fmt)}
-                  className="flex-1 py-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 disabled:opacity-40">
-                  {busy === `${r.id}:${fmt}` ? '…' : (fmt === 'PDF' ? '📄' : fmt === 'Excel' ? '📊' : '📋')} {fmt}
-                </button>
-              ))}
-            </div>
+      {/* ── Section 1: date-filtered ───────────────────────────────── */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="font-bold text-gray-800">Activity & period financials</h2>
+            <p className="text-xs text-gray-400">Filtered to the date range below.</p>
           </div>
-        ))}
-      </div>
+          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1 text-sm" />
+            <span className="text-gray-400 text-sm">→</span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1 text-sm" />
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          {rangeReports.map(r => <Card key={r.id} r={r} />)}
+        </div>
+      </section>
 
-      {/* Auditor access */}
+      {/* ── Section 2: lifecycle ───────────────────────────────────── */}
+      <section className="flex flex-col gap-3">
+        <div>
+          <h2 className="font-bold text-gray-800">Batch economics <span className="text-xs font-semibold text-gray-400">· full lifecycle</span></h2>
+          <p className="text-xs text-gray-400">Each batch&apos;s all-time numbers — not affected by the date range. Matches the figures on the batch page.</p>
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          {lifecycleReports.map(r => <Card key={r.id} r={r} />)}
+        </div>
+      </section>
+
+      {/* ── Auditor / investor links ───────────────────────────────── */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-        <h2 className="font-bold text-blue-800 mb-1">🔒 Investor/Auditor Read-Only Links (FR-M15-6)</h2>
-        <p className="text-blue-600 text-sm mb-3">Generate expiring, scoped links for investors or auditors. They see only selected reports in read-only mode.</p>
+        <h2 className="font-bold text-blue-800 mb-1">🔒 Investor / Auditor read-only links</h2>
+        <p className="text-blue-600 text-sm mb-3">Generate an expiring, read-only link so an investor or auditor can review without an account.</p>
         <div className="flex gap-3 flex-wrap">
           <input value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="Auditor email (optional)" className="flex-1 min-w-[180px] border border-blue-300 rounded-xl px-4 py-2 text-sm" />
           <select value={linkDays} onChange={e => setLinkDays(Number(e.target.value))} className="border border-blue-300 rounded-xl px-3 py-2 text-sm bg-white">
             <option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option>
           </select>
-          <button onClick={generateLink} disabled={linkBusy} className="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-50">{linkBusy ? 'Generating…' : 'Generate Link'}</button>
+          <button onClick={generateLink} disabled={linkBusy} className="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-50">{linkBusy ? 'Generating…' : 'Generate link'}</button>
         </div>
         {link && (
           <div className="mt-3 bg-white border border-blue-200 rounded-xl p-3 flex items-center gap-2">

@@ -36,9 +36,9 @@ const PHASES: { phase: string; subtitle: string; steps: Step[] }[] = [
       {
         id: 'products', icon: '🥚', title: 'Check what each batch produces & set prices', href: '/owner/farm',
         how: [
-          'When you add a batch, IFMS auto-creates the products it gives — layers get Eggs + Manure, pigs get Pork + Manure + piglets, maize gets grain. (No more "eggs everywhere".)',
-          'Open a batch and review its products. Each has sale units with prices — e.g. Eggs sold as a Tray (30) or a single Piece. Set your price once, and recording a sale just prefills it.',
-          'Set how often each is collected — eggs daily, manure weekly. Workers are automatically given permission to record them; you just get a reminder to assign who collects each one.',
+          'When you add a batch, IFMS auto-creates the products it yields, matched to the species — a layer batch gets Eggs, Manure + the spent hen; broilers a live bird; pigs pork or piglets; fish; maize grain. A pig batch never gets "eggs".',
+          'Open a batch and review its products. Each has sale units with prices — e.g. Eggs sold as a Tray (30) or a single Piece. Set your price once and recording a sale just prefills it. Add extras with "+ Add Product", and tick "this product IS the animal" for stock you sell by head.',
+          'Set how often each is collected — eggs daily, manure weekly. Workers are auto-given permission to record what\'s actually collected (not the live animals); you just get a reminder to assign who collects each one.',
         ],
       },
       {
@@ -50,9 +50,11 @@ const PHASES: { phase: string; subtitle: string; steps: Step[] }[] = [
         ],
       },
       {
-        id: 'people', icon: '👥', title: 'Add your workers', href: '/owner/people',
+        id: 'people', icon: '👥', title: 'Add your workers & their pay', href: '/owner/people',
         how: [
           'Click "+ Add Employee" — name, phone, role (worker / manager / vet).',
+          'Add a monthly salary and pay day. The wage bill shows up in your monthly budget and is shared across each worker\'s batches automatically — so every batch\'s profit includes its real labour cost.',
+          'Choose which batches each worker is on (all by default — untick any to unassign). A poultry-only worker never loads cost onto your fish pond.',
           'Workers log in on their phone with their phone number + a PIN.',
         ],
       },
@@ -95,8 +97,9 @@ const PHASES: { phase: string; subtitle: string; steps: Step[] }[] = [
       {
         id: 'money', icon: '💰', title: 'Record sales & purchases', href: '/owner/finance',
         how: [
-          'Record every sale — eggs, meat, fish, crops: batch, quantity, price, buyer.',
+          'Record every sale — eggs, meat, fish, crops: batch, quantity, price, buyer. Selling a live animal (e.g. a bird) draws it down from that batch\'s live count; selling eggs draws from what was collected.',
           'Record every purchase under Inventory. Together these drive your profit and per-batch margins.',
+          'The "Budget · this month" panel shows revenue in vs expenses out (stock + salaries), with a reminder a few days before pay day.',
         ],
       },
     ],
@@ -111,13 +114,17 @@ const PHASES: { phase: string; subtitle: string; steps: Step[] }[] = [
       },
       {
         id: 'pl', icon: '🐄', title: 'Open any batch\'s profit & loss', href: '/owner/farm',
-        how: ['See cost vs revenue, cost breakdown (feed/health/labour/overhead), per-unit cost and break-even.'],
+        how: [
+          'See cost vs revenue, the cost breakdown (feed / health / labour / salaries / overhead / stock), and per-unit cost.',
+          'The valuation cards spread your total cost across the animals that SURVIVED (not the few left after sales) and show the break-even price for the unsold ones — so "what must I sell the rest at to recover my costs?" is answered for you.',
+        ],
       },
       {
         id: 'reports', icon: '📈', title: 'Export reports', href: '/owner/reports',
         how: [
-          'Download any report as PDF, Excel or CSV — for your records, a lender, or an investor.',
-          'Generate an expiring read-only link to share with an auditor or investor.',
+          'Two kinds: "Activity & period financials" follow the date range you pick (sales, production, mortality, the Period Financial Summary…); "Batch economics" are each batch\'s all-time numbers and match the batch page exactly.',
+          'Download any as PDF, Excel or CSV — for your records, a lender, or an investor. The P&L carries a bottom-line TOTAL row.',
+          'Generate an expiring read-only link to let an auditor or investor review without an account.',
         ],
       },
     ],

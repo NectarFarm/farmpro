@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { getDashboardKPIs, getProductionChartData } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
-const fmtKES = (n: number) => `KES ${n.toLocaleString('en-KE')}`;
+const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const EXPIRY = '2026-09-30';
 
 export default function AuditorDashboardPage() {
@@ -53,21 +53,33 @@ export default function AuditorDashboardPage() {
           <p className="text-gray-500 text-sm">Scoped read-only access — farm performance reports</p>
         </div>
 
-        {/* KPIs — read only */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label:'Active Batches', value: kpis.activeBatches, icon:'🐄' },
-            { label:'Avg FCR', value: kpis.avgFCR, icon:'🌾' },
+        {/* KPIs — read only, grouped to match the owner dashboard */}
+        {[
+          { heading: 'Livestock & flock health', cards: [
+            { label:'Active Batches', value: String(kpis.activeBatches), icon:'🐔' },
+            { label:'Total Animals', value: String(kpis.totalBirds), icon:'🐄' },
+            { label:'Mortality', value: `${kpis.mortalityPct}%`, icon:'❤️‍🩹' },
+            { label:'Avg FCR', value: String(kpis.avgFCR), icon:'🌾' },
+          ] },
+          { heading: 'Finance', cards: [
             { label:'Gross Margin', value: fmtKES(kpis.grossMargin), icon:'💰' },
+            { label:'Revenue (month)', value: fmtKES(kpis.revenueThisMonth), icon:'📈' },
             { label:'Task Completion', value: `${kpis.taskCompletionPct}%`, icon:'✅' },
-          ].map(k => (
-            <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-4 pointer-events-none select-none">
-              <span className="text-xl">{k.icon}</span>
-              <p className="text-xs text-gray-500 mt-1">{k.label}</p>
-              <p className="text-2xl font-bold text-gray-900">{k.value}</p>
+          ] },
+        ].map(group => (
+          <div key={group.heading} className="flex flex-col gap-2">
+            <h2 className="text-xs font-bold uppercase tracking-wide text-gray-400">{group.heading}</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {group.cards.map(k => (
+                <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-4 pointer-events-none select-none">
+                  <span className="text-xl">{k.icon}</span>
+                  <p className="text-xs text-gray-500 mt-1">{k.label}</p>
+                  <p className="text-2xl font-bold text-gray-900">{k.value}</p>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
 
         {/* Production chart */}
         <div className="bg-white border border-gray-200 rounded-xl p-5 pointer-events-none select-none">
@@ -76,7 +88,7 @@ export default function AuditorDashboardPage() {
             <BarChart data={chart.data}>
               <XAxis dataKey="date" tick={{ fontSize:11 }} />
               <YAxis tick={{ fontSize:11 }} allowDecimals={false} />
-              <Tooltip formatter={(v, n) => n === 'revenue' ? [`KES ${Number(v).toLocaleString()}`, 'Revenue'] : [`${v}`, String(n)]} />
+              <Tooltip formatter={(v, n) => n === 'revenue' ? [`KSh ${Number(v).toLocaleString()}`, 'Revenue'] : [`${v}`, String(n)]} />
               {chart.products.map((p, i) => <Bar key={p} dataKey={p} stackId="prod" fill={PCOLORS[i % PCOLORS.length]} radius={[4,4,0,0]} />)}
             </BarChart>
           </ResponsiveContainer>

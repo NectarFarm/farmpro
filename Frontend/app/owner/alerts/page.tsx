@@ -25,7 +25,7 @@ export default function AlertsPage() {
   useEffect(() => {
     load();
     fetch('/api/alert-rules', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setRules).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);  
 
   const setRule = (i: number, patch: Partial<{ threshold: number; enabled: boolean }>) =>
     setRules(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));

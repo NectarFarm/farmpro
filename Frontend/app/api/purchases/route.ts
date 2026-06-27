@@ -28,10 +28,11 @@ export async function POST(req: Request) {
   const unitCost = n(body.unitCost);
   if (!quantity || !unitCost) return badRequest('quantity and unitCost required');
 
-  // Resolve or create the inventory item.
+  // Resolve or create the inventory item. The picker sends '__new' (or nothing)
+  // when the user is adding a brand-new item alongside this delivery.
   let itemId = s(body.itemId);
   let unit = 'kg';
-  if (itemId) {
+  if (itemId && itemId !== '__new') {
     const [item] = await db.select().from(inventoryItems)
       .where(and(eq(inventoryItems.tenantId, session.tenantId), eq(inventoryItems.id, itemId))).limit(1);
     if (!item) return badRequest('unknown item');

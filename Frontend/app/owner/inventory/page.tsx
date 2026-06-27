@@ -4,12 +4,14 @@ import { api } from '@/lib/api';
 import type { InventoryItem, InventoryLot } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 
+const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const EMPTY = { itemId: '', itemName: '', unit: 'kg', category: 'FEED_FINISHED', supplier: '', quantity: '', unitCost: '' };
 
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [lots, setLots] = useState<InventoryLot[]>([]);
-  const [tab, setTab] = useState<'stock'|'formulation'|'variance'>('stock');
+  const [purchases, setPurchases] = useState<{ id: string; itemId: string; supplier: string; quantity: number; unitCost: number; totalCost: number; createdAt: string }[]>([]);
+  const [tab, setTab] = useState<'stock'|'formulation'|'variance'|'recent'>('stock');
   const [show, setShow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -27,7 +29,7 @@ export default function InventoryPage() {
   const [formulas, setFormulas] = useState<{ id: string; name: string; components: { itemId: string; kg: number }[]; totalKg: number; unitCost: number }[]>([]);
   const [editFormulaId, setEditFormulaId] = useState<string | null>(null);
   const loadFormulas = () => fetch('/api/feed-mix', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setFormulas).catch(() => {});
-  const useFormula = (f: { id: string; name: string; components: { itemId: string; kg: number }[] }) => {
+  const applyFormula = (f: { id: string; name: string; components: { itemId: string; kg: number }[] }) => {
     setMixName(f.name); setMixRows(f.components.map(c => ({ itemId: c.itemId, kg: String(c.kg) }))); setMixDone(''); setMixErr(''); setEditFormulaId(f.id);
   };
   const deleteFormula = (id: string) => fetch(`/api/feed-mix?id=${id}`, { method: 'DELETE', credentials: 'include' }).then(loadFormulas);
@@ -43,7 +45,7 @@ export default function InventoryPage() {
     } catch (e) { setMixErr((e as Error).message); } finally { setMixing(false); }
   };
 
-  const reload = () => Promise.all([api.getItems(), api.getLots()]).then(([i,l]) => { setItems(i); setLots(l); });
+  const reload = () => Promise.all([api.getItems(), api.getLots(), api.getPurchases()]).then(([i,l,p]) => { setItems(i); setLots(l); setPurchases(p); });
   const patchData = async (resource: string, id: string, body: Record<string, unknown>) => {
     await fetch(`/api/data/${resource}?id=${id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     await reload();
@@ -74,7 +76,7 @@ export default function InventoryPage() {
       });
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || 'Mix failed'); }
       const data = await res.json();
-      setMixDone(`✓ Mixed ${data.totalKg}kg of "${mixName}" at KES ${data.unitCost}/kg`);
+      setMixDone(`✓ Mixed ${data.totalKg}kg of "${mixName}" at KSh ${data.unitCost}/kg`);
       setMixName(''); setMixRows([{ itemId: '', kg: '' }]); await reload(); await loadFormulas();
     } catch (e) { setMixErr((e as Error).message); } finally { setMixing(false); }
   };
@@ -84,12 +86,9 @@ export default function InventoryPage() {
     try {
       const isNew = form.itemId === '__new';
       const payload = isNew
-        ? { itemName: form.itemName, unit: form.unit, category: form.category, supplier: form.supplier, quantity: form.quantity, unitCost: form.unitCost }
+        ? { itemId: '__new', itemName: form.itemName, unit: form.unit, category: form.category, supplier: form.supplier, quantity: form.quantity, unitCost: form.unitCost }
         : { itemId: form.itemId, supplier: form.supplier, quantity: form.quantity, unitCost: form.unitCost };
-      const res = await fetch('/api/purchases', {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error(res.status === 403 ? 'Not permitted' : res.status === 401 ? 'Please sign in again' : res.status === 400 ? 'Pick/name an item, quantity and cost' : `Failed (${res.status})`);
+      await api.recordPurchase(payload);
       setForm(EMPTY); setShow(false); await reload();
     } catch (e) { setErr((e as Error).message); } finally { setSaving(false); }
   };
@@ -108,6 +107,7 @@ export default function InventoryPage() {
     { key:'stock', label:'Stock & Lots' },
     { key:'formulation', label:'Feed Formulation' },
     { key:'variance', label:'Variance Flags' },
+    { key:'recent', label:'Recent Stock' },
   ] as const;
 
   return (
@@ -141,10 +141,10 @@ export default function InventoryPage() {
               </>
             )}
             <input type="number" min="0" placeholder="How many (e.g. 50)" required value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            <input type="number" min="0" placeholder="Price each (KES)" required value={form.unitCost} onChange={e => setForm({ ...form, unitCost: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <input type="number" min="0" placeholder="Price each (KSh)" required value={form.unitCost} onChange={e => setForm({ ...form, unitCost: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           {Number(form.quantity) > 0 && Number(form.unitCost) > 0 && (
-            <p className="text-sm text-gray-600">{form.quantity} × KES {form.unitCost} each = <span className="font-bold text-gray-900">Total KES {(Number(form.quantity) * Number(form.unitCost)).toLocaleString()}</span></p>
+            <p className="text-sm text-gray-600">{form.quantity} × KSh {form.unitCost} each = <span className="font-bold text-gray-900">Total KSh {(Number(form.quantity) * Number(form.unitCost)).toLocaleString()}</span></p>
           )}
           <div className="flex gap-2">
             <button type="submit" disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? 'Saving…' : 'Add Stock'}</button>
@@ -219,7 +219,7 @@ export default function InventoryPage() {
                           <td className="py-2 px-3 text-right whitespace-nowrap">
                             {editLot === lot.id
                               ? <input type="number" value={lotEdit.unitCost} onChange={e => setLotEdit({ ...lotEdit, unitCost: e.target.value })} className="w-20 border rounded px-2 py-1 text-right" />
-                              : <>KES {lot.unitCost}</>}
+                              : <>KSh {lot.unitCost}</>}
                           </td>
                           <td className="py-2 px-3 whitespace-nowrap">{new Date(lot.receivedDate).toLocaleDateString('en-KE')}</td>
                           <td className="py-2 px-3 whitespace-nowrap">
@@ -258,11 +258,11 @@ export default function InventoryPage() {
                 {formulas.map(f => (
                   <div key={f.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2 gap-3">
                     <div className="min-w-0">
-                      <p className="font-semibold text-gray-800 text-sm">{f.name} <span className="text-xs text-gray-400">· KES {f.unitCost}/kg · {f.totalKg}kg</span></p>
+                      <p className="font-semibold text-gray-800 text-sm">{f.name} <span className="text-xs text-gray-400">· KSh {f.unitCost}/kg · {f.totalKg}kg</span></p>
                       <p className="text-xs text-gray-500 truncate">{f.components.map(c => `${items.find(i => i.id === c.itemId)?.name ?? '?'} ${c.kg}kg`).join(' + ')}</p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      <button onClick={() => useFormula(f)} className="text-xs text-green-600 font-semibold hover:underline">Use / edit</button>
+                      <button onClick={() => applyFormula(f)} className="text-xs text-green-600 font-semibold hover:underline">Use / edit</button>
                       <button onClick={() => deleteFormula(f.id)} className="text-xs text-gray-400 hover:text-red-600">Delete</button>
                     </div>
                   </div>
@@ -281,7 +281,7 @@ export default function InventoryPage() {
                   <select value={row.itemId} onChange={e => setMixRows(rs => rs.map((r, idx) => idx === i ? { ...r, itemId: e.target.value } : r))}
                     className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm">
                     <option value="">Ingredient…</option>
-                    {ingredients.map(ing => <option key={ing.id} value={ing.id}>{ing.name} (KES {itemCost(ing.id).toFixed(0)}/kg)</option>)}
+                    {ingredients.map(ing => <option key={ing.id} value={ing.id}>{ing.name} (KSh {itemCost(ing.id).toFixed(0)}/kg)</option>)}
                   </select>
                   <input value={row.kg} onChange={e => setMixRows(rs => rs.map((r, idx) => idx === i ? { ...r, kg: e.target.value } : r))}
                     type="number" min="0" placeholder="kg" className="w-24 border border-gray-300 rounded-xl px-3 py-2 text-sm text-center" />
@@ -294,7 +294,7 @@ export default function InventoryPage() {
             </div>
             <div className="flex items-center justify-between bg-green-50 rounded-xl px-4 py-2">
               <span className="text-sm font-semibold text-green-700">Rolled-up cost:</span>
-              <span className="text-lg font-bold text-green-800">{mixKg > 0 ? `KES ${(mixCost / mixKg).toFixed(2)} / kg · ${mixKg}kg total` : '—'}</span>
+              <span className="text-lg font-bold text-green-800">{mixKg > 0 ? `KSh ${(mixCost / mixKg).toFixed(2)} / kg · ${mixKg}kg total` : '—'}</span>
             </div>
             {editFormulaId && <p className="text-xs text-indigo-600 -mb-1">Editing the saved recipe. “Update recipe” saves changes without using stock; “Record Mix” actually mixes &amp; consumes stock.</p>}
             <div className="flex flex-col sm:flex-row gap-2">
@@ -338,6 +338,51 @@ export default function InventoryPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )
+          }
+        </div>
+      )}
+
+      {tab === 'recent' && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h2 className="font-bold text-gray-800 mb-3">Recent Stock Additions</h2>
+          <p className="text-gray-500 text-sm mb-4">Feed and supplies you&apos;ve recently added to inventory.</p>
+          {purchases.length === 0
+            ? (
+              <div className="text-center py-8 bg-gray-50 border border-dashed border-gray-200 rounded-xl">
+                <p className="text-gray-400 text-sm">No purchases recorded yet.</p>
+                <p className="text-gray-400 text-xs mt-1">Use the &quot;+ Record Purchase&quot; button to add stock.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-gray-500 text-xs font-semibold border-b">
+                    <tr>
+                      <th className="text-left pb-2">Date</th>
+                      <th className="text-left pb-2">Item</th>
+                      <th className="text-left pb-2">Supplier</th>
+                      <th className="text-right pb-2">Qty</th>
+                      <th className="text-right pb-2">Unit Cost</th>
+                      <th className="text-right pb-2">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {[...purchases].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(p => {
+                      const item = items.find(i => i.id === p.itemId);
+                      return (
+                        <tr key={p.id} className="hover:bg-gray-50">
+                          <td className="py-2 text-gray-400">{new Date(p.createdAt).toLocaleDateString('en-KE')}</td>
+                          <td className="py-2 font-semibold text-gray-900">{item?.name ?? p.itemId}</td>
+                          <td className="py-2 text-gray-600">{p.supplier}</td>
+                          <td className="py-2 text-right">{p.quantity}</td>
+                          <td className="py-2 text-right text-gray-600">{fmtKES(p.unitCost)}</td>
+                          <td className="py-2 text-right font-bold text-red-700">{fmtKES(p.totalCost)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )
           }

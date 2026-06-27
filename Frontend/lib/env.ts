@@ -24,6 +24,13 @@ const serverEnvSchema = z.object({
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_MODEL: z.string().default('anthropic/claude-3.5-sonnet'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // Whether to mark session cookies `Secure`. Default OFF so login works over
+  // plain HTTP (e.g. http://<lan-ip>:13000). Set COOKIE_SECURE=true ONLY when the
+  // app is served over HTTPS (e.g. behind a TLS-terminating reverse proxy).
+  COOKIE_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

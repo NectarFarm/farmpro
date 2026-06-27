@@ -24,9 +24,10 @@ export default function WeightSamplingPage() {
     api.getBatches().then(b => setBatches(b.filter(b => b.status === 'ACTIVE')));
   }, []);
 
+  const [now] = useState(() => Date.now());
   const batch = batches.find(b => b.id === batchId);
   const acquiredDate = batch ? new Date(batch.acquiredDate) : null;
-  const daysOnFarm = acquiredDate ? Math.floor((Date.now() - acquiredDate.getTime()) / 86400000) : 0;
+  const daysOnFarm = acquiredDate ? Math.floor((now - acquiredDate.getTime()) / 86400000) : 0;
   const startWeight = 0.04; // 40g day-old chick approx
   const avgKg = parseFloat(avgWeight) || 0;
   const adg = daysOnFarm > 0 && avgKg > 0 ? (((avgKg - startWeight) / daysOnFarm) * 1000).toFixed(0) : null;
@@ -58,14 +59,14 @@ export default function WeightSamplingPage() {
 
       {activeField === 'size' ? (
         <div className="bg-white rounded-xl border p-4">
-          <NumericKeypad label="Sample size (birds)" value={sampleSize} onChange={setSampleSize} />
+          <NumericKeypad label="Sample size (animals)" value={sampleSize} onChange={setSampleSize} />
           <button onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
         </div>
       ) : (
         <button type="button" onClick={() => setActiveField('size')}
           className="flex justify-between items-center bg-white border-2 border-gray-300 rounded-xl px-4 py-3 min-h-[56px]">
           <span className="font-medium text-gray-700">Sample size</span>
-          <span className="text-2xl font-bold text-gray-900">{sampleSize} birds</span>
+          <span className="text-2xl font-bold text-gray-900">{sampleSize} animals</span>
         </button>
       )}
 

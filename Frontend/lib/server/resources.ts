@@ -4,12 +4,12 @@ import 'server-only';
 import { and, eq, type SQL } from 'drizzle-orm';
 import {
   productionUnits, batches, inventoryItems, inventoryLots,
-  tasks, alerts, sales, purchases, employees, workerProfiles,
+  tasks, alerts, sales, purchases, employees, workerProfiles, healthRecords,
 } from '@/db/schemas';
 import type { Session } from './session';
 import type { Role } from '@/lib/types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type AnyTable = any;
 
 interface ResourceDef {
@@ -36,6 +36,7 @@ export const RESOURCES: Record<string, ResourceDef> = {
   purchases: { table: purchases, roles: ['owner', 'auditor'] },
   employees: { table: employees, roles: ['owner', 'manager'] },
   'worker-profiles': { table: workerProfiles, roles: ['owner'] },
+  'health-records': { table: healthRecords, roles: ['owner', 'manager', 'vet', 'auditor'] },
 };
 
 export function tenantScope(def: ResourceDef, session: Session): SQL | undefined {

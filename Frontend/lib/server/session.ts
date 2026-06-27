@@ -17,13 +17,13 @@ export interface Session {
 }
 
 export async function createSession(s: Omit<Session, 'exp'>): Promise<void> {
-  const { SESSION_SECRET } = getServerEnv();
+  const { SESSION_SECRET, COOKIE_SECURE } = getServerEnv();
   const exp = Math.floor(Date.now() / 1000) + MAX_AGE;
   const token = await signToken({ ...s, exp }, SESSION_SECRET);
   const jar = await cookies();
   jar.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: COOKIE_SECURE,
     sameSite: 'lax',
     path: '/',
     maxAge: MAX_AGE,

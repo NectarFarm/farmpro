@@ -28,6 +28,6 @@ test('wrong password shows an error and stays on /login', async ({ page }) => {
   await page.locator('input[autocomplete="username"]').fill('kutswa@ifms.farm');
   await page.locator('input[type="password"]').fill('WRONG');
   await page.getByRole('button', { name: /sign in/i }).click();
-  await expect(page.getByText(/invalid email or password/i)).toBeVisible();
+  await expect(page.getByText(/login failed/i)).toBeVisible();
   await expect(page).toHaveURL(/\/login/);
 });

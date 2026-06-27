@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import { sales, employees, tasks, workerProfiles, alerts, productionUnits, batches, products, inventoryItems, inventoryLots } from '@/db/schemas';
-import { productAvailability } from '@/lib/server/inventory';
+import { sellableStock } from '@/lib/server/inventory';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { RESOURCES, tenantScope } from '@/lib/server/resources';
@@ -19,6 +19,19 @@ const DEFAULT_FIELDS: FieldConfig[] = [
   { fieldKey: 'eggs_collected', label: 'Eggs collected', permission: 'editable', required: true },
   { fieldKey: 'abnormal', label: 'Abnormal observation', permission: 'editable', required: true },
 ];
+
+// Pay day must be a calendar day 1–31, else null (no scheduled pay day).
+const parsePayDay = (v: unknown): number | null => {
+  const d = Number(v);
+  return Number.isInteger(d) && d >= 1 && d <= 31 ? d : null;
+};
+// Assignment list: null → all batches; array → those (strings only); else undefined
+// (caller treats undefined as "not provided").
+const parseBatchIds = (v: unknown): string[] | null | undefined => {
+  if (v === null) return null;
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string');
+  return undefined;
+};
 
 // GET /api/data/<resource>  — tenant-scoped, role-gated, field-permission filtered.
 // Optional ?id=<id> returns a single row.
@@ -83,35 +96,47 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
       acquiredDate: s(body.acquiredDate, now.slice(0, 10)), ageAtAcquire: n(body.ageAtAcquire),
       initialQty: qty, currentQty: qty, stage: s(body.stage, 'GROWING'), acquisitionCost: n(body.cost ?? body.acquisitionCost), status: 'ACTIVE',
     });
-    // Auto-create this batch's products (eggs/pork/manure…) from its enterprise template.
+    // Auto-create the batch's default products for its enterprise — the animal
+    // itself AND its secondary outputs (a layer batch gets Eggs + Manure + the
+    // spent hen). The farmer can edit or add more afterwards.
     const defs = defaultsForBatch(s(body.species), s(body.enterprise) || undefined);
-    const prod = await createProductsForBatch(session.tenantId, id, defs);
+    const prod = defs.length ? await createProductsForBatch(session.tenantId, id, defs) : [];
     return created({ id, products: prod.length });
   }
   if (resource === 'sales') {
     if (!allow(['owner', 'manager'])) return forbidden();
     if (!body.batchId) return badRequest('batchId required');
     // Derive the unit from the batch (a sale is from a batch, which lives in a unit).
-    const [batch] = await db.select({ id: batches.id, unitId: batches.unitId }).from(batches)
+    const [batch] = await db.select({ id: batches.id, unitId: batches.unitId, currentQty: batches.currentQty }).from(batches)
       .where(and(eq(batches.tenantId, session.tenantId), eq(batches.id, s(body.batchId)))).limit(1);
     if (!batch) return badRequest('unknown batch');
     const quantity = n(body.quantity), unitPrice = n(body.unitPrice);
     if (quantity <= 0) return badRequest('Enter a quantity greater than zero.');
 
-    // Convert the sale to base units and refuse to sell more than was collected.
+    // Convert the sale to base units and refuse to sell more than is in stock.
+    // Stock basis depends on the product: a live animal sold per head draws down
+    // the batch headcount; a harvested output (eggs/pork/fish/maize…) draws down
+    // what was collected. See sellableStock().
     let baseQty = quantity;
-    let productName = s(body.productType, 'eggs');
+    let productName = s(body.productType, 'produce');
+    let baseUnit = 'unit';
+    let isAnimalProduct = false;
     if (body.productId) {
       const [product] = await db.select().from(products)
         .where(and(eq(products.tenantId, session.tenantId), eq(products.id, s(body.productId)))).limit(1);
-      if (product) {
-        productName = product.name;
-        const unit = (product.saleUnits as { name: string; perBase: number; price: number }[] | null)?.find((u) => u.name === s(body.unitName));
-        baseQty = quantity * (unit?.perBase ?? 1);
-        const av = await productAvailability(session.tenantId, batch.id, productName);
-        if (baseQty > av.available + 1e-6) {
-          return badRequest(`Only ${av.available} ${product.baseUnit} of ${productName} available to sell — collected ${av.produced}, already sold ${av.sold}. Record the collection first.`);
+      if (!product) return badRequest('unknown product');
+      productName = product.name;
+      baseUnit = product.baseUnit;
+      isAnimalProduct = product.isAnimalProduct ?? false;
+      const unit = (product.saleUnits as { name: string; perBase: number; price: number }[] | null)?.find((u) => u.name === s(body.unitName));
+      baseQty = quantity * (unit?.perBase ?? 1);
+
+      const stock = await sellableStock(session.tenantId, batch, product);
+      if (baseQty > stock.available + 1e-6) {
+        if (stock.basis === 'headcount') {
+          return badRequest(`Only ${stock.available} ${baseUnit} of ${productName} left in this batch — you tried to sell ${baseQty}. Record mortalities or check the live count.`);
         }
+        return badRequest(`Only ${stock.available} ${baseUnit} of ${productName} available to sell — collected ${stock.produced}, already sold ${stock.sold}. Record the collection first.`);
       }
     }
     await db.insert(sales).values({
@@ -121,6 +146,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
       paymentMethod: s(body.paymentMethod, 'cash'), status: 'PAID',
       withdrawalCheck: s(body.withdrawalCheck, 'cleared'), createdAt: now,
     });
+    // Selling the live animal itself physically removes head from the farm, so draw
+    // the batch (and its unit) population down by the head count sold (= base qty).
+    if (isAnimalProduct && baseQty > 0) {
+      const head = Math.round(baseQty);
+      const newBatchQty = Math.max(0, batch.currentQty - head);
+      await db.update(batches).set({ currentQty: newBatchQty })
+        .where(eq(batches.id, batch.id));
+      // The unit may hold several batches; decrement by the delta, never below zero.
+      const [unitRow] = await db.select({ q: productionUnits.currentQty }).from(productionUnits)
+        .where(and(eq(productionUnits.tenantId, session.tenantId), eq(productionUnits.id, batch.unitId))).limit(1);
+      if (unitRow) {
+        await db.update(productionUnits).set({ currentQty: Math.max(0, (unitRow.q ?? 0) - head) })
+          .where(and(eq(productionUnits.tenantId, session.tenantId), eq(productionUnits.id, batch.unitId)));
+      }
+    }
     return created({ id });
   }
   if (resource === 'employees') {
@@ -129,6 +169,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
     await db.insert(employees).values({
       id, tenantId: session.tenantId, name: s(body.name), phone: s(body.phone),
       role: s(body.role, 'worker'), pinSet: false, active: true,
+      salary: Math.max(0, n(body.salary)),
+      payDay: parsePayDay(body.payDay),
+      assignedBatchIds: parseBatchIds(body.assignedBatchIds) ?? null, // null = all batches
     });
     return created({ id });
   }
@@ -189,6 +232,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ resource: str
     if (typeof body.name === 'string') patch.name = body.name;
     if (typeof body.role === 'string') patch.role = body.role;
     if (typeof body.active === 'boolean') patch.active = body.active;
+    if (body.salary != null && !isNaN(Number(body.salary))) patch.salary = Math.max(0, Number(body.salary));
+    if ('payDay' in body) patch.payDay = parsePayDay(body.payDay);
+    // assignedBatchIds: array → those; null → all; absent → unchanged. This is how
+    // assigning AND unassigning a batch are persisted.
+    if ('assignedBatchIds' in body) patch.assignedBatchIds = parseBatchIds(body.assignedBatchIds) ?? null;
+    if (Object.keys(patch).length === 0) return badRequest('Nothing to update.');
     await db.update(employees).set(patch).where(and(eq(employees.tenantId, tid), eq(employees.id, id)));
     return ok({ id });
   }

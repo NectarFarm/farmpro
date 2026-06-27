@@ -62,7 +62,7 @@ export default function ActivityPage() {
                     </p>
                   </div>
                   {r.photoId && (
-                    // eslint-disable-next-line @next/next/no-img-element
+                     
                     <a href={`/api/photos/${r.photoId}`} target="_blank" rel="noreferrer"><img src={`/api/photos/${r.photoId}`} alt="evidence" className="w-12 h-12 object-cover rounded-lg border border-gray-200" /></a>
                   )}
                 </div>

@@ -113,7 +113,7 @@ export default function FarmPage() {
             </select>
             <input type="number" min="0" required placeholder="Quantity" value={batchForm.qty} onChange={e => setBatchForm({ ...batchForm, qty: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             <input type="number" min="0" placeholder="Age at acquire (days)" value={batchForm.ageAtAcquire} onChange={e => setBatchForm({ ...batchForm, ageAtAcquire: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            <input type="number" min="0" placeholder="Total acquisition cost (KES)" value={batchForm.cost} onChange={e => setBatchForm({ ...batchForm, cost: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <input type="number" min="0" placeholder="Total acquisition cost (KSh)" value={batchForm.cost} onChange={e => setBatchForm({ ...batchForm, cost: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div className="flex gap-2"><button type="submit" disabled={saving || units.length === 0} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? 'Saving…' : 'Add Batch'}</button><button type="button" onClick={() => setShow('')} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">Cancel</button></div>
         </form>

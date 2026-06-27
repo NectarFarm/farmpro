@@ -1,0 +1,1 @@
+ALTER TABLE "products" ADD COLUMN "is_animal_product" boolean DEFAULT false NOT NULL;

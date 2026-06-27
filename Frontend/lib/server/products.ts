@@ -16,6 +16,14 @@ export function defaultsForBatch(species: string, enterprise?: string): ProductD
   return key ? PRODUCT_TEMPLATES[key] : [];
 }
 
+// Returns only the main product for the batch (the animal itself / primary output).
+// Other products (manure, eggs, etc.) are added manually by the farmer.
+export function mainProductForBatch(species: string, enterprise?: string): ProductDef | null {
+  const key = enterprise && PRODUCT_TEMPLATES[enterprise] ? enterprise : enterpriseFromSpecies(species || '');
+  if (!key) return null;
+  return PRODUCT_TEMPLATES[key].find(p => p.isMainProduct) ?? null;
+}
+
 export async function createProductsForBatch(tenantId: string, batchId: string, defs: ProductDef[]): Promise<CreatedProduct[]> {
   const created: CreatedProduct[] = [];
   for (const d of defs) {
@@ -24,12 +32,16 @@ export async function createProductsForBatch(tenantId: string, batchId: string, 
     await db.insert(products).values({
       id, tenantId, batchId, name: d.name, baseUnit: d.baseUnit, saleUnits: d.saleUnits,
       collectFrequency: d.collectFrequency, flow: d.flow ?? 'sale', fieldKey, active: true,
+      isAnimalProduct: d.isAnimalProduct ?? false,
     });
     created.push({ id, name: d.name, fieldKey, frequency: d.collectFrequency });
   }
-  if (created.length) {
-    await addCollectionPermissions(tenantId, created);
-    await notifyAssignCollectors(tenantId, created);
+  // Collection permissions/reminders apply only to things a worker actually
+  // collects (eggs, manure, milk…) — never the live animal itself, which is sold.
+  const collectible = created.filter((_, i) => !defs[i].isAnimalProduct);
+  if (collectible.length) {
+    await addCollectionPermissions(tenantId, collectible);
+    await notifyAssignCollectors(tenantId, collectible);
   }
   return created;
 }

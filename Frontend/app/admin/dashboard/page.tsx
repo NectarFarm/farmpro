@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { FEATURES, PLANS } from '@/lib/features';
+import { AdminTesting } from '@/components/admin/AdminTesting';
 
 interface Tenant { id: string; name: string; plan: string; features: string[]; active: boolean; users: number; workers: number; batches: number }
 interface Owner { name: string; email: string; phone: string }
@@ -143,7 +144,7 @@ export default function AdminDashboardPage() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {settings.logoUrl
-            ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={settings.logoUrl} alt="logo" className="w-10 h-10 object-contain rounded bg-gray-50 border border-gray-200" />
+            ?   <img src={settings.logoUrl} alt="logo" className="w-10 h-10 object-contain rounded bg-gray-50 border border-gray-200" />
             : <span className="text-2xl">🌾</span>}
           <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && onLogoFile(e.target.files[0])} className="text-xs" />
           {settings.logoUrl && <button onClick={() => setSettings(s => ({ ...s, logoUrl: '' }))} className="text-xs text-gray-500 underline">remove logo</button>}
@@ -151,6 +152,9 @@ export default function AdminDashboardPage() {
         </div>
         {settingsMsg && <p className="text-sm text-gray-600">{settingsMsg}</p>}
       </div>
+
+      {/* Acceptance testing */}
+      <AdminTesting />
 
       {/* Farms */}
       <h2 className="font-bold text-gray-900 -mb-2">Farms ({tenants.length})</h2>

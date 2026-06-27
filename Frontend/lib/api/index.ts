@@ -5,7 +5,7 @@
 import * as mock from '@/lib/mock/api';
 import type {
   ProductionUnit, Batch, InventoryItem, InventoryLot, Task, Alert, Sale, Purchase,
-  Employee, WorkerProfile, User, BatchCostSummary, Product,
+  Employee, WorkerProfile, User, BatchCostSummary, Product, HealthRecord,
 } from '@/lib/types';
 
 const USE_REAL = process.env.NEXT_PUBLIC_USE_REAL_API === 'true';
@@ -29,10 +29,24 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
   }
   return r.json() as Promise<T>;
 }
+async function patchJSON<T>(url: string, body: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    let msg = `${url} -> ${r.status}`;
+    try { msg = ((await r.json()) as { error?: string }).error ?? msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return r.json() as Promise<T>;
+}
 
-// Real implementations for the endpoint-backed reads; everything else (cost summary,
-// health records, getUsers, submitRecord, syncBatch) falls through to the mock spread
-// until those tiers (costing/reporting) exist per ARCHITECTURE.
+// Real implementations for every endpoint-backed call. With USE_REAL on, nothing
+// falls through to the mock — the spread only seeds the object shape; every member
+// below is overridden so the running app is 100% live (Postgres, tenant-scoped).
 const realApi: typeof mock.api = {
   ...mock.api,
   getUnits: () => getJSON<ProductionUnit[]>('/api/data/units'),
@@ -48,10 +62,36 @@ const realApi: typeof mock.api = {
   getAlerts: () => getJSON<Alert[]>('/api/data/alerts'),
   getEmployees: () => getJSON<Employee[]>('/api/data/employees'),
   getWorkerProfiles: () => getJSON<WorkerProfile[]>('/api/data/worker-profiles'),
+  createWorkerProfile: async (data: Record<string, unknown>) =>
+    postJSON<{ id: string }>('/api/data/worker-profiles', data),
+  updateWorkerProfile: async (id: string, data: Record<string, unknown>) =>
+    patchJSON<{ id: string }>(`/api/data/worker-profiles?id=${encodeURIComponent(id)}`, data),
   getSales: () => getJSON<Sale[]>('/api/data/sales'),
   getPurchases: () => getJSON<Purchase[]>('/api/data/purchases'),
+  recordSale: async (data: Record<string, unknown>) =>
+    postJSON<{ id: string; status: string }>('/api/data/sales', data),
+  // Purchases have their own route (it creates an inventory LOT + the purchase row);
+  // the generic /api/data POST doesn't handle them. Going through /api/data here was
+  // the bug that made "Record Purchase" silently fail (stock never appeared).
+  recordPurchase: async (data: Record<string, unknown>) => {
+    const r = await postJSON<{ id: string }>('/api/purchases', data);
+    return { id: r.id, status: 'accepted' };
+  },
   getCostSummary: (batchId: string) =>
     getJSON<BatchCostSummary>(`/api/cost-summary?batchId=${encodeURIComponent(batchId)}`).catch(() => null),
+  getHealthRecords: async (batchId: string) =>
+    (await getJSON<HealthRecord[]>('/api/data/health-records')).filter((h) => h.batchId === batchId),
+  getUsers: () => getJSON<User[]>('/api/workers'),
+  // Field events go through the offline-sync contract (clientUuid = server PK → idempotent).
+  submitRecord: async (type: string, payload: unknown) => {
+    const clientUuid = crypto.randomUUID();
+    const res = await postJSON<{ accepted: number }>('/api/sync', {
+      records: [{ clientUuid, type, payload, capturedAt: new Date().toISOString() }],
+    });
+    return { id: clientUuid, status: res.accepted ? 'accepted' : 'rejected' };
+  },
+  syncBatch: (records: unknown[]) =>
+    postJSON<{ accepted: number; conflicts: never[] }>('/api/sync', { records }),
 };
 
 export const api = USE_REAL ? realApi : mock.api;
@@ -70,10 +110,18 @@ export const loginWorker = USE_REAL
     }
   : mock.loginWorker;
 
-// Products a batch yields (eggs/pork/manure…) with priced sale units. Real only.
+// Products a batch yields (eggs/pork/manure…) with priced sale units.
 export const getProducts: (batchId?: string) => Promise<Product[]> = USE_REAL
   ? (batchId?: string) => getJSON<Product[]>(`/api/products${batchId ? `?batchId=${encodeURIComponent(batchId)}` : ''}`).catch(() => [])
-  : () => Promise.resolve([]);
+  : (batchId?: string) => mock.api.getProducts(batchId);
+
+export const createProduct: (data: Record<string, unknown>) => Promise<{ id: string }> = USE_REAL
+  ? (data) => postJSON<{ id: string }>('/api/products', data)
+  : (data) => mock.api.createProduct(data);
+
+export const updateProduct: (id: string, data: Record<string, unknown>) => Promise<{ id: string }> = USE_REAL
+  ? (id, data) => patchJSON<{ id: string }>(`/api/products?id=${encodeURIComponent(id)}`, data)
+  : (id, data) => mock.api.updateProduct(id, data);
 
 // Layout-only (not a security boundary — server already strips fields). Mock for now.
 export const getWorkerProfile = mock.getWorkerProfile;

@@ -12,7 +12,29 @@ export const tenants = pgTable('tenants', {
   plan: text('plan').notNull().default('pro'),
   features: jsonb('features').$type<string[]>().notNull().default(ALL_FEATURE_KEYS),
   active: boolean('active').notNull().default(true), // super-admin can suspend on non-renewal
+  testingEnabled: boolean('testing_enabled').notNull().default(false), // admin opens UAT for this farm
+  testMaxScreenshots: integer('test_max_screenshots').notNull().default(0), // 0 = screenshots off
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Guided front-end acceptance test (UAT). One current run per tenant; admin can
+// reset it ("request a test again") and reads the report once it's submitted.
+export const testRuns = pgTable('test_runs', {
+  tenantId: text('tenant_id').primaryKey(),
+  status: text('status').notNull().default('in_progress'), // in_progress | submitted
+  steps: jsonb('steps').$type<import('@/lib/testing').TestStep[]>().notNull().default([]),
+  startedAt: text('started_at').notNull(),
+  submittedAt: text('submitted_at'),
+});
+
+// Screenshots a tester attaches to a failed step. Stored as a compressed data URL;
+// the admin can delete each one after viewing to reclaim space.
+export const testPhotos = pgTable('test_photos', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  stepId: text('step_id').notNull(),
+  data: text('data').notNull(), // data:image/jpeg;base64,…
+  createdAt: text('created_at').notNull(),
 });
 
 // Single-row global platform branding/config, editable by the super-admin.
@@ -21,6 +43,8 @@ export const platformSettings = pgTable('platform_settings', {
   appName: text('app_name').notNull().default('IFMS'),
   tagline: text('tagline').notNull().default('Integrated Farm Management System'),
   logoUrl: text('logo_url'), // data URL or external URL; null → 🌾 emoji fallback
+  // Admin-editable acceptance-test checklist (null → the built-in TEST_STEPS).
+  testSteps: jsonb('test_steps').$type<import('@/lib/testing').TestStepDef[]>(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
@@ -57,6 +81,11 @@ export const employees = pgTable('employees', {
   workerProfileId: text('worker_profile_id'),
   pinSet: boolean('pin_set').notNull().default(false),
   active: boolean('active').notNull().default(true),
+  salary: doublePrecision('salary').notNull().default(0), // monthly wage (KSh); 0 = unpaid/unset
+  payDay: integer('pay_day'),                             // day of month (1–31) wages are due
+  // Batches this worker is assigned to. NULL = all (current & future) active batches
+  // — the default. [] = none. [ids] = exactly those. Drives salary allocation.
+  assignedBatchIds: jsonb('assigned_batch_ids').$type<string[]>(),
 });
 
 export const productionUnits = pgTable('production_units', {
@@ -301,6 +330,7 @@ export const products = pgTable('products', {
   flow: text('flow').notNull().default('sale'), // sale (output) | expense (input)
   fieldKey: text('field_key'), // permission key on worker profiles for collecting it
   active: boolean('active').notNull().default(true),
+  isAnimalProduct: boolean('is_animal_product').notNull().default(false),
 });
 
 // Worker-captured photos (mortality evidence, etc.). Stored as a compressed data

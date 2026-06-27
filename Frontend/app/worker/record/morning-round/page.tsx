@@ -51,7 +51,6 @@ export default function MorningRoundPage() {
     });
   }, []);
 
-  const cur = typeof step === 'number' ? entries[step] : null;
   const updateEntry = (idx: number, patch: Partial<UnitEntry>) => setEntries(e => e.map((en, i) => i === idx ? { ...en, ...patch } : en));
 
   const canSaveEntry = (e: UnitEntry) => {
@@ -96,7 +95,6 @@ export default function MorningRoundPage() {
 
   if (step === 'summary') {
     const total = entries.reduce((s, e) => s + (parseInt(e.eggsCollected)||0), 0);
-    const totalFeed = entries.reduce((s, e) => s + (parseFloat(e.feedRemaining)||0), 0);
     return (
       <div className="p-4 flex flex-col gap-5">
         <div className="bg-green-50 border border-green-300 rounded-2xl p-5 text-center">
@@ -121,7 +119,6 @@ export default function MorningRoundPage() {
   const idx = step as number;
   const entry = entries[idx];
   const isPoultry = entry.species.includes('poultry');
-  const isPig = entry.species.includes('pig');
   const isFish = entry.species.includes('tilapia') || entry.species.includes('catfish');
 
   return (

@@ -80,7 +80,7 @@ export function CameraCapture({ onCapture, onRemove, captured, required, label, 
       )}
       {captured ? (
         <div className="relative rounded-xl overflow-hidden border-2 border-green-400">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          { }
           <img src={captured.dataUrl} alt="Captured" className="w-full max-h-48 object-cover" />
           <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-3 py-1 flex items-center gap-2">
             <span>📍</span>

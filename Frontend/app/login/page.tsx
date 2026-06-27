@@ -13,21 +13,16 @@ const HOME: Record<string, string> = {
   vet: '/vet/units', auditor: '/auditor/dashboard', worker: '/worker/home',
 };
 
-const DEMO = [
-  { id: 'kutswa@ifms.farm', secret: 'demo1234', label: 'Owner' },
-  { id: 'admin@ifms.app', secret: 'demo1234', label: 'Platform Admin' },
-  { id: '+254700333444', secret: '1234', label: 'Worker' },
-  { id: 'investor@fund.ke', secret: 'demo1234', label: 'Auditor' },
-];
-
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuthStore();
   const brand = useBranding();
   const [identifier, setIdentifier] = useState('');
   const [secret, setSecret] = useState('');
+  const [showSecret, setShowSecret] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const year = new Date().getFullYear();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +60,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           {brand.logoUrl
-            ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={brand.logoUrl} alt={brand.appName} className="w-16 h-16 object-contain mx-auto mb-3" />
+            ?   <img src={brand.logoUrl} alt={brand.appName} className="w-16 h-16 object-contain mx-auto mb-3" />
             : <div className="text-5xl mb-3">🌾</div>}
           <h1 className="text-3xl font-bold text-white">{brand.appName}</h1>
           <p className="text-green-200/70 mt-1">{brand.tagline}</p>
@@ -74,18 +69,6 @@ export default function LoginPage() {
         <div className="bg-white rounded-2xl p-8 shadow-xl">
           <h2 className="text-xl font-bold text-gray-900 mb-1">Sign in</h2>
           <p className="text-sm text-gray-500 mb-5">Owners, workers and admins all sign in here — we&apos;ll take you to the right place.</p>
-
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-5">
-            <p className="text-xs font-semibold text-gray-500 mb-2">Demo accounts (tap to fill):</p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {DEMO.map(a => (
-                <button key={a.id} type="button" onClick={() => { setIdentifier(a.id); setSecret(a.secret); }}
-                  className="px-2 py-1.5 bg-gray-100 rounded-lg text-xs font-semibold text-gray-700 border border-gray-200 hover:bg-gray-200">
-                  {a.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
@@ -96,9 +79,16 @@ export default function LoginPage() {
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-gray-700">Password or PIN</label>
-              <input type="password" value={secret} onChange={e => setSecret(e.target.value)} required autoComplete="current-password"
-                placeholder="••••••••"
-                className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base focus:border-green-600 outline-none" />
+              <div className="relative">
+                <input type={showSecret ? 'text' : 'password'} value={secret} onChange={e => setSecret(e.target.value)} required autoComplete="current-password"
+                  placeholder="••••••••"
+                  className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 pr-16 text-base focus:border-green-600 outline-none" />
+                <button type="button" onClick={() => setShowSecret(v => !v)}
+                  className="absolute inset-y-0 right-3 my-auto h-fit text-xs font-semibold text-gray-500 hover:text-gray-800"
+                  aria-label={showSecret ? 'Hide password' : 'Show password'}>
+                  {showSecret ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </div>
 
             {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 text-sm font-semibold">{error}</p>}
@@ -108,7 +98,13 @@ export default function LoginPage() {
               {loading ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
+
+          <p className="text-xs text-gray-400 text-center mt-5">
+            No account? Ask your farm owner or administrator to add you.
+          </p>
         </div>
+
+        <p className="text-center text-green-200/50 text-xs mt-6">© {year} {brand.appName} · Secure sign-in</p>
       </div>
     </div>
   );

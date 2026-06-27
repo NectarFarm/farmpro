@@ -121,14 +121,19 @@ export interface WorkerProfile {
 export interface Employee {
   id: string; tenantId: string; name: string; phone: string;
   role: Role; workerProfileId?: string; pinSet: boolean; active: boolean;
+  salary?: number; payDay?: number | null;
+  assignedBatchIds?: string[] | null; // null = all active batches (default); [] = none
 }
 
 export interface BatchCostSummary {
   batchId: string; acquisitionCost: number; feedCost: number;
-  healthCost: number; laborCost: number; overheadCost: number;
+  healthCost: number; laborCost: number; salaryCost?: number; overheadCost: number;
   totalCost: number; totalRevenue: number; grossMargin: number;
   costPerUnit: number; outputUnit: string; breakEvenAge?: number;
   fcr?: number; adg?: number; mortalityPct?: number;
+  currentQty: number; costPerBird?: number; breakEvenPricePerRemaining?: number; remainingQty?: number;
+  // Headcount fates: survivors = initial − died; soldHead left the farm; deaths = died.
+  survivors?: number; soldHead?: number; deaths?: number;
 }
 
 export interface ProductSaleUnit { name: string; perBase: number; price: number }
@@ -136,6 +141,7 @@ export interface Product {
   id: string; tenantId: string; batchId?: string; name: string; baseUnit: string;
   saleUnits: ProductSaleUnit[]; collectFrequency: 'daily'|'weekly'|'monthly'|'per_cycle'|string;
   flow: 'sale'|'expense'|string; fieldKey?: string; active: boolean;
+  isAnimalProduct?: boolean;
 }
 
 export interface ConflictEntry {

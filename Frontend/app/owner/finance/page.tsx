@@ -2,10 +2,11 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, getProducts } from '@/lib/api';
-import type { Sale, Purchase, Batch, Product, BatchCostSummary, InventoryItem } from '@/lib/types';
+import type { Sale, Purchase, Batch, Product, BatchCostSummary, InventoryItem, Employee } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { totalMonthlyWageBill, daysUntilPayDay } from '@/lib/payroll';
 
-const fmtKES = (n: number) => `KES ${n.toLocaleString('en-KE')}`;
+const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const EMPTY = { batchId: '', productId: '', unitName: '', quantity: '', unitPrice: '', buyer: '' };
 
 export default function FinancePage() {
@@ -18,15 +19,16 @@ export default function FinancePage() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [form, setForm] = useState(EMPTY);
-  const [avail, setAvail] = useState<{ produced: number; sold: number; available: number } | null>(null);
+  const [avail, setAvail] = useState<{ basis: 'headcount' | 'harvested'; available: number; produced?: number; sold?: number } | null>(null);
 
   const [batchPL, setBatchPL] = useState<{ batch: Batch; cost: BatchCostSummary | null }[]>([]);
 
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const itemName = (id: string) => items.find(i => i.id === id)?.name ?? id;
 
-  const reload = () => Promise.all([api.getSales(), api.getPurchases()]).then(([s,p]) => { setSales(s); setPurchases(p); });
-  useEffect(() => { reload(); api.getBatches().then(setBatches); api.getItems().then(setItems); }, []);
+  const reload = () => Promise.all([api.getSales(), api.getPurchases(), api.getBatches()]).then(([s,p,b]) => { setSales(s); setPurchases(p); setBatches(b); });
+  useEffect(() => { reload(); api.getItems().then(setItems); api.getEmployees().then(setEmployees).catch(() => {}); }, []);
   useEffect(() => {
     if (!batches.length) { setBatchPL([]); return; }
     Promise.all(batches.map(async b => ({ batch: b, cost: await api.getCostSummary(b.id) }))).then(setBatchPL);
@@ -47,7 +49,7 @@ export default function FinancePage() {
     setForm(f => ({ ...f, productId, unitName: u?.name ?? '', unitPrice: u ? String(u.price) : '' }));
     setAvail(null);
     if (p && form.batchId) {
-      fetch(`/api/availability?batchId=${form.batchId}&product=${encodeURIComponent(p.name)}`, { credentials: 'include' })
+      fetch(`/api/availability?batchId=${form.batchId}&productId=${encodeURIComponent(p.id)}`, { credentials: 'include' })
         .then(r => r.ok ? r.json() : null).then(setAvail).catch(() => {});
     }
   };
@@ -62,24 +64,36 @@ export default function FinancePage() {
   const createSale = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setErr('');
     try {
-      const res = await fetch('/api/data/sales', {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          batchId: form.batchId, productId: form.productId, productType: product?.name ?? 'produce',
-          unitName: form.unitName, quantity: form.quantity, unitPrice: form.unitPrice, buyer: form.buyer,
-        }),
+      await api.recordSale({
+        batchId: form.batchId, productId: form.productId, productType: product?.name ?? 'produce',
+        unitName: form.unitName, quantity: form.quantity, unitPrice: form.unitPrice, buyer: form.buyer,
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        // Surface the server's real message (e.g. "Only 74 eggs available to sell…").
-        throw new Error(data.error || (res.status === 403 ? 'Not permitted' : res.status === 401 ? 'Please sign in again' : `Failed (${res.status})`));
-      }
       setForm(EMPTY); setProducts([]); setShowSale(false); await reload();
     } catch (e) { setErr((e as Error).message); } finally { setSaving(false); }
   };
 
   const totalRevenue = sales.reduce((s,sl) => s + sl.totalAmount, 0);
   const totalCost = purchases.reduce((s,p) => s + p.totalCost, 0);
+
+  // This-month budget: revenue in vs expenses out, for the current month.
+  // Expenses = stock purchases this month + the monthly wage bill (salaries accrue
+  // every month regardless of which day they're paid).
+  const now = new Date();
+  const thisMonth = now.toISOString().slice(0, 7);
+  const inMonth = (d?: string) => (d ?? '').slice(0, 7) === thisMonth;
+  const monthRevenue = sales.filter(s => inMonth(s.createdAt)).reduce((a, s) => a + s.totalAmount, 0);
+  const monthPurchases = purchases.filter(p => inMonth(p.createdAt)).reduce((a, p) => a + p.totalCost, 0);
+  const monthSalaries = totalMonthlyWageBill(employees);
+  const monthExpenses = monthPurchases + monthSalaries;
+  const monthNet = monthRevenue - monthExpenses;
+  const monthLabel = now.toLocaleDateString('en-KE', { month: 'long', year: 'numeric' });
+
+  // Soonest upcoming pay day across paid, active staff → a reminder (no auto-posting).
+  const paidStaff = employees.filter(e => e.active && (e.salary ?? 0) > 0 && e.payDay);
+  const nextPayInDays = paidStaff.reduce((min, e) => Math.min(min, daysUntilPayDay(e.payDay, now)), Infinity);
+  const payReminder = paidStaff.length > 0 && nextPayInDays <= 5
+    ? (nextPayInDays === 0 ? `Salaries due today: ${fmtKES(monthSalaries)}` : `Salaries due in ${nextPayInDays} day${nextPayInDays === 1 ? '' : 's'}: ${fmtKES(monthSalaries)}`)
+    : '';
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-5xl">
@@ -108,14 +122,18 @@ export default function FinancePage() {
               {product?.saleUnits.map(u => <option key={u.name} value={u.name}>{u.name} — {fmtKES(u.price)}</option>)}
             </select>
             <input type="number" min="0" placeholder={`How many${unit ? ` (${unit.name})` : ''}`} required value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            <input type="number" min="0" placeholder={`Price each${unit ? ` (per ${unit.name})` : ''} (KES)`} required value={form.unitPrice} onChange={e => setForm({ ...form, unitPrice: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <input type="number" min="0" placeholder={`Price each${unit ? ` (per ${unit.name})` : ''} (KSh)`} required value={form.unitPrice} onChange={e => setForm({ ...form, unitPrice: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             <input placeholder="Buyer" value={form.buyer} onChange={e => setForm({ ...form, buyer: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           {avail && product && (
             <p className={`text-sm rounded-lg px-3 py-2 ${overSell ? 'bg-red-50 text-red-700 font-semibold' : 'bg-gray-50 text-gray-600'}`}>
-              {overSell
-                ? `⚠ Only ${avail.available} ${product.baseUnit} available — you're trying to sell ${sellingBase}. Record the collection first.`
-                : `${avail.available} ${product.baseUnit} available to sell (collected ${avail.produced}, sold ${avail.sold})${sellingBase > 0 ? ` · this sale = ${sellingBase} ${product.baseUnit}` : ''}`}
+              {avail.basis === 'headcount'
+                ? (overSell
+                    ? `⚠ Only ${avail.available} ${product.baseUnit} left in this batch — you're trying to sell ${sellingBase}. Record mortalities or check the live count.`
+                    : `${avail.available} live ${product.baseUnit} in this batch${sellingBase > 0 ? ` · this sale removes ${sellingBase}, leaving ${avail.available - sellingBase}` : ''}`)
+                : (overSell
+                    ? `⚠ Only ${avail.available} ${product.baseUnit} available — you're trying to sell ${sellingBase}. Record the collection first.`
+                    : `${avail.available} ${product.baseUnit} available to sell (collected ${avail.produced}, sold ${avail.sold})${sellingBase > 0 ? ` · this sale = ${sellingBase} ${product.baseUnit}` : ''}`)}
             </p>
           )}
           {total > 0 && <p className="text-sm text-gray-600">Total: <span className="font-bold text-green-700">{fmtKES(total)}</span></p>}
@@ -126,7 +144,35 @@ export default function FinancePage() {
         </form>
       )}
 
-      {/* Summary */}
+      {/* This-month budget — expenses & revenue for the current month */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-bold text-gray-800 text-sm">Budget · {monthLabel}</h2>
+          <span className={`text-xs font-semibold px-2 py-1 rounded-full ${monthNet >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+            {monthNet >= 0 ? 'Surplus' : 'Deficit'} {fmtKES(monthNet)}
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center">
+            <p className="text-xs text-gray-500">Revenue in</p>
+            <p className="text-xl font-bold text-green-700">{fmtKES(monthRevenue)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500">Expenses out</p>
+            <p className="text-xl font-bold text-red-700">{fmtKES(monthExpenses)}</p>
+            <p className="text-[11px] text-gray-400">{fmtKES(monthPurchases)} stock · {fmtKES(monthSalaries)} salaries</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500">Net this month</p>
+            <p className={`text-xl font-bold ${monthNet >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtKES(monthNet)}</p>
+          </div>
+        </div>
+        {payReminder && (
+          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 text-xs font-semibold">🔔 {payReminder}</div>
+        )}
+      </div>
+
+      {/* All-time summary */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
           <p className="text-xs text-gray-500">Total Revenue</p>

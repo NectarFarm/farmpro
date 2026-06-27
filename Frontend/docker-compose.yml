@@ -31,6 +31,11 @@ services:
     command: sh -c "pnpm db:migrate && pnpm db:seed"
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-ifms}@db:5432/ifms
+      # Super-admin login printed at startup. Override these for production.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@ifms.app}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-demo1234}
+      # SEED_DEMO=false → seed ONLY the admin (no demo owner/workers).
+      SEED_DEMO: ${SEED_DEMO:-true}
     depends_on:
       db:
         condition: service_healthy
@@ -67,6 +72,9 @@ services:
       # Override SESSION_SECRET in production with a long random value.
       SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-session-secret-please}
       NEXT_PUBLIC_USE_REAL_API: "true"
+      # Keep cookies non-Secure so login works over plain HTTP (http://<lan-ip>:13000).
+      # Set to "true" ONLY when serving over HTTPS behind a TLS reverse proxy.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
     ports:

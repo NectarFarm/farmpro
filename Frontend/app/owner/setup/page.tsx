@@ -28,7 +28,7 @@ export default function SetupWizardPage() {
   const [step, setStep] = useState(0);
   const [farmName, setFarmName] = useState('');
   const [farmLocation, setFarmLocation] = useState('');
-  const [currency] = useState('KES');
+  const [currency] = useState('KSh');
   const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
   const [units, setUnits] = useState([{ name: '', type: 'HOUSE', capacity: '' }]);
   const [batches, setBatches] = useState([{ name: '', species: '', unitName: '', qty: '', ageAtAcquire: '', cost: '' }]);
@@ -168,7 +168,7 @@ export default function SetupWizardPage() {
                   <input type="number" value={b.ageAtAcquire} onChange={e => setBatches(bs => bs.map((x,j)=>j===i?{...x,ageAtAcquire:e.target.value}:x))}
                     placeholder="Age (days)" className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
                   <input type="number" value={b.cost} onChange={e => setBatches(bs => bs.map((x,j)=>j===i?{...x,cost:e.target.value}:x))}
-                    placeholder="Cost (KES)" className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
+                    placeholder="Cost (KSh)" className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
                 </div>
               </div>
             ))}
@@ -200,7 +200,7 @@ export default function SetupWizardPage() {
                     placeholder="Opening qty" className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
                 </div>
                 <input type="number" value={item.unitCost} onChange={e => setInventory(inv => inv.map((x,j)=>j===i?{...x,unitCost:e.target.value}:x))}
-                  placeholder="Unit cost (KES)" className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
+                  placeholder="Unit cost (KSh)" className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
               </div>
             ))}
             <button type="button" onClick={() => setInventory(i => [...i, {name:'',category:'FEED_FINISHED',unit:'kg',qty:'',unitCost:''}])}
@@ -253,7 +253,7 @@ export default function SetupWizardPage() {
                 </thead>
                 <tbody>
                   {[
-                    ['Feed unit cost (KES)','feed_unit_cost',false,false,false],
+                    ['Feed unit cost (KSh)','feed_unit_cost',false,false,false],
                     ['Feed quantity (kg)','feed_qty',true,true,true],
                     ['Egg sale price','egg_sale_price',false,false,false],
                     ['Mortality cause','mortality_cause',true,false,true],

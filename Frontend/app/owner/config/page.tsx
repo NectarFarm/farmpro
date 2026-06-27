@@ -17,6 +17,9 @@ export default function WorkerConfigPage() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [showNew, setShowNew] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const selectProfile = (p: WorkerProfile) => { setSelected(p); setEdited(p.fields); setPhotoThreshold(p.mortalityPhotoThreshold); setSaved(false); };
   const reload = (keepId?: string) => api.getWorkerProfiles().then(p => {
@@ -25,7 +28,7 @@ export default function WorkerConfigPage() {
     if (pick) selectProfile(pick);
   });
 
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setFieldPerm = (key: string, perm: FieldPermission) => {
     setEdited(fs => fs.map(f => f.fieldKey === key ? { ...f, permission: perm } : f));
@@ -41,28 +44,23 @@ export default function WorkerConfigPage() {
     if (!selected) return;
     setSaving(true); setErr('');
     try {
-      const res = await fetch(`/api/data/worker-profiles?id=${selected.id}`, {
-        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: edited, mortalityPhotoThreshold: photoThreshold }),
-      });
-      if (!res.ok) throw new Error(res.status === 403 ? 'Owner only' : res.status === 401 ? 'Please sign in again' : 'Save failed');
+      await api.updateWorkerProfile(selected.id, { fields: edited, mortalityPhotoThreshold: photoThreshold });
       setSaved(true); setTimeout(() => setSaved(false), 2500);
       await reload(selected.id);
     } catch (e) { setErr((e as Error).message); } finally { setSaving(false); }
   };
 
-  const createProfile = async () => {
-    const name = window.prompt('New profile name?', 'New Profile');
-    if (!name) return;
-    setErr('');
+  const openNewProfile = () => { setNewName(''); setErr(''); setShowNew(true); };
+  const submitNewProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name) { setErr('Enter a profile name.'); return; }
+    setCreating(true); setErr('');
     try {
-      const res = await fetch('/api/data/worker-profiles', {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
-      });
-      if (!res.ok) throw new Error(res.status === 403 ? 'Owner only' : 'Could not create profile');
-      const { id } = await res.json();
+      const { id } = await api.createWorkerProfile({ name });
+      setShowNew(false); setNewName('');
       await reload(id);
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) { setErr((e as Error).message); } finally { setCreating(false); }
   };
 
   return (
@@ -80,8 +78,28 @@ export default function WorkerConfigPage() {
             {p.name}
           </button>
         ))}
-        <button onClick={createProfile} className="px-4 py-2 rounded-xl font-semibold text-sm border-2 border-dashed border-green-400 text-green-600">+ New Profile</button>
+        <button onClick={openNewProfile} className="px-4 py-2 rounded-xl font-semibold text-sm border-2 border-dashed border-green-400 text-green-600">+ New Profile</button>
       </div>
+
+      {/* New-profile inline form (replaces the old browser prompt) */}
+      {showNew && (
+        <form onSubmit={submitNewProfile} className="bg-white border border-green-300 rounded-xl p-4 flex flex-col sm:flex-row gap-3 sm:items-end">
+          <div className="flex-1">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">New profile name</label>
+            <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
+              placeholder="e.g. Poultry worker, Fish hand, Crop labourer"
+              className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div className="flex gap-2">
+            <button type="submit" disabled={creating || !newName.trim()}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">
+              {creating ? 'Creating…' : 'Create profile'}
+            </button>
+            <button type="button" onClick={() => { setShowNew(false); setErr(''); }}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">Cancel</button>
+          </div>
+        </form>
+      )}
 
       {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 

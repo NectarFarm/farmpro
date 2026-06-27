@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { SetupGuide } from '@/components/SetupGuide';
+import { TestingGuide } from '@/components/TestingGuide';
 import { AIAdvisor } from '@/components/AIAdvisor';
 import { ALL_FEATURE_KEYS } from '@/lib/features';
 import { useBranding } from '@/lib/useBranding';
@@ -56,7 +57,7 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
         <div className="px-5 py-5 border-b border-green-800/70">
           <div className="flex items-center gap-2 mb-1">
             {brand.logoUrl
-              ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain" />
+              ?   <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain" />
               : <span className="text-2xl">🌾</span>}
             <span className="font-bold text-lg">{brand.appName}</span>
           </div>
@@ -134,6 +135,8 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
       {/* Floating onboarding guide + AI advisor — gated by the farm's plan */}
       {features.includes('setup_guide') && <SetupGuide />}
       {features.includes('ai_advisor') && <AIAdvisor />}
+      {/* Acceptance-testing panel — self-hides unless the admin enabled testing. */}
+      <TestingGuide />
     </div>
   );
 }

@@ -40,6 +40,7 @@ export async function POST(req: Request) {
     name: String(b.name), baseUnit: String(b.baseUnit ?? 'unit'),
     collectFrequency: (String(b.collectFrequency ?? 'per_cycle')) as 'daily' | 'weekly' | 'monthly' | 'per_cycle',
     flow: (String(b.flow ?? 'sale')) as 'sale' | 'expense', saleUnits,
+    isAnimalProduct: Boolean(b.isAnimalProduct),
   };
   const res = await createProductsForBatch(session.tenantId, String(b.batchId), [def]);
   return created({ id: res[0]?.id });
@@ -59,6 +60,7 @@ export async function PATCH(req: Request) {
   if (typeof b.baseUnit === 'string') patch.baseUnit = b.baseUnit;
   if (Array.isArray(b.saleUnits)) patch.saleUnits = b.saleUnits;
   if (typeof b.active === 'boolean') patch.active = b.active;
+  if (typeof b.isAnimalProduct === 'boolean') patch.isAnimalProduct = b.isAnimalProduct;
   await db.update(products).set(patch).where(and(eq(products.tenantId, session.tenantId), eq(products.id, id)));
   return ok({ id });
 }

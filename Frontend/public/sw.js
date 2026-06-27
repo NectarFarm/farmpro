@@ -1,55 +1,49 @@
-// IFMS service worker — conservative app-shell caching.
+// IFMS service worker — conservative, deploy-safe app-shell caching.
 // Writes are NEVER cached (offline writes are handled by Dexie + the sync engine).
-const CACHE = 'ifms-shell-v1';
+//
+// Bump CACHE on every meaningful release: a new value changes this file's bytes,
+// so browsers fetch the new SW, `activate` deletes the old cache (clearing any
+// stale build assets), and clients reload (see PWARegister) onto the fresh build.
+const CACHE = 'ifms-shell-v2';
 const SHELL = ['/'];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {})
-  );
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}));
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    (async () => {
-      const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
-      await self.clients.claim();
-    })()
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  if (request.method !== 'GET') return; // never intercept writes
+  if (request.method !== 'GET') return;             // never intercept writes
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return; // only same-origin
-  if (url.pathname.startsWith('/api/')) return; // API hits network; offline is handled by Dexie
+  if (url.origin !== self.location.origin) return;   // only same-origin
+  if (url.pathname.startsWith('/api/')) return;      // APIs always hit the network
 
-  // Navigations: network-first, fall back to cached shell when offline.
+  // Navigations (HTML): network-first so a logged-in/out state is never stale;
+  // fall back to the cached shell only when truly offline.
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).catch(() => caches.match(request).then((r) => r || caches.match('/')))
-    );
+    event.respondWith(fetch(request).catch(() => caches.match(request).then((r) => r || caches.match('/'))));
     return;
   }
 
-  // Static assets: cache-first, then populate.
+  // Only content-hashed, immutable build assets are cache-first (safe — a given
+  // URL never changes content). Everything else goes to the network.
+  const immutable = url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icons/')
+    || /\.(?:png|jpg|jpeg|svg|webp|woff2?)$/.test(url.pathname);
+  if (!immutable) return;
+
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((res) => {
-        const cacheable =
-          res.ok &&
-          (url.pathname.startsWith('/_next/') ||
-            /\.(?:js|css|png|jpg|jpeg|svg|webp|woff2?)$/.test(url.pathname));
-        if (cacheable) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
-        }
-        return res;
-      });
-    })
+    caches.match(request).then((cached) => cached || fetch(request).then((res) => {
+      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {}); }
+      return res;
+    }))
   );
 });

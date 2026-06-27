@@ -1,5 +1,5 @@
 import { getSession } from '@/lib/server/session';
-import { computeBatchCost } from '@/lib/server/costing';
+import { computeBatchCost, salaryAllocation } from '@/lib/server/costing';
 import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
 import { ok, unauthorized, forbidden, badRequest, notFound } from '@/lib/server/http';
 import type { Role } from '@/lib/types';
@@ -15,7 +15,8 @@ export async function GET(req: Request) {
   const batchId = new URL(req.url).searchParams.get('batchId');
   if (!batchId) return badRequest('batchId required');
 
-  const summary = await computeBatchCost(session.tenantId, batchId);
+  const alloc = await salaryAllocation(session.tenantId);
+  const summary = await computeBatchCost(session.tenantId, batchId, alloc[batchId] ?? 0);
   if (!summary) return notFound();
 
   const hidden = await hiddenFieldKeysFor(session);

@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get('token');
   if (!token) return NextResponse.redirect(`${origin}/owner/login`);
 
-  const { SESSION_SECRET } = getServerEnv();
+  const { SESSION_SECRET, COOKIE_SECURE } = getServerEnv();
   const payload = await verifyToken<LinkToken>(token, SESSION_SECRET);
   if (!payload || payload.role !== 'auditor' || payload.exp * 1000 < Date.now()) {
     return NextResponse.redirect(`${origin}/owner/login?error=link_expired`);
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
   );
   const res = NextResponse.redirect(`${origin}/auditor/dashboard`);
   res.cookies.set(SESSION_COOKIE, sessionToken, {
-    httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 8 * 3600,
+    httpOnly: true, secure: COOKIE_SECURE, sameSite: 'lax', path: '/', maxAge: 8 * 3600,
   });
   return res;
 }

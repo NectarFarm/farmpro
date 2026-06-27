@@ -3,29 +3,42 @@ import { cache } from 'react'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 
-// Create one postgres client PER REQUEST, scoped via React's `cache()`.
+// Connection strategy depends on the runtime, because the two have OPPOSITE needs:
 //
-// Do NOT cache the client on `globalThis`: Cloudflare Workers (workerd) forbids
-// reusing an I/O object (the DB socket) created in one request from another
-// request. A cross-request cached client makes concurrent requests on a freshly
-// spun-up isolate await a connection promise that belongs to a different
-// request's context, which the runtime flags as "hung" and returns as
-// Error 1101 (it self-heals once the connection is established, hence the
-// intermittent failures right after a deploy or on isolate cold-start).
+// • Cloudflare Workers (workerd) forbids reusing an I/O object (the DB socket)
+//   created in one request from another. A cross-request cached client makes a
+//   fresh isolate await a connection promise from a different request's context,
+//   which the runtime flags as "hung" → Error 1101. So there we create one client
+//   PER REQUEST, scoped via React's `cache()` (reused within a request, discarded
+//   between them), with max:1.
 //
-// `cache()` scopes the client to a single request: reused within the request
-// (so the lazy proxy below does not open a new connection on every property
-// access), and discarded between requests (no illegal cross-request reuse).
-const getClient = cache(() => {
+// • The Node server (`node server.js`, our Docker image) is a single long-lived
+//   process. A per-request client there NEVER gets closed promptly (it lingers
+//   until idle_timeout), so a burst of requests opens a new Postgres connection
+//   each and exhausts `max_connections` ("sorry, too many clients already"). The
+//   correct pattern is ONE bounded pool shared across requests.
+const isWorkers =
+  typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers'
+
+function makeClient() {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL is not set')
   }
   return postgres(process.env.DATABASE_URL, {
     prepare: false,
-    max: 1,
+    max: isWorkers ? 1 : 10, // Node: a small shared pool; Workers: one per request
     idle_timeout: 20,
   })
-})
+}
+
+// Node: a single pool cached on globalThis (survives module re-eval / HMR, bounded
+// by `max`). Workers: per-request via cache() (no illegal cross-request reuse).
+const globalForDb = globalThis as typeof globalThis & {
+  __ifmsPgClient?: ReturnType<typeof postgres>
+}
+const getClient = isWorkers
+  ? cache(makeClient)
+  : () => (globalForDb.__ifmsPgClient ??= makeClient())
 
 function getDb() {
   return drizzle(getClient())
