@@ -135,6 +135,17 @@ async function routeTyped(r: IncomingRecord, tenantId: string, userId: string): 
   if (r.type === 'production' || r.type === 'eggs') {
     return handleProduction(r, tenantId, userId);
   }
+  if (r.type === 'weight_sample') {
+    // A fresh weight sample refines the batch's avg live weight, which caps how
+    // many kg of a weight-sold animal (fish, pork) can be sold against its head count.
+    const batchId = str(p.batchId);
+    const avg = Number(p.avgWeightKg) || 0;
+    if (batchId && avg > 0) {
+      await db.update(batches).set({ avgWeightKg: avg })
+        .where(and(eq(batches.tenantId, tenantId), eq(batches.id, batchId)));
+    }
+    return { routed: true };
+  }
   if (r.type === 'morning_round') {
     // Eggs counted on the morning round ARE collected stock, so they must become
     // sellable production (and therefore capped on sale — you can't sell more eggs

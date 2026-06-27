@@ -31,7 +31,9 @@ export default function CollectProductsPage() {
   useEffect(() => {
     setProductId(''); setQty('');
     if (!batchId) { setProducts([]); return; }
-    getProducts(batchId).then(setProducts);
+    // Only show things a worker actually COLLECTS (eggs, manure, milk, crop harvest).
+    // The live animal itself is sold from the batch, never "collected", so exclude it.
+    getProducts(batchId).then(ps => setProducts(ps.filter(p => !p.isAnimalProduct)));
   }, [batchId]);
 
   const product = products.find(p => p.id === productId);

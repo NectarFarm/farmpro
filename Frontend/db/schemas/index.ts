@@ -152,6 +152,9 @@ export const batches = pgTable('batches', {
   acquisitionCost: doublePrecision('acquisition_cost').notNull().default(0),
   status: text('status').notNull().default('ACTIVE'),
   parentBatchIds: jsonb('parent_batch_ids').$type<string[]>(),
+  // Avg live weight (kg) of one animal, for stock sold by weight (fish, pork). Caps
+  // a kg sale against the living headcount; refined by weight-sampling records.
+  avgWeightKg: doublePrecision('avg_weight_kg'),
 });
 
 export const inventoryItems = pgTable('inventory_items', {

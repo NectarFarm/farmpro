@@ -2,6 +2,7 @@ import 'server-only';
 import { db } from '@/db';
 import { and, eq } from 'drizzle-orm';
 import { productionRecords, sales, inventoryLots } from '@/db/schemas';
+import { defaultLiveWeightKg } from './productTemplates';
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -23,29 +24,43 @@ export async function productAvailability(tenantId: string, batchId: string, pro
 // other product (eggs, pork-by-weight, fish, crops, manure) draws down what has
 // been collected/harvested. `basis` lets the caller phrase the right error + know
 // whether to decrement the living population on sale.
-export type StockBasis = 'headcount' | 'harvested';
+export type StockBasis = 'headcount' | 'harvested' | 'biomass';
 
 export interface SellableStock {
   basis: StockBasis;
-  available: number; // base units still sellable
-  produced?: number; // harvested basis only
-  sold?: number;     // harvested basis only
+  available: number;     // base units still sellable
+  produced?: number;     // harvested basis only
+  sold?: number;         // harvested basis only
+  avgWeightKg?: number;  // biomass basis only (kg per live animal)
 }
 
-interface ProductLike { name: string; isAnimalProduct?: boolean | null }
-interface BatchLike { id: string; currentQty: number }
+interface ProductLike { name: string; isAnimalProduct?: boolean | null; baseUnit?: string | null }
+interface BatchLike { id: string; currentQty: number; species?: string | null; avgWeightKg?: number | null }
+
+// The avg live weight to value a weight-sold animal by: the batch's sampled weight,
+// else a sensible per-species default. 0 means "unknown" (no cap can be derived).
+export function liveWeightFor(batch: BatchLike): number {
+  if (batch.avgWeightKg && batch.avgWeightKg > 0) return batch.avgWeightKg;
+  const d = batch.species ? defaultLiveWeightKg(batch.species) : null;
+  return d && d > 0 ? d : 0;
+}
 
 // Single source of truth for "how much of this product can still be sold".
-// - Animal-per-head products: the living headcount IS the stock (no collection
-//   step exists for a live bird/piglet — it's already alive in the batch).
-// - Everything else: harvested/collected minus already sold.
+// - The MAIN animal itself is LIVE STOCK, never "collected": a live bird/piglet
+//   sold per head is capped by the head count; a fish/pig sold by weight is capped
+//   by biomass (head × avg live weight).
+// - Genuinely collected/harvested outputs (eggs, manure, maize) — collected minus sold.
 export async function sellableStock(
   tenantId: string,
   batch: BatchLike,
   product: ProductLike,
 ): Promise<SellableStock> {
   if (product.isAnimalProduct) {
-    return { basis: 'headcount', available: Math.max(0, batch.currentQty) };
+    if ((product.baseUnit ?? 'head') === 'head') {
+      return { basis: 'headcount', available: Math.max(0, batch.currentQty) };
+    }
+    const avg = liveWeightFor(batch);
+    return { basis: 'biomass', available: avg > 0 ? round3(Math.max(0, batch.currentQty) * avg) : 0, avgWeightKg: avg };
   }
   const a = await productAvailability(tenantId, batch.id, product.name);
   return { basis: 'harvested', available: a.available, produced: a.produced, sold: a.sold };

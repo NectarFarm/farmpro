@@ -105,16 +105,24 @@ describe('products', () => {
       expect(main?.baseUnit).toBe('head');
     });
 
+    // Weight-sold ANIMALS (fish, pork) are still live stock — an animal product —
+    // even though they're priced by the kilo. They're sold from the batch (capped by
+    // biomass) and must never be treated as a collectible output.
     it.each([
-      ['pig_fatten', 'Pork (live weight)', 'kg'],
-      ['tilapia', 'Fish', 'kg'],
-      ['catfish', 'Fish', 'kg'],
-      ['maize', 'Maize grain', 'kg'],
-    ])('%s main product "%s" is sold by weight → NOT a per-head animal', (ent, name, baseUnit) => {
+      ['pig_fatten', 'Pork (live weight)'],
+      ['tilapia', 'Fish'],
+      ['catfish', 'Fish'],
+    ])('%s main product "%s" is a weight-sold ANIMAL (isAnimalProduct=true, baseUnit=kg)', (ent, name) => {
       const main = mainProductForBatch('', ent);
       expect(main?.name).toBe(name);
+      expect(main?.isAnimalProduct).toBe(true);
+      expect(main?.baseUnit).toBe('kg');
+    });
+
+    it('a CROP main product (maize) is harvested, NOT an animal', () => {
+      const main = mainProductForBatch('', 'maize');
+      expect(main?.name).toBe('Maize grain');
       expect(main?.isAnimalProduct ?? false).toBe(false);
-      expect(main?.baseUnit).toBe(baseUnit);
     });
   });
 });

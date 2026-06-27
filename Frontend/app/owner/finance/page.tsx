@@ -19,7 +19,7 @@ export default function FinancePage() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [form, setForm] = useState(EMPTY);
-  const [avail, setAvail] = useState<{ basis: 'headcount' | 'harvested'; available: number; produced?: number; sold?: number } | null>(null);
+  const [avail, setAvail] = useState<{ basis: 'headcount' | 'harvested' | 'biomass'; available: number; produced?: number; sold?: number; avgWeightKg?: number } | null>(null);
 
   const [batchPL, setBatchPL] = useState<{ batch: Batch; cost: BatchCostSummary | null }[]>([]);
 
@@ -139,6 +139,10 @@ export default function FinancePage() {
                 ? (overSell
                     ? `⚠ Only ${avail.available} ${product.baseUnit} left in this batch — you're trying to sell ${sellingBase}. Record mortalities or check the live count.`
                     : `${avail.available} live ${product.baseUnit} in this batch${sellingBase > 0 ? ` · this sale removes ${sellingBase}, leaving ${avail.available - sellingBase}` : ''}`)
+                : avail.basis === 'biomass'
+                ? (overSell
+                    ? `⚠ Only about ${avail.available} ${product.baseUnit} of live ${product.name} here (≈ live count × ${avail.avgWeightKg} ${product.baseUnit}) — you're trying to sell ${sellingBase}.`
+                    : `≈ ${avail.available} ${product.baseUnit} of live ${product.name} sellable (live animals × ${avail.avgWeightKg} ${product.baseUnit} avg). Record a weight sample to refine it.`)
                 : (overSell
                     ? `⚠ Only ${avail.available} ${product.baseUnit} available — you're trying to sell ${sellingBase}. Record the collection first.`
                     : `${avail.available} ${product.baseUnit} available to sell (collected ${avail.produced}, sold ${avail.sold})${sellingBase > 0 ? ` · this sale = ${sellingBase} ${product.baseUnit}` : ''}`)}

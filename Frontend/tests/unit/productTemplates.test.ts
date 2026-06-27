@@ -40,12 +40,20 @@ describe('productTemplates', () => {
       }
     });
 
-    it('head-based main products are marked as animal products', () => {
-      for (const [key, defs] of Object.entries(PRODUCT_TEMPLATES)) {
+    it('the live animal is marked as an animal product — sold from stock, never collected', () => {
+      // Animal products = the living stock you SELL (a per-head bird/piglet OR a
+      // weight-sold fish/pig). They must never be treated as a collectible output.
+      const animalMains = ['Live bird', 'Spent hen', 'Piglets', 'Pork (live weight)', 'Fish'];
+      const harvested = ['Eggs', 'Manure', 'Maize grain'];
+      for (const defs of Object.values(PRODUCT_TEMPLATES)) {
         for (const d of defs) {
-          if (d.baseUnit === 'head') expect(d.isAnimalProduct).toBe(true);
-          if (d.baseUnit !== 'head') expect(d.isAnimalProduct).toBeUndefined();
+          if (animalMains.includes(d.name)) expect(d.isAnimalProduct).toBe(true);
+          if (harvested.includes(d.name)) expect(d.isAnimalProduct).toBeFalsy();
         }
+      }
+      // Every per-head product is still an animal product.
+      for (const defs of Object.values(PRODUCT_TEMPLATES)) {
+        for (const d of defs) if (d.baseUnit === 'head') expect(d.isAnimalProduct).toBe(true);
       }
     });
 

@@ -1,0 +1,1 @@
+ALTER TABLE "batches" ADD COLUMN "avg_weight_kg" double precision;

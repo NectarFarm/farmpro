@@ -1,11 +1,12 @@
 import { db } from '@/db';
 import { sales, employees, tasks, workerProfiles, alerts, productionUnits, batches, products, inventoryItems, inventoryLots, users } from '@/db/schemas';
-import { sellableStock } from '@/lib/server/inventory';
+import { sellableStock, liveWeightFor } from '@/lib/server/inventory';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { RESOURCES, tenantScope } from '@/lib/server/resources';
 import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
 import { createProductsForBatch, defaultsForBatch } from '@/lib/server/products';
+import { defaultLiveWeightKg } from '@/lib/server/productTemplates';
 import { hashSecret } from '@/lib/server/crypto';
 import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
 import { ok, created, unauthorized, forbidden, notFound, badRequest } from '@/lib/server/http';
@@ -89,6 +90,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
       species: s(body.species, 'unknown'), breed: body.breed ? s(body.breed) : null, source: s(body.source, 'PURCHASED'),
       acquiredDate: s(body.acquiredDate, now.slice(0, 10)), ageAtAcquire: n(body.ageAtAcquire),
       initialQty: qty, currentQty: qty, stage: s(body.stage, 'GROWING'), acquisitionCost: n(body.cost ?? body.acquisitionCost), status: 'ACTIVE',
+      // Seed an avg live weight for animals sold by weight (fish, pork) so their sale
+      // is capped by biomass from day one; a weight sample refines it later.
+      avgWeightKg: defaultLiveWeightKg(s(body.species)),
     });
     // Auto-create the batch's default products for its enterprise — the animal
     // itself AND its secondary outputs (a layer batch gets Eggs + Manure + the
@@ -101,7 +105,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
     if (!allow(['owner', 'manager'])) return forbidden();
     if (!body.batchId) return badRequest('batchId required');
     // Derive the unit from the batch (a sale is from a batch, which lives in a unit).
-    const [batch] = await db.select({ id: batches.id, unitId: batches.unitId, currentQty: batches.currentQty }).from(batches)
+    const [batch] = await db.select({ id: batches.id, unitId: batches.unitId, currentQty: batches.currentQty, species: batches.species, avgWeightKg: batches.avgWeightKg }).from(batches)
       .where(and(eq(batches.tenantId, session.tenantId), eq(batches.id, s(body.batchId)))).limit(1);
     if (!batch) return badRequest('unknown batch');
     const quantity = n(body.quantity), unitPrice = n(body.unitPrice);
@@ -137,6 +141,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
         if (stock.basis === 'headcount') {
           return badRequest(`Only ${stock.available} ${baseUnit} of ${productName} left in this batch — you tried to sell ${baseQty}. Record mortalities or check the live count.`);
         }
+        if (stock.basis === 'biomass') {
+          return stock.available > 0
+            ? badRequest(`Only about ${stock.available} ${baseUnit} of ${productName} in this batch (~${batch.currentQty} animals × ${stock.avgWeightKg} ${baseUnit} each) — you tried to sell ${baseQty}.`)
+            : badRequest(`Record a weight sample for this batch first — without an average weight we can't tell how many ${baseUnit} of ${productName} the ${batch.currentQty} animals represent.`);
+        }
         return badRequest(`Only ${stock.available} ${baseUnit} of ${productName} available to sell — collected ${stock.produced}, already sold ${stock.sold}. Record the collection first.`);
       }
     }
@@ -147,10 +156,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
       paymentMethod: s(body.paymentMethod, 'cash'), status: 'PAID',
       withdrawalCheck: s(body.withdrawalCheck, 'cleared'), createdAt: now,
     });
-    // Selling the live animal itself physically removes head from the farm, so draw
-    // the batch (and its unit) population down by the head count sold (= base qty).
+    // Selling the live animal itself physically removes head from the farm. For a
+    // per-head sale, head = base qty; for a weight sale (fish/pork), convert the kg
+    // sold back into animals via the batch's avg live weight.
     if (isAnimalProduct && baseQty > 0) {
-      const head = Math.round(baseQty);
+      const perHead = (baseUnit ?? 'head') === 'head';
+      const avg = liveWeightFor(batch);
+      const head = perHead ? Math.round(baseQty) : (avg > 0 ? Math.round(baseQty / avg) : 0);
       const newBatchQty = Math.max(0, batch.currentQty - head);
       await db.update(batches).set({ currentQty: newBatchQty })
         .where(eq(batches.id, batch.id));

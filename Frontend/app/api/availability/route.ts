@@ -24,7 +24,7 @@ export async function GET(req: Request) {
   const productName = u.searchParams.get('product');
   if (!batchId || (!productId && !productName)) return badRequest('batchId and productId required');
 
-  const [batch] = await db.select({ id: batches.id, currentQty: batches.currentQty }).from(batches)
+  const [batch] = await db.select({ id: batches.id, currentQty: batches.currentQty, species: batches.species, avgWeightKg: batches.avgWeightKg }).from(batches)
     .where(and(eq(batches.tenantId, session.tenantId), eq(batches.id, batchId))).limit(1);
   if (!batch) return badRequest('unknown batch');
 

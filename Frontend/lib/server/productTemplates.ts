@@ -33,15 +33,15 @@ export const PRODUCT_TEMPLATES: Record<string, ProductDef[]> = {
     MANURE,
   ],
   pig_fatten: [
-    { name: 'Pork (live weight)', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 350 }], isMainProduct: true },
+    { name: 'Pork (live weight)', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 350 }], isAnimalProduct: true, isMainProduct: true },
     MANURE,
   ],
   pig_breed: [
     { name: 'Piglets', baseUnit: 'head', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Piglet', perBase: 1, price: 3500 }], isAnimalProduct: true, isMainProduct: true },
     MANURE,
   ],
-  tilapia: [{ name: 'Fish', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 400 }], isMainProduct: true }],
-  catfish: [{ name: 'Fish', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 400 }], isMainProduct: true }],
+  tilapia: [{ name: 'Fish', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 400 }], isAnimalProduct: true, isMainProduct: true }],
+  catfish: [{ name: 'Fish', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 400 }], isAnimalProduct: true, isMainProduct: true }],
   maize: [{ name: 'Maize grain', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Bag (90kg)', perBase: 90, price: 3500 }, { name: 'Kg', perBase: 1, price: 45 }], isMainProduct: true }],
 };
 
@@ -63,3 +63,18 @@ export const ENTERPRISE_LABELS: Record<string, string> = {
   layers: 'Layers (eggs)', broilers: 'Broilers (meat)', pig_fatten: 'Pig fattening',
   pig_breed: 'Pig breeding', tilapia: 'Tilapia', catfish: 'Catfish', maize: 'Maize',
 };
+
+// Average live weight (kg) of ONE animal at sale, for batches whose main product is
+// sold BY WEIGHT (fish, pork). Used to cap a kg sale against the living headcount
+// (sellable kg ≈ head × avgWeight) and to convert kg sold back into head removed.
+// A weight-sampling record refines this per batch; this is the sensible default.
+const DEFAULT_LIVE_WEIGHT_KG: Record<string, number> = {
+  pig_fatten: 80,
+  tilapia: 0.4,
+  catfish: 1.0,
+};
+
+export function defaultLiveWeightKg(species: string): number | null {
+  const ent = enterpriseFromSpecies(species);
+  return ent && DEFAULT_LIVE_WEIGHT_KG[ent] != null ? DEFAULT_LIVE_WEIGHT_KG[ent] : null;
+}

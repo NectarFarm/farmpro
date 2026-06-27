@@ -793,3 +793,55 @@ describe('morning-round eggs become sellable stock, and the sale is capped', () 
     expect((await bad.json()).error).toMatch(/unknown sale unit/i);
   });
 });
+
+describe('weight-sold livestock (fish/pork) is sold from live stock, never collected', () => {
+  let admin = '', owner = '', tenant = '', batchId = '', fishId = '';
+  const email = `fish+${Date.now()}@example.test`;
+
+  beforeAll(async () => {
+    admin = await login('admin@ifms.app', 'demo1234');
+    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Fish Farm', ownerName: 'FF', ownerEmail: email, ownerPassword: 'fish1234', plan: 'pro' })).json()).id;
+    owner = await login(email, 'fish1234');
+    const unitId = (await (await json(owner, '/api/data/units', { name: 'Pond', type: 'POND', capacity: 1000, species: 'catfish' })).json()).id;
+    batchId = (await (await json(owner, '/api/data/batches', { name: 'Catfish 1', unitId, species: 'catfish', qty: 30, cost: 0 })).json()).id;
+    const products = await (await api(`/api/products?batchId=${batchId}`, owner)).json();
+    fishId = products.find((p: { name: string }) => p.name === 'Fish').id;
+  });
+  afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
+
+  const av = async () => (await (await api(`/api/availability?batchId=${batchId}&productId=${fishId}`, owner)).json());
+
+  it('the live fish is an animal product → not a collectible', async () => {
+    const products = await (await api(`/api/products?batchId=${batchId}`, owner)).json();
+    expect(products.find((p: { name: string }) => p.name === 'Fish').isAnimalProduct).toBe(true);
+  });
+
+  it('availability is BIOMASS (live count × avg weight), not a collection', async () => {
+    const a = await av();
+    expect(a.basis).toBe('biomass');
+    expect(a.avgWeightKg).toBe(1);      // catfish default
+    expect(a.available).toBe(30);        // 30 fish × 1.0 kg
+  });
+
+  it('cannot sell more kg than the biomass — and the error never says "collect"', async () => {
+    const over = await json(owner, '/api/data/sales', { batchId, productId: fishId, productType: 'Fish', unitName: 'Kg', quantity: 40, unitPrice: 100 });
+    expect(over.status).toBe(400);
+    const msg = (await over.json()).error as string;
+    expect(msg).toMatch(/in this batch/i);
+    expect(msg.toLowerCase()).not.toContain('collect');
+  });
+
+  it('selling within biomass draws the live count down via avg weight', async () => {
+    const ok = await json(owner, '/api/data/sales', { batchId, productId: fishId, productType: 'Fish', unitName: 'Kg', quantity: 10, unitPrice: 100 });
+    expect(ok.status).toBe(201);
+    const batch = await (await api(`/api/data/batches?id=${batchId}`, owner)).json();
+    expect(batch.currentQty).toBe(20);   // 30 − (10kg / 1.0kg) = 20 fish
+  });
+
+  it('a weight sample refines the avg weight and the cap', async () => {
+    await json(owner, '/api/sync', { records: [{ clientUuid: `ws-${batchId}`, type: 'weight_sample', capturedAt: new Date().toISOString(), payload: { batchId, avgWeightKg: 2 } }] });
+    const a = await av();
+    expect(a.avgWeightKg).toBe(2);
+    expect(a.available).toBe(40);        // 20 fish × 2.0 kg
+  });
+});
