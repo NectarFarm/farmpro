@@ -135,6 +135,24 @@ async function routeTyped(r: IncomingRecord, tenantId: string, userId: string): 
   if (r.type === 'production' || r.type === 'eggs') {
     return handleProduction(r, tenantId, userId);
   }
+  if (r.type === 'morning_round') {
+    // Eggs counted on the morning round ARE collected stock, so they must become
+    // sellable production (and therefore capped on sale — you can't sell more eggs
+    // than were collected). Idempotent per round+batch: a resend is a no-op.
+    const entries = Array.isArray((p as { entries?: unknown }).entries)
+      ? ((p as { entries: Record<string, unknown>[] }).entries) : [];
+    for (const e of entries) {
+      const batchId = str(e.batchId);
+      const eggs = Number(e.eggsCollected) || 0;
+      if (batchId && eggs > 0) {
+        await db.insert(productionRecords).values({
+          clientUuid: `${r.clientUuid}:${batchId}:eggs`, tenantId, batchId,
+          type: 'eggs', qty: eggs, weightKg: null, recordedBy: userId, capturedAt: r.capturedAt,
+        }).onConflictDoNothing({ target: productionRecords.clientUuid });
+      }
+    }
+    return { routed: true };
+  }
   return { routed: false };
 }
 

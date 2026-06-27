@@ -122,7 +122,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
       productName = product.name;
       baseUnit = product.baseUnit;
       isAnimalProduct = product.isAnimalProduct ?? false;
-      const unit = (product.saleUnits as { name: string; perBase: number; price: number }[] | null)?.find((u) => u.name === s(body.unitName));
+      const saleUnits = (product.saleUnits as { name: string; perBase: number; price: number }[] | null) ?? [];
+      const unit = saleUnits.find((u) => u.name === s(body.unitName));
+      // Guard the conversion: an unrecognised unit would fall back to perBase=1 and
+      // silently UNDER-count the base quantity, letting a sale slip past the stock
+      // cap. Reject it instead so the cap is honoured for every product.
+      if (s(body.unitName) && saleUnits.length > 0 && !unit) {
+        return badRequest(`Unknown sale unit "${s(body.unitName)}" for ${productName}. Pick one of: ${saleUnits.map((u) => u.name).join(', ')}.`);
+      }
       baseQty = quantity * (unit?.perBase ?? 1);
 
       const stock = await sellableStock(session.tenantId, batch, product);

@@ -743,3 +743,53 @@ describe('employee logins, worker profiles & task assignment', () => {
     expect(after.mortalityPhotoThreshold).toBe(4);
   });
 });
+
+describe('morning-round eggs become sellable stock, and the sale is capped', () => {
+  let admin = '', owner = '', tenant = '', batchId = '', eggProductId = '', eggUnit = '';
+  const email = `eggs+${Date.now()}@example.test`;
+
+  beforeAll(async () => {
+    admin = await login('admin@ifms.app', 'demo1234');
+    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Egg Farm', ownerName: 'EF', ownerEmail: email, ownerPassword: 'eggs1234', plan: 'pro' })).json()).id;
+    owner = await login(email, 'eggs1234');
+    const unitId = (await (await json(owner, '/api/data/units', { name: 'LH', type: 'HOUSE', capacity: 500, species: 'layer' })).json()).id;
+    batchId = (await (await json(owner, '/api/data/batches', { name: 'Layers', unitId, species: 'layer', qty: 300, cost: 0 })).json()).id;
+    const products = await (await api(`/api/products?batchId=${batchId}`, owner)).json();
+    const eggs = products.find((p: { name: string }) => p.name.toLowerCase() === 'eggs');
+    eggProductId = eggs.id;
+    eggUnit = (eggs.saleUnits.find((u: { perBase: number }) => u.perBase === 1) ?? eggs.saleUnits[0]).name; // a single piece
+  });
+  afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
+
+  const avail = async () => (await (await api(`/api/availability?batchId=${batchId}&productId=${eggProductId}`, owner)).json()).available;
+
+  it('before any collection, nothing is sellable', async () => {
+    expect(await avail()).toBe(0);
+  });
+
+  it('a morning round with 400 eggs makes 400 available to sell', async () => {
+    await json(owner, '/api/sync', { records: [{
+      clientUuid: `mr-${batchId}`, type: 'morning_round', capturedAt: new Date().toISOString(),
+      payload: { entries: [{ batchId, eggsCollected: '400', waterLevel: 'OK', abnormal: false }] },
+    }] });
+    expect(await avail()).toBe(400);
+  });
+
+  it('cannot sell MORE eggs than were collected', async () => {
+    const over = await json(owner, '/api/data/sales', { batchId, productId: eggProductId, unitName: eggUnit, quantity: 401, unitPrice: 10 });
+    expect(over.status).toBe(400);
+    expect((await over.json()).error).toMatch(/available to sell/i);
+  });
+
+  it('selling within stock works and reduces what is left', async () => {
+    const ok = await json(owner, '/api/data/sales', { batchId, productId: eggProductId, unitName: eggUnit, quantity: 250, unitPrice: 10 });
+    expect(ok.status).toBe(201);
+    expect(await avail()).toBe(150); // 400 collected − 250 sold
+  });
+
+  it('rejects an unknown sale unit (no silent under-count past the cap)', async () => {
+    const bad = await json(owner, '/api/data/sales', { batchId, productId: eggProductId, unitName: 'Bucketload', quantity: 1, unitPrice: 10 });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/unknown sale unit/i);
+  });
+});
