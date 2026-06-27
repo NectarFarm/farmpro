@@ -1,24 +1,18 @@
 import { db } from '@/db';
-import { sales, employees, tasks, workerProfiles, alerts, productionUnits, batches, products, inventoryItems, inventoryLots } from '@/db/schemas';
+import { sales, employees, tasks, workerProfiles, alerts, productionUnits, batches, products, inventoryItems, inventoryLots, users } from '@/db/schemas';
 import { sellableStock } from '@/lib/server/inventory';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { RESOURCES, tenantScope } from '@/lib/server/resources';
 import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
 import { createProductsForBatch, defaultsForBatch } from '@/lib/server/products';
+import { hashSecret } from '@/lib/server/crypto';
+import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
 import { ok, created, unauthorized, forbidden, notFound, badRequest } from '@/lib/server/http';
 import type { Role, FieldConfig } from '@/lib/types';
 
-const DEFAULT_FIELDS: FieldConfig[] = [
-  { fieldKey: 'feed_unit_cost', label: 'Feed unit cost (KES)', permission: 'hidden' },
-  { fieldKey: 'feed_quantity', label: 'Feed quantity (kg)', permission: 'editable', required: true },
-  { fieldKey: 'egg_sale_price', label: 'Egg sale price', permission: 'hidden' },
-  { fieldKey: 'mortality_cause', label: 'Mortality cause', permission: 'editable' },
-  { fieldKey: 'batch_profit_loss', label: 'Batch profit/loss', permission: 'hidden' },
-  { fieldKey: 'water_level', label: 'Water level', permission: 'editable', required: true },
-  { fieldKey: 'eggs_collected', label: 'Eggs collected', permission: 'editable', required: true },
-  { fieldKey: 'abnormal', label: 'Abnormal observation', permission: 'editable', required: true },
-];
+// A worker signs in with a 4–6 digit PIN; a manager/vet with an email + password.
+const isPin = (v: string) => /^\d{4,6}$/.test(v);
 
 // Pay day must be a calendar day 1–31, else null (no scheduled pay day).
 const parsePayDay = (v: unknown): number | null => {
@@ -166,14 +160,47 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
   if (resource === 'employees') {
     if (!allow(['owner'])) return forbidden();
     if (!body.name || !body.phone) return badRequest('name and phone required');
+    const role = s(body.role, 'worker');
+    const phone = s(body.phone);
+    const email = body.email ? s(body.email).trim().toLowerCase() : null;
+    const profileId = body.workerProfileId ? s(body.workerProfileId) : null;
+    // Optional login. A worker can be added now and given a PIN later; a manager/
+    // vet logs in with email + password. No credentials → an HR record with no login.
+    const pin = s(body.pin).trim();
+    const password = s(body.password);
+    let pinHash: string | null = null, passwordHash: string | null = null;
+    if (role === 'worker' && pin) {
+      if (!isPin(pin)) return badRequest('PIN must be 4–6 digits.');
+      pinHash = await hashSecret(pin);
+    }
+    if (role !== 'worker' && (email || password)) {
+      if (!email) return badRequest('Email is required for a manager/vet login.');
+      if (password.length < 6) return badRequest('Password must be at least 6 characters.');
+      passwordHash = await hashSecret(password);
+    }
+    const makeLogin = !!(pinHash || passwordHash);
+    if (makeLogin) {
+      const [dupPhone] = await db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
+      if (dupPhone) return badRequest('That phone number already has a login.');
+      if (email) {
+        const [dupEmail] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+        if (dupEmail) return badRequest('That email already has a login.');
+      }
+    }
     await db.insert(employees).values({
-      id, tenantId: session.tenantId, name: s(body.name), phone: s(body.phone),
-      role: s(body.role, 'worker'), pinSet: false, active: true,
+      id, tenantId: session.tenantId, name: s(body.name), phone,
+      role, workerProfileId: profileId, pinSet: !!pinHash, active: true,
       salary: Math.max(0, n(body.salary)),
       payDay: parsePayDay(body.payDay),
       paymentsFrom: /^\d{4}-(0[1-9]|1[0-2])$/.test(s(body.paymentsFrom)) ? s(body.paymentsFrom) : null,
       assignedBatchIds: parseBatchIds(body.assignedBatchIds) ?? null, // null = all batches
     });
+    if (makeLogin) {
+      await db.insert(users).values({
+        id: crypto.randomUUID(), tenantId: session.tenantId, name: s(body.name), phone, email,
+        role, workerProfileId: role === 'worker' ? profileId : null, language: 'en', pinHash, passwordHash,
+      });
+    }
     return created({ id });
   }
   if (resource === 'tasks') {
@@ -217,6 +244,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ resource: str
   if (!id) return badRequest('id required');
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const tid = session.tenantId;
+  const s = (v: unknown, d = '') => (typeof v === 'string' ? v : d);
 
   if (resource === 'worker-profiles') {
     if (session.role !== 'owner') return forbidden();
@@ -239,8 +267,54 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ resource: str
     // assignedBatchIds: array → those; null → all; absent → unchanged. This is how
     // assigning AND unassigning a batch are persisted.
     if ('assignedBatchIds' in body) patch.assignedBatchIds = parseBatchIds(body.assignedBatchIds) ?? null;
-    if (Object.keys(patch).length === 0) return badRequest('Nothing to update.');
+    if ('workerProfileId' in body) patch.workerProfileId = body.workerProfileId ? s(body.workerProfileId) : null;
+
+    // Optional credential reset: a PIN (worker) or password (manager/vet).
+    const pin = s(body.pin).trim();
+    const password = s(body.password);
+    const wantCreds = !!(pin || password);
+    if (Object.keys(patch).length === 0 && !wantCreds) return badRequest('Nothing to update.');
+
+    // Load the employee when we must create/sync its login row (keyed by phone).
+    const needUser = wantCreds || 'workerProfileId' in body || 'name' in body || 'role' in body;
+    let emp: { phone: string; name: string; role: string; workerProfileId: string | null } | undefined;
+    if (needUser) {
+      [emp] = await db.select({ phone: employees.phone, name: employees.name, role: employees.role, workerProfileId: employees.workerProfileId })
+        .from(employees).where(and(eq(employees.tenantId, tid), eq(employees.id, id))).limit(1);
+      if (!emp) return notFound();
+    }
+
+    if (wantCreds && emp) {
+      const role = typeof body.role === 'string' ? body.role : emp.role;
+      let pinHash: string | undefined, passwordHash: string | undefined;
+      if (pin) { if (!isPin(pin)) return badRequest('PIN must be 4–6 digits.'); pinHash = await hashSecret(pin); patch.pinSet = true; }
+      if (password) { if (password.length < 6) return badRequest('Password must be at least 6 characters.'); passwordHash = await hashSecret(password); }
+      const [u] = await db.select({ id: users.id }).from(users).where(and(eq(users.tenantId, tid), eq(users.phone, emp.phone))).limit(1);
+      if (u) {
+        const uset: Record<string, unknown> = {};
+        if (pinHash !== undefined) uset.pinHash = pinHash;
+        if (passwordHash !== undefined) uset.passwordHash = passwordHash;
+        await db.update(users).set(uset).where(eq(users.id, u.id));
+      } else {
+        const email = body.email ? s(body.email).trim().toLowerCase() : null;
+        if (passwordHash && !email) return badRequest('Email is required for a manager/vet login.');
+        await db.insert(users).values({
+          id: crypto.randomUUID(), tenantId: tid, name: emp.name, phone: emp.phone, email,
+          role, workerProfileId: emp.workerProfileId ?? null, language: 'en', pinHash: pinHash ?? null, passwordHash: passwordHash ?? null,
+        });
+      }
+    }
+
     await db.update(employees).set(patch).where(and(eq(employees.tenantId, tid), eq(employees.id, id)));
+
+    // Keep an existing login's name/role/profile in step with the employee record.
+    if (emp && ('workerProfileId' in body || 'name' in body || 'role' in body)) {
+      const usync: Record<string, unknown> = {};
+      if (typeof body.name === 'string') usync.name = body.name;
+      if (typeof body.role === 'string') usync.role = body.role;
+      if ('workerProfileId' in body) usync.workerProfileId = body.workerProfileId ? s(body.workerProfileId) : null;
+      if (Object.keys(usync).length) await db.update(users).set(usync).where(and(eq(users.tenantId, tid), eq(users.phone, emp.phone)));
+    }
     return ok({ id });
   }
   if (resource === 'alerts') {

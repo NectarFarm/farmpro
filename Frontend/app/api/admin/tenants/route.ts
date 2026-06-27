@@ -1,8 +1,9 @@
 import { db } from '@/db';
-import { tenants, users, batches } from '@/db/schemas';
+import { tenants, users, batches, workerProfiles } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
+import { DEFAULT_WORKER_FIELDS, DEFAULT_WORKER_MODULES } from '@/lib/workerFields';
 import { deleteTenantData } from '@/lib/server/tenantAdmin';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { getActivePackages } from '@/lib/server/packagesConfig';
@@ -60,6 +61,12 @@ export async function POST(req: Request) {
   await db.insert(users).values({
     id: sid('u'), tenantId, name: ownerName, email: ownerEmail, phone: ownerPhone, role: 'owner', language: 'en',
     passwordHash: await hashSecret(ownerPassword),
+  });
+  // Seed a default worker profile so the owner has something to assign & edit
+  // from day one (Worker Config is otherwise empty on a brand-new farm).
+  await db.insert(workerProfiles).values({
+    id: sid('wp'), tenantId, name: 'Standard Worker', fields: DEFAULT_WORKER_FIELDS,
+    modules: DEFAULT_WORKER_MODULES, mortalityPhotoThreshold: 1, alertThresholds: {},
   });
   await audit({ tenantId, actor: actorLabel(session), action: 'tenant.create', entity: farmName, after: { plan, ownerEmail } });
   return created({ id: tenantId, name: farmName, plan, ownerEmail });

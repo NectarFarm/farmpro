@@ -1,12 +1,12 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { Employee, Batch } from '@/lib/types';
+import type { Employee, Batch, WorkerProfile } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 
 const roleColor = (r: string) => ({ owner:'bg-purple-100 text-purple-700', manager:'bg-blue-100 text-blue-700', worker:'bg-green-100 text-green-700', vet:'bg-teal-100 text-teal-700', auditor:'bg-gray-100 text-gray-600' })[r] ?? 'bg-gray-100 text-gray-600';
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
-const EMPTY = { name: '', phone: '', role: 'worker', salary: '', payDay: '' };
+const EMPTY = { name: '', phone: '', role: 'worker', salary: '', payDay: '', pin: '', email: '', password: '', workerProfileId: '' };
 
 // All current batches selected → null ("all, incl. future"); otherwise the explicit list.
 function assignmentPayload(selected: Set<string>, allIds: string[]): string[] | null {
@@ -20,6 +20,7 @@ function selectedFor(emp: Employee, allIds: string[]): Set<string> {
 export default function PeoplePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
+  const [profiles, setProfiles] = useState<WorkerProfile[]>([]);
   const [show, setShow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -31,12 +32,17 @@ export default function PeoplePage() {
   const [editSel, setEditSel] = useState<Set<string>>(new Set());
   const [editSalary, setEditSalary] = useState('');
   const [editPayDay, setEditPayDay] = useState('');
+  const [editProfile, setEditProfile] = useState('');
+  const [editPin, setEditPin] = useState('');
+  const [editPassword, setEditPassword] = useState('');
 
   const activeBatches = batches.filter(b => b.status === 'ACTIVE');
   const allIds = activeBatches.map(b => b.id);
   const batchName = (id: string) => batches.find(b => b.id === id)?.name ?? id;
+  const profileName = (id?: string | null) => (id ? profiles.find(p => p.id === id)?.name ?? '—' : '—');
 
-  const reload = () => Promise.all([api.getEmployees(), api.getBatches()]).then(([e, b]) => { setEmployees(e); setBatches(b); });
+  const reload = () => Promise.all([api.getEmployees(), api.getBatches(), api.getWorkerProfiles()])
+    .then(([e, b, p]) => { setEmployees(e); setBatches(b); setProfiles(p); });
   useEffect(() => { reload(); }, []);
 
   const openAdd = () => { setForm(EMPTY); setAddSel(new Set(activeBatches.map(b => b.id))); setErr(''); setShow(true); };
@@ -54,9 +60,14 @@ export default function PeoplePage() {
           salary: Number(form.salary) || 0,
           payDay: form.payDay ? Number(form.payDay) : null,
           assignedBatchIds: assignmentPayload(addSel, allIds),
+          // Login credentials (optional): worker PIN, or manager/vet email + password.
+          ...(form.role === 'worker' ? { pin: form.pin.trim(), workerProfileId: form.workerProfileId || null } : { email: form.email.trim(), password: form.password }),
         }),
       });
-      if (!res.ok) throw new Error(res.status === 403 ? 'Owner only' : res.status === 401 ? 'Please sign in again' : res.status === 400 ? 'Name and phone required' : `Failed (${res.status})`);
+      if (!res.ok) {
+        const msg = (await res.json().catch(() => ({}))).error;
+        throw new Error(msg || (res.status === 403 ? 'Owner only' : res.status === 401 ? 'Please sign in again' : `Failed (${res.status})`));
+      }
       setForm(EMPTY); setShow(false); await reload();
     } catch (e) { setErr((e as Error).message); } finally { setSaving(false); }
   };
@@ -66,18 +77,25 @@ export default function PeoplePage() {
     setEditSel(selectedFor(emp, allIds));
     setEditSalary(emp.salary ? String(emp.salary) : '');
     setEditPayDay(emp.payDay ? String(emp.payDay) : '');
+    setEditProfile(emp.workerProfileId ?? '');
+    setEditPin(''); setEditPassword('');
   };
   const saveEdit = async (emp: Employee) => {
     setSaving(true); setErr('');
     try {
-      await fetch(`/api/data/employees?id=${emp.id}`, {
+      const body: Record<string, unknown> = {
+        salary: Number(editSalary) || 0,
+        payDay: editPayDay ? Number(editPayDay) : null,
+        assignedBatchIds: assignmentPayload(editSel, allIds),
+      };
+      if (emp.role === 'worker') body.workerProfileId = editProfile || null;
+      if (emp.role === 'worker' && editPin.trim()) body.pin = editPin.trim();
+      if (emp.role !== 'worker' && editPassword) body.password = editPassword;
+      const res = await fetch(`/api/data/employees?id=${emp.id}`, {
         method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          salary: Number(editSalary) || 0,
-          payDay: editPayDay ? Number(editPayDay) : null,
-          assignedBatchIds: assignmentPayload(editSel, allIds),
-        }),
+        body: JSON.stringify(body),
       });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Failed (${res.status})`);
       setEditId(null); await reload();
     } catch (e) { setErr((e as Error).message); } finally { setSaving(false); }
   };
@@ -142,6 +160,27 @@ export default function PeoplePage() {
             <input type="number" min="0" placeholder="Monthly salary (KSh)" value={form.salary} onChange={e => setForm({ ...form, salary: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             <input type="number" min="1" max="31" placeholder="Pay day (1–31)" value={form.payDay} onChange={e => setForm({ ...form, payDay: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
+
+          {/* Login credentials — how this person signs in */}
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex flex-col gap-2">
+            <p className="text-xs font-semibold text-gray-500">{form.role === 'worker' ? 'Worker login (phone + PIN)' : 'Login (email + password)'}</p>
+            {form.role === 'worker' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input inputMode="numeric" pattern="\d*" maxLength={6} placeholder="Set a 4–6 digit PIN" value={form.pin} onChange={e => setForm({ ...form, pin: e.target.value.replace(/\D/g, '') })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <select value={form.workerProfileId} onChange={e => setForm({ ...form, workerProfileId: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Worker profile (what they see)…</option>
+                  {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input type="email" placeholder="Email (for sign-in)" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <input type="password" placeholder="Password (min 6 chars)" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+            )}
+            <p className="text-[11px] text-gray-400">{form.role === 'worker' ? 'They sign in on their phone with this phone number + PIN. You can set or reset the PIN later.' : 'They sign in with this email + password. Leave blank to add the record now and set a login later.'}</p>
+          </div>
+
           <BatchPicker sel={addSel} setter={setAddSel} />
           <div className="flex gap-2">
             <button type="submit" disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? 'Saving…' : 'Add'}</button>
@@ -173,6 +212,11 @@ export default function PeoplePage() {
                       <div>
                         <span className="font-semibold text-gray-900 block">{emp.name}</span>
                         <span className="font-mono text-gray-400 text-xs">{emp.phone}</span>
+                        {emp.role === 'worker' && (
+                          <span className={`block text-[10px] font-semibold ${emp.pinSet ? 'text-green-600' : 'text-amber-600'}`}>
+                            {emp.pinSet ? `🔑 PIN set · ${profileName(emp.workerProfileId)}` : '⚠ No PIN — can’t sign in yet'}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -197,6 +241,23 @@ export default function PeoplePage() {
                           <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Pay day (1–31)
                             <input type="number" min="1" max="31" value={editPayDay} onChange={e => setEditPayDay(e.target.value)} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm w-28" />
                           </label>
+                          {emp.role === 'worker' ? (
+                            <>
+                              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Worker profile
+                                <select value={editProfile} onChange={e => setEditProfile(e.target.value)} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm w-48">
+                                  <option value="">— none —</option>
+                                  {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                              </label>
+                              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">{emp.pinSet ? 'Reset PIN' : 'Set PIN'} (4–6 digits)
+                                <input inputMode="numeric" maxLength={6} placeholder="leave blank to keep" value={editPin} onChange={e => setEditPin(e.target.value.replace(/\D/g, ''))} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm w-40" />
+                              </label>
+                            </>
+                          ) : (
+                            <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Reset password (min 6)
+                              <input type="password" placeholder="leave blank to keep" value={editPassword} onChange={e => setEditPassword(e.target.value)} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm w-48" />
+                            </label>
+                          )}
                         </div>
                         <BatchPicker sel={editSel} setter={setEditSel} />
                         <div className="flex gap-2">

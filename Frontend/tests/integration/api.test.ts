@@ -631,3 +631,75 @@ describe('payroll — runs, advances/fines, immutable paid months', () => {
     expect((await api('/api/payroll', worker)).status).toBe(403);
   });
 });
+
+describe('employee logins, worker profiles & task assignment', () => {
+  let admin = '', owner = '', tenant = '', profileId = '';
+  const email = `staff+${Date.now()}@example.test`;
+  const stamp = String(Date.now()).slice(-6);
+  const wPhone = `+254766${stamp}`;
+  const noPinPhone = `+254744${stamp}`;
+  const mPhone = `+254755${stamp}`;
+  const mEmail = `mgr+${Date.now()}@example.test`;
+
+  beforeAll(async () => {
+    admin = await login('admin@ifms.app', 'demo1234');
+    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Staff Farm', ownerName: 'SF', ownerEmail: email, ownerPassword: 'staff1234', plan: 'pro' })).json()).id;
+    owner = await login(email, 'staff1234');
+  });
+  afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
+
+  it('a brand-new tenant is seeded with a default worker profile', async () => {
+    const profs = await (await api('/api/data/worker-profiles', owner)).json();
+    expect(profs.length).toBeGreaterThan(0);
+    expect(profs.find((p: { name: string }) => p.name === 'Standard Worker')).toBeTruthy();
+    profileId = profs[0].id;
+  });
+
+  it('adding a worker WITH a PIN creates a login that can actually sign in', async () => {
+    const res = await json(owner, '/api/data/employees', { name: 'Field Hand', phone: wPhone, role: 'worker', salary: 12000, pin: '4321', workerProfileId: profileId });
+    expect(res.status).toBe(201);
+    const emp = (await (await api('/api/data/employees', owner)).json()).find((e: { phone: string }) => e.phone === wPhone);
+    expect(emp.pinSet).toBe(true);
+    expect(emp.workerProfileId).toBe(profileId);
+    const signIn = await rawLogin(wPhone, '4321');
+    expect(signIn.status).toBe(200);
+    expect((await signIn.json()).user.role).toBe('worker');
+  });
+
+  it('a second login on the same phone is rejected', async () => {
+    const dup = await json(owner, '/api/data/employees', { name: 'Dup', phone: wPhone, role: 'worker', salary: 5000, pin: '1111' });
+    expect(dup.status).toBe(400);
+    expect((await dup.json()).error).toMatch(/already has a login/i);
+  });
+
+  it('owner assigns a task and the worker sees ONLY their own tasks', async () => {
+    const workers = await (await api('/api/workers', owner)).json();
+    const w = workers.find((x: { phone: string }) => x.phone === wPhone);
+    expect(w).toBeTruthy();
+    const t = await json(owner, '/api/data/tasks', { title: 'Vaccinate Batch A', type: 'vaccination', assignedTo: w.id, dueAt: new Date().toISOString(), scheduledFor: new Date().toISOString() });
+    expect(t.status).toBe(201);
+    const wCookie = await login(wPhone, '4321');
+    const wTasks = await (await api('/api/data/tasks', wCookie)).json();
+    expect(wTasks.some((x: { title: string }) => x.title === 'Vaccinate Batch A')).toBe(true);
+    expect(wTasks.every((x: { assignedTo: string }) => x.assignedTo === w.id)).toBe(true);
+  });
+
+  it('a worker added without a PIN cannot sign in until the owner sets one', async () => {
+    const created = await json(owner, '/api/data/employees', { name: 'No Pin', phone: noPinPhone, role: 'worker', salary: 8000 });
+    expect(created.status).toBe(201);
+    const empId = (await created.json()).id;
+    expect((await rawLogin(noPinPhone, '0000')).status).toBe(401); // no login yet
+    expect((await api(`/api/data/employees?id=${empId}`, owner, { method: 'PATCH', body: JSON.stringify({ pin: '9999' }) })).status).toBe(200);
+    const r = await rawLogin(noPinPhone, '9999');
+    expect(r.status).toBe(200);
+    expect((await r.json()).user.role).toBe('worker');
+  });
+
+  it('a manager added with email + password can sign in via the unified login', async () => {
+    const created = await json(owner, '/api/data/employees', { name: 'Ops Lead', phone: mPhone, role: 'manager', email: mEmail, password: 'manager1234' });
+    expect(created.status).toBe(201);
+    const r = await rawLogin(mEmail, 'manager1234');
+    expect(r.status).toBe(200);
+    expect((await r.json()).user.role).toBe('manager');
+  });
+});

@@ -19,6 +19,7 @@ const ALL_NAV: { href: string; Icon: LucideIcon; label: string; feature?: string
   { href: '/owner/inventory', Icon: Boxes,           label: 'Inventory' },
   { href: '/owner/finance',   Icon: Wallet,          label: 'Finance', feature: 'finance' },
   { href: '/owner/people',    Icon: Users,           label: 'People' },
+  { href: '/owner/tasks',     Icon: ClipboardList,   label: 'Tasks' },
   { href: '/owner/payroll',   Icon: Wallet,          label: 'Payroll', feature: 'finance' },
   { href: '/owner/activity',  Icon: ClipboardList,   label: 'Activity', feature: 'activity_log' },
   { href: '/owner/config',    Icon: Settings,        label: 'Config' },

@@ -6,18 +6,7 @@ import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
 import { created, unauthorized, forbidden } from '@/lib/server/http';
-import type { FieldConfig } from '@/lib/types';
-
-const DEFAULT_FIELDS: FieldConfig[] = [
-  { fieldKey: 'feed_unit_cost', label: 'Feed unit cost (KES)', permission: 'hidden' },
-  { fieldKey: 'feed_quantity', label: 'Feed quantity (kg)', permission: 'editable', required: true },
-  { fieldKey: 'egg_sale_price', label: 'Egg sale price', permission: 'hidden' },
-  { fieldKey: 'mortality_cause', label: 'Mortality cause', permission: 'editable' },
-  { fieldKey: 'batch_profit_loss', label: 'Batch profit/loss', permission: 'hidden' },
-  { fieldKey: 'water_level', label: 'Water level', permission: 'editable', required: true },
-  { fieldKey: 'eggs_collected', label: 'Eggs collected', permission: 'editable', required: true },
-  { fieldKey: 'abnormal', label: 'Abnormal observation', permission: 'editable', required: true },
-];
+import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
 
 interface Body {
   farmName?: string; farmLocation?: string;
