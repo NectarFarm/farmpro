@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import {
-  records, feedingRecords, mortalityRecords, productionRecords, healthRecords, conflictLog, closingStockCounts, photos, batches,
+  records, feedingRecords, mortalityRecords, productionRecords, healthRecords, conflictLog, closingStockCounts, photos, batches, inventoryLots,
 } from '@/db/schemas';
 import { and, eq, like } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
@@ -109,10 +109,20 @@ async function routeTyped(r: IncomingRecord, tenantId: string, userId: string): 
     return { routed: true };
   }
   if (r.type === 'health' || r.type === 'vaccination') {
-    await db.insert(healthRecords).values({
+    const lotId = str(p.productLotId ?? p.lotId);
+    const qty = num(p.quantity ?? p.dose ?? 1);
+    const inserted = await db.insert(healthRecords).values({
       ...base, batchId: String(p.batchId ?? ''), type: str(p.type) ?? 'VACCINE',
-      productLotId: str(p.productLotId ?? p.lotId), quantity: num(p.quantity ?? p.dose ?? 1),
-    }).onConflictDoNothing({ target: healthRecords.clientUuid });
+      productLotId: lotId, quantity: qty,
+    }).onConflictDoNothing({ target: healthRecords.clientUuid }).returning({ id: healthRecords.clientUuid });
+    // New record → draw the medicine/vaccine down from the specific lot used (never
+    // below zero, even if more was logged offline than is on hand).
+    if (inserted.length && lotId && qty > 0) {
+      const [lot] = await db.select({ q: inventoryLots.qtyOnHand }).from(inventoryLots)
+        .where(and(eq(inventoryLots.tenantId, tenantId), eq(inventoryLots.id, lotId))).limit(1);
+      if (lot) await db.update(inventoryLots).set({ qtyOnHand: Math.max(0, Math.round((lot.q - qty) * 1000) / 1000) })
+        .where(and(eq(inventoryLots.tenantId, tenantId), eq(inventoryLots.id, lotId)));
+    }
     return { routed: true };
   }
   if (r.type === 'closing_stock') {

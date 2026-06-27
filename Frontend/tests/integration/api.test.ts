@@ -67,6 +67,16 @@ describe('field-permission default-deny', () => {
     const lots = await res.json();
     if (Array.isArray(lots)) for (const l of lots) expect(l).not.toHaveProperty('unitCost');
   });
+
+  it('a worker CAN read operational alerts (home page needs them) but cannot acknowledge', async () => {
+    const worker = await login('+254700333444', '1234');
+    const read = await api('/api/data/alerts', worker);
+    expect(read.status).toBe(200);
+    expect(Array.isArray(await read.json())).toBe(true);
+    // …but acknowledging an alert stays owner/manager only.
+    const ack = await api('/api/data/alerts?id=anything', worker, { method: 'PATCH', body: JSON.stringify({ acknowledged: true }) });
+    expect(ack.status).toBe(403);
+  });
 });
 
 describe('tenant isolation + over-sell guard', () => {
@@ -192,6 +202,24 @@ describe('selling the animal itself decrements live headcount', () => {
     const lots = await (await api('/api/data/lots', ownerC)).json();
     const lot = lots.find((l: { id: string }) => l.id === lotId);
     expect(lot?.qtyOnHand).toBe(200);
+  });
+
+  it('a health/vaccine record draws its medicine lot down — and never goes negative', async () => {
+    const { lotId } = await (await json(ownerC, '/api/purchases', {
+      itemId: '__new', itemName: 'Newcastle Vaccine', unit: 'dose', category: 'VACCINE',
+      supplier: 'VetCo', quantity: 100, unitCost: 5,
+    })).json();
+    const unitId = (await (await json(ownerC, '/api/data/units', { name: 'HX-U', type: 'HOUSE', capacity: 50, species: 'broiler' })).json()).id;
+    const batchId = (await (await json(ownerC, '/api/data/batches', { name: 'HX B', unitId, species: 'broiler', qty: 30, cost: 0 })).json()).id;
+    const lotQty = async () => (await (await api('/api/data/lots', ownerC)).json()).find((l: { id: string }) => l.id === lotId).qtyOnHand;
+
+    // Administer 40 doses → 100 − 40 = 60 on hand.
+    await json(ownerC, '/api/sync', { records: [{ clientUuid: `hx1-${lotId}`, type: 'health', capturedAt: new Date().toISOString(), payload: { batchId, type: 'VACCINE', productLotId: lotId, quantity: 40 } }] });
+    expect(await lotQty()).toBe(60);
+
+    // Over-administer 1000 → clamps to 0 (never negative), even though more was logged.
+    await json(ownerC, '/api/sync', { records: [{ clientUuid: `hx2-${lotId}`, type: 'health', capturedAt: new Date().toISOString(), payload: { batchId, type: 'VACCINE', productLotId: lotId, quantity: 1000 } }] });
+    expect(await lotQty()).toBe(0);
   });
 
   it('break-even on the live position matches the worked example (140, not 840)', async () => {

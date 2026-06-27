@@ -31,7 +31,9 @@ export const RESOURCES: Record<string, ResourceDef> = {
     roles: ALL,
     scope: (s) => (s.role === 'worker' ? eq(tasks.assignedTo, s.userId) : undefined),
   },
-  alerts: { table: alerts, roles: ['owner', 'manager', 'auditor'] },
+  // Workers may READ operational alerts (low feed, mortality spike) — useful in the
+  // field and money-free. Acknowledging stays owner/manager (gated in the handler).
+  alerts: { table: alerts, roles: ['owner', 'manager', 'auditor', 'worker'] },
   sales: { table: sales, roles: ['owner', 'auditor'] },
   purchases: { table: purchases, roles: ['owner', 'auditor'] },
   employees: { table: employees, roles: ['owner', 'manager'] },

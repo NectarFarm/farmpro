@@ -21,9 +21,17 @@ export default function WorkerHomePage() {
 
   useEffect(() => {
     if (!user) { router.replace('/worker/login'); return; }
-    Promise.all([api.getTasks(user.id), api.getAlerts()]).then(([t, a]) => {
-      setTasks(t); setAlerts(a.filter(al => !al.acknowledged)); setLoading(false);
-    });
+    let cancelled = false;
+    // Load tasks and alerts INDEPENDENTLY — a failure in one must never freeze the
+    // whole page (the old Promise.all rejected wholesale and left it on skeletons).
+    api.getTasks(user.id)
+      .then(t => { if (!cancelled) setTasks(t); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    api.getAlerts()
+      .then(a => { if (!cancelled) setAlerts(a.filter(al => !al.acknowledged)); })
+      .catch(() => { if (!cancelled) setAlerts([]); });
+    return () => { cancelled = true; };
   }, [user, router]);
 
   const hour = new Date().getHours();

@@ -85,10 +85,13 @@ export default function MorningRoundPage() {
             </div>
           ))}
         </div>
-        <button onClick={() => setStep(0)}
-          className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold active:bg-green-700">
+        <button onClick={() => setStep(0)} disabled={units.length === 0}
+          className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold active:bg-green-700 disabled:opacity-40">
           🌅 Start Round
         </button>
+        {units.length === 0 && (
+          <p className="text-center text-sm text-gray-500">No active units with a batch yet — ask the owner to add one before doing the round.</p>
+        )}
       </div>
     );
   }

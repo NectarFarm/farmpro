@@ -41,6 +41,9 @@ export default function HealthPage() {
   }, []);
 
   const selectedLot = lots.find(l => l.id === lotId);
+  const available = selectedLot?.qtyOnHand ?? 0;
+  const doseNum = parseFloat(dose) || 0;
+  const overDose = !!selectedLot && doseNum > available + 1e-6; // can't give more than the lot holds
   const withdrawalDays = selectedLot?.withdrawalDays ?? 0;
   const appliedAt = new Date();
   const withdrawalUntil = withdrawalDays > 0
@@ -50,6 +53,9 @@ export default function HealthPage() {
 
   const handleConfirm = async () => {
     if (!batchId || !lotId || !dose) { setError('Fill all required fields'); setShowConfirm(false); return; }
+    if (selectedLot && doseNum > selectedLot.qtyOnHand + 1e-6) {
+      setError(`Only ${selectedLot.qtyOnHand} ${selectedLot.unit} left in this lot — you entered ${doseNum}.`); setShowConfirm(false); return;
+    }
     const clientUuid = crypto.randomUUID();
     const payload = {
       clientUuid, batchId, type, productLotId: lotId, dose: parseFloat(dose),
@@ -103,13 +109,20 @@ export default function HealthPage() {
             return <option key={l.id} value={l.id}>{item?.name} · Lot {l.lotNo} · {l.qtyOnHand} {l.unit}{l.withdrawalDays ? ` · WD ${l.withdrawalDays}d` : ''}</option>;
           })}
         </select>
+        {selectedLot && (
+          <p className={`text-xs font-semibold ${overDose ? 'text-red-600' : 'text-gray-500'}`}>
+            {overDose
+              ? `⚠ Only ${available} ${selectedLot.unit} left in this lot — you entered ${doseNum}. Record a purchase or reduce the dose.`
+              : `${available} ${selectedLot.unit} in this lot${doseNum > 0 ? ` · ${Math.round((available - doseNum) * 1000) / 1000} left after` : ''}`}
+          </p>
+        )}
       </div>
 
       <div className="flex gap-3">
         <div className="flex-1 flex flex-col gap-1">
           <label className="text-sm font-medium text-gray-700">Dose *</label>
           <input type="number" value={dose} onChange={e => setDose(e.target.value)}
-            className="border-2 border-gray-300 rounded-xl px-4 py-3 text-lg min-h-[52px]" placeholder="e.g. 100" />
+            className={`border-2 rounded-xl px-4 py-3 text-lg min-h-[52px] ${overDose ? 'border-red-400' : 'border-gray-300'}`} placeholder="e.g. 100" />
         </div>
         <div className="flex-1 flex flex-col gap-1">
           <label className="text-sm font-medium text-gray-700">Route</label>
@@ -137,8 +150,9 @@ export default function HealthPage() {
 
       {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
 
-      <button onClick={() => { if (!batchId || !lotId || !dose) { setError('Fill batch, product, and dose'); return; } setShowConfirm(true); }}
-        className="w-full min-h-[56px] bg-blue-600 text-white rounded-xl text-xl font-bold">
+      <button onClick={() => { if (!batchId || !lotId || !dose) { setError('Fill batch, product, and dose'); return; } if (overDose) { setError('Dose exceeds what is left in the lot.'); return; } setShowConfirm(true); }}
+        disabled={overDose}
+        className="w-full min-h-[56px] bg-blue-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
         SUBMIT
       </button>
 
