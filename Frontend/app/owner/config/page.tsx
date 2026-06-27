@@ -45,8 +45,13 @@ export default function WorkerConfigPage() {
     setSaving(true); setErr('');
     try {
       await api.updateWorkerProfile(selected.id, { fields: edited, mortalityPhotoThreshold: photoThreshold });
+      // Reflect the saved state locally instead of re-fetching: a reload would run
+      // selectProfile → setSaved(false) and instantly wipe the confirmation, making
+      // it look like nothing saved. Keep selection + the "✓ Saved" flag intact.
+      const updated: WorkerProfile = { ...selected, fields: edited, mortalityPhotoThreshold: photoThreshold };
+      setSelected(updated);
+      setProfiles(ps => ps.map(p => (p.id === updated.id ? updated : p)));
       setSaved(true); setTimeout(() => setSaved(false), 2500);
-      await reload(selected.id);
     } catch (e) { setErr((e as Error).message); } finally { setSaving(false); }
   };
 
@@ -73,7 +78,7 @@ export default function WorkerConfigPage() {
       {/* Profile selector */}
       <div className="flex gap-3 flex-wrap">
         {profiles.map(p => (
-          <button key={p.id} onClick={() => { setSelected(p); setEdited(p.fields); setPhotoThreshold(p.mortalityPhotoThreshold); }}
+          <button key={p.id} onClick={() => selectProfile(p)}
             className={`px-4 py-2 rounded-xl font-semibold text-sm border-2 ${selected?.id === p.id ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300'}`}>
             {p.name}
           </button>
@@ -178,8 +183,8 @@ export default function WorkerConfigPage() {
 
           {/* Security notice */}
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-            <p className="text-amber-800 font-semibold text-sm">🔒 Security Note (C4 fix)</p>
-            <p className="text-amber-700 text-xs mt-0.5">Hidden fields are dropped in Django serializers before the response is sent. They never appear in the API payload — not just hidden in CSS. Verified by automated tests that assert forbidden keys are absent from worker JWT responses.</p>
+            <p className="text-amber-800 font-semibold text-sm">🔒 How hiding is enforced</p>
+            <p className="text-amber-700 text-xs mt-0.5">Hidden fields are stripped on the server (<span className="font-mono">lib/server/fieldPermissions</span>) before the response leaves the API, based on the worker&apos;s assigned profile — so they never reach the phone and can&apos;t be revealed by inspecting network traffic or editing the page. Covered by automated tests (<span className="font-mono">fieldPermissions</span>).</p>
           </div>
         </>
       )}

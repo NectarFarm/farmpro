@@ -702,4 +702,16 @@ describe('employee logins, worker profiles & task assignment', () => {
     expect(r.status).toBe(200);
     expect((await r.json()).user.role).toBe('manager');
   });
+
+  it('editing a worker profile SAVES and round-trips (the Save Profile path)', async () => {
+    type Field = { fieldKey: string; label: string; permission: string; required?: boolean };
+    const before = (await (await api('/api/data/worker-profiles', owner)).json()).find((p: { id: string }) => p.id === profileId);
+    const newFields = before.fields.map((f: Field) => (f.fieldKey === 'feed_quantity' ? { ...f, permission: 'hidden' } : f));
+    const res = await api(`/api/data/worker-profiles?id=${profileId}`, owner, { method: 'PATCH', body: JSON.stringify({ fields: newFields, mortalityPhotoThreshold: 4 }) });
+    expect(res.status).toBe(200);
+    // Re-fetch from the DB and confirm the edit actually persisted.
+    const after = (await (await api('/api/data/worker-profiles', owner)).json()).find((p: { id: string }) => p.id === profileId);
+    expect(after.fields.find((f: Field) => f.fieldKey === 'feed_quantity').permission).toBe('hidden');
+    expect(after.mortalityPhotoThreshold).toBe(4);
+  });
 });
