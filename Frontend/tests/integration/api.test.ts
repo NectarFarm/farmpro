@@ -220,93 +220,59 @@ describe('selling the animal itself decrements live headcount', () => {
   });
 });
 
-describe('worker salary + batch assignment → per-batch P&L', () => {
-  let admin = '', owner = '', tenant = '', batchA = '', batchB = '';
-  const email = `payroll+${Date.now()}@example.test`;
-  let nextPhone = 254_799_000_000;
-  const phone = () => `+${++nextPhone}`;
+describe('per-batch labour comes from ACTUAL payroll (assignment-aware)', () => {
+  let admin = '', owner = '', tenant = '', batchA = '', batchB = '', worker = '';
+  const email = `labour+${Date.now()}@example.test`;
 
-  // Salary allocated to a batch this month, read straight off its cost summary.
   const salaryOf = async (batchId: string) =>
     (await (await api(`/api/cost-summary?batchId=${batchId}`, owner)).json()).salaryCost;
-  const empById = async (id: string) =>
-    (await (await api('/api/data/employees', owner)).json()).find((e: { id: string }) => e.id === id);
-  const addWorker = async (body: Record<string, unknown>) =>
-    (await (await json(owner, '/api/data/employees', { phone: phone(), ...body })).json()).id;
-  const deactivate = (id: string) =>
-    api(`/api/data/employees?id=${id}`, owner, { method: 'PATCH', body: JSON.stringify({ active: false }) });
+  const runPayroll = (period: string) => json(owner, '/api/payroll', { action: 'run', period });
+  const reassign = (ids: string[] | null) => api(`/api/data/employees?id=${worker}`, owner, { method: 'PATCH', body: JSON.stringify({ assignedBatchIds: ids }) });
 
   beforeAll(async () => {
     admin = await login('admin@ifms.app', 'demo1234');
-    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Payroll Farm', ownerName: 'PF', ownerEmail: email, ownerPassword: 'payroll1234', plan: 'pro' })).json()).id;
-    owner = await login(email, 'payroll1234');
-    // Two equal, freshly-acquired broiler batches (acquired today ⇒ 1 month active).
+    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Labour Farm', ownerName: 'LF', ownerEmail: email, ownerPassword: 'labour1234', plan: 'pro' })).json()).id;
+    owner = await login(email, 'labour1234');
     const uA = (await (await json(owner, '/api/data/units', { name: 'HA', type: 'HOUSE', capacity: 200, species: 'broiler' })).json()).id;
     const uB = (await (await json(owner, '/api/data/units', { name: 'HB', type: 'HOUSE', capacity: 200, species: 'broiler' })).json()).id;
     batchA = (await (await json(owner, '/api/data/batches', { name: 'A', unitId: uA, species: 'broiler', qty: 100, cost: 0 })).json()).id;
     batchB = (await (await json(owner, '/api/data/batches', { name: 'B', unitId: uB, species: 'broiler', qty: 100, cost: 0 })).json()).id;
+    worker = (await (await json(owner, '/api/data/employees', { name: 'Hand', phone: `+254799${String(Date.now()).slice(-6)}`, role: 'worker', salary: 30000, assignedBatchIds: null })).json()).id;
   });
   afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
 
-  it('default assignment (all) splits a worker’s salary across batches by head', async () => {
-    const id = await addWorker({ name: 'All-rounder', salary: 30000, payDay: 5, assignedBatchIds: null });
-    expect(await salaryOf(batchA)).toBe(15000); // 30000 split 100:100 × 1 month
-    expect(await salaryOf(batchB)).toBe(15000);
-    expect((await empById(id)).assignedBatchIds).toBeNull(); // persisted as "all"
-    await deactivate(id);
-  });
-
-  it('assigning a worker to ONE batch loads their whole salary onto it', async () => {
-    const id = await addWorker({ name: 'Poultry only', salary: 20000, assignedBatchIds: [batchA] });
-    expect(await salaryOf(batchA)).toBe(20000);
-    expect(await salaryOf(batchB)).toBe(0);
-    expect((await empById(id)).assignedBatchIds).toEqual([batchA]);
-    await deactivate(id);
-  });
-
-  it('UNASSIGNING a batch (PATCH) moves the salary off it', async () => {
-    const id = await addWorker({ name: 'Reassignable', salary: 10000, assignedBatchIds: null });
-    expect(await salaryOf(batchA)).toBe(5000); // split first
-
-    const res = await api(`/api/data/employees?id=${id}`, owner, { method: 'PATCH', body: JSON.stringify({ assignedBatchIds: [batchB] }) });
-    expect(res.status).toBe(200);
-    expect(await salaryOf(batchA)).toBe(0);      // unassigned → no labour load
-    expect(await salaryOf(batchB)).toBe(10000);  // all of it lands on B
-    expect((await empById(id)).assignedBatchIds).toEqual([batchB]);
-    await deactivate(id);
-  });
-
-  it('a worker assigned to NO batch loads salary onto neither, but stays on the books', async () => {
-    const id = await addWorker({ name: 'Unassigned', salary: 7000, assignedBatchIds: [] });
+  it('a batch has NO labour cost until payroll is actually run (not an estimate)', async () => {
     expect(await salaryOf(batchA)).toBe(0);
     expect(await salaryOf(batchB)).toBe(0);
-    const e = await empById(id);
-    expect(e.assignedBatchIds).toEqual([]);
-    expect(e.salary).toBe(7000); // still recorded (counts in the farm wage bill)
-    await deactivate(id);
   });
 
-  it('two workers with different assignments accumulate on the right batches', async () => {
-    const a = await addWorker({ name: 'Both', salary: 20000, assignedBatchIds: null });     // 10k + 10k
-    const b = await addWorker({ name: 'B-only', salary: 12000, assignedBatchIds: [batchB] }); // +12k to B
-    expect(await salaryOf(batchA)).toBe(10000);
-    expect(await salaryOf(batchB)).toBe(22000);
-    await deactivate(a); await deactivate(b);
+  it('running payroll spreads the worker\'s paid gross across their batches by head', async () => {
+    expect((await runPayroll('2026-01')).status).toBe(200);
+    expect(await salaryOf(batchA)).toBe(15000); // 30000 split 100:100
+    expect(await salaryOf(batchB)).toBe(15000);
+  });
+
+  it('re-assigning the worker moves that paid labour to the new batch', async () => {
+    expect((await reassign([batchA])).status).toBe(200);
+    expect(await salaryOf(batchA)).toBe(30000); // all of the paid gross now on A
+    expect(await salaryOf(batchB)).toBe(0);
+  });
+
+  it('a second paid month ACCUMULATES (cumulative labour)', async () => {
+    expect((await runPayroll('2026-02')).status).toBe(200); // worker now assigned to A
+    expect(await salaryOf(batchA)).toBe(60000); // two months × 30000
+  });
+
+  it('deactivating the worker does NOT erase already-incurred labour (it was really paid)', async () => {
+    await api(`/api/data/employees?id=${worker}`, owner, { method: 'PATCH', body: JSON.stringify({ active: false }) });
+    expect(await salaryOf(batchA)).toBe(60000); // the wages stay on the books
   });
 
   it('an out-of-range pay day is stored as null; salary still persists', async () => {
-    const id = await addWorker({ name: 'Bad payday', salary: 8000, payDay: 99 });
-    const e = await empById(id);
+    const id = (await (await json(owner, '/api/data/employees', { name: 'PD', phone: `+254798${String(Date.now()).slice(-6)}`, salary: 8000, payDay: 99 })).json()).id;
+    const e = (await (await api('/api/data/employees', owner)).json()).find((x: { id: string }) => x.id === id);
     expect(e.salary).toBe(8000);
     expect(e.payDay).toBeNull();
-    await deactivate(id);
-  });
-
-  it('an inactive worker contributes no labour cost', async () => {
-    const id = await addWorker({ name: 'Temp', salary: 50000, assignedBatchIds: null });
-    expect(await salaryOf(batchA)).toBe(25000); // active → loads
-    await deactivate(id);
-    expect(await salaryOf(batchA)).toBe(0);     // deactivated → gone
   });
 });
 
@@ -527,5 +493,141 @@ describe('guided acceptance testing (UAT)', () => {
     await post({ action: 'step', id: 'login', status: 'pass' });
     expect((await api(`/api/admin/testing/photo?id=${ids[1]}`, admin)).status).toBe(404);
     expect((await stepOf('login'))!.photoIds).toBeUndefined();
+  });
+});
+
+describe('system audit log', () => {
+  let admin = '';
+  const email = `audit+${Date.now()}@example.test`;
+  beforeAll(async () => { admin = await login('admin@ifms.app', 'demo1234'); });
+
+  it('records farm lifecycle actions and KEEPS them after the farm is deleted', async () => {
+    const tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Audit Farm', ownerName: 'AF', ownerEmail: email, ownerPassword: 'audit1234', plan: 'pro' })).json()).id;
+
+    let log = await (await api(`/api/admin/audit?tenantId=${tenant}`, admin)).json();
+    const created = log.entries.find((e: { action: string }) => e.action === 'tenant.create');
+    expect(created).toBeTruthy();
+    expect(created.actor).toMatch(/super_admin/);
+
+    // Suspend → recorded as its own action.
+    await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'PATCH', body: JSON.stringify({ active: false }) });
+    log = await (await api(`/api/admin/audit?tenantId=${tenant}`, admin)).json();
+    expect(log.entries.some((e: { action: string }) => e.action === 'tenant.suspend')).toBe(true);
+
+    // Delete the farm → its audit trail must REMAIN (forensic record).
+    expect((await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' })).status).toBe(200);
+    log = await (await api(`/api/admin/audit?tenantId=${tenant}`, admin)).json();
+    const del = log.entries.find((e: { action: string }) => e.action === 'tenant.delete');
+    expect(del).toBeTruthy();
+    expect(del.farm).toMatch(/deleted/i);                                   // labelled as a deleted farm
+    expect(log.entries.some((e: { action: string }) => e.action === 'tenant.create')).toBe(true); // history preserved
+  });
+
+  it('is super-admin only', async () => {
+    const owner = await login('kutswa@ifms.farm', 'demo1234');
+    expect((await api('/api/admin/audit', owner)).status).toBe(403);
+  });
+});
+
+describe('editable packages', () => {
+  let admin = '';
+  const email = `pkg+${Date.now()}@example.test`;
+  beforeAll(async () => { admin = await login('admin@ifms.app', 'demo1234'); });
+
+  it('saves custom packages and a new farm inherits the package features', async () => {
+    const orig = (await (await api('/api/admin/packages', admin)).json()).packages;
+    try {
+      const saved = await json(admin, '/api/admin/packages', { packages: [
+        { name: 'Lite', features: ['finance'], price: 500 },
+        { name: 'Max', features: ['finance', 'reports', 'alerts'], price: 3000 },
+      ] });
+      expect(saved.status).toBe(200);
+      expect((await saved.json()).packages.map((p: { id: string }) => p.id)).toEqual(['lite', 'max']);
+
+      // A farm created on 'lite' must get exactly that package's features.
+      const tid = (await (await json(admin, '/api/admin/tenants', { farmName: 'Pkg Farm', ownerName: 'PF', ownerEmail: email, ownerPassword: 'pkg12345', plan: 'lite' })).json()).id;
+      const farms = await (await api('/api/admin/tenants', admin)).json();
+      const farm = farms.find((t: { id: string }) => t.id === tid);
+      expect(farm.plan).toBe('lite');
+      expect(farm.features).toEqual(['finance']);
+
+      // A nameless package is rejected.
+      const bad = await json(admin, '/api/admin/packages', { packages: [{ name: '', features: [] }] });
+      expect(bad.status).toBe(400);
+      expect((await bad.json()).error).toMatch(/needs a name/i);
+
+      await api(`/api/admin/tenants?id=${tid}`, admin, { method: 'DELETE' });
+    } finally {
+      await json(admin, '/api/admin/packages', { packages: orig });
+    }
+  });
+
+  it('is super-admin only', async () => {
+    const owner = await login('kutswa@ifms.farm', 'demo1234');
+    expect((await api('/api/admin/packages', owner)).status).toBe(403);
+  });
+});
+
+describe('payroll — runs, advances/fines, immutable paid months', () => {
+  let admin = '', owner = '', tenant = '', empId = '';
+  const email = `payroll2+${Date.now()}@example.test`;
+  const phone = `+254788${String(Date.now()).slice(-6)}`;
+  const period = '2026-06', next = '2026-07';
+
+  beforeAll(async () => {
+    admin = await login('admin@ifms.app', 'demo1234');
+    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Pay Farm', ownerName: 'PF', ownerEmail: email, ownerPassword: 'payroll1234', plan: 'pro' })).json()).id;
+    owner = await login(email, 'payroll1234');
+    empId = (await (await json(owner, '/api/data/employees', { name: 'Worker A', phone, role: 'worker', salary: 18000 })).json()).id;
+  });
+  afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
+
+  const slipFor = async (p: string) => (await (await api(`/api/payroll?period=${p}`, owner)).json()).employees.find((e: { id: string }) => e.id === empId);
+
+  it('run snapshots gross; advances & fines reduce net; fines are income', async () => {
+    await json(owner, '/api/payroll', { action: 'ledger', employeeId: empId, period, type: 'advance', amount: 5000 });
+    await json(owner, '/api/payroll', { action: 'ledger', employeeId: empId, period, type: 'fine', amount: 1000, note: 'lateness' });
+    expect((await json(owner, '/api/payroll', { action: 'run', period })).status).toBe(200);
+
+    const g = await (await api(`/api/payroll?period=${period}`, owner)).json();
+    const row = g.employees.find((e: { id: string }) => e.id === empId);
+    expect(row.payslip.gross).toBe(18000);
+    expect(row.payslip.advances).toBe(5000);
+    expect(row.payslip.fines).toBe(1000);
+    expect(row.payslip.net).toBe(12000);          // 18000 − 5000 − 1000
+    expect(g.summary.fines).toBe(1000);            // fines counted as farm income
+  });
+
+  it('a PAID month is locked and immune to later salary changes', async () => {
+    expect((await json(owner, '/api/payroll', { action: 'pay', period, employeeId: empId })).status).toBe(200);
+    expect((await slipFor(period)).payslip.status).toBe('paid');
+
+    // Can't add a ledger entry to a paid month.
+    const blocked = await json(owner, '/api/payroll', { action: 'ledger', employeeId: empId, period, type: 'fine', amount: 500 });
+    expect(blocked.status).toBe(400);
+    expect((await blocked.json()).error).toMatch(/locked|already paid/i);
+
+    // Raise the salary, then re-run — the PAID month must NOT change.
+    await api(`/api/data/employees?id=${empId}`, owner, { method: 'PATCH', body: JSON.stringify({ salary: 25000 }) });
+    await json(owner, '/api/payroll', { action: 'run', period });
+    const paid = await slipFor(period);
+    expect(paid.payslip.gross).toBe(18000);        // snapshot preserved
+    expect(paid.payslip.net).toBe(12000);
+    expect(paid.payslip.status).toBe('paid');
+
+    // But a NEW month uses the new salary.
+    await json(owner, '/api/payroll', { action: 'run', period: next });
+    expect((await slipFor(next)).payslip.gross).toBe(25000);
+  });
+
+  it('year statement totals the months', async () => {
+    const st = await (await api(`/api/payroll/statement?employeeId=${empId}&year=2026`, owner)).json();
+    expect(st.totals.months).toBe(2);             // June + July
+    expect(st.payslips.find((p: { period: string }) => p.period === period).net).toBe(12000);
+  });
+
+  it('payroll is owner/manager only (workers cannot)', async () => {
+    const worker = await login('+254700333444', '1234');
+    expect((await api('/api/payroll', worker)).status).toBe(403);
   });
 });

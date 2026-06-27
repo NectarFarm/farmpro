@@ -2,6 +2,7 @@ import { db } from '@/db';
 import { platformSettings } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
+import { audit, actorLabel } from '@/lib/server/audit';
 import { ok, unauthorized, forbidden } from '@/lib/server/http';
 
 const DEFAULTS = { id: 'global', appName: 'IFMS', tagline: 'Integrated Farm Management System', logoUrl: null as string | null };
@@ -33,5 +34,6 @@ export async function PATCH(req: Request) {
 
   await db.insert(platformSettings).values({ ...DEFAULTS, ...patch })
     .onConflictDoUpdate({ target: platformSettings.id, set: patch });
+  await audit({ tenantId: 'platform', actor: actorLabel(session), action: 'branding.update', meta: { fields: Object.keys(patch).filter((k) => k !== 'updatedAt') } });
   return ok({ ok: true });
 }

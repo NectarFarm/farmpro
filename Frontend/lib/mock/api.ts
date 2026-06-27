@@ -282,11 +282,18 @@ export function getDashboardKPIs() {
   const taskCompletionPct = mockTasks.length > 0
     ? Math.round(mockTasks.filter((t) => t.status === 'DONE').length / mockTasks.length * 100)
     : 100;
-  const thisMonth = new Date().toISOString().slice(0, 7);
-  const revenueThisMonth = liveSales
-    .filter((s) => s.createdAt.startsWith(thisMonth))
-    .reduce((s, sale) => s + sale.totalAmount, 0);
-  return { activeBatches: activeBatches.length, totalBirds, mortalityPct, avgFCR, grossMargin, pendingAlerts, taskCompletionPct, revenueThisMonth };
+  const now = new Date();
+  const thisMonth = now.toISOString().slice(0, 7);
+  const year = thisMonth.slice(0, 4);
+  const q = Math.floor(now.getMonth() / 3);
+  const rev = (pred: (d: string) => boolean) => liveSales.filter((s) => pred(s.createdAt)).reduce((a, s) => a + s.totalAmount, 0);
+  return {
+    activeBatches: activeBatches.length, totalBirds, mortalityPct, avgFCR, grossMargin, pendingAlerts, taskCompletionPct,
+    revenueThisMonth: rev((d) => d.startsWith(thisMonth)),
+    revenueThisQuarter: rev((d) => d.slice(0, 4) === year && Math.floor((Number(d.slice(5, 7)) - 1) / 3) === q),
+    revenueThisYear: rev((d) => d.slice(0, 4) === year),
+    revenueAllTime: liveSales.reduce((a, s) => a + s.totalAmount, 0),
+  };
 }
 
 export function getProductionChartData(): { data: Record<string, string | number>[]; products: string[] } {

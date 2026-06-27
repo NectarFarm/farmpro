@@ -25,10 +25,15 @@ export default function FinancePage() {
 
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [payroll, setPayroll] = useState<{ fines: number; net: number; withSlip: number } | null>(null);
   const itemName = (id: string) => items.find(i => i.id === id)?.name ?? id;
 
   const reload = () => Promise.all([api.getSales(), api.getPurchases(), api.getBatches()]).then(([s,p,b]) => { setSales(s); setPurchases(p); setBatches(b); });
-  useEffect(() => { reload(); api.getItems().then(setItems); api.getEmployees().then(setEmployees).catch(() => {}); }, []);
+  useEffect(() => {
+    reload(); api.getItems().then(setItems); api.getEmployees().then(setEmployees).catch(() => {});
+    fetch(`/api/payroll?period=${new Date().toISOString().slice(0, 7)}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null).then(d => { if (d?.summary) setPayroll(d.summary); }).catch(() => {});
+  }, []);
   useEffect(() => {
     if (!batches.length) { setBatchPL([]); return; }
     Promise.all(batches.map(async b => ({ batch: b, cost: await api.getCostSummary(b.id) }))).then(setBatchPL);
@@ -81,9 +86,12 @@ export default function FinancePage() {
   const now = new Date();
   const thisMonth = now.toISOString().slice(0, 7);
   const inMonth = (d?: string) => (d ?? '').slice(0, 7) === thisMonth;
-  const monthRevenue = sales.filter(s => inMonth(s.createdAt)).reduce((a, s) => a + s.totalAmount, 0);
+  const monthSales = sales.filter(s => inMonth(s.createdAt)).reduce((a, s) => a + s.totalAmount, 0);
+  const monthFines = payroll?.fines ?? 0;                 // staff fines are farm income
+  const monthRevenue = monthSales + monthFines;
   const monthPurchases = purchases.filter(p => inMonth(p.createdAt)).reduce((a, p) => a + p.totalCost, 0);
-  const monthSalaries = totalMonthlyWageBill(employees);
+  // Actual net paid once payroll has run this month; otherwise the wage-bill estimate.
+  const monthSalaries = payroll && payroll.withSlip > 0 ? payroll.net : totalMonthlyWageBill(employees);
   const monthExpenses = monthPurchases + monthSalaries;
   const monthNet = monthRevenue - monthExpenses;
   const monthLabel = now.toLocaleDateString('en-KE', { month: 'long', year: 'numeric' });
@@ -156,6 +164,7 @@ export default function FinancePage() {
           <div className="text-center">
             <p className="text-xs text-gray-500">Revenue in</p>
             <p className="text-xl font-bold text-green-700">{fmtKES(monthRevenue)}</p>
+            {monthFines > 0 && <p className="text-[11px] text-gray-400">incl. {fmtKES(monthFines)} staff fines</p>}
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500">Expenses out</p>

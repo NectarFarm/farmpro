@@ -1,7 +1,9 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import { FEATURES, PLANS } from '@/lib/features';
+import { FEATURES } from '@/lib/features';
 import { AdminTesting } from '@/components/admin/AdminTesting';
+import { AdminAudit } from '@/components/admin/AdminAudit';
+import { AdminPackages } from '@/components/admin/AdminPackages';
 
 interface Tenant { id: string; name: string; plan: string; features: string[]; active: boolean; users: number; workers: number; batches: number }
 interface Owner { name: string; email: string; phone: string }
@@ -17,6 +19,9 @@ export default function AdminDashboardPage() {
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState('');
   const [nf, setNf] = useState({ farmName: '', ownerName: '', ownerEmail: '', ownerPhone: '', ownerPassword: '', plan: 'pro' });
+
+  // admin-defined packages (replace hardcoded plans)
+  const [packages, setPackages] = useState<{ id: string; name: string; features: string[] }[]>([]);
 
   // platform branding
   const [settings, setSettings] = useState({ appName: '', tagline: '', logoUrl: '' });
@@ -36,7 +41,9 @@ export default function AdminDashboardPage() {
     .catch(e => { setErr((e as Error).message); setLoading(false); });
   const loadSettings = () => fetch('/api/admin/settings', { credentials: 'include' })
     .then(r => r.ok ? r.json() : null).then(d => { if (d) setSettings({ appName: d.appName ?? '', tagline: d.tagline ?? '', logoUrl: d.logoUrl ?? '' }); }).catch(() => {});
-  useEffect(() => { load(); loadSettings(); }, []);
+  const loadPackages = () => fetch('/api/admin/packages', { credentials: 'include' })
+    .then(r => r.ok ? r.json() : { packages: [] }).then(d => setPackages(d.packages ?? [])).catch(() => {});
+  useEffect(() => { load(); loadSettings(); loadPackages(); }, []);
 
   const patch = async (id: string, body: Record<string, unknown>) => {
     setSaving(id); setErr('');
@@ -47,7 +54,7 @@ export default function AdminDashboardPage() {
     } catch (e) { setErr((e as Error).message); } finally { setSaving(''); }
   };
   const toggle = (t: Tenant, key: string) => patch(t.id, { features: t.features.includes(key) ? t.features.filter(f => f !== key) : [...t.features, key] });
-  const setPlan = (t: Tenant, plan: string) => patch(t.id, { plan, features: PLANS[plan] ?? t.features });
+  const setPlan = (t: Tenant, plan: string) => patch(t.id, { plan, features: packages.find(p => p.id === plan)?.features ?? t.features });
 
   const createFarm = async () => {
     setCreating(true); setErr(''); setCreateMsg('');
@@ -118,7 +125,7 @@ export default function AdminDashboardPage() {
           <p className="text-xs text-gray-500 -mt-2">Creates the tenant and its owner login. The owner signs in at <span className="font-mono">/login</span>.</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input placeholder="Farm name" value={nf.farmName} onChange={e => setNf({ ...nf, farmName: e.target.value })} className={inp} />
-            <select value={nf.plan} onChange={e => setNf({ ...nf, plan: e.target.value })} className={`${inp} capitalize`}>{Object.keys(PLANS).map(p => <option key={p} value={p}>{p} plan</option>)}</select>
+            <select value={nf.plan} onChange={e => setNf({ ...nf, plan: e.target.value })} className={inp}>{packages.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
             <input placeholder="Owner full name" value={nf.ownerName} onChange={e => setNf({ ...nf, ownerName: e.target.value })} className={inp} />
             <input placeholder="Owner email (their login)" type="email" value={nf.ownerEmail} onChange={e => setNf({ ...nf, ownerEmail: e.target.value })} className={inp} />
             <input placeholder="Owner phone (optional)" value={nf.ownerPhone} onChange={e => setNf({ ...nf, ownerPhone: e.target.value })} className={inp} />
@@ -153,8 +160,14 @@ export default function AdminDashboardPage() {
         {settingsMsg && <p className="text-sm text-gray-600">{settingsMsg}</p>}
       </div>
 
+      {/* Subscription packages */}
+      <AdminPackages onSaved={loadPackages} />
+
       {/* Acceptance testing */}
       <AdminTesting />
+
+      {/* System audit trail */}
+      <AdminAudit />
 
       {/* Farms */}
       <h2 className="font-bold text-gray-900 -mb-2">Farms ({tenants.length})</h2>
@@ -171,7 +184,7 @@ export default function AdminDashboardPage() {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <label className="text-xs font-semibold text-gray-500">Plan</label>
-                <select value={t.plan} onChange={e => setPlan(t, e.target.value)} className={`${inp} capitalize`}>{Object.keys(PLANS).map(p => <option key={p} value={p}>{p}</option>)}</select>
+                <select value={t.plan} onChange={e => setPlan(t, e.target.value)} className={inp}>{packages.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}{!packages.some(p => p.id === t.plan) && <option value={t.plan}>{t.plan}</option>}</select>
                 <button onClick={() => openManage(t)} className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-xs">{manageId === t.id ? 'Close' : 'Manage'}</button>
               </div>
             </div>

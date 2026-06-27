@@ -9,16 +9,19 @@ import { useSyncStore } from '@/lib/stores/sync';
 import { useSync } from '@/lib/offline/sync';
 import { SyncBadge } from '@/components/worker/SyncBadge';
 import { cn } from '@/lib/utils';
-import { Home, ClipboardList, User, type LucideIcon } from 'lucide-react';
+import { useBranding } from '@/lib/useBranding';
+import { Home, ClipboardList, Wallet, User, type LucideIcon } from 'lucide-react';
 
 const tabs: { href: string; Icon: LucideIcon; label: string }[] = [
   { href: '/worker/home', Icon: Home, label: 'Home' },
   { href: '/worker/record/morning-round', Icon: ClipboardList, label: 'Record' },
+  { href: '/worker/pay', Icon: Wallet, label: 'My Pay' },
   { href: '/worker/profile', Icon: User, label: 'Profile' },
 ];
 
 const TITLES: Record<string, string> = {
   '/worker/home': 'Home',
+  '/worker/pay': 'My Pay',
   '/worker/profile': 'Profile',
   '/worker/record/collect': 'Collect Products',
   '/worker/record/morning-round': 'Morning Round',
@@ -35,6 +38,7 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
   const router = useRouter();
   const { setOnline } = useSyncStore();
   const { logout } = useAuthStore();
+  const brand = useBranding();
 
   // Drain the offline queue to the server (mount / online / interval).
   useSync();
@@ -49,7 +53,7 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
 
   if (pathname === '/worker/login') return <>{children}</>;
 
-  const title = TITLES[pathname] ?? 'IFMS';
+  const title = TITLES[pathname] ?? brand.appName;
   const isHome = pathname === '/worker/home';
   const handleLogout = () => { logout(); router.replace('/worker/login'); };
 
@@ -58,7 +62,10 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
       {/* Header: back · title · sync · logout */}
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200 px-3 py-3 flex items-center gap-2">
         {isHome ? (
-          <span className="text-2xl pl-1">🌾</span>
+          brand.logoUrl
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain pl-1" />
+            : <span className="text-2xl pl-1">🌾</span>
         ) : (
           <button onClick={() => router.back()} aria-label="Back"
             className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 text-xl">

@@ -4,7 +4,9 @@ import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
 import { deleteTenantData } from '@/lib/server/tenantAdmin';
-import { PLANS, ALL_FEATURE_KEYS } from '@/lib/features';
+import { audit, actorLabel } from '@/lib/server/audit';
+import { getActivePackages } from '@/lib/server/packagesConfig';
+import { packageFeatures } from '@/lib/packages';
 import { ok, created, unauthorized, forbidden, badRequest } from '@/lib/server/http';
 
 const sid = (p: string) => `${p}_${crypto.randomUUID().slice(0, 8)}`;
@@ -42,7 +44,6 @@ export async function POST(req: Request) {
   const ownerEmail = body.ownerEmail?.trim().toLowerCase();
   const ownerPassword = body.ownerPassword ?? '';
   const ownerPhone = body.ownerPhone?.trim() || `+0${crypto.randomUUID().replace(/\D/g, '').slice(0, 11)}`;
-  const plan = body.plan && PLANS[body.plan] ? body.plan : 'pro';
 
   if (!farmName || !ownerName || !ownerEmail) return badRequest('Farm name, owner name and owner email are required.');
   if (!ownerEmail.includes('@')) return badRequest('Enter a valid owner email.');
@@ -51,12 +52,16 @@ export async function POST(req: Request) {
   const [clash] = await db.select({ id: users.id }).from(users).where(eq(users.email, ownerEmail)).limit(1);
   if (clash) return badRequest('That owner email is already in use.');
 
+  // Assign an admin-defined package (default to pro / first available).
+  const pkgs = await getActivePackages();
+  const plan = pkgs.some((p) => p.id === body.plan) ? body.plan! : (pkgs.find((p) => p.id === 'pro')?.id ?? pkgs[0].id);
   const tenantId = sid('t');
-  await db.insert(tenants).values({ id: tenantId, name: farmName, plan, features: PLANS[plan] ?? ALL_FEATURE_KEYS });
+  await db.insert(tenants).values({ id: tenantId, name: farmName, plan, features: packageFeatures(pkgs, plan) });
   await db.insert(users).values({
     id: sid('u'), tenantId, name: ownerName, email: ownerEmail, phone: ownerPhone, role: 'owner', language: 'en',
     passwordHash: await hashSecret(ownerPassword),
   });
+  await audit({ tenantId, actor: actorLabel(session), action: 'tenant.create', entity: farmName, after: { plan, ownerEmail } });
   return created({ id: tenantId, name: farmName, plan, ownerEmail });
 }
 
@@ -75,6 +80,8 @@ export async function PATCH(req: Request) {
   if (typeof body.active === 'boolean') patch.active = body.active;
   if (Object.keys(patch).length === 0) return badRequest('Nothing to update.');
   await db.update(tenants).set(patch).where(eq(tenants.id, id));
+  const action = 'active' in patch ? (patch.active ? 'tenant.reactivate' : 'tenant.suspend') : 'tenant.update';
+  await audit({ tenantId: id, actor: actorLabel(session), action, meta: patch });
   return ok({ id });
 }
 
@@ -85,6 +92,9 @@ export async function DELETE(req: Request) {
   if (session.role !== 'super_admin') return forbidden();
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return badRequest('id required');
+  // Record the deletion BEFORE wiping data — this audit row deliberately survives.
+  const [t] = await db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, id)).limit(1);
+  await audit({ tenantId: id, actor: actorLabel(session), action: 'tenant.delete', entity: t?.name ?? id, meta: { id } });
   await deleteTenantData(id);
   await db.delete(tenants).where(eq(tenants.id, id));
   return ok({ id, deleted: true });

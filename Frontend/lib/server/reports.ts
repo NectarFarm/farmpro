@@ -7,7 +7,7 @@ import {
   inventoryLots, employees,
 } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
-import { computeBatchCost, salaryAllocation } from './costing';
+import { computeBatchCost, batchLabour } from './costing';
 import { totalMonthlyWageBill } from '@/lib/payroll';
 import {
   type ReportData, filterRange, dateInRange, profitAndLoss, fcrReport, batchCard,
@@ -28,7 +28,7 @@ export async function buildReport(tenantId: string, type: string, from: string, 
   // Per-batch lifecycle economics share one salary-allocation pass so Reports,
   // Dashboard and the batch page all show the SAME totals.
   const batchCosts = async () => {
-    const alloc = await salaryAllocation(tenantId);
+    const alloc = await batchLabour(tenantId);
     const out: { batch: typeof bs[number]; cost: NonNullable<Awaited<ReturnType<typeof computeBatchCost>>> }[] = [];
     for (const b of bs) {
       const cost = await computeBatchCost(tenantId, b.id, alloc[b.id] ?? 0);

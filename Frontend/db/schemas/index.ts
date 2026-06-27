@@ -45,6 +45,8 @@ export const platformSettings = pgTable('platform_settings', {
   logoUrl: text('logo_url'), // data URL or external URL; null → 🌾 emoji fallback
   // Admin-editable acceptance-test checklist (null → the built-in TEST_STEPS).
   testSteps: jsonb('test_steps').$type<import('@/lib/testing').TestStepDef[]>(),
+  // Admin-editable subscription packages (null → DEFAULT_PACKAGES = free/standard/pro).
+  packages: jsonb('packages').$type<import('@/lib/packages').Package[]>(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
@@ -83,9 +85,41 @@ export const employees = pgTable('employees', {
   active: boolean('active').notNull().default(true),
   salary: doublePrecision('salary').notNull().default(0), // monthly wage (KSh); 0 = unpaid/unset
   payDay: integer('pay_day'),                             // day of month (1–31) wages are due
+  paymentsFrom: text('payments_from'),                    // 'YYYY-MM' payroll begins (null = first run)
   // Batches this worker is assigned to. NULL = all (current & future) active batches
   // — the default. [] = none. [ids] = exactly those. Drives salary allocation.
   assignedBatchIds: jsonb('assigned_batch_ids').$type<string[]>(),
+});
+
+// One payslip per employee per month. `gross` is SNAPSHOT at run time, so editing
+// an employee's salary never rewrites a past payslip. Once status='paid' it's locked.
+export const payslips = pgTable('payslips', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  employeeId: text('employee_id').notNull(),
+  period: text('period').notNull(), // 'YYYY-MM'
+  gross: doublePrecision('gross').notNull(),
+  advances: doublePrecision('advances').notNull().default(0),
+  fines: doublePrecision('fines').notNull().default(0),
+  bonuses: doublePrecision('bonuses').notNull().default(0),
+  net: doublePrecision('net').notNull(),
+  status: text('status').notNull().default('pending'), // pending | paid
+  paidAt: text('paid_at'),
+  createdAt: text('created_at').notNull(),
+});
+
+// Advances, fines (fines are also farm income), bonuses & adjustments per employee,
+// applied to a given month's payslip.
+export const employeeLedger = pgTable('employee_ledger', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  employeeId: text('employee_id').notNull(),
+  type: text('type').notNull(), // advance | fine | bonus | adjustment
+  amount: doublePrecision('amount').notNull(),
+  note: text('note'),
+  period: text('period').notNull(), // 'YYYY-MM' it applies to
+  date: text('date').notNull(),
+  createdAt: text('created_at').notNull(),
 });
 
 export const productionUnits = pgTable('production_units', {

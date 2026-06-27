@@ -3,6 +3,7 @@ import {
   totalMonthlyWageBill,
   coveredActiveBatchIds,
   monthlySalaryByBatch,
+  labourByBatch,
   daysUntilPayDay,
   type PayrollEmployee,
   type PayrollBatch,
@@ -147,6 +148,47 @@ describe('monthlySalaryByBatch', () => {
   it('returns an all-zero map (no allocation) when there are no active batches', () => {
     const out = monthlySalaryByBatch([emp({ salary: 10000 })], [batch('x', 0, 'CLOSED')]);
     expect(out).toEqual({});
+  });
+});
+
+describe('labourByBatch (actual paid wages → per-batch labour)', () => {
+  it('spreads each worker\'s paid gross across covered active batches by head', () => {
+    const out = labourByBatch(
+      [{ paidGross: 30000, assignedBatchIds: null }],
+      [batch('big', 500), batch('small', 50)],
+    );
+    expect(out.big).toBeCloseTo(27272.73, 2);
+    expect(out.small).toBeCloseTo(2727.27, 2);
+  });
+
+  it('assigning to one batch loads all of that worker\'s wages onto it', () => {
+    const out = labourByBatch([{ paidGross: 36000, assignedBatchIds: ['a'] }], [batch('a', 100), batch('b', 100)]);
+    expect(out.a).toBe(36000);
+    expect(out.b).toBe(0);
+  });
+
+  it('counts a worker who was paid even if no active flag is given (incurred cost)', () => {
+    // labourByBatch has no "active" filter — the wage was really paid.
+    const out = labourByBatch([{ paidGross: 12000, assignedBatchIds: null }], [batch('a', 100)]);
+    expect(out.a).toBe(12000);
+  });
+
+  it('ignores zero-gross workers and never allocates onto closed batches', () => {
+    const out = labourByBatch(
+      [{ paidGross: 0, assignedBatchIds: null }, { paidGross: 9000, assignedBatchIds: null }],
+      [batch('a', 100, 'ACTIVE'), batch('closed', 0, 'CLOSED')],
+    );
+    expect(out.a).toBe(9000);
+    expect(out.closed).toBeUndefined();
+  });
+
+  it('accumulates multiple workers', () => {
+    const out = labourByBatch(
+      [{ paidGross: 20000, assignedBatchIds: null }, { paidGross: 12000, assignedBatchIds: ['b'] }],
+      [batch('a', 100), batch('b', 100)],
+    );
+    expect(out.a).toBe(10000);
+    expect(out.b).toBe(22000);
   });
 });
 

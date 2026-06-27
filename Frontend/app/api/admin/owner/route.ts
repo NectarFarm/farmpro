@@ -3,6 +3,7 @@ import { users } from '@/db/schemas';
 import { and, eq, ne } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
+import { audit, actorLabel } from '@/lib/server/audit';
 import { ok, unauthorized, forbidden, badRequest, notFound } from '@/lib/server/http';
 
 // Manage a farm's owner login (super_admin): fix typos, change email/phone, reset password.
@@ -49,5 +50,7 @@ export async function PATCH(req: Request) {
   }
   if (Object.keys(patch).length === 0) return badRequest('Nothing to update.');
   await db.update(users).set(patch).where(eq(users.id, owner.id));
+  // Record which fields changed — never the password value itself.
+  await audit({ tenantId, actor: actorLabel(session), action: 'owner.update', entity: owner.email ?? owner.id, meta: { changed: Object.keys(patch).map((k) => (k === 'passwordHash' ? 'password' : k)) } });
   return ok({ id: owner.id });
 }

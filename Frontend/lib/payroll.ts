@@ -28,7 +28,7 @@ export function totalMonthlyWageBill(employees: PayrollEmployee[]): number {
 }
 
 // The active batch ids a worker's pay is spread over (see assignment model above).
-export function coveredActiveBatchIds(emp: PayrollEmployee, activeIds: string[]): string[] {
+export function coveredActiveBatchIds(emp: { assignedBatchIds?: string[] | null }, activeIds: string[]): string[] {
   if (emp.assignedBatchIds == null) return activeIds.slice();
   const assigned = new Set(emp.assignedBatchIds);
   return activeIds.filter((id) => assigned.has(id));
@@ -61,6 +61,35 @@ export function monthlySalaryByBatch(
     }
   }
 
+  for (const id of activeIds) out[id] = Math.round(out[id] * 100) / 100;
+  return out;
+}
+
+// Allocate ACTUAL payroll (the gross of generated payslips) to batches — the
+// best-practice basis for per-batch labour cost. Unlike monthlySalaryByBatch this
+// uses real disbursed wages and includes EVERY worker who was paid (even if since
+// deactivated), because that labour was genuinely incurred. Spread by head share
+// across each worker's assigned active batches, same rule as the live allocator.
+export interface PaidWorker { paidGross: number; assignedBatchIds?: string[] | null }
+export function labourByBatch(workers: readonly PaidWorker[], batches: readonly PayrollBatch[]): Record<string, number> {
+  const active = batches.filter((b) => b.status === 'ACTIVE');
+  const activeIds = active.map((b) => b.id);
+  const qty: Record<string, number> = {};
+  for (const b of active) qty[b.id] = Math.max(0, b.currentQty);
+
+  const out: Record<string, number> = {};
+  for (const id of activeIds) out[id] = 0;
+
+  for (const w of workers) {
+    if (!w.paidGross || w.paidGross <= 0) continue;
+    const covered = coveredActiveBatchIds(w, activeIds);
+    if (covered.length === 0) continue;
+    const totalQty = covered.reduce((s, id) => s + qty[id], 0);
+    for (const id of covered) {
+      const share = totalQty > 0 ? qty[id] / totalQty : 1 / covered.length;
+      out[id] += w.paidGross * share;
+    }
+  }
   for (const id of activeIds) out[id] = Math.round(out[id] * 100) / 100;
   return out;
 }

@@ -16,8 +16,11 @@ export default function OwnerDashboardPage() {
   const router = useRouter();
   const [kpis, setKpis] = useState({
     activeBatches: 0, totalBirds: 0, mortalityPct: 0, avgFCR: 0,
-    grossMargin: 0, pendingAlerts: 0, taskCompletionPct: 0, revenueThisMonth: 0,
+    grossMargin: 0, pendingAlerts: 0, taskCompletionPct: 0,
+    revenueThisMonth: 0, revenueThisQuarter: 0, revenueThisYear: 0, revenueAllTime: 0,
   });
+  const [revPeriod, setRevPeriod] = useState<'month' | 'quarter' | 'year' | 'all'>('month');
+  const REV = { month: kpis.revenueThisMonth, quarter: kpis.revenueThisQuarter, year: kpis.revenueThisYear, all: kpis.revenueAllTime };
   const [chart, setChart] = useState<{ data: Record<string, string | number>[]; products: string[] }>({ data: [], products: [] });
   const [loaded, setLoaded] = useState(false);
 
@@ -36,7 +39,7 @@ export default function OwnerDashboardPage() {
     ] },
     { heading: 'Finance', cards: [
       { label:'Gross Margin', value: fmtKES(kpis.grossMargin), Icon: Wallet, tint:'text-emerald-600 bg-emerald-50', good:kpis.grossMargin > 0, bad:kpis.grossMargin < 0 },
-      { label:'Revenue (month)', value: fmtKES(kpis.revenueThisMonth), Icon: TrendingUp, tint:'text-amber-600 bg-amber-50' },
+      { label:`Revenue (${revPeriod})`, value: fmtKES(REV[revPeriod]), Icon: TrendingUp, tint:'text-amber-600 bg-amber-50' },
     ] },
     { heading: 'Operations', cards: [
       { label:'Task Completion', value: `${kpis.taskCompletionPct}%`, Icon: CheckCircle2, tint:'text-indigo-600 bg-indigo-50', sub:'today' },
@@ -73,7 +76,17 @@ export default function OwnerDashboardPage() {
       {/* KPI groups */}
       {groups.map(group => (
         <div key={group.heading} className="flex flex-col gap-2">
-          <h2 className="text-xs font-bold uppercase tracking-wide text-gray-400">{group.heading}</h2>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-xs font-bold uppercase tracking-wide text-gray-400">{group.heading}</h2>
+            {group.heading === 'Finance' && (
+              <div className="flex gap-1">
+                {(['month', 'quarter', 'year', 'all'] as const).map(p => (
+                  <button key={p} onClick={() => setRevPeriod(p)}
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold capitalize ${revPeriod === p ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-500'}`}>{p}</button>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {group.cards.map(card => (
               <div key={card.label} className="rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3">

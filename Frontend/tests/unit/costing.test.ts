@@ -259,12 +259,10 @@ describe('computeBatchCost', () => {
   });
 });
 
-describe('computeBatchCost — salary allocation', () => {
-  const isoDaysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
-
-  function run(salary: number, acquiredDate: string) {
+describe('computeBatchCost — labour from actual payroll', () => {
+  function run(labour: number) {
     mockDbSelect
-      .mockReturnValueOnce(mockChain('batches', [makeBatch({ acquisitionCost: 10000, initialQty: 100, currentQty: 100, acquiredDate })]))
+      .mockReturnValueOnce(mockChain('batches', [makeBatch({ acquisitionCost: 10000, initialQty: 100, currentQty: 100 })]))
       .mockReturnValueOnce(mockChain('lots', []))
       .mockReturnValueOnce(mockChain('feedings', []))
       .mockReturnValueOnce(mockChain('morts', []))
@@ -273,20 +271,20 @@ describe('computeBatchCost — salary allocation', () => {
       .mockReturnValueOnce(mockChain('health', []))
       .mockReturnValueOnce(mockChain('labor', []))
       .mockReturnValueOnce(mockChain('overhead', []))
-      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ currentQty: 100, acquiredDate })]));
-    return computeBatchCost('t1', 'b1', salary);
+      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ currentQty: 100 })]));
+    return computeBatchCost('t1', 'b1', labour);
   }
 
-  it('folds one month of the allocated salary into total cost for a fresh batch', async () => {
-    const result = await run(5000, isoDaysAgo(3)); // ~0.1 months → ceil = 1 month
+  it('uses the allocated payroll labour DIRECTLY (no months-active estimate)', async () => {
+    const result = await run(5000); // this batch's share of disbursed payroll
     expect(result!.salaryCost).toBe(5000);
-    expect(result!.totalCost).toBe(15000); // 10000 acquisition + 5000 salary
+    expect(result!.totalCost).toBe(15000); // 10000 acquisition + 5000 labour
   });
 
-  it('multiplies the monthly salary by the number of months the batch has run', async () => {
-    const result = await run(4000, isoDaysAgo(75)); // 75d → ceil(75/30) = 3 months
-    expect(result!.salaryCost).toBe(12000); // 4000 × 3
-    expect(result!.totalCost).toBe(22000);  // 10000 + 12000
+  it('larger payroll → larger labour, regardless of batch age', async () => {
+    const result = await run(12000);
+    expect(result!.salaryCost).toBe(12000);
+    expect(result!.totalCost).toBe(22000); // 10000 + 12000
   });
 
   it('adds nothing when no salary is allocated (default arg)', async () => {

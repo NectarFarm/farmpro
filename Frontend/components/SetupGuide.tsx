@@ -53,7 +53,7 @@ const PHASES: { phase: string; subtitle: string; steps: Step[] }[] = [
         id: 'people', icon: '👥', title: 'Add your workers & their pay', href: '/owner/people',
         how: [
           'Click "+ Add Employee" — name, phone, role (worker / manager / vet).',
-          'Add a monthly salary and pay day. The wage bill shows up in your monthly budget and is shared across each worker\'s batches automatically — so every batch\'s profit includes its real labour cost.',
+          'Add a monthly salary and pay day. The wage bill shows in your monthly budget; once you run payroll each month, what you ACTUALLY pay is shared across each worker\'s batches automatically — so every batch\'s profit carries its real, disbursed labour cost (not a guess).',
           'Choose which batches each worker is on (all by default — untick any to unassign). A poultry-only worker never loads cost onto your fish pond.',
           'Workers log in on their phone with their phone number + a PIN.',
         ],
@@ -100,6 +100,14 @@ const PHASES: { phase: string; subtitle: string; steps: Step[] }[] = [
           'Record every sale — eggs, meat, fish, crops: batch, quantity, price, buyer. Selling a live animal (e.g. a bird) draws it down from that batch\'s live count; selling eggs draws from what was collected.',
           'Record every purchase under Inventory. Together these drive your profit and per-batch margins.',
           'The "Budget · this month" panel shows revenue in vs expenses out (stock + salaries), with a reminder a few days before pay day.',
+        ],
+      },
+      {
+        id: 'payroll', icon: '💵', title: 'Run payroll each month', href: '/owner/payroll',
+        how: [
+          'Payroll → pick the month. Record any advance or fine for a worker (fines count as farm income), then "Run payroll" — net pay = salary − advances − fines + bonuses.',
+          'When you\'ve paid someone, tap "Pay" to lock that month. A locked month never changes — even if you later change their salary, only future months are affected.',
+          'Print a worker a payslip for the month or a full-year statement, and each worker sees their own pay (paid-to-date, payslips) under "My Pay" in their app.',
         ],
       },
     ],

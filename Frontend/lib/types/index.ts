@@ -121,7 +121,7 @@ export interface WorkerProfile {
 export interface Employee {
   id: string; tenantId: string; name: string; phone: string;
   role: Role; workerProfileId?: string; pinSet: boolean; active: boolean;
-  salary?: number; payDay?: number | null;
+  salary?: number; payDay?: number | null; paymentsFrom?: string | null;
   assignedBatchIds?: string[] | null; // null = all active batches (default); [] = none
 }
 

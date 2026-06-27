@@ -4,34 +4,37 @@ import 'server-only';
 import { db } from '@/db';
 import {
   batches, feedingRecords, mortalityRecords, productionRecords, sales, inventoryLots, alerts, tasks,
-  healthRecords, laborLogs, overheads, employees,
+  healthRecords, laborLogs, overheads, employees, payslips,
 } from '@/db/schemas';
 import { and, eq } from 'drizzle-orm';
 import { enterpriseFromSpecies } from './productTemplates';
-import { monthlySalaryByBatch } from '@/lib/payroll';
+import { labourByBatch } from '@/lib/payroll';
 import type { BatchCostSummary } from '@/lib/types';
 
-// Monthly salary allocated to each active batch (assignment-aware). Computed once
-// per request and fed into computeBatchCost so that function stays query-stable.
-export async function salaryAllocation(tenantId: string): Promise<Record<string, number>> {
-  const [emps, bs] = await Promise.all([
-    db.select({ active: employees.active, salary: employees.salary, assignedBatchIds: employees.assignedBatchIds })
-      .from(employees).where(eq(employees.tenantId, tenantId)),
-    db.select({ id: batches.id, currentQty: batches.currentQty, status: batches.status })
-      .from(batches).where(eq(batches.tenantId, tenantId)),
+// ACTUAL labour cost per batch, from real payroll: each worker's total paid gross
+// (from their payslips) allocated across the batches they're assigned to by head
+// share. This is the disbursed wage, not a live-salary estimate — so a paid month
+// is permanent and changing a salary never rewrites a batch's historical labour.
+// Computed once per request and fed into computeBatchCost (keeps it query-stable).
+export async function batchLabour(tenantId: string): Promise<Record<string, number>> {
+  const [emps, bs, slips] = await Promise.all([
+    db.select({ id: employees.id, assignedBatchIds: employees.assignedBatchIds }).from(employees).where(eq(employees.tenantId, tenantId)),
+    db.select({ id: batches.id, currentQty: batches.currentQty, status: batches.status }).from(batches).where(eq(batches.tenantId, tenantId)),
+    db.select({ employeeId: payslips.employeeId, gross: payslips.gross }).from(payslips).where(eq(payslips.tenantId, tenantId)),
   ]);
-  return monthlySalaryByBatch(emps, bs);
+  const grossByEmp = new Map<string, number>();
+  for (const s of slips) grossByEmp.set(s.employeeId, (grossByEmp.get(s.employeeId) ?? 0) + s.gross);
+  return labourByBatch(emps.map((e) => ({ paidGross: grossByEmp.get(e.id) ?? 0, assignedBatchIds: e.assignedBatchIds })), bs);
 }
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
-// `monthlySalaryForBatch` is this batch's share of the monthly wage bill (from
-// payroll.monthlySalaryByBatch, computed by the caller so this stays query-stable).
-// It's multiplied by the number of months the batch has run to get labour-to-date.
+// `batchLabourCost` is this batch's ACTUAL labour-to-date from payroll (via
+// costing.batchLabour), computed by the caller so this function stays query-stable.
 export async function computeBatchCost(
   tenantId: string,
   batchId: string,
-  monthlySalaryForBatch = 0,
+  batchLabourCost = 0,
 ): Promise<BatchCostSummary | null> {
   const [batch] = await db.select().from(batches)
     .where(and(eq(batches.tenantId, tenantId), eq(batches.id, batchId))).limit(1);
@@ -75,10 +78,8 @@ export async function computeBatchCost(
     .where(and(eq(laborLogs.tenantId, tenantId), eq(laborLogs.batchId, batchId)));
   const laborCost = laborRows.reduce((s, l) => s + l.hours * l.ratePerHour, 0);
 
-  // Salaries: this batch's monthly share × months the batch has run (≥1).
-  const ageDays = Math.max(0, (Date.now() - new Date(batch.acquiredDate).getTime()) / 86400000);
-  const monthsActive = Math.max(1, Math.ceil(ageDays / 30));
-  const salaryCost = Math.max(0, monthlySalaryForBatch) * monthsActive;
+  // Salaries: this batch's share of ACTUAL payroll disbursed (gross of payslips).
+  const salaryCost = Math.max(0, batchLabourCost);
 
   // Overhead allocated to this batch by population share (driver=population).
   const overheadRows = await db.select().from(overheads).where(eq(overheads.tenantId, tenantId));
@@ -147,12 +148,17 @@ export async function computeDashboardKPIs(tenantId: string) {
 
   const salesRows = await db.select().from(sales).where(eq(sales.tenantId, tenantId));
   const totalRevenue = salesRows.reduce((s, x) => s + x.totalAmount, 0);
-  const month = new Date().toISOString().slice(0, 7);
-  const revenueThisMonth = salesRows
-    .filter((x) => (x.createdAt ?? '').slice(0, 7) === month)
-    .reduce((s, x) => s + x.totalAmount, 0);
+  const now = new Date();
+  const month = now.toISOString().slice(0, 7);
+  const year = month.slice(0, 4);
+  const quarter = Math.floor(now.getMonth() / 3);
+  const sumWhere = (pred: (createdAt: string) => boolean) =>
+    salesRows.filter((x) => pred(x.createdAt ?? '')).reduce((s, x) => s + x.totalAmount, 0);
+  const revenueThisMonth = sumWhere((d) => d.slice(0, 7) === month);
+  const revenueThisYear = sumWhere((d) => d.slice(0, 4) === year);
+  const revenueThisQuarter = sumWhere((d) => d.slice(0, 4) === year && Math.floor((Number(d.slice(5, 7)) - 1) / 3) === quarter);
 
-  const alloc = await salaryAllocation(tenantId);
+  const alloc = await batchLabour(tenantId);
   let totalCost = 0, fcrSum = 0, fcrN = 0;
   for (const b of allBatches) {
     const c = await computeBatchCost(tenantId, b.id, alloc[b.id] ?? 0);
@@ -175,5 +181,8 @@ export async function computeDashboardKPIs(tenantId: string) {
       ? Math.round((taskRows.filter((t) => t.status === 'DONE').length / taskRows.length) * 100)
       : 0,
     revenueThisMonth: Math.round(revenueThisMonth),
+    revenueThisQuarter: Math.round(revenueThisQuarter),
+    revenueThisYear: Math.round(revenueThisYear),
+    revenueAllTime: Math.round(totalRevenue),
   };
 }

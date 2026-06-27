@@ -171,6 +171,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
       role: s(body.role, 'worker'), pinSet: false, active: true,
       salary: Math.max(0, n(body.salary)),
       payDay: parsePayDay(body.payDay),
+      paymentsFrom: /^\d{4}-(0[1-9]|1[0-2])$/.test(s(body.paymentsFrom)) ? s(body.paymentsFrom) : null,
       assignedBatchIds: parseBatchIds(body.assignedBatchIds) ?? null, // null = all batches
     });
     return created({ id });
@@ -234,6 +235,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ resource: str
     if (typeof body.active === 'boolean') patch.active = body.active;
     if (body.salary != null && !isNaN(Number(body.salary))) patch.salary = Math.max(0, Number(body.salary));
     if ('payDay' in body) patch.payDay = parsePayDay(body.payDay);
+    if ('paymentsFrom' in body) { const pf = String(body.paymentsFrom ?? ''); patch.paymentsFrom = /^\d{4}-(0[1-9]|1[0-2])$/.test(pf) ? pf : null; }
     // assignedBatchIds: array → those; null → all; absent → unchanged. This is how
     // assigning AND unassigning a batch are persisted.
     if ('assignedBatchIds' in body) patch.assignedBatchIds = parseBatchIds(body.assignedBatchIds) ?? null;
