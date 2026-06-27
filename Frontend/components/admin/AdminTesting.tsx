@@ -22,6 +22,7 @@ export function AdminTesting() {
   const [openReport, setOpenReport] = useState<string | null>(null);
   const [shotPref, setShotPref] = useState<Record<string, number>>({}); // per-farm screenshot allowance
   const [photoData, setPhotoData] = useState<Record<string, string>>({}); // photoId → data URL
+  const [lightbox, setLightbox] = useState<string | null>(null); // full-size preview (data: URLs can't open in a new tab)
 
   // Editable checklist (the steps new runs are built from).
   type StepDraft = { area: string; title: string; instruction: string };
@@ -52,10 +53,16 @@ export function AdminTesting() {
     } catch (e) { setErr((e as Error).message); } finally { setBusy(''); }
   };
 
+  const getPhotoData = async (id: string): Promise<string | null> => {
+    if (photoData[id]) return photoData[id];
+    const r = await fetch(`/api/admin/testing/photo?id=${id}`, { credentials: 'include' });
+    if (!r.ok) return null;
+    return (await r.json()).data ?? null;
+  };
   const fetchPhoto = async (id: string) => {
     if (photoData[id]) return;
-    const r = await fetch(`/api/admin/testing/photo?id=${id}`, { credentials: 'include' });
-    if (r.ok) { const d = await r.json(); setPhotoData(p => ({ ...p, [id]: d.data })); }
+    const data = await getPhotoData(id);
+    if (data) setPhotoData(p => ({ ...p, [id]: data }));
   };
   const deletePhoto = async (id: string) => {
     setBusy(`photo:${id}`);
@@ -74,17 +81,30 @@ export function AdminTesting() {
 
   const downloadPdf = async (f: FarmTesting) => {
     if (!f.run) return;
-    const { exportReport } = await import('@/lib/export');
-    exportReport({
-      title: `Acceptance test — ${f.name}`,
-      columns: ['Step', 'Area', 'Result', 'Note', 'Shots'],
-      rows: f.run.results.map(r => [r.title, r.area, r.status.toUpperCase(), r.note, r.photos]),
-      meta: {
-        Farm: f.name,
-        Submitted: f.run.submittedAt ? new Date(f.run.submittedAt).toLocaleString('en-KE') : '—',
-        Result: `${f.run.report.passed} passed · ${f.run.report.failed} failed of ${f.run.report.total}`,
-      },
-    }, 'PDF');
+    setBusy(`pdf:${f.tenantId}`);
+    try {
+      // Pull the screenshots still attached to each failure (deleted ones are gone).
+      const images: { caption: string; dataUrl: string }[] = [];
+      for (const fail of f.run.report.failures) {
+        for (const pid of fail.photoIds) {
+          const data = await getPhotoData(pid);
+          if (data) images.push({ caption: `${fail.title} — ${fail.area}`, dataUrl: data });
+        }
+      }
+      const { exportReport } = await import('@/lib/export');
+      await exportReport({
+        title: `Acceptance test — ${f.name}`,
+        columns: ['Step', 'Area', 'Result', 'Note', 'Shots'],
+        rows: f.run.results.map(r => [r.title, r.area, r.status.toUpperCase(), r.note, r.photos]),
+        meta: {
+          Farm: f.name,
+          Submitted: f.run.submittedAt ? new Date(f.run.submittedAt).toLocaleString('en-KE') : '—',
+          Result: `${f.run.report.passed} passed · ${f.run.report.failed} failed of ${f.run.report.total}`,
+          Screenshots: images.length,
+        },
+        images,
+      }, 'PDF');
+    } finally { setBusy(''); }
   };
 
   const setStep = (i: number, k: keyof StepDraft, v: string) => setSteps(ss => ss.map((s, j) => j === i ? { ...s, [k]: v } : s));
@@ -175,7 +195,7 @@ export function AdminTesting() {
                     <button onClick={() => setOpenReport(openReport === f.tenantId ? null : f.tenantId)} className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold">
                       {openReport === f.tenantId ? 'Hide report' : 'View report'}
                     </button>
-                    <button onClick={() => downloadPdf(f)} className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold">PDF</button>
+                    <button onClick={() => downloadPdf(f)} disabled={busy !== ''} className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold disabled:opacity-50">{busy === `pdf:${f.tenantId}` ? '…' : 'PDF'}</button>
                   </>
                 )}
               </div>
@@ -200,7 +220,7 @@ export function AdminTesting() {
                                 <div key={pid} className="relative">
                                   {photoData[pid]
                                     // eslint-disable-next-line @next/next/no-img-element
-                                    ? <a href={photoData[pid]} target="_blank" rel="noreferrer"><img src={photoData[pid]} alt="screenshot" className="w-20 h-20 object-cover rounded border border-gray-200" /></a>
+                                    ? <button type="button" onClick={() => setLightbox(photoData[pid])} title="Click to enlarge"><img src={photoData[pid]} alt="screenshot" className="w-20 h-20 object-cover rounded border border-gray-200 cursor-zoom-in" /></button>
                                     : <div className="w-20 h-20 rounded bg-gray-100 animate-pulse" />}
                                   <button onClick={() => deletePhoto(pid)} disabled={busy === `photo:${pid}`}
                                     className="absolute -top-2 -right-2 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold disabled:opacity-50" title="Delete screenshot">✕</button>
@@ -218,6 +238,15 @@ export function AdminTesting() {
         ))}
         {farms.length === 0 && <p className="py-3 text-sm text-gray-400">No farms yet.</p>}
       </div>
+
+      {/* Full-size screenshot preview (inline — data: URLs can't be opened in a tab). */}
+      {lightbox && (
+        <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-6" onClick={() => setLightbox(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="screenshot" className="max-w-full max-h-full rounded shadow-2xl" onClick={e => e.stopPropagation()} />
+          <button onClick={() => setLightbox(null)} aria-label="Close" className="absolute top-4 right-5 text-white/90 hover:text-white text-3xl leading-none">×</button>
+        </div>
+      )}
     </div>
   );
 }
