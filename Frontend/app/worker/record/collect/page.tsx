@@ -1,5 +1,6 @@
 'use client';
 import { Egg } from 'lucide-react';
+import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -50,7 +51,7 @@ export default function CollectProductsPage() {
     if (!product) { setError('Select a product'); return; }
     if (!qty || qtyNum <= 0) { setError('Enter how much you collected'); return; }
     setLoading(true); setError('');
-    const clientUuid = crypto.randomUUID();
+    const clientUuid = uuid();
     // Always store the BASE-unit quantity so sales/stock math stays consistent.
     await enqueuePendingRecord('production', {
       clientUuid, batchId, productId: product.id, type: product.name, qty: baseQty,

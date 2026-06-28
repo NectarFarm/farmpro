@@ -1,5 +1,6 @@
 'use client';
 import { Sunrise } from 'lucide-react';
+import { uuid } from '@/lib/uuid';
 import { CheckCircle2 } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -60,7 +61,7 @@ export default function MorningRoundPage() {
   };
 
   const handleFinish = async () => {
-    const clientUuid = crypto.randomUUID();
+    const clientUuid = uuid();
     const payload = { clientUuid, startedAt: new Date().toISOString(), entries, recordedBy: user?.id };
     await enqueuePendingRecord('morning_round', payload, clientUuid);
     setPendingCount(pendingCount + 1);

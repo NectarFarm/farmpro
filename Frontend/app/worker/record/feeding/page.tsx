@@ -1,5 +1,6 @@
 'use client';
 import { Wheat, Plus, X } from 'lucide-react';
+import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -53,7 +54,7 @@ export default function FeedingPage() {
     setLoading(true); setError('');
     const at = new Date().toISOString();
     for (const r of validRows) {
-      const clientUuid = crypto.randomUUID();
+      const clientUuid = uuid();
       await enqueuePendingRecord('feeding', {
         clientUuid, batchId, feedItemId: r.itemId, lotId: activeLot(r.itemId)?.id,
         quantityKg: parseFloat(r.qty), leftoverKg: parseFloat(r.leftover) || undefined,

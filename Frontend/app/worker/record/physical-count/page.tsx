@@ -1,5 +1,6 @@
 'use client';
 import { ListOrdered } from 'lucide-react';
+import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -50,7 +51,7 @@ export default function PhysicalCountPage() {
   };
 
   const handleConfirm = async () => {
-    const clientUuid = crypto.randomUUID();
+    const clientUuid = uuid();
     await enqueuePendingRecord('physical_count', {
       clientUuid, batchId, unitId: batch?.unitId,
       systemCount, physicalCount: physCount, variance,

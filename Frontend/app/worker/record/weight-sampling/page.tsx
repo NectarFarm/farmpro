@@ -1,5 +1,6 @@
 'use client';
 import { Scale } from 'lucide-react';
+import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -35,7 +36,7 @@ export default function WeightSamplingPage() {
 
   const handleSubmit = async () => {
     if (!batchId || !avgWeight) return;
-    const clientUuid = crypto.randomUUID();
+    const clientUuid = uuid();
     await enqueuePendingRecord('weight_sample', { clientUuid, batchId, sampleSize: parseInt(sampleSize)||10, avgWeightKg: avgKg, measuredAt: new Date().toISOString(), measuredBy: user?.id }, clientUuid);
     setPendingCount(pendingCount + 1);
     setToast('✓ Saved — will sync');

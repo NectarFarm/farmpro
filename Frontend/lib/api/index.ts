@@ -3,6 +3,7 @@
 // Handlers (Postgres, tenant-scoped, field-permission filtered). Off (default) →
 // identical to the mock, so the demo is unchanged and zero-risk.
 import * as mock from '@/lib/mock/api';
+import { uuid } from '@/lib/uuid';
 import type {
   ProductionUnit, Batch, InventoryItem, InventoryLot, Task, Alert, Sale, Purchase,
   Employee, WorkerProfile, User, BatchCostSummary, Product, HealthRecord,
@@ -84,7 +85,7 @@ const realApi: typeof mock.api = {
   getUsers: () => getJSON<User[]>('/api/workers'),
   // Field events go through the offline-sync contract (clientUuid = server PK → idempotent).
   submitRecord: async (type: string, payload: unknown) => {
-    const clientUuid = crypto.randomUUID();
+    const clientUuid = uuid();
     const res = await postJSON<{ accepted: number }>('/api/sync', {
       records: [{ clientUuid, type, payload, capturedAt: new Date().toISOString() }],
     });

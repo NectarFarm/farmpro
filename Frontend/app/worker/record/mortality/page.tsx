@@ -1,5 +1,6 @@
 'use client';
 import { Skull } from 'lucide-react';
+import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -61,7 +62,7 @@ export default function MortalityPage() {
   };
 
   const handleConfirm = async () => {
-    const clientUuid = crypto.randomUUID();
+    const clientUuid = uuid();
     const payload = {
       clientUuid, unitId, batchId: batch?.id, count, cause: cause || undefined,
       gpsLat: capture?.gpsLat, gpsLng: capture?.gpsLng, gpsAccuracy: capture?.gpsAccuracy, gpsTimestamp: capture?.gpsTimestamp,

@@ -1,5 +1,6 @@
 'use client';
 import { PackageOpen } from 'lucide-react';
+import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -38,7 +39,7 @@ export default function ClosingStockPage() {
     const capturedAt = new Date().toISOString();
     for (const item of items) {
       if (counts[item.id] !== undefined && counts[item.id] !== '') {
-        const clientUuid = crypto.randomUUID();
+        const clientUuid = uuid();
         await enqueuePendingRecord('closing_stock', {
           clientUuid, itemId: item.id, closingQty: parseFloat(counts[item.id]),
           recordedBy: user?.id, capturedAt,

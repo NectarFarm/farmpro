@@ -1,5 +1,6 @@
 'use client';
 import { Syringe } from 'lucide-react';
+import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -56,7 +57,7 @@ export default function HealthPage() {
     if (selectedLot && doseNum > selectedLot.qtyOnHand + 1e-6) {
       setError(`Only ${selectedLot.qtyOnHand} ${selectedLot.unit} left in this lot — you entered ${doseNum}.`); setShowConfirm(false); return;
     }
-    const clientUuid = crypto.randomUUID();
+    const clientUuid = uuid();
     const payload = {
       clientUuid, batchId, type, productLotId: lotId, dose: parseFloat(dose),
       route, notes: notes || undefined, appliedBy: user?.id,
