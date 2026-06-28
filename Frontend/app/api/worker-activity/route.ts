@@ -1,5 +1,5 @@
 import { db } from '@/db';
-import { mortalityRecords, healthRecords, feedingRecords, productionRecords, closingStockCounts, photos, users, batches, inventoryItems } from '@/db/schemas';
+import { mortalityRecords, healthRecords, feedingRecords, productionRecords, closingStockCounts, photos, users, batches, inventoryItems, physicalCounts, weightSamples, observations } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, unauthorized, forbidden } from '@/lib/server/http';
@@ -15,12 +15,15 @@ export async function GET(req: Request) {
   const tid = session.tenantId;
   const workerId = new URL(req.url).searchParams.get('workerId');
 
-  const [morts, healths, feeds, prods, closes, us, bs, items, phs] = await Promise.all([
+  const [morts, healths, feeds, prods, closes, counts, weights, obs, us, bs, items, phs] = await Promise.all([
     db.select().from(mortalityRecords).where(eq(mortalityRecords.tenantId, tid)),
     db.select().from(healthRecords).where(eq(healthRecords.tenantId, tid)),
     db.select().from(feedingRecords).where(eq(feedingRecords.tenantId, tid)),
     db.select().from(productionRecords).where(eq(productionRecords.tenantId, tid)),
     db.select().from(closingStockCounts).where(eq(closingStockCounts.tenantId, tid)),
+    db.select().from(physicalCounts).where(eq(physicalCounts.tenantId, tid)),
+    db.select().from(weightSamples).where(eq(weightSamples.tenantId, tid)),
+    db.select().from(observations).where(eq(observations.tenantId, tid)),
     db.select({ id: users.id, name: users.name }).from(users).where(eq(users.tenantId, tid)),
     db.select({ id: batches.id, name: batches.name }).from(batches).where(eq(batches.tenantId, tid)),
     db.select({ id: inventoryItems.id, name: inventoryItems.name }).from(inventoryItems).where(eq(inventoryItems.tenantId, tid)),
@@ -38,6 +41,9 @@ export async function GET(req: Request) {
     ...feeds.map((f): Row => ({ kind: 'feeding', at: f.capturedAt, by: wname(f.recordedBy), byId: f.recordedBy, batch: bname(f.batchId), text: `${f.quantityKg} kg fed`, photoId: null, gpsLat: null, gpsLng: null })),
     ...prods.map((p): Row => ({ kind: 'collection', at: p.capturedAt, by: wname(p.recordedBy), byId: p.recordedBy, batch: bname(p.batchId), text: `${p.qty} ${p.type} collected`, photoId: null, gpsLat: null, gpsLng: null })),
     ...closes.map((c): Row => ({ kind: 'stock count', at: c.capturedAt, by: wname(c.recordedBy), byId: c.recordedBy, batch: iname(c.itemId), text: `counted ${c.closingQty}`, photoId: null, gpsLat: null, gpsLng: null })),
+    ...counts.map((c): Row => ({ kind: 'head count', at: c.capturedAt, by: wname(c.recordedBy), byId: c.recordedBy, batch: bname(c.batchId), text: `counted ${c.physicalCount} (system ${c.systemCount}, variance ${c.variance > 0 ? '+' : ''}${c.variance})${c.reason ? ` · ${c.reason}` : ''}${c.reconciled ? '' : ' · pending'}`, photoId: null, gpsLat: null, gpsLng: null })),
+    ...weights.map((w): Row => ({ kind: 'weight sample', at: w.capturedAt, by: wname(w.recordedBy), byId: w.recordedBy, batch: bname(w.batchId), text: `avg ${w.avgWeightKg} kg${w.sampleSize ? ` (n=${w.sampleSize})` : ''}`, photoId: null, gpsLat: null, gpsLng: null })),
+    ...obs.filter((o) => o.abnormal || o.waterLevel === 'LOW' || o.waterColour === 'MURKY').map((o): Row => ({ kind: 'observation', at: o.capturedAt, by: wname(o.recordedBy), byId: o.recordedBy, batch: bname(o.batchId), text: `${o.abnormal ? `▲ ${o.abnormalNote || 'abnormal'}` : ''}${o.waterLevel === 'LOW' ? ' · water LOW' : ''}${o.waterColour === 'MURKY' ? ' · water murky' : ''}`.replace(/^ · /, '').trim(), photoId: null, gpsLat: null, gpsLng: null })),
   ];
   if (workerId) rows = rows.filter((r) => r.byId === workerId);
   rows.sort((a, b) => (a.at < b.at ? 1 : -1));

@@ -33,6 +33,7 @@ export default function BatchDetailPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [ep, setEp] = useState<{ name: string; collectFrequency: string; flow: string; units: { name: string; perBase: string; price: string }[]; isAnimalProduct: boolean }>({ name: '', collectFrequency: 'per_cycle', flow: 'sale', units: [], isAnimalProduct: false });
   const [activity, setActivity] = useState<{ kind: string; at: string; by: string; text: string; photoId: string | null; gpsLat: number | null; gpsLng: number | null }[]>([]);
+  const [pendingCounts, setPendingCounts] = useState<{ clientUuid: string; physicalCount: number; systemCount: number; variance: number; reason: string | null; capturedAt: string }[]>([]);
 
   const reload = () => {
     Promise.all([api.getBatch(batchId), api.getCostSummary(batchId), api.getSales()]).then(([b,c,s]) => {
@@ -41,6 +42,18 @@ export default function BatchDetailPage() {
     getCumulativeChartData(batchId).then(setChartData);
     getProducts(batchId).then(setProducts);
     fetch(`/api/batch-activity?batchId=${encodeURIComponent(batchId)}`, { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setActivity).catch(() => {});
+    fetch('/api/physical-counts', { credentials: 'include' }).then(r => r.ok ? r.json() : [])
+      .then((cs: { batchId: string }[]) => setPendingCounts(cs.filter(c => c.batchId === batchId) as never)).catch(() => {});
+  };
+
+  // Owner reconciles a worker head count: apply it to the live count, or dismiss it.
+  const resolveCount = async (id: string, action: 'apply' | 'dismiss') => {
+    await fetch('/api/physical-counts', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, id }),
+    });
+    reload();
+    setToast(action === 'apply' ? '✓ Head count applied' : 'Count dismissed');
   };
 
   const startEdit = (p: Product) => {
@@ -362,6 +375,29 @@ export default function BatchDetailPage() {
           )
         }
       </div>
+
+      {/* Pending head counts — a worker counted the live animals; the owner decides
+          whether to correct the system count. Workers never move it themselves. */}
+      {pendingCounts.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-5">
+          <h2 className="font-bold text-amber-900 mb-1">⚠ Head count to review</h2>
+          <p className="text-amber-800 text-xs mb-3">A worker counted the animals. Apply to set the live count, or dismiss to keep the current figure.</p>
+          <div className="flex flex-col gap-2">
+            {pendingCounts.map(c => (
+              <div key={c.clientUuid} className="flex items-center justify-between flex-wrap gap-2 bg-white border border-amber-200 rounded-lg px-3 py-2">
+                <div className="text-sm">
+                  <span className="font-semibold text-gray-900">Counted {c.physicalCount}</span>
+                  <span className="text-gray-500"> · system {c.systemCount} · variance <span className={c.variance < 0 ? 'text-red-600 font-semibold' : 'text-amber-700 font-semibold'}>{c.variance > 0 ? '+' : ''}{c.variance}</span>{c.reason ? ` · ${c.reason}` : ''}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => resolveCount(c.clientUuid, 'apply')} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">Apply (set to {c.physicalCount})</button>
+                  <button onClick={() => resolveCount(c.clientUuid, 'dismiss')} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold">Dismiss</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Worker activity — what the field team recorded, with photos & GPS */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">

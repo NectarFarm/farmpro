@@ -1,0 +1,27 @@
+# Optional HTTPS overlay so LAN devices (worker phones) get a secure context →
+# camera + GPS work. The default `docker compose up` stays plain HTTP on :13000;
+# only THIS overlay (profile `tls`) adds a TLS-terminating Caddy proxy on :443.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml --profile tls up -d --build
+#   → open https://<lan-ip> on the device and accept the self-signed cert once.
+#
+# Cookies: when reaching the app over HTTPS you may set COOKIE_SECURE=true for the
+# app service so session cookies are marked Secure.
+services:
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

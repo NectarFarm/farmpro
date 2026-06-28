@@ -6,6 +6,20 @@ import { db } from '@/db';
 import { batches, mortalityRecords, inventoryItems, inventoryLots, tasks, alertRules, alerts } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 
+// Raise a single event alert with a deterministic id. Idempotent: if an alert with
+// the same id already exists it's left untouched (so a re-sync never duplicates it or
+// resets the owner's acknowledgement). Used by /api/sync for point-in-time events
+// (stock variance, abnormal observation, weight loss) so the owner is warned at once.
+export async function raiseAlert(
+  tenantId: string,
+  a: { id: string; severity: string; type: string; title: string; message: string },
+): Promise<boolean> {
+  const existing = await db.select({ id: alerts.id }).from(alerts).where(eq(alerts.id, a.id)).limit(1);
+  if (existing.length) return false;
+  await db.insert(alerts).values({ ...a, tenantId, createdAt: new Date().toISOString(), acknowledged: false });
+  return true;
+}
+
 export async function evaluateAlerts(tenantId: string): Promise<{ conditions: number; created: number }> {
   const rules = await db.select().from(alertRules).where(eq(alertRules.tenantId, tenantId));
   const ruleBy = new Map(rules.filter((r) => r.enabled).map((r) => [r.metric, r]));

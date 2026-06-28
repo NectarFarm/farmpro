@@ -1,0 +1,19 @@
+# HTTPS for LAN devices (worker phones) so the camera + GPS work — these browser
+# APIs need a "secure context", which plain http://<lan-ip> is NOT, but https:// is.
+#
+# `tls internal` issues a local self-signed cert. On each device, open the site once
+# and accept the certificate warning — from then on it's a secure context and the
+# camera/GPS work. Reverse-proxies everything to the Next.js app container.
+#
+# Run with:  docker compose -f docker-compose.yml -f docker-compose.tls.yml --profile tls up -d --build
+# Then visit: https://<lan-ip>   (port 443)
+
+{
+	# No public ACME — use Caddy's internal CA for self-signed certs on the LAN.
+	auto_https disable_redirects
+}
+
+:443 {
+	tls internal
+	reverse_proxy app:3000
+}

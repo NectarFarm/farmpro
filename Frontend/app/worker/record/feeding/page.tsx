@@ -9,7 +9,7 @@ import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import type { Batch, InventoryItem, InventoryLot } from '@/lib/types';
 
-type Row = { itemId: string; qty: string; leftover: string };
+type Row = { itemId: string; qty: string };
 
 export default function FeedingPage() {
   const { user } = useAuthStore();
@@ -20,7 +20,7 @@ export default function FeedingPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [lots, setLots] = useState<InventoryLot[]>([]);
   const [batchId, setBatchId] = useState('');
-  const [rows, setRows] = useState<Row[]>([{ itemId: '', qty: '', leftover: '' }]);
+  const [rows, setRows] = useState<Row[]>([{ itemId: '', qty: '' }]);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,7 +38,7 @@ export default function FeedingPage() {
   const activeLot = (itemId: string) => lots.filter(l => l.itemId === itemId && l.qtyOnHand > 0).sort((a, b) => (a.receivedDate < b.receivedDate ? -1 : 1))[0];
 
   const setRow = (i: number, patch: Partial<Row>) => setRows(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
-  const addRow = () => setRows(rs => [...rs, { itemId: '', qty: '', leftover: '' }]);
+  const addRow = () => setRows(rs => [...rs, { itemId: '', qty: '' }]);
   const removeRow = (i: number) => setRows(rs => rs.filter((_, idx) => idx !== i));
 
   const rowOver = (r: Row) => !!r.itemId && (parseFloat(r.qty) || 0) > onHand(r.itemId);
@@ -57,7 +57,7 @@ export default function FeedingPage() {
       const clientUuid = uuid();
       await enqueuePendingRecord('feeding', {
         clientUuid, batchId, feedItemId: r.itemId, lotId: activeLot(r.itemId)?.id,
-        quantityKg: parseFloat(r.qty), leftoverKg: parseFloat(r.leftover) || undefined,
+        quantityKg: parseFloat(r.qty),
         recordedBy: user?.id, capturedAt: at,
       }, clientUuid);
     }
@@ -103,12 +103,8 @@ export default function FeedingPage() {
               </div>
               {r.itemId && (
                 <>
-                  <div className="flex gap-2 items-center">
-                    <input type="number" min="0" inputMode="decimal" value={r.qty} onChange={e => setRow(i, { qty: e.target.value })}
-                      placeholder={`Given (${it?.unit ?? 'kg'})`} className={`flex-1 border-2 rounded-lg px-3 py-2 text-base min-h-[48px] ${over ? 'border-red-400 text-red-600' : 'border-gray-300'}`} />
-                    <input type="number" min="0" inputMode="decimal" value={r.leftover} onChange={e => setRow(i, { leftover: e.target.value })}
-                      placeholder="Leftover (opt)" className="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm min-h-[48px]" />
-                  </div>
+                  <input type="number" min="0" inputMode="decimal" value={r.qty} onChange={e => setRow(i, { qty: e.target.value })}
+                    placeholder={`Used (${it?.unit ?? 'kg'})`} className={`w-full border-2 rounded-lg px-3 py-2 text-base min-h-[48px] ${over ? 'border-red-400 text-red-600' : 'border-gray-300'}`} />
                   <p className={`text-xs ${over ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>{over ? `Only ${stock} ${it?.unit} in stock` : `${stock} ${it?.unit} in stock`}</p>
                 </>
               )}

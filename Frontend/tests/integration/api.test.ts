@@ -68,12 +68,9 @@ describe('field-permission default-deny', () => {
     if (Array.isArray(lots)) for (const l of lots) expect(l).not.toHaveProperty('unitCost');
   });
 
-  it('a worker CAN read operational alerts (home page needs them) but cannot acknowledge', async () => {
+  it('a worker cannot read OR acknowledge alerts (alerts are the owner’s view)', async () => {
     const worker = await login('+254700333444', '1234');
-    const read = await api('/api/data/alerts', worker);
-    expect(read.status).toBe(200);
-    expect(Array.isArray(await read.json())).toBe(true);
-    // …but acknowledging an alert stays owner/manager only.
+    expect((await api('/api/data/alerts', worker)).status).toBe(403);
     const ack = await api('/api/data/alerts?id=anything', worker, { method: 'PATCH', body: JSON.stringify({ acknowledged: true }) });
     expect(ack.status).toBe(403);
   });
@@ -843,5 +840,79 @@ describe('weight-sold livestock (fish/pork) is sold from live stock, never colle
     const a = await av();
     expect(a.avgWeightKg).toBe(2);
     expect(a.available).toBe(40);        // 20 fish × 2.0 kg
+  });
+});
+
+describe('worker activities land on the owner side, mutate data & warn the owner', () => {
+  let admin = '', owner = '', tenant = '', unitId = '', batchId = '';
+  const email = `wire+${Date.now()}@example.test`;
+  const stamp = Date.now();
+
+  beforeAll(async () => {
+    admin = await login('admin@ifms.app', 'demo1234');
+    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Wire Farm', ownerName: 'WF', ownerEmail: email, ownerPassword: 'wire1234', plan: 'pro' })).json()).id;
+    owner = await login(email, 'wire1234');
+    unitId = (await (await json(owner, '/api/data/units', { name: 'WH', type: 'HOUSE', capacity: 500, species: 'broiler' })).json()).id;
+    batchId = (await (await json(owner, '/api/data/batches', { name: 'WB', unitId, species: 'broiler', qty: 100, cost: 0 })).json()).id;
+  });
+  afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
+
+  const alerts = async () => (await (await api('/api/data/alerts', owner)).json()) as { title: string; severity: string; type: string }[];
+  const workerActivity = async () => (await (await api('/api/worker-activity', owner)).json()) as { kind: string; text: string }[];
+  const batchOf = async () => (await (await api(`/api/data/batches?id=${batchId}`, owner)).json());
+
+  it('head count: records + alerts + surfaces, but does NOT change the count until the owner applies', async () => {
+    const cu = `pc-${stamp}`;
+    await json(owner, '/api/sync', { records: [{ clientUuid: cu, type: 'physical_count', capturedAt: new Date().toISOString(),
+      payload: { batchId, unitId, systemCount: 100, physicalCount: 95, variance: -5, reason: 'suspected theft' } }] });
+
+    // surfaced on the owner side
+    expect((await workerActivity()).some(r => r.kind === 'head count' && /counted 95/.test(r.text))).toBe(true);
+    expect((await (await api(`/api/batch-activity?batchId=${batchId}`, owner)).json()).some((r: { kind: string }) => r.kind === 'head count')).toBe(true);
+    // owner warned (critical, because variance is negative)
+    const variance = (await alerts()).filter(a => a.type === 'stock_variance');
+    expect(variance.length).toBe(1);
+    expect(variance[0].severity).toBe('critical');
+    // count NOT changed yet
+    expect((await batchOf()).currentQty).toBe(100);
+
+    // re-sync same clientUuid → no duplicate alert
+    await json(owner, '/api/sync', { records: [{ clientUuid: cu, type: 'physical_count', capturedAt: new Date().toISOString(),
+      payload: { batchId, unitId, systemCount: 100, physicalCount: 95, variance: -5, reason: 'suspected theft' } }] });
+    expect((await alerts()).filter(a => a.type === 'stock_variance').length).toBe(1);
+
+    // owner applies → live count reconciles to 95, and it leaves the pending list
+    const pending = await (await api('/api/physical-counts', owner)).json();
+    const mine = pending.find((c: { clientUuid: string }) => c.clientUuid === cu);
+    expect(mine).toBeTruthy();
+    expect((await json(owner, '/api/physical-counts', { action: 'apply', id: cu })).status).toBe(200);
+    expect((await batchOf()).currentQty).toBe(95);
+    expect((await (await api('/api/physical-counts', owner)).json()).some((c: { clientUuid: string }) => c.clientUuid === cu)).toBe(false);
+  });
+
+  it('weight samples surface and a drop warns the owner', async () => {
+    await json(owner, '/api/sync', { records: [{ clientUuid: `ws1-${stamp}`, type: 'weight_sample', capturedAt: '2026-01-01T00:00:00Z', payload: { batchId, avgWeightKg: 2.0, sampleSize: 10 } }] });
+    await json(owner, '/api/sync', { records: [{ clientUuid: `ws2-${stamp}`, type: 'weight_sample', capturedAt: '2026-02-01T00:00:00Z', payload: { batchId, avgWeightKg: 1.5, sampleSize: 10 } }] });
+    expect((await alerts()).some(a => a.type === 'weight_loss')).toBe(true);
+    expect((await batchOf()).avgWeightKg).toBe(1.5);
+    const ba = await (await api(`/api/batch-activity?batchId=${batchId}`, owner)).json();
+    expect(ba.filter((r: { kind: string }) => r.kind === 'weight sample').length).toBe(2);
+  });
+
+  it('an abnormal morning-round observation surfaces and warns the owner (idempotent)', async () => {
+    const cu = `mr-abn-${stamp}`;
+    const rec = { clientUuid: cu, type: 'morning_round', capturedAt: new Date().toISOString(),
+      payload: { entries: [{ batchId, unitId, waterLevel: 'OK', abnormal: true, abnormalNote: 'birds lethargic' }] } };
+    await json(owner, '/api/sync', { records: [rec] });
+    expect((await alerts()).filter(a => a.type === 'abnormal').length).toBe(1);
+    expect((await workerActivity()).some(r => r.kind === 'observation' && /lethargic/.test(r.text))).toBe(true);
+    await json(owner, '/api/sync', { records: [rec] }); // resend
+    expect((await alerts()).filter(a => a.type === 'abnormal').length).toBe(1);
+  });
+
+  it('a worker cannot read the owner alerts (leak closed)', async () => {
+    const worker = await login('+254700333444', '1234');
+    expect((await api('/api/data/alerts', worker)).status).toBe(403);
+    expect((await api('/api/data/alerts', owner)).status).toBe(200);
   });
 });

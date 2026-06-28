@@ -1,11 +1,20 @@
 import { db } from '@/db';
 import {
   records, feedingRecords, mortalityRecords, productionRecords, healthRecords, conflictLog, closingStockCounts, photos, batches, inventoryLots,
+  physicalCounts, weightSamples, observations,
 } from '@/db/schemas';
-import { and, eq, like } from 'drizzle-orm';
+import { and, eq, like, desc } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, unauthorized, badRequest } from '@/lib/server/http';
 import { consumeFeedFIFO } from '@/lib/server/inventory';
+import { raiseAlert } from '@/lib/server/alertEngine';
+
+// Short, human label for a batch in alert messages.
+async function batchName(tenantId: string, batchId: string): Promise<string> {
+  const [b] = await db.select({ name: batches.name }).from(batches)
+    .where(and(eq(batches.tenantId, tenantId), eq(batches.id, batchId))).limit(1);
+  return b?.name ?? batchId;
+}
 
 interface IncomingRecord {
   clientUuid: string;
@@ -136,13 +145,53 @@ async function routeTyped(r: IncomingRecord, tenantId: string, userId: string): 
     return handleProduction(r, tenantId, userId);
   }
   if (r.type === 'weight_sample') {
-    // A fresh weight sample refines the batch's avg live weight, which caps how
-    // many kg of a weight-sold animal (fish, pork) can be sold against its head count.
+    // A fresh weight sample refines the batch's avg live weight (caps kg-sold animals)
+    // AND is kept as history so the owner sees growth — and is warned on weight loss.
     const batchId = str(p.batchId);
     const avg = Number(p.avgWeightKg) || 0;
     if (batchId && avg > 0) {
+      const [prev] = await db.select({ avg: weightSamples.avgWeightKg, at: weightSamples.capturedAt })
+        .from(weightSamples).where(and(eq(weightSamples.tenantId, tenantId), eq(weightSamples.batchId, batchId)))
+        .orderBy(desc(weightSamples.capturedAt)).limit(1);
+      const ins = await db.insert(weightSamples).values({
+        clientUuid: r.clientUuid, tenantId, batchId,
+        sampleSize: typeof p.sampleSize === 'number' ? p.sampleSize : null,
+        avgWeightKg: avg, recordedBy: userId, capturedAt: r.capturedAt,
+      }).onConflictDoNothing({ target: weightSamples.clientUuid }).returning({ id: weightSamples.clientUuid });
       await db.update(batches).set({ avgWeightKg: avg })
         .where(and(eq(batches.tenantId, tenantId), eq(batches.id, batchId)));
+      // Warn the owner if the herd/flock LOST weight vs the previous sample (> 3% to
+      // ignore measurement noise) — a growth/health red flag.
+      if (ins.length && prev && avg < prev.avg * 0.97) {
+        await raiseAlert(tenantId, {
+          id: `auto:weightloss:${r.clientUuid}`, severity: 'warning', type: 'weight_loss',
+          title: 'Weight loss', message: `${await batchName(tenantId, batchId)}: avg weight fell ${prev.avg}→${avg} kg`,
+        });
+      }
+    }
+    return { routed: true };
+  }
+  if (r.type === 'physical_count') {
+    // Head count: record the count + variance and WARN the owner. The system count is
+    // NOT changed here — the owner applies it (POST /api/physical-counts) so a worker
+    // can never silently rewrite the live head count.
+    const batchId = str(p.batchId);
+    if (!batchId) return { routed: true };
+    const systemCount = Math.round(Number(p.systemCount) || 0);
+    const physical = Math.round(Number(p.physicalCount) || 0);
+    const variance = Number.isFinite(Number(p.variance)) ? Math.round(Number(p.variance)) : physical - systemCount;
+    const reason = str(p.reason);
+    const ins = await db.insert(physicalCounts).values({
+      clientUuid: r.clientUuid, tenantId, batchId, unitId: str(p.unitId),
+      systemCount, physicalCount: physical, variance, reason, notes: str(p.notes),
+      reconciled: false, recordedBy: userId, capturedAt: r.capturedAt,
+    }).onConflictDoNothing({ target: physicalCounts.clientUuid }).returning({ id: physicalCounts.clientUuid });
+    if (ins.length && variance !== 0) {
+      await raiseAlert(tenantId, {
+        id: `auto:variance:${r.clientUuid}`, severity: variance < 0 ? 'critical' : 'warning', type: 'stock_variance',
+        title: 'Stock variance',
+        message: `${await batchName(tenantId, batchId)}: counted ${physical} vs system ${systemCount} (${variance > 0 ? '+' : ''}${variance})${reason ? ` — ${reason}` : ''}`,
+      });
     }
     return { routed: true };
   }
@@ -160,6 +209,37 @@ async function routeTyped(r: IncomingRecord, tenantId: string, userId: string): 
           clientUuid: `${r.clientUuid}:${batchId}:eggs`, tenantId, batchId,
           type: 'eggs', qty: eggs, weightKg: null, recordedBy: userId, capturedAt: r.capturedAt,
         }).onConflictDoNothing({ target: productionRecords.clientUuid });
+      }
+      // Feed USED today → record it and draw it down from stock (FIFO, clamped at 0),
+      // the same as the dedicated Feeding flow. Idempotent per round+batch.
+      const feedItemId = str(e.feedItemId);
+      const feedUsed = Number(e.feedUsed) || 0;
+      if (batchId && feedItemId && feedUsed > 0) {
+        const ins = await db.insert(feedingRecords).values({
+          clientUuid: `${r.clientUuid}:${batchId}:feed`, tenantId, batchId,
+          feedItemId, quantityKg: feedUsed, leftoverKg: null, recordedBy: userId, capturedAt: r.capturedAt,
+        }).onConflictDoNothing({ target: feedingRecords.clientUuid }).returning({ id: feedingRecords.clientUuid });
+        if (ins.length) await consumeFeedFIFO(tenantId, feedItemId, feedUsed);
+      }
+      // Observations (water readings + abnormal flag) → surfaced to the owner; an
+      // abnormal report warns the owner so a field problem is never lost. One row
+      // per round+batch (idempotent). Empty number inputs become null, not 0.
+      if (batchId) {
+        const pn = (v: unknown) => { const sv = String(v ?? '').trim(); if (!sv) return null; const nn = Number(sv); return Number.isFinite(nn) ? nn : null; };
+        const abnormal = e.abnormal === true;
+        const obs = await db.insert(observations).values({
+          clientUuid: `${r.clientUuid}:${batchId}:obs`, tenantId, batchId, unitId: str(e.unitId),
+          waterLevel: str(e.waterLevel), waterColour: str(e.waterColour),
+          tempC: pn(e.tempC), doMgL: pn(e.doMgL), ph: pn(e.ph), ammonia: pn(e.ammonia),
+          abnormal, abnormalNote: str(e.abnormalNote), recordedBy: userId, capturedAt: r.capturedAt,
+        }).onConflictDoNothing({ target: observations.clientUuid }).returning({ id: observations.clientUuid });
+        if (obs.length && abnormal) {
+          await raiseAlert(tenantId, {
+            id: `auto:abnormal:${r.clientUuid}:${batchId}`, severity: 'warning', type: 'abnormal',
+            title: 'Abnormality reported',
+            message: `${await batchName(tenantId, batchId)}: ${str(e.abnormalNote) || 'worker flagged an abnormality'}`,
+          });
+        }
       }
     }
     return { routed: true };

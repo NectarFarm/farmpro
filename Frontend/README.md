@@ -50,3 +50,20 @@ A general-purpose Next.js web application template with database initialization 
 - `utils/` — `cn.ts` (clsx + tailwind-merge).
 - `docs/` — `AI_GUIDE.md` (AI/developer conventions).
 - `Dockerfile` — Multi-stage node:22-slim build exposing port 13000.
+
+## Running on a LAN (worker phones) — HTTPS for camera & GPS
+
+Workers open the app on their phones at `http://<lan-ip>:13000`. Record-saving works
+over plain HTTP, but the **camera** (mortality/health photos) and **GPS** need a browser
+"secure context" — i.e. HTTPS (or `localhost`). To use them across the LAN, run the
+optional TLS proxy:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tls.yml --profile tls up -d --build
+```
+
+Then open `https://<lan-ip>` on the device and accept the self-signed certificate once
+(Caddy's `tls internal` CA). From then on it's a secure context and camera + GPS work.
+When serving over HTTPS you may also set `COOKIE_SECURE=true` for the `app` service so
+session cookies are marked `Secure`. The default `docker compose up` is unchanged (plain
+HTTP on :13000).

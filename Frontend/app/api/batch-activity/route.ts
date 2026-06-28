@@ -1,5 +1,5 @@
 import { db } from '@/db';
-import { mortalityRecords, healthRecords, feedingRecords, productionRecords, photos, users } from '@/db/schemas';
+import { mortalityRecords, healthRecords, feedingRecords, productionRecords, photos, users, physicalCounts, weightSamples, observations } from '@/db/schemas';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, unauthorized, forbidden, badRequest } from '@/lib/server/http';
@@ -16,11 +16,14 @@ export async function GET(req: Request) {
   if (!batchId) return badRequest('batchId required');
   const tid = session.tenantId;
 
-  const [morts, healths, feeds, prods, us, phs] = await Promise.all([
+  const [morts, healths, feeds, prods, counts, weights, obs, us, phs] = await Promise.all([
     db.select().from(mortalityRecords).where(and(eq(mortalityRecords.tenantId, tid), eq(mortalityRecords.batchId, batchId))),
     db.select().from(healthRecords).where(and(eq(healthRecords.tenantId, tid), eq(healthRecords.batchId, batchId))),
     db.select().from(feedingRecords).where(and(eq(feedingRecords.tenantId, tid), eq(feedingRecords.batchId, batchId))),
     db.select().from(productionRecords).where(and(eq(productionRecords.tenantId, tid), eq(productionRecords.batchId, batchId))),
+    db.select().from(physicalCounts).where(and(eq(physicalCounts.tenantId, tid), eq(physicalCounts.batchId, batchId))),
+    db.select().from(weightSamples).where(and(eq(weightSamples.tenantId, tid), eq(weightSamples.batchId, batchId))),
+    db.select().from(observations).where(and(eq(observations.tenantId, tid), eq(observations.batchId, batchId))),
     db.select({ id: users.id, name: users.name }).from(users).where(eq(users.tenantId, tid)),
     db.select({ id: photos.id, gpsLat: photos.gpsLat, gpsLng: photos.gpsLng }).from(photos).where(eq(photos.tenantId, tid)),
   ]);
@@ -35,6 +38,9 @@ export async function GET(req: Request) {
     ...healths.map((h) => ({ kind: 'health', at: h.capturedAt, by: name(h.recordedBy), text: `${h.type} applied`, photoId: null, gpsLat: null, gpsLng: null })),
     ...feeds.map((f) => ({ kind: 'feeding', at: f.capturedAt, by: name(f.recordedBy), text: `${f.quantityKg} kg fed`, photoId: null, gpsLat: null, gpsLng: null })),
     ...prods.map((p) => ({ kind: 'production', at: p.capturedAt, by: name(p.recordedBy), text: `${p.qty} ${p.type} collected`, photoId: null, gpsLat: null, gpsLng: null })),
+    ...counts.map((c) => ({ kind: 'head count', at: c.capturedAt, by: name(c.recordedBy), text: `counted ${c.physicalCount} (system ${c.systemCount}, variance ${c.variance > 0 ? '+' : ''}${c.variance})${c.reconciled ? '' : ' · pending'}`, photoId: null, gpsLat: null, gpsLng: null })),
+    ...weights.map((w) => ({ kind: 'weight sample', at: w.capturedAt, by: name(w.recordedBy), text: `avg ${w.avgWeightKg} kg${w.sampleSize ? ` (n=${w.sampleSize})` : ''}`, photoId: null, gpsLat: null, gpsLng: null })),
+    ...obs.filter((o) => o.abnormal).map((o) => ({ kind: 'observation', at: o.capturedAt, by: name(o.recordedBy), text: `▲ ${o.abnormalNote || 'abnormal'}`, photoId: null, gpsLat: null, gpsLng: null })),
   ].sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 50);
 
   return ok(activity);

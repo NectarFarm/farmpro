@@ -134,6 +134,13 @@
       "when": 1782584118828,
       "tag": "0018_hot_northstar",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782636906189,
+      "tag": "0019_easy_imperial_guard",
+      "breakpoints": true
     }
   ]
 }

@@ -11,7 +11,7 @@ import { enqueuePendingRecord } from '@/lib/offline/db';
 import { SegmentedToggle } from '@/components/worker/SegmentedToggle';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
-import type { ProductionUnit, Batch } from '@/lib/types';
+import type { ProductionUnit, Batch, InventoryItem, InventoryLot } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 type WaterLevel = 'LOW' | 'OK' | 'FULL';
@@ -19,9 +19,10 @@ type WaterLevel = 'LOW' | 'OK' | 'FULL';
 interface UnitEntry {
   unitId: string; batchId: string; unitName: string; batchName: string;
   species: string; currentQty: number;
-  waterLevel: WaterLevel | null; feedRemaining: string; eggsCollected: string; eggsCracked: string;
+  // Feed USED today (deducted from stock) — not the error-prone "remaining" guess.
+  waterLevel: WaterLevel | null; feedItemId: string; feedUsed: string;
+  eggsCollected: string; eggsCracked: string;
   abnormal: boolean | null; abnormalNote: string;
-  feedGiven: string;
   waterColour: 'CLEAR' | 'GREEN' | 'MURKY' | null;
   tempC: string; doMgL: string; ph: string; ammonia: string;
 }
@@ -31,6 +32,8 @@ export default function MorningRoundPage() {
   const { setPendingCount, pendingCount } = useSyncStore();
   const router = useRouter();
   const [units, setUnits] = useState<(ProductionUnit & { batch?: Batch })[]>([]);
+  const [feedItems, setFeedItems] = useState<InventoryItem[]>([]);
+  const [lots, setLots] = useState<InventoryLot[]>([]);
   const [step, setStep] = useState<'start' | number | 'summary'>('start');
   const [entries, setEntries] = useState<UnitEntry[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -38,25 +41,40 @@ export default function MorningRoundPage() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    Promise.all([api.getUnits(), api.getBatches()]).then(([us, bs]) => {
+    Promise.all([api.getUnits(), api.getBatches(), api.getItems(), api.getLots()]).then(([us, bs, items, ls]) => {
       const active = us.filter(u => u.status === 'ACTIVE');
       const withBatch = active.map(u => ({ ...u, batch: bs.find(b => b.unitId === u.id && b.status === 'ACTIVE') }));
       setUnits(withBatch.filter(u => u.batch));
+      setFeedItems(items.filter(i => String(i.category).startsWith('FEED')));
+      setLots(ls);
       setEntries(withBatch.filter(u => u.batch).map(u => ({
         unitId: u.id, batchId: u.batch!.id, unitName: u.name, batchName: u.batch!.name,
         species: u.species ?? '', currentQty: u.batch!.currentQty,
-        waterLevel: null, feedRemaining: '', eggsCollected: '', eggsCracked: '',
+        waterLevel: null, feedItemId: '', feedUsed: '', eggsCollected: '', eggsCracked: '',
         abnormal: null, abnormalNote: '',
-        feedGiven: '', waterColour: null, tempC: '', doMgL: '', ph: '', ammonia: '',
+        waterColour: null, tempC: '', doMgL: '', ph: '', ammonia: '',
       })));
     });
   }, []);
 
+  // kg of a feed item currently on hand (sum of its lots).
+  const onHand = (itemId: string) => lots.filter(l => l.itemId === itemId).reduce((s, l) => s + l.qtyOnHand, 0);
+
   const updateEntry = (idx: number, patch: Partial<UnitEntry>) => setEntries(e => e.map((en, i) => i === idx ? { ...en, ...patch } : en));
+
+  // Feed used must name a feed and not exceed what's in stock (can't use what you don't have).
+  const feedError = (e: UnitEntry): string | null => {
+    const used = parseFloat(e.feedUsed) || 0;
+    if (used <= 0) return null;                 // feed is optional
+    if (!e.feedItemId) return 'Pick which feed you used.';
+    if (used > onHand(e.feedItemId) + 1e-6) return `Only ${onHand(e.feedItemId)} kg of that feed in stock — you entered ${used}.`;
+    return null;
+  };
 
   const canSaveEntry = (e: UnitEntry) => {
     if (!e.waterLevel) return false;
     if (e.abnormal === null) return false;
+    if (feedError(e)) return false;
     return true;
   };
 
@@ -148,19 +166,29 @@ export default function MorningRoundPage() {
         error={entry.waterLevel === null ? 'Required' : undefined}
       />
 
-      {/* Feed remaining */}
-      {activeField === 'feed' ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <NumericKeypad label="Feed remaining (kg)" value={entry.feedRemaining} onChange={v => updateEntry(idx, { feedRemaining: v })} allowDecimal unit="kg" />
-          <button type="button" onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
-        </div>
-      ) : (
-        <button type="button" onClick={() => setActiveField('feed')}
-          className="w-full flex justify-between items-center bg-white border border-gray-200 rounded-xl px-4 py-3 min-h-[56px]">
-          <span className="font-medium text-gray-700">Feed remaining</span>
-          <span className={cn('text-xl font-bold', entry.feedRemaining ? 'text-gray-900' : 'text-gray-400')}>{entry.feedRemaining || '—'} <span className="text-base text-gray-500">kg</span></span>
-        </button>
-      )}
+      {/* Feed USED today — deducted from stock. (We capture what was used, not what's
+          left: "remaining" is a guess and never updates the store.) */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col gap-2">
+        <label className="text-sm font-medium text-gray-700">Feed used today <span className="text-gray-400 font-normal">— comes off your stock</span></label>
+        <select value={entry.feedItemId} onChange={e => updateEntry(idx, { feedItemId: e.target.value })}
+          className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-h-[48px]">
+          <option value="">— Which feed? —</option>
+          {feedItems.map(fi => <option key={fi.id} value={fi.id}>{fi.name} — {onHand(fi.id)} {fi.unit} left</option>)}
+        </select>
+        {activeField === 'feed' ? (
+          <>
+            <NumericKeypad label="Feed used (kg)" value={entry.feedUsed} onChange={v => updateEntry(idx, { feedUsed: v })} allowDecimal unit="kg" />
+            <button type="button" onClick={() => setActiveField(null)} className="mt-1 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
+          </>
+        ) : (
+          <button type="button" onClick={() => setActiveField('feed')}
+            className="w-full flex justify-between items-center bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 min-h-[52px]">
+            <span className="font-medium text-gray-700">Feed used</span>
+            <span className={cn('text-xl font-bold', entry.feedUsed ? 'text-gray-900' : 'text-gray-400')}>{entry.feedUsed || '—'} <span className="text-base text-gray-500">kg</span></span>
+          </button>
+        )}
+        {feedError(entry) && <p className="text-xs font-semibold text-red-600">⚠ {feedError(entry)}</p>}
+      </div>
 
       {/* Poultry fields */}
       {isPoultry && (
@@ -200,18 +228,6 @@ export default function MorningRoundPage() {
               className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-left min-h-[56px]">
               <span className="font-medium text-gray-700">Water Parameters</span>
               <span className="ml-2 text-gray-400 text-sm">{entry.ph ? `pH ${entry.ph} · DO ${entry.doMgL}` : 'Tap to enter'}</span>
-            </button>
-          )}
-          {activeField === 'feedGiven' ? (
-            <div className="bg-white rounded-xl border p-4">
-              <NumericKeypad label="Feed given (kg)" value={entry.feedGiven} onChange={v => updateEntry(idx, { feedGiven: v })} allowDecimal unit="kg" />
-              <button type="button" onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
-            </div>
-          ) : (
-            <button type="button" onClick={() => setActiveField('feedGiven')}
-              className="w-full flex justify-between items-center bg-white border rounded-xl px-4 py-3 min-h-[56px]">
-              <span className="font-medium text-gray-700">Feed given</span>
-              <span className={cn('text-xl font-bold', entry.feedGiven ? 'text-gray-900' : 'text-gray-400')}>{entry.feedGiven || '—'} <span className="text-base text-gray-500">kg</span></span>
             </button>
           )}
         </>

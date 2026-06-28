@@ -393,6 +393,53 @@ export const closingStockCounts = pgTable('closing_stock_counts', {
   capturedAt: text('captured_at').notNull(),
 });
 
+// Head count: a worker counts the live animals; the variance vs the system count is
+// recorded and the owner is alerted. currentQty changes ONLY when the owner applies it.
+export const physicalCounts = pgTable('physical_counts', {
+  clientUuid: text('client_uuid').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  batchId: text('batch_id').notNull(),
+  unitId: text('unit_id'),
+  systemCount: integer('system_count').notNull(),
+  physicalCount: integer('physical_count').notNull(),
+  variance: integer('variance').notNull(),
+  reason: text('reason'),
+  notes: text('notes'),
+  reconciled: boolean('reconciled').notNull().default(false), // owner applied / dismissed
+  recordedBy: text('recorded_by').notNull(),
+  capturedAt: text('captured_at').notNull(),
+});
+
+// Weight sampling history (drives the biomass sell-cap + growth/weight-loss warning).
+export const weightSamples = pgTable('weight_samples', {
+  clientUuid: text('client_uuid').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  batchId: text('batch_id').notNull(),
+  sampleSize: integer('sample_size'),
+  avgWeightKg: doublePrecision('avg_weight_kg').notNull(),
+  recordedBy: text('recorded_by').notNull(),
+  capturedAt: text('captured_at').notNull(),
+});
+
+// Morning-round observations: water readings + the abnormal flag. An abnormal report
+// raises an owner alert so a problem in the field is never silently lost.
+export const observations = pgTable('observations', {
+  clientUuid: text('client_uuid').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  batchId: text('batch_id').notNull(),
+  unitId: text('unit_id'),
+  waterLevel: text('water_level'),
+  waterColour: text('water_colour'),
+  tempC: doublePrecision('temp_c'),
+  doMgL: doublePrecision('do_mgl'),
+  ph: doublePrecision('ph'),
+  ammonia: doublePrecision('ammonia'),
+  abnormal: boolean('abnormal').notNull().default(false),
+  abnormalNote: text('abnormal_note'),
+  recordedBy: text('recorded_by').notNull(),
+  capturedAt: text('captured_at').notNull(),
+});
+
 // Feed-mix events (FR-M4-3): consumes ingredient lots → finished-feed lot.
 export const feedFormulas = pgTable('feed_formulas', {
   id: text('id').primaryKey(),
