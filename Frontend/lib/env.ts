@@ -1,21 +1,8 @@
 import { z } from 'zod'
 
-// IMPORTANT (ARCHITECTURE §6.3): secrets are SERVER-ONLY.
-// The previous version required DATABASE_URL at module load, which throws in the
-// browser bundle (DATABASE_URL is never exposed client-side). Split public vs server.
-
-// Public — safe to ship to the browser. MUST be prefixed NEXT_PUBLIC_.
-const publicEnvSchema = z.object({
-  NEXT_PUBLIC_API_URL: z
-    .string()
-    .url()
-    .optional()
-    .default('http://localhost:13000'),
-})
-
-export const env = publicEnvSchema.parse({
-  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
-})
+// IMPORTANT (ARCHITECTURE §6.3): secrets are SERVER-ONLY. DATABASE_URL is never
+// exposed client-side, so it must not be read at browser-bundle load time.
+// Client code reads NEXT_PUBLIC_* directly from process.env where needed.
 
 // Server-only secrets. Call ONLY from Route Handlers / Server Actions / server-only modules.
 const serverEnvSchema = z.object({
