@@ -8,50 +8,181 @@
 
 export type StepStatus = 'pending' | 'pass' | 'fail';
 
-export interface TestStepDef { id: string; area: string; title: string; instruction: string; }
+// `checks` are the SPECIFIC sub-features to tick off for this main feature — so a
+// tester covers everything, not just the headline. The step can only be marked "works"
+// once every check is ticked.
+export interface TestStepDef { id: string; area: string; title: string; instruction: string; checks?: string[] }
 export interface TestStep extends TestStepDef { status: StepStatus; note?: string; photoIds?: string[] }
 
 // Ordered checklist covering the main front-end flows. Each instruction spells out
 // exactly WHAT to look at, so a non-technical tester knows what "working" means.
 export const TEST_STEPS: TestStepDef[] = [
-  { id: 'login', area: 'Sign in', title: 'Sign in & role-based landing', instruction:
-    'Sign in with your email + password (owner/manager) or phone + PIN (worker). Check: correct details are accepted and you land on the RIGHT home for your role — owner/manager → the owner dashboard, worker → the phone worker app, auditor → the read-only auditor view. Check the small things too: wrong details show a clear "login failed" message (never a blank screen or a spinner that hangs); the Show/Hide toggle reveals and hides the password/PIN; the farm name/logo shows in the header and browser tab; and signing out returns you to the login screen (and the back button can\'t get you back in).' },
-  { id: 'dashboard', area: 'Dashboard', title: 'Dashboard KPIs & period filter', instruction:
-    'On the owner dashboard, check every KPI card shows a real number under its grouped heading — Active Batches, Total Animals, Mortality %, Avg FCR, Gross Margin, Revenue, Task Completion, Pending Alerts — and the production chart draws. Then on the Finance group switch the Revenue period between Month / Quarter / Year / All and confirm the amount changes for each (Year ≥ Quarter ≥ Month, All-time is the largest). Nothing should read NaN, undefined, a bare "KSh" with no amount, or a blank card.' },
-  { id: 'unit', area: 'Farm', title: 'Add a production unit', instruction:
-    'Farm → "+ Add Unit" (cage / pen / pond / plot). Check: you can set its name, type and capacity; it saves without an error; it appears in the list with the correct species icon and shows its occupancy (e.g. 0 / capacity); and a blank or zero capacity is rejected with a clear message rather than saved.' },
-  { id: 'batch', area: 'Farm', title: 'Add a batch & its products', instruction:
-    'Farm → add a batch to a unit (species/breed, quantity, acquired date, age, purchase cost). Check: it saves and the unit\'s occupancy goes UP by the quantity; opening the batch shows the auto-created products MATCHED to the species (a layer batch = Eggs + Manure + Spent hen; broilers = a live bird; pigs = pork/piglets; fish; maize = grain — and a pig batch never shows "eggs"), each with a sale unit and an editable price. Check "+ Add Product" adds an extra, and ticking "this product IS the animal" marks the stock you sell by head.' },
-  { id: 'purchase', area: 'Inventory', title: 'Record a purchase & mix feed', instruction:
-    'Inventory → "+ Record Purchase": item, supplier, quantity, unit cost. Check: it saves; the item shows under Stock with the new quantity and a value in KSh (not $); it appears under "Recent Stock"; and buying the same item again ADDS to the running quantity. Then open "Feed Formulation", pick ingredients + kg, and confirm it produces a finished feed whose cost is the rolled-up cost of the ingredients and that making it draws those ingredients down from stock.' },
-  { id: 'worker', area: 'People', title: 'Add a worker — pay & batches', instruction:
-    'People → "+ Add Employee": name, phone, role (worker/manager/vet), a monthly salary, a pay day, and the batches they work on (untick one to test). Check: the row shows their salary, pay day and "Works on" count; re-opening lets you change the assignment and it persists; a pay day outside 1–31 is stored as blank (not saved as a bad value); and adding a second worker with the same phone is rejected.' },
-  { id: 'profile', area: 'Worker config', title: 'Control what a worker sees (server-side)', instruction:
-    'Worker config → open a permission profile, set a money field (e.g. feed cost or a price) to Hidden and another to Read-only, then Save — confirm it saves. Then ACTUALLY sign in as a worker on that profile and check ON THEIR PHONE that the hidden field is genuinely gone (not just greyed out) and the read-only one cannot be edited. This proves money fields are stripped on the server before they ever reach the worker\'s device.' },
-  { id: 'record', area: 'Worker app', title: 'Worker records in the field (offline)', instruction:
-    'Sign in as a worker (phone + PIN). Do the Morning Round (water level, feed left, eggs/production collected, anything abnormal) and submit; record a mortality WITH a photo; and do a Weight Sampling entry. Check: each saves on the phone and the offline/sync indicator clears when there is network; the worker can only record the products they are allowed (collected eggs/manure — NOT the live animals); and every entry later appears on the owner side against the correct batch.' },
-  { id: 'sale', area: 'Finance', title: 'Record a sale (stock-aware)', instruction:
-    'Finance → "+ Record Sale". First sell a live animal from a batch: check it warns/BLOCKS when you try to sell more than are alive, and after saving the batch\'s live count drops by exactly what you sold. Then sell a collected product (e.g. eggs): check it draws down from what was COLLECTED, not from the live birds. Each sale shows in the Sales list with quantity × unit price = the correct total in KSh.' },
-  { id: 'budget', area: 'Finance', title: 'Monthly budget adds up', instruction:
-    'Finance → the "Budget · this month" panel. Check: Revenue in includes both sales AND any staff fines (it shows "incl. … staff fines" when fines exist); Expenses out splits into stock + salaries — and the salaries figure becomes the ACTUAL net once you have run payroll, otherwise the wage-bill estimate; Net = Revenue in − Expenses out; and the pay-day reminder appears a few days before a worker\'s pay day.' },
-  { id: 'payroll', area: 'Payroll', title: 'Run payroll, advances, fines & lock', instruction:
-    'Payroll → pick the month. Record an advance and a fine for a worker, then "Run payroll". Check: net = salary − advances − fines + bonuses on each row, and the summary totals Gross / Net / Fines / Paid. Press "Pay" to lock the month and confirm it shows 🔒 Paid. Then verify the rules that matter: a PAID month rejects a new advance/fine; changing that worker\'s salary does NOT change the paid month, but a NEW month uses the new salary; "Payslip" downloads that month and "Year" downloads the full-year statement (totals matching); and an advance bigger than the salary leaves the worker still owing (net at/below zero) rather than a wrong figure.' },
-  { id: 'mypay', area: 'Worker app', title: 'Worker sees their own pay', instruction:
-    'Sign in as a worker and open "My Pay". Check: the headline number is their paid-to-date total, with the count of months paid and the month payments started; any outstanding advance is shown clearly; and the payslip list shows each month\'s gross, advances, fines and net with a paid/pending tag. Confirm these match exactly what the owner paid on the Payroll page — and that a worker can ONLY see their own pay, no one else\'s.' },
-  { id: 'alerts', area: 'Alerts', title: 'Alert rules fire on real data', instruction:
-    'Alerts → set your rules (mortality %, low feed kg, overdue tasks, water quality), press "Save Rules", then "Run checks now". Check: an alert is raised from your real data when a threshold is crossed and NOT raised when it isn\'t; each alert names the batch and the reason; and acknowledging an alert clears it and drops the "Pending Alerts" count on the dashboard by one.' },
-  { id: 'lifecycle', area: 'Farm', title: 'Growth stages & moving a flock', instruction:
-    'Farm → "Lifecycle stages": check each animal type has editable stages with a start age (days), and Save works. Open a batch: check the Lifecycle card shows its age, current stage, a timeline, and "Next: X in N days" (or "⚠ Due to move"). Tap "Advance stage / Move unit": move it to another unit and optionally set a new head count (e.g. after a hatch/transfer). Check: the stage, unit and count update; both units\' occupancy adjust; the move appears in the History; and an over-age batch shows a "Ready to move stage" alert.' },
-  { id: 'batchpl', area: 'Batch P&L', title: 'Batch profit & loss is correct', instruction:
-    'Open a batch\'s profit & loss. Check: the cost breakdown lists feed / health / labour / salaries / overhead / stock, and the salaries line reflects ACTUAL payroll for that batch\'s workers (it stays zero until you have run payroll — it is not a guess); "cost per surviving animal" is spread over the SURVIVORS (not the few left after sales); the break-even price for the unsold animals is sensible; and Survived + Sold + Died add back up to the starting quantity.' },
-  { id: 'reports', area: 'Reports', title: 'Reports export, match & share', instruction:
-    'Reports → export one "Activity & period" report and one "Batch economics" report as PDF, plus one as CSV or Excel, and open the files. Check: the figures in the file match the screen; the Profit & Loss carries a bottom-line TOTAL row; and changing the date range changes the date-filtered reports while the all-time "batch economics" ones stay the same. Finally generate the expiring read-only link and open it in a private window — confirm an auditor/investor can view WITHOUT logging in, that it is read-only, and that it stops working once expired/revoked.' },
+  { id: 'login', area: 'Sign in', title: 'Sign in & role-based landing',
+    instruction: 'Sign in and confirm each role lands in the right place; tick every check below.',
+    checks: [
+      'Owner/manager email + password is accepted',
+      'Worker phone + PIN is accepted',
+      'Each role lands on its own home (owner dashboard / worker app / auditor read-only view)',
+      'Wrong details show a clear "login failed" message — never a blank screen or a hanging spinner',
+      'The Show/Hide toggle reveals and hides the password/PIN',
+      'The farm name/logo shows in the header and the browser tab',
+      'Sign out returns to the login screen and the back button can’t get back in',
+    ] },
+  { id: 'dashboard', area: 'Dashboard', title: 'Dashboard KPIs & period filter',
+    instruction: 'Check the owner dashboard shows real numbers everywhere and the revenue period filter works.',
+    checks: [
+      'Active Batches, Total Animals, Mortality %, Avg FCR each show a real number',
+      'Gross Margin and Revenue show a KSh figure',
+      'Task Completion and Pending Alerts show',
+      'The production chart draws',
+      'Revenue period toggle Month / Quarter / Year / All changes the amount (All-time is largest)',
+      'Nothing reads NaN, undefined, a bare "KSh", or a blank card',
+    ] },
+  { id: 'unit', area: 'Farm', title: 'Add a production unit',
+    instruction: 'Farm → "+ Add Unit" and confirm it saves and shows correctly.',
+    checks: ['Can set name, type (cage/pen/pond/plot) and capacity', 'Saves without an error', 'Appears with the correct species icon and occupancy (e.g. 0 / capacity)', 'A blank or zero capacity is rejected with a clear message'] },
+  { id: 'batch', area: 'Farm', title: 'Add a batch & its products',
+    instruction: 'Add a batch to a unit and check its auto-created products.',
+    checks: [
+      'Can set species/breed, quantity, acquired date, age and purchase cost',
+      'Saves, and the unit’s occupancy goes UP by the quantity',
+      'Auto-created products match the species (layer = Eggs + Manure + Spent hen; broiler = live bird; pig = pork/piglets; fish; maize = grain)',
+      'A pig batch never shows "eggs"',
+      'Each product has a sale unit and an editable price; "+ Add Product" works',
+      'Ticking "this product IS the animal" marks stock sold by head',
+    ] },
+  { id: 'purchase', area: 'Inventory', title: 'Record a purchase & mix feed',
+    instruction: 'Record stock in, then mix a feed, and confirm stock moves.',
+    checks: [
+      'Record Purchase saves; the item shows under Stock with the new quantity in KSh (not $)',
+      'It appears under "Recent Stock"',
+      'Buying the same item again ADDS to the running quantity',
+      'Feed Formulation produces a finished feed whose cost is the rolled-up ingredient cost',
+      'Mixing draws the ingredients DOWN from stock',
+    ] },
+  { id: 'worker', area: 'People', title: 'Add a worker — login, pay & batches',
+    instruction: 'Add staff and confirm they get a real login and correct pay/assignment.',
+    checks: [
+      'Add employee with name, phone and role',
+      'A worker gets a 4–6 digit PIN (a login is created); a manager/vet gets email + password',
+      'Salary and pay day save; the "Works on" batch assignment persists',
+      'A worker profile can be assigned',
+      'A pay day outside 1–31 is stored blank; a duplicate phone is rejected',
+      'Reset PIN / password works from the Manage panel',
+    ] },
+  { id: 'tasks', area: 'Tasks', title: 'Assign tasks to staff',
+    instruction: 'Owner Tasks → assign a task and confirm the worker gets it.',
+    checks: ['Assign a task to a worker (title, type, optional batch, due date)', 'The task appears in the list with the assignee', 'The assigned worker sees it in their app when they sign in', 'A worker only sees their OWN tasks'] },
+  { id: 'profile', area: 'Worker config', title: 'Control what a worker sees (server-side)',
+    instruction: 'Set field permissions and prove hidden money never reaches the worker.',
+    checks: [
+      'Set a money field to Hidden and another to Read-only, then Save — it saves',
+      'Signed in as a worker on that profile, the hidden field is genuinely GONE (not greyed out)',
+      'The read-only field cannot be edited',
+    ] },
+  { id: 'record', area: 'Worker app', title: 'Worker records in the field (offline, stock-aware)',
+    instruction: 'As a worker, record the daily entries and confirm stock/warnings behave.',
+    checks: [
+      'Morning Round submits (water, feed used, eggs/production, abnormal)',
+      'Feed USED deducts from feed stock and can’t exceed what’s in stock',
+      'Mortality WITH a photo submits and the live count drops',
+      'Health/vaccine: the dose can’t exceed the lot and medicine stock drops',
+      'Weight Sampling submits',
+      'The worker can record collected products (eggs/manure) but NOT the live animal',
+      'Offline: entries save on the phone and the sync indicator clears when online',
+      '"Done today" badges show and a repeat is warned (feeding/round not done twice by accident)',
+      'Every entry later appears on the owner side against the correct batch',
+    ] },
+  { id: 'headcount', area: 'Worker app', title: 'Head count → owner reviews & applies',
+    instruction: 'A worker counts the animals; the owner decides whether to correct the system.',
+    checks: [
+      'A worker records a Physical/Head Count with a reason for any variance',
+      'The system count does NOT change automatically',
+      'A "Stock variance" alert reaches the owner (critical when animals are missing)',
+      'On the batch page the owner sees the pending count and taps Apply → the live count + unit occupancy update, with a history/audit entry',
+      'Dismiss keeps the existing count',
+    ] },
+  { id: 'sale', area: 'Finance', title: 'Record a sale (stock-aware)',
+    instruction: 'Sell live animals and collected products and confirm the caps.',
+    checks: [
+      'Selling a per-head animal BLOCKS more than are alive; the live count drops by exactly what sold',
+      'A weight-sold animal (fish/pork) is capped by biomass (head × avg weight), never asked to "collect"',
+      'Selling a collected product (eggs) draws from what was COLLECTED, not the live birds',
+      'Each sale lists quantity × unit price = the correct total in KSh',
+    ] },
+  { id: 'budget', area: 'Finance', title: 'Monthly budget adds up',
+    instruction: 'Check the "Budget · this month" panel.',
+    checks: [
+      'Revenue in includes sales AND staff fines (shows "incl. … staff fines")',
+      'Expenses out splits into stock + salaries (actual net once payroll is run, else the estimate)',
+      'Net = Revenue in − Expenses out',
+      'The pay-day reminder appears a few days before a worker’s pay day',
+    ] },
+  { id: 'payroll', area: 'Payroll', title: 'Run payroll, advances, fines & lock',
+    instruction: 'Run a month and confirm the money rules hold.',
+    checks: [
+      'net = salary − advances − fines + bonuses per row; summary totals Gross / Net / Fines / Paid',
+      '"Pay" locks the month (🔒 Paid); a paid month rejects a new advance/fine',
+      'Changing a salary does NOT change a paid month, but a new month uses the new salary',
+      '"Payslip" (month) and "Year" statement download with matching totals',
+      'An advance bigger than the salary leaves the worker owing (net ≤ 0), not a wrong figure',
+    ] },
+  { id: 'mypay', area: 'Worker app', title: 'Worker sees their own pay',
+    instruction: 'Sign in as a worker and open "My Pay".',
+    checks: [
+      'Paid-to-date total, months paid, and the month payments started are shown',
+      'Any outstanding advance is shown',
+      'The payslip list shows each month’s gross/advances/fines/net with a paid/pending tag',
+      'The figures match the owner’s Payroll page; a worker sees only their OWN pay',
+    ] },
+  { id: 'alerts', area: 'Alerts', title: 'Alerts fire on real data (owner-only)',
+    instruction: 'Set rules, run checks, and confirm the event alerts.',
+    checks: [
+      'Rules (mortality %, low feed, overdue tasks, water quality) save and "Run checks now" raises alerts only when a threshold is crossed',
+      'Each alert names the batch and reason; acknowledging clears it and drops the dashboard count',
+      'Event alerts appear: stock variance, weight loss, abnormal observation, and "ready to move stage"',
+      'Workers do NOT see any alerts',
+    ] },
+  { id: 'conflicts', area: 'Activity', title: 'Sync conflicts surface & resolve',
+    instruction: 'When two people record the same day’s figure, the owner can review it.',
+    checks: [
+      'Two same-day entries for one batch produce a conflict; the later one is kept automatically',
+      'The owner Activity page lists the conflict with both versions',
+      'Accept keeps the auto result; "Use Version A/B" overrides the figure',
+      'Once handled it leaves the review list; workers can’t see conflicts',
+    ] },
+  { id: 'lifecycle', area: 'Farm', title: 'Growth stages & moving a flock',
+    instruction: 'Set up stages and move a flock through its lifecycle.',
+    checks: [
+      'Farm → "Lifecycle stages": each animal type has editable stages with a start age (days); Save works',
+      'A batch’s Lifecycle card shows its age, current stage, a timeline, and "Next: X in N days" / "⚠ Due to move"',
+      '"Advance stage / Move unit" moves it to another unit and can adjust the head count (hatch/transfer loss)',
+      'Stage, unit and count update; BOTH units’ occupancy adjust; the move shows in History',
+      'An over-age batch raises a "Ready to move stage" alert',
+    ] },
+  { id: 'batchpl', area: 'Batch P&L', title: 'Batch profit & loss is correct',
+    instruction: 'Open a batch’s P&L and check the cost/valuation logic.',
+    checks: [
+      'Cost breakdown lists feed / health / labour / salaries / overhead / stock',
+      'The salaries line reflects ACTUAL payroll for that batch (zero until payroll is run)',
+      '"Cost per surviving animal" is spread over SURVIVORS, not the few left after sales',
+      'The break-even price for the unsold animals is sensible',
+      'Survived + Sold + Died add back up to the starting quantity',
+    ] },
+  { id: 'reports', area: 'Reports', title: 'Reports export, match & share',
+    instruction: 'Export reports and share a read-only link.',
+    checks: [
+      'Export an "Activity & period" and a "Batch economics" report as PDF, plus one CSV/Excel; the figures match the screen',
+      'The Profit & Loss has a bottom-line TOTAL row',
+      'Changing the date range changes the date-filtered reports; the all-time "batch economics" ones stay the same',
+      'The expiring read-only link lets an auditor/investor view WITHOUT logging in, is read-only, and stops working once expired/revoked',
+    ] },
 ];
 
 // Build a fresh (all-pending) run from a checklist — the admin-configured one if
 // supplied, else the built-in defaults.
 export function freshRun(defs: readonly TestStepDef[] = TEST_STEPS): TestStep[] {
-  return defs.map((s) => ({ id: s.id, area: s.area, title: s.title, instruction: s.instruction, status: 'pending' as StepStatus }));
+  return defs.map((s) => ({ id: s.id, area: s.area, title: s.title, instruction: s.instruction, checks: s.checks, status: 'pending' as StepStatus }));
 }
 
 // Stable, URL-safe id from arbitrary text.
@@ -74,7 +205,8 @@ export function normalizeSteps(raw: ReadonlyArray<Partial<TestStepDef>>): TestSt
     let id = base;
     for (let n = 2; seen.has(id); n++) id = `${base}_${n}`;
     seen.add(id);
-    return { id, area: (r.area ?? '').trim() || 'General', title, instruction };
+    const checks = Array.isArray(r.checks) ? r.checks.map((c: unknown) => String(c).trim()).filter(Boolean) : undefined;
+    return { id, area: (r.area ?? '').trim() || 'General', title, instruction, ...(checks && checks.length ? { checks } : {}) };
   });
 }
 

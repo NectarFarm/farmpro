@@ -16,6 +16,7 @@ export function TestingGuide() {
   const [err, setErr] = useState('');
   const [failFor, setFailFor] = useState<string | null>(null); // step id whose failure note is being entered
   const [note, setNote] = useState('');
+  const [ticked, setTicked] = useState<Set<number>>(new Set()); // sub-checks ticked for the current step
   const [maxShots, setMaxShots] = useState(0);
   const [attachingFor, setAttachingFor] = useState<string | null>(null); // step id pausing to attach screenshots
   const [previews, setPreviews] = useState<Record<string, string[]>>({}); // local thumbnails by step id
@@ -99,6 +100,9 @@ export function TestingGuide() {
   // While attaching screenshots to a just-failed step, pause the step-by-step flow.
   const current = !attachStep && run?.status === 'in_progress' ? p?.nextPending ?? null : null;
   const pct = p ? Math.round((p.done / p.total) * 100) : 0;
+  const checks = current?.checks ?? [];
+  const allTicked = checks.length === 0 || checks.every((_, i) => ticked.has(i));
+  useEffect(() => { setTicked(new Set()); }, [current?.id]); // reset ticks on each new step
   const report = steps.length ? summarize(steps) : null;
 
   return (
@@ -172,6 +176,17 @@ export function TestingGuide() {
                   <span className="text-xs font-bold uppercase tracking-wide text-amber-600">{current.area} · step {p!.done + 1} of {p!.total}</span>
                   <h3 className="font-bold text-gray-900 text-lg">{current.title}</h3>
                   <p className="text-gray-600 text-sm">{current.instruction}</p>
+                  {checks.length > 0 && failFor !== current.id && (
+                    <div className="flex flex-col gap-1.5 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                      <p className="text-xs font-bold uppercase tracking-wide text-gray-400">Check each ({ticked.size}/{checks.length})</p>
+                      {checks.map((c, i) => (
+                        <label key={i} className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                          <input type="checkbox" checked={ticked.has(i)} onChange={() => setTicked(t => { const n = new Set(t); n.has(i) ? n.delete(i) : n.add(i); return n; })} className="mt-0.5 w-4 h-4 accent-green-600 shrink-0" />
+                          <span className={ticked.has(i) ? 'line-through text-gray-400' : ''}>{c}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                   {failFor === current.id ? (
                     <div className="flex flex-col gap-2">
                       <label className="text-xs font-semibold text-gray-500">What went wrong? (required)</label>
@@ -184,9 +199,12 @@ export function TestingGuide() {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex gap-2">
-                      <button onClick={() => pass(current.id)} disabled={busy} className="flex-1 py-2.5 bg-green-600 text-white rounded-lg font-bold text-sm disabled:opacity-50">✓ It works</button>
-                      <button onClick={() => openFail(current.id)} disabled={busy} className="flex-1 py-2.5 bg-red-50 text-red-700 border-2 border-red-200 rounded-lg font-bold text-sm disabled:opacity-50">✗ It failed</button>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex gap-2">
+                        <button onClick={() => pass(current.id)} disabled={busy || !allTicked} className="flex-1 py-2.5 bg-green-600 text-white rounded-lg font-bold text-sm disabled:opacity-50">✓ It works</button>
+                        <button onClick={() => openFail(current.id)} disabled={busy} className="flex-1 py-2.5 bg-red-50 text-red-700 border-2 border-red-200 rounded-lg font-bold text-sm disabled:opacity-50">✗ It failed</button>
+                      </div>
+                      {!allTicked && <p className="text-[11px] text-gray-400 text-center">Tick every check above to confirm it works — or tap "It failed" if any part is broken.</p>}
                     </div>
                   )}
                 </div>
