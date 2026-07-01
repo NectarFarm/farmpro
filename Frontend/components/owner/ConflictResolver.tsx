@@ -1,40 +1,40 @@
 'use client';
 import React from 'react';
-import type { ConflictEntry } from '@/lib/types';
-import { useSyncStore } from '@/lib/stores/sync';
 
-interface Props { conflict: ConflictEntry; }
+export interface Conflict {
+  id: string; recordType: string; recordId: string;
+  myVersion: unknown; serverVersion: unknown;
+  capturedAtMine: string | null; capturedAtServer: string | null; resolution: string | null;
+}
 
-export function ConflictResolver({ conflict }: Props) {
-  const { resolveConflict } = useSyncStore();
+interface Props { conflict: Conflict; onResolve: (id: string, resolution: 'accept' | 'kept_mine' | 'kept_server') => void; busy?: boolean }
+
+// Shows one sync edit-conflict (two workers recorded the same day's production for a
+// batch). The server already kept one by last-write-wins; the owner can accept that,
+// or override to the other version.
+export function ConflictResolver({ conflict, onResolve, busy }: Props) {
   return (
-    <div className="bg-white border-2 border-red-400 rounded-xl p-5 flex flex-col gap-4">
+    <div className="bg-white border-2 border-red-300 rounded-xl p-4 flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <span className="text-xl">⚠️</span>
-        <h3 className="font-bold text-red-700">Conflict: {conflict.recordType}</h3>
+        <span>⚠️</span>
+        <h3 className="font-bold text-red-700 text-sm">Conflict — {conflict.recordType} <span className="text-gray-400 font-normal">({conflict.recordId})</span></h3>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
-          <p className="text-xs font-bold text-blue-700 mb-1">MY VERSION</p>
-          <p className="text-xs text-gray-500">{conflict.capturedAtMine}</p>
-          <pre className="text-xs text-gray-700 mt-1 overflow-auto max-h-24">{JSON.stringify(conflict.myVersion, null, 2)}</pre>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5">
+          <p className="text-[11px] font-bold text-blue-700 mb-0.5">VERSION A {conflict.capturedAtMine && <span className="text-gray-400 font-normal">· {conflict.capturedAtMine.slice(0, 16).replace('T', ' ')}</span>}</p>
+          <pre className="text-[11px] text-gray-700 overflow-auto max-h-20">{JSON.stringify(conflict.myVersion, null, 1)}</pre>
         </div>
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-          <p className="text-xs font-bold text-amber-700 mb-1">SERVER VERSION</p>
-          <p className="text-xs text-gray-500">{conflict.capturedAtServer}</p>
-          <pre className="text-xs text-gray-700 mt-1 overflow-auto max-h-24">{JSON.stringify(conflict.serverVersion, null, 2)}</pre>
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+          <p className="text-[11px] font-bold text-amber-700 mb-0.5">VERSION B (kept) {conflict.capturedAtServer && <span className="text-gray-400 font-normal">· {conflict.capturedAtServer.slice(0, 16).replace('T', ' ')}</span>}</p>
+          <pre className="text-[11px] text-gray-700 overflow-auto max-h-20">{JSON.stringify(conflict.serverVersion, null, 1)}</pre>
         </div>
       </div>
-      <p className="text-xs text-gray-500">Last-write-wins by capture time. Loser preserved in conflict log (FR-M17-3). Owner can override.</p>
-      <div className="flex gap-3">
-        <button onClick={() => resolveConflict(conflict.id, 'kept_mine')}
-          className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-semibold text-sm">Keep Mine</button>
-        <button onClick={() => resolveConflict(conflict.id, 'kept_server')}
-          className="flex-1 py-2.5 bg-amber-600 text-white rounded-xl font-semibold text-sm">Keep Server</button>
+      <p className="text-[11px] text-gray-400">The later entry was kept automatically. Accept that, or override to a specific version.</p>
+      <div className="flex gap-2 flex-wrap">
+        <button disabled={busy} onClick={() => onResolve(conflict.id, 'accept')} className="px-3 py-1.5 bg-green-600 text-white rounded-lg font-semibold text-xs disabled:opacity-50">Accept kept</button>
+        <button disabled={busy} onClick={() => onResolve(conflict.id, 'kept_mine')} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-semibold text-xs disabled:opacity-50">Use Version A</button>
+        <button disabled={busy} onClick={() => onResolve(conflict.id, 'kept_server')} className="px-3 py-1.5 bg-amber-600 text-white rounded-lg font-semibold text-xs disabled:opacity-50">Use Version B</button>
       </div>
-      {conflict.resolution && (
-        <p className="text-xs text-green-600 font-semibold">✓ Resolved: {conflict.resolution} at {conflict.resolvedAt}</p>
-      )}
     </div>
   );
 }

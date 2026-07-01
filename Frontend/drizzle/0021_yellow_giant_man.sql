@@ -1,0 +1,1 @@
+ALTER TABLE "conflict_log" ADD COLUMN "reviewed" boolean DEFAULT false NOT NULL;

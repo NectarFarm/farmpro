@@ -180,9 +180,6 @@ importers:
       '@opennextjs/cloudflare':
         specifier: ^1.19.10
         version: 1.19.10(next@16.2.6(@babel/core@7.29.0)(@playwright/test@1.61.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(wrangler@4.92.0(@cloudflare/workers-types@4.20260519.1))
-      '@playwright/test':
-        specifier: ^1.61.0
-        version: 1.61.0
       '@tailwindcss/postcss':
         specifier: ^4.2.0
         version: 4.2.1
@@ -7275,6 +7272,7 @@ snapshots:
   '@playwright/test@1.61.0':
     dependencies:
       playwright: 1.61.0
+    optional: true
 
   '@poppinss/colors@4.1.6':
     dependencies:
@@ -10456,13 +10454,15 @@ snapshots:
 
   picomatch@4.0.3: {}
 
-  playwright-core@1.61.0: {}
+  playwright-core@1.61.0:
+    optional: true
 
   playwright@1.61.0:
     dependencies:
       playwright-core: 1.61.0
     optionalDependencies:
       fsevents: 2.3.2
+    optional: true
 
   possible-typed-array-names@1.1.0: {}
 

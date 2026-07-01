@@ -305,6 +305,9 @@ export const conflictLog = pgTable('conflict_log', {
   capturedAtServer: text('captured_at_server'),
   resolution: text('resolution'),
   resolvedAt: text('resolved_at'),
+  // The owner has reviewed this conflict (accepted the auto last-write-wins, or
+  // overridden it) → it drops off the "needs review" list.
+  reviewed: boolean('reviewed').notNull().default(false),
 });
 
 // Typed field-event tables. /api/sync routes known record types here (clientUuid PK

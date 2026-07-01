@@ -85,7 +85,7 @@ async function routeTyped(r: IncomingRecord, tenantId: string, userId: string): 
     const qtyKg = num(p.quantityKg);
     const inserted = await db.insert(feedingRecords).values({
       ...base, batchId: String(p.batchId ?? ''), lotId: str(p.lotId), feedItemId,
-      quantityKg: qtyKg, leftoverKg: typeof p.leftoverKg === 'number' ? p.leftoverKg : null,
+      quantityKg: qtyKg,
     }).onConflictDoNothing({ target: feedingRecords.clientUuid }).returning({ id: feedingRecords.clientUuid });
     // New record → draw the feed down from stock (FIFO) so on-hand stays real.
     if (inserted.length && feedItemId && qtyKg > 0) await consumeFeedFIFO(tenantId, feedItemId, qtyKg);
@@ -217,7 +217,7 @@ async function routeTyped(r: IncomingRecord, tenantId: string, userId: string): 
       if (batchId && feedItemId && feedUsed > 0) {
         const ins = await db.insert(feedingRecords).values({
           clientUuid: `${r.clientUuid}:${batchId}:feed`, tenantId, batchId,
-          feedItemId, quantityKg: feedUsed, leftoverKg: null, recordedBy: userId, capturedAt: r.capturedAt,
+          feedItemId, quantityKg: feedUsed, recordedBy: userId, capturedAt: r.capturedAt,
         }).onConflictDoNothing({ target: feedingRecords.clientUuid }).returning({ id: feedingRecords.clientUuid });
         if (ins.length) await consumeFeedFIFO(tenantId, feedItemId, feedUsed);
       }

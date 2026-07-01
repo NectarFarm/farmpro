@@ -1,8 +1,9 @@
 'use client';
 import React, { useEffect, useState } from 'react';
+import { ConflictResolver, type Conflict } from '@/components/owner/ConflictResolver';
 
 interface Row { kind: string; at: string; by: string; byId: string | null; batch: string; text: string; photoId: string | null; gpsLat: number | null; gpsLng: number | null }
-const icon = (k: string) => ({ mortality: '💀', health: '💉', feeding: '🌾', collection: '🥚', 'stock count': '📦' }[k] ?? '📋');
+const icon = (k: string) => ({ mortality: '💀', health: '💉', feeding: '🌾', collection: '🥚', 'stock count': '📦', 'head count': '🔢', 'weight sample': '⚖️', observation: '👁️' }[k] ?? '📋');
 
 export default function ActivityPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -10,13 +11,23 @@ export default function ActivityPage() {
   const [worker, setWorker] = useState('');
   const [day, setDay] = useState('');
   const [loading, setLoading] = useState(true);
+  const [conflicts, setConflicts] = useState<Conflict[]>([]);
+  const [cBusy, setCBusy] = useState('');
 
   const load = (w: string) => {
     setLoading(true);
     fetch(`/api/worker-activity${w ? `?workerId=${w}` : ''}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : []).then(d => { setRows(d); setLoading(false); }).catch(() => setLoading(false));
   };
-  useEffect(() => { fetch('/api/workers', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setWorkers).catch(() => {}); load(''); }, []);
+  const loadConflicts = () => fetch('/api/conflicts', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setConflicts).catch(() => {});
+  const resolve = async (id: string, resolution: 'accept' | 'kept_mine' | 'kept_server') => {
+    setCBusy(id);
+    try {
+      await fetch('/api/conflicts', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, resolution }) });
+      await loadConflicts();
+    } finally { setCBusy(''); }
+  };
+  useEffect(() => { fetch('/api/workers', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setWorkers).catch(() => {}); load(''); loadConflicts(); }, []);
 
   const shown = day ? rows.filter(r => r.at.slice(0, 10) === day) : rows;
 
@@ -31,6 +42,14 @@ export default function ActivityPage() {
         <h1 className="text-2xl font-bold text-gray-900">📝 Worker Activity Log</h1>
         <p className="text-gray-500 text-sm mt-1">Everything your field team recorded — by worker, by day, with photos.</p>
       </div>
+
+      {conflicts.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h2 className="font-bold text-red-700 text-sm">⚠ Sync conflicts to review ({conflicts.length})</h2>
+          <p className="text-xs text-gray-500 -mt-1">Two workers recorded the same day&apos;s figure for a batch. The later one was kept — accept that, or override.</p>
+          {conflicts.map(c => <ConflictResolver key={c.id} conflict={c} onResolve={resolve} busy={cBusy === c.id} />)}
+        </div>
+      )}
 
       <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center gap-3 flex-wrap">
         <span className="text-sm font-semibold text-gray-700">Worker:</span>

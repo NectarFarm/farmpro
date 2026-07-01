@@ -50,7 +50,7 @@ export interface HealthRecord {
 
 export interface FeedingRecord {
   id: string; clientUuid: string; batchId: string; lotId: string; feedItemId: string;
-  quantityKg: number; leftoverKg?: number; recordedBy: string;
+  quantityKg: number; recordedBy: string;
   capturedAt: string; status: 'pending'|'synced';
 }
 

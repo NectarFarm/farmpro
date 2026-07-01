@@ -1016,3 +1016,41 @@ describe('lifecycle: stages seeded, batch advances/moves with count adjust, age-
     void oldBatch;
   });
 });
+
+describe('sync conflicts surface to the owner and can be overridden', () => {
+  let admin = '', owner = '', tenant = '', batchId = '', eggId = '';
+  const email = `conf+${Date.now()}@example.test`;
+
+  beforeAll(async () => {
+    admin = await login('admin@ifms.app', 'demo1234');
+    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Conf Farm', ownerName: 'CF', ownerEmail: email, ownerPassword: 'confpass1', plan: 'pro' })).json()).id;
+    owner = await login(email, 'confpass1');
+    const unitId = (await (await json(owner, '/api/data/units', { name: 'LH', type: 'HOUSE', capacity: 500, species: 'layer' })).json()).id;
+    batchId = (await (await json(owner, '/api/data/batches', { name: 'Layers', unitId, species: 'layer', qty: 200, cost: 0 })).json()).id;
+    eggId = (await (await api(`/api/products?batchId=${batchId}`, owner)).json()).find((p: { name: string }) => p.name === 'Eggs').id;
+  });
+  afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
+
+  const avail = async () => (await (await api(`/api/availability?batchId=${batchId}&productId=${eggId}`, owner)).json()).available;
+
+  it('two same-day egg records for one batch create a conflict; the later one is kept', async () => {
+    await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-a', type: 'production', capturedAt: '2026-03-15T08:00:00Z', payload: { batchId, type: 'eggs', qty: 100 } }] });
+    await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-b', type: 'production', capturedAt: '2026-03-15T14:00:00Z', payload: { batchId, type: 'eggs', qty: 120 } }] });
+    expect(await avail()).toBe(120); // last-write-wins kept the 14:00 record
+    const conflicts = await (await api('/api/conflicts', owner)).json();
+    expect(conflicts.length).toBe(1);
+    expect(conflicts[0].recordType).toBe('production');
+  });
+
+  it('the owner can OVERRIDE to the other version, and it leaves the review list', async () => {
+    const c = (await (await api('/api/conflicts', owner)).json())[0];
+    expect((await json(owner, '/api/conflicts', { id: c.id, resolution: 'kept_server' })).status).toBe(200);
+    expect(await avail()).toBe(100); // overridden back to the 08:00 figure
+    expect((await (await api('/api/conflicts', owner)).json()).length).toBe(0);
+  });
+
+  it('workers cannot see or resolve conflicts', async () => {
+    const worker = await login('+254700333444', '1234');
+    expect((await api('/api/conflicts', worker)).status).toBe(403);
+  });
+});
