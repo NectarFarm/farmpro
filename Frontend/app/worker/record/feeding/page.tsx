@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
+import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import type { Batch, InventoryItem, InventoryLot } from '@/lib/types';
 
 type Row = { itemId: string; qty: string };
@@ -14,6 +15,7 @@ type Row = { itemId: string; qty: string };
 export default function FeedingPage() {
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
+  const { doneToday, refresh } = useTodayActivity();
   const router = useRouter();
 
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -21,6 +23,7 @@ export default function FeedingPage() {
   const [lots, setLots] = useState<InventoryLot[]>([]);
   const [batchId, setBatchId] = useState('');
   const [rows, setRows] = useState<Row[]>([{ itemId: '', qty: '' }]);
+  const [doneBatches, setDoneBatches] = useState<string[]>([]); // batches fed this visit
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,6 +47,10 @@ export default function FeedingPage() {
   const rowOver = (r: Row) => !!r.itemId && (parseFloat(r.qty) || 0) > onHand(r.itemId);
   const anyOver = rows.some(rowOver);
   const validRows = rows.filter(r => r.itemId && (parseFloat(r.qty) || 0) > 0);
+  // Was this batch already fed today (recorded earlier OR earlier this visit)?
+  const fedToday = batchId ? doneToday('feeding', batchId) : { count: 0, lastAt: null };
+  const fedThisVisit = batchId ? doneBatches.includes(batchId) : false;
+  const batchName = (id: string) => batches.find(b => b.id === id)?.name ?? id;
 
   const handleSubmit = async () => {
     if (!batchId) { setError('Select a batch'); return; }
@@ -62,17 +69,27 @@ export default function FeedingPage() {
       }, clientUuid);
     }
     setPendingCount(pendingCount + validRows.length);
-    setToast(`✓ ${validRows.length} feed${validRows.length > 1 ? 's' : ''} saved — will sync`);
-    setLoading(false);
-    setTimeout(() => router.replace('/worker/home'), 1500);
+    setDoneBatches(d => d.includes(batchId) ? d : [...d, batchId]);
+    setToast(`✓ ${batchName(batchId)} fed — pick the next batch or finish`);
+    // Stay in the flow for the next batch instead of leaving the page.
+    setBatchId(''); setRows([{ itemId: '', qty: '' }]); setLoading(false); refresh();
+    setTimeout(() => setToast(''), 2500);
   };
 
   return (
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-green-700 text-white rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Wheat className="w-6 h-6 shrink-0" /><span>Feeding Log</span></h1>
-        <p className="text-green-200 text-sm">Record every feed given to this batch — add as many as you used.</p>
+        <p className="text-green-200 text-sm">Feed a batch, then pick the next — feed the whole farm without leaving.</p>
       </div>
+
+      {/* Progress this visit + finish */}
+      {doneBatches.length > 0 && (
+        <div className="bg-green-50 border border-green-300 rounded-xl px-4 py-3 flex items-center justify-between">
+          <p className="text-green-800 text-sm font-semibold">✓ Fed {doneBatches.length} batch{doneBatches.length > 1 ? 'es' : ''} this round</p>
+          <button onClick={() => router.replace('/worker/home')} className="px-3 py-1.5 bg-green-700 text-white rounded-lg text-xs font-semibold">Finish</button>
+        </div>
+      )}
 
       {/* Batch */}
       <div className="flex flex-col gap-1">
@@ -80,8 +97,11 @@ export default function FeedingPage() {
         <select value={batchId} onChange={e => setBatchId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
           <option value="">— Select batch —</option>
-          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty} animals</option>)}
+          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty} animals{doneBatches.includes(b.id) ? ' ✓ fed' : ''}</option>)}
         </select>
+        {batchId && (fedThisVisit || fedToday.count > 0) && (
+          <p className="text-xs font-semibold text-amber-600">⚠ {batchName(batchId)} was already fed today{fedToday.lastAt ? ` at ${timeLabel(fedToday.lastAt)}` : ''}. Only record again if this is a separate feeding.</p>
+        )}
       </div>
 
       {/* Feed rows — pick a specific feed; add another for the same batch */}

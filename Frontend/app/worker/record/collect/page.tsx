@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api, getProducts } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
+import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
 import type { Batch, Product } from '@/lib/types';
 
@@ -15,6 +16,7 @@ const freqLabel = (f: string) => ({ daily: 'Collect daily', weekly: 'Collect wee
 export default function CollectProductsPage() {
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
+  const { doneToday, refresh } = useTodayActivity();
   const router = useRouter();
 
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -24,6 +26,7 @@ export default function CollectProductsPage() {
   const [unitName, setUnitName] = useState('');
   const [qty, setQty] = useState('');
   const [keypad, setKeypad] = useState(false);
+  const [doneBatches, setDoneBatches] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [loading, setLoading] = useState(false);
@@ -59,17 +62,26 @@ export default function CollectProductsPage() {
       recordedBy: user?.id, capturedAt: new Date().toISOString(),
     }, clientUuid);
     setPendingCount(pendingCount + 1);
-    setToast(`✓ ${qtyNum} ${unitName}${perBase !== 1 ? ` (${baseQty} ${product.baseUnit})` : ''} of ${product.name} saved`);
-    setLoading(false);
-    setTimeout(() => router.replace('/worker/home'), 1500);
+    setDoneBatches(d => d.includes(batchId) ? d : [...d, batchId]);
+    setToast(`✓ ${qtyNum} ${unitName} of ${product.name} saved — pick the next batch or finish`);
+    // Stay in the flow for the next batch/product.
+    setBatchId(''); setProductId(''); setQty(''); setLoading(false); refresh();
+    setTimeout(() => setToast(''), 2500);
   };
 
   return (
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-green-700 text-white rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Egg className="w-6 h-6 shrink-0" /><span>Collect Products</span></h1>
-        <p className="text-green-200 text-sm">Record what you collected — eggs, milk, manure, meat…</p>
+        <p className="text-green-200 text-sm">Record what you collected, then pick the next batch — no need to leave.</p>
       </div>
+
+      {doneBatches.length > 0 && (
+        <div className="bg-green-50 border border-green-300 rounded-xl px-4 py-3 flex items-center justify-between">
+          <p className="text-green-800 text-sm font-semibold">✓ Collected from {doneBatches.length} batch{doneBatches.length > 1 ? 'es' : ''} this round</p>
+          <button onClick={() => router.replace('/worker/home')} className="px-3 py-1.5 bg-green-700 text-white rounded-lg text-xs font-semibold">Finish</button>
+        </div>
+      )}
 
       {/* Batch */}
       <div className="flex flex-col gap-1">
@@ -77,8 +89,11 @@ export default function CollectProductsPage() {
         <select value={batchId} onChange={e => setBatchId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
           <option value="">— Select batch —</option>
-          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty}</option>)}
+          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty}{doneBatches.includes(b.id) ? ' ✓' : ''}</option>)}
         </select>
+        {batchId && doneToday('production', batchId).count > 0 && (
+          <p className="text-xs font-semibold text-amber-600">ℹ You already recorded a collection from this batch today at {timeLabel(doneToday('production', batchId).lastAt)}.</p>
+        )}
       </div>
 
       {/* Product */}

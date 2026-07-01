@@ -6,6 +6,7 @@ import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
 import type { Task, Alert } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import Link from 'next/link';
 import { Egg, Sunrise, Skull, Wheat, Syringe, Scale, ListOrdered, PackageOpen, Plus } from 'lucide-react';
 
@@ -14,6 +15,7 @@ const taskIcon = (type: string) => ({ morning_round:'🌅', vaccination:'💉', 
 export default function WorkerHomePage() {
   const { user } = useAuthStore();
   const { pendingCount } = useSyncStore();
+  const { doneToday } = useTodayActivity();
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -53,14 +55,14 @@ export default function WorkerHomePage() {
   const alertStatus = (a: Alert) => a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'info';
 
   const recordLinks = [
-    { href:'/worker/record/collect', Icon: Egg, label:'Collect Products' },
-    { href:'/worker/record/morning-round', Icon: Sunrise, label:'Morning Round' },
-    { href:'/worker/record/mortality', Icon: Skull, label:'Mortality' },
-    { href:'/worker/record/feeding', Icon: Wheat, label:'Feeding' },
-    { href:'/worker/record/health', Icon: Syringe, label:'Health / Vaccine' },
-    { href:'/worker/record/weight-sampling', Icon: Scale, label:'Weight Sample' },
-    { href:'/worker/record/physical-count', Icon: ListOrdered, label:'Physical Count' },
-    { href:'/worker/record/closing-stock', Icon: PackageOpen, label:'Closing Stock' },
+    { href:'/worker/record/collect', Icon: Egg, label:'Collect Products', type:'production' },
+    { href:'/worker/record/morning-round', Icon: Sunrise, label:'Morning Round', type:'morning_round' },
+    { href:'/worker/record/mortality', Icon: Skull, label:'Mortality', type:'mortality' },
+    { href:'/worker/record/feeding', Icon: Wheat, label:'Feeding', type:'feeding' },
+    { href:'/worker/record/health', Icon: Syringe, label:'Health / Vaccine', type:'health' },
+    { href:'/worker/record/weight-sampling', Icon: Scale, label:'Weight Sample', type:'weight_sample' },
+    { href:'/worker/record/physical-count', Icon: ListOrdered, label:'Physical Count', type:'physical_count' },
+    { href:'/worker/record/closing-stock', Icon: PackageOpen, label:'Closing Stock', type:'closing_stock' },
   ];
 
   return (
@@ -133,14 +135,19 @@ export default function WorkerHomePage() {
       <section>
         <h2 className="text-base font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><Plus className="w-4 h-4" /> Record</h2>
         <div className="grid grid-cols-2 gap-2">
-          {recordLinks.map(r => (
+          {recordLinks.map(r => {
+            const d = doneToday(r.type);
+            return (
             <Link key={r.href} href={r.href}>
-              <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3 active:bg-gray-50 min-h-[56px]">
+              <div className={`bg-white border rounded-xl px-4 py-3 flex items-center gap-3 active:bg-gray-50 min-h-[56px] ${d.count > 0 ? 'border-green-300' : 'border-gray-200'}`}>
                 <span className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center shrink-0"><r.Icon className="w-5 h-5" strokeWidth={2} /></span>
-                <span className="text-sm font-semibold text-gray-700">{r.label}</span>
+                <div className="min-w-0">
+                  <span className="text-sm font-semibold text-gray-700 block">{r.label}</span>
+                  {d.count > 0 && <span className="text-[11px] text-green-600 font-semibold">✓ {d.count} today · {timeLabel(d.lastAt)}</span>}
+                </div>
               </div>
             </Link>
-          ))}
+          ); })}
         </div>
       </section>
     </div>

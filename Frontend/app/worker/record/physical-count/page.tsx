@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
+import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
 import type { Batch, ProductionUnit } from '@/lib/types';
@@ -16,6 +17,7 @@ const VARIANCE_REASONS = ['Missing — suspected theft','Found extra (uncounted)
 export default function PhysicalCountPage() {
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
+  const { doneToday } = useTodayActivity();
   const router = useRouter();
 
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -77,6 +79,9 @@ export default function PhysicalCountPage() {
           <option value="">— Select batch —</option>
           {batches.map(b => { const u = units.find(u => u.id === b.unitId); return <option key={b.id} value={b.id}>{b.name} · {u?.name} · {b.currentQty} (system)</option>; })}
         </select>
+        {batchId && doneToday('physical_count', batchId).count > 0 && (
+          <p className="text-xs font-semibold text-amber-600">⚠ Already counted today at {timeLabel(doneToday('physical_count', batchId).lastAt)}.</p>
+        )}
       </div>
 
       {batch && (

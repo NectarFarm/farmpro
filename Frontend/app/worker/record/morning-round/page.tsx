@@ -8,6 +8,7 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
+import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { SegmentedToggle } from '@/components/worker/SegmentedToggle';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
@@ -30,6 +31,7 @@ interface UnitEntry {
 export default function MorningRoundPage() {
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
+  const { doneToday } = useTodayActivity();
   const router = useRouter();
   const [units, setUnits] = useState<(ProductionUnit & { batch?: Batch })[]>([]);
   const [feedItems, setFeedItems] = useState<InventoryItem[]>([]);
@@ -89,12 +91,19 @@ export default function MorningRoundPage() {
   };
 
   if (step === 'start') {
+    const round = doneToday('morning_round');
     return (
       <div className="p-4 flex flex-col gap-6">
         <div className="bg-green-700 text-white rounded-2xl p-6">
           <h1 className="text-2xl font-bold mb-1 flex items-center gap-2"><Sunrise className="w-6 h-6 shrink-0" /><span>Morning Round</span></h1>
           <p className="text-green-200 text-sm">{new Date().toLocaleString('en-KE')}</p>
         </div>
+        {round.count > 0 && (
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-xl px-4 py-3">
+            <p className="text-amber-900 font-bold text-sm">✓ Today&apos;s round was already done at {timeLabel(round.lastAt)}{round.count > 1 ? ` (${round.count} times)` : ''}.</p>
+            <p className="text-amber-800 text-xs mt-0.5">Only start again if you&apos;re doing a separate round (e.g. an evening check).</p>
+          </div>
+        )}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-gray-600 mb-3">You will visit <strong>{units.length} unit{units.length !== 1 ? 's' : ''}</strong>:</p>
           {units.map(u => (
@@ -106,7 +115,7 @@ export default function MorningRoundPage() {
         </div>
         <button onClick={() => setStep(0)} disabled={units.length === 0}
           className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold active:bg-green-700 disabled:opacity-40">
-          🌅 Start Round
+          {round.count > 0 ? '🌅 Start another round' : '🌅 Start Round'}
         </button>
         {units.length === 0 && (
           <p className="text-center text-sm text-gray-500">No active units with a batch yet — ask the owner to add one before doing the round.</p>

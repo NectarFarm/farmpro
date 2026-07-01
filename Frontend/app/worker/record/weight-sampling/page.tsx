@@ -7,12 +7,14 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
+import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
 import type { Batch } from '@/lib/types';
 
 export default function WeightSamplingPage() {
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
+  const { doneToday } = useTodayActivity();
   const router = useRouter();
   const [batches, setBatches] = useState<Batch[]>([]);
   const [batchId, setBatchId] = useState('');
@@ -56,6 +58,9 @@ export default function WeightSamplingPage() {
           <option value="">— Select batch —</option>
           {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
+        {batchId && doneToday('weight_sample', batchId).count > 0 && (
+          <p className="text-xs font-semibold text-amber-600">⚠ Already sampled today at {timeLabel(doneToday('weight_sample', batchId).lastAt)}.</p>
+        )}
       </div>
 
       {activeField === 'size' ? (

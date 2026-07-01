@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
+import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { CameraCapture, type CaptureResult } from '@/components/worker/CameraCapture';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
 import type { Batch, InventoryItem, InventoryLot } from '@/lib/types';
@@ -17,6 +18,7 @@ const TYPES = ['VACCINE','MEDICATION','SUPPLEMENT','DEWORM','OTHER'];
 export default function HealthPage() {
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
+  const { doneToday } = useTodayActivity();
   const router = useRouter();
 
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -90,6 +92,9 @@ export default function HealthPage() {
           <option value="">— Select batch —</option>
           {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
+        {batchId && doneToday('health', batchId).count > 0 && (
+          <p className="text-xs font-semibold text-amber-600">⚠ This batch already had a health record today at {timeLabel(doneToday('health', batchId).lastAt)}. Only record again if it&apos;s a separate treatment.</p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1">

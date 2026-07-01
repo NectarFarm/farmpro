@@ -916,3 +916,32 @@ describe('worker activities land on the owner side, mutate data & warn the owner
     expect((await api('/api/data/alerts', owner)).status).toBe(200);
   });
 });
+
+describe('my-activity: a worker sees their OWN records for today (done-today)', () => {
+  let admin = '', owner = '', worker = '', tenant = '', batchId = '';
+  const email = `act+${Date.now()}@example.test`;
+  const phone = `+254790${String(Date.now()).slice(-6)}`;
+  const stamp = Date.now();
+
+  beforeAll(async () => {
+    admin = await login('admin@ifms.app', 'demo1234');
+    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Act Farm', ownerName: 'AF', ownerEmail: email, ownerPassword: 'act12345', plan: 'pro' })).json()).id;
+    owner = await login(email, 'act12345');
+    const unitId = (await (await json(owner, '/api/data/units', { name: 'AH', type: 'HOUSE', capacity: 200, species: 'broiler' })).json()).id;
+    batchId = (await (await json(owner, '/api/data/batches', { name: 'AB', unitId, species: 'broiler', qty: 50, cost: 0 })).json()).id;
+    await json(owner, '/api/data/employees', { name: 'Hand', phone, role: 'worker', pin: '4321' });
+    worker = await login(phone, '4321');
+  });
+  afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
+
+  it('returns the worker’s own record after they sync it', async () => {
+    await json(worker, '/api/sync', { records: [{ clientUuid: `wact-${stamp}`, type: 'weight_sample', capturedAt: new Date().toISOString(), payload: { batchId, avgWeightKg: 1.2 } }] });
+    const mine = await (await api('/api/my-activity', worker)).json() as { type: string; batchId: string | null }[];
+    expect(mine.some(m => m.type === 'weight_sample' && m.batchId === batchId)).toBe(true);
+  });
+
+  it('is self-scoped — the owner does not see the worker’s entry on THEIR my-activity', async () => {
+    const ownerMine = await (await api('/api/my-activity', owner)).json() as { type: string; batchId: string | null }[];
+    expect(ownerMine.some(m => m.type === 'weight_sample' && m.batchId === batchId)).toBe(false);
+  });
+});
