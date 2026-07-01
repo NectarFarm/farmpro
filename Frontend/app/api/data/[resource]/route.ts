@@ -1,12 +1,13 @@
 import { db } from '@/db';
-import { sales, employees, tasks, workerProfiles, alerts, productionUnits, batches, products, inventoryItems, inventoryLots, users } from '@/db/schemas';
+import { sales, employees, tasks, workerProfiles, alerts, productionUnits, batches, products, inventoryItems, inventoryLots, users, lifecycleStages } from '@/db/schemas';
 import { sellableStock, liveWeightFor } from '@/lib/server/inventory';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { RESOURCES, tenantScope } from '@/lib/server/resources';
 import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
 import { createProductsForBatch, defaultsForBatch } from '@/lib/server/products';
-import { defaultLiveWeightKg } from '@/lib/server/productTemplates';
+import { defaultLiveWeightKg, enterpriseFromSpecies } from '@/lib/server/productTemplates';
+import { defaultStages } from '@/lib/lifecycle';
 import { hashSecret } from '@/lib/server/crypto';
 import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
 import { ok, created, unauthorized, forbidden, notFound, badRequest } from '@/lib/server/http';
@@ -85,11 +86,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
       .where(and(eq(productionUnits.tenantId, session.tenantId), eq(productionUnits.id, s(body.unitId)))).limit(1);
     if (!unit) return badRequest('unknown unit');
     const qty = n(body.qty ?? body.quantity);
+    const acquiredDate = s(body.acquiredDate, now.slice(0, 10));
+    // Start the batch at the first lifecycle stage of its enterprise (e.g. broiler →
+    // Brooding), so age-based "due to move" tracking works from creation. Use the
+    // TENANT's configured first stage (the farmer may have renamed it), falling back
+    // to the built-in template.
+    const enterprise = s(body.enterprise) || enterpriseFromSpecies(s(body.species)) || null;
+    let initialStage = s(body.stage);
+    if (!initialStage) {
+      const first = enterprise
+        ? (await db.select({ name: lifecycleStages.name }).from(lifecycleStages)
+            .where(and(eq(lifecycleStages.tenantId, session.tenantId), eq(lifecycleStages.enterprise, enterprise)))
+            .orderBy(lifecycleStages.ord).limit(1))[0]?.name
+        : undefined;
+      initialStage = first || defaultStages(enterprise)[0]?.name || 'GROWING';
+    }
     await db.insert(batches).values({
       id, tenantId: session.tenantId, unitId: s(body.unitId), name: s(body.name),
       species: s(body.species, 'unknown'), breed: body.breed ? s(body.breed) : null, source: s(body.source, 'PURCHASED'),
-      acquiredDate: s(body.acquiredDate, now.slice(0, 10)), ageAtAcquire: n(body.ageAtAcquire),
-      initialQty: qty, currentQty: qty, stage: s(body.stage, 'GROWING'), acquisitionCost: n(body.cost ?? body.acquisitionCost), status: 'ACTIVE',
+      acquiredDate, ageAtAcquire: n(body.ageAtAcquire),
+      initialQty: qty, currentQty: qty, stage: initialStage, stageEnteredAt: acquiredDate,
+      acquisitionCost: n(body.cost ?? body.acquisitionCost), status: 'ACTIVE',
       // Seed an avg live weight for animals sold by weight (fish, pork) so their sale
       // is capped by biomass from day one; a weight sample refines it later.
       avgWeightKg: defaultLiveWeightKg(s(body.species)),

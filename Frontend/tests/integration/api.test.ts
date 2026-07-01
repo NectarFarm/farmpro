@@ -945,3 +945,74 @@ describe('my-activity: a worker sees their OWN records for today (done-today)', 
     expect(ownerMine.some(m => m.type === 'weight_sample' && m.batchId === batchId)).toBe(false);
   });
 });
+
+describe('lifecycle: stages seeded, batch advances/moves with count adjust, age-due alert', () => {
+  let admin = '', owner = '', tenant = '', unitA = '', unitB = '', batchId = '';
+  const email = `life+${Date.now()}@example.test`;
+
+  beforeAll(async () => {
+    admin = await login('admin@ifms.app', 'demo1234');
+    tenant = (await (await json(admin, '/api/admin/tenants', { farmName: 'Life Farm', ownerName: 'LF', ownerEmail: email, ownerPassword: 'lifepass1', plan: 'pro' })).json()).id;
+    owner = await login(email, 'lifepass1');
+    unitA = (await (await json(owner, '/api/data/units', { name: 'Brooder', type: 'HOUSE', capacity: 500, species: 'broiler' })).json()).id;
+    unitB = (await (await json(owner, '/api/data/units', { name: 'Grow house', type: 'HOUSE', capacity: 500, species: 'broiler' })).json()).id;
+    batchId = (await (await json(owner, '/api/data/batches', { name: 'Broilers 1', unitId: unitA, species: 'broiler', qty: 100, cost: 0 })).json()).id;
+  });
+  afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
+
+  const batch = async () => (await (await api(`/api/data/batches?id=${batchId}`, owner)).json());
+  const unit = async (id: string) => (await (await api(`/api/data/units?id=${id}`, owner)).json());
+
+  it('seeds default stage sets on tenant create', async () => {
+    const stages = await (await api('/api/lifecycle-stages?enterprise=broilers', owner)).json() as { name: string }[];
+    expect(stages.map(s => s.name)).toEqual(['Brooding', 'Grower', 'Finisher', 'Ready to sell']);
+  });
+
+  it('a new batch starts at the first lifecycle stage', async () => {
+    expect((await batch()).stage).toBe('Brooding');
+    const life = await (await api(`/api/batches/lifecycle?batchId=${batchId}`, owner)).json();
+    expect(life.stage).toBe('Brooding');
+    expect(life.stages.length).toBe(4);
+    expect(life.due.nextStage).toBe('Grower');
+  });
+
+  it('advancing moves stage + unit + adjusts the count, keeps units in step, logs history', async () => {
+    const res = await json(owner, '/api/batches/advance', { batchId, toStage: 'Grower', toUnitId: unitB, newQty: 95, note: 'to grow house' });
+    expect(res.status).toBe(200);
+    const b = await batch();
+    expect(b.stage).toBe('Grower');
+    expect(b.currentQty).toBe(95);
+    expect(b.unitId).toBe(unitB);
+    expect((await unit(unitB)).currentQty).toBe(95); // received the (reduced) flock
+    const life = await (await api(`/api/batches/lifecycle?batchId=${batchId}`, owner)).json();
+    expect(life.events.length).toBe(1);
+    expect(life.events[0].toStage).toBe('Grower');
+    expect(life.events[0].qtyBefore).toBe(100);
+    expect(life.events[0].qtyAfter).toBe(95);
+  });
+
+  it('a move can only LOSE animals, never create them', async () => {
+    const bad = await json(owner, '/api/batches/advance', { batchId, toStage: 'Finisher', newQty: 999 });
+    expect(bad.status).toBe(400);
+  });
+
+  it('editing the stage set round-trips (and pins the first stage to day 0)', async () => {
+    const put = await api('/api/lifecycle-stages', owner, { method: 'PUT', body: JSON.stringify({ enterprise: 'broilers', stages: [{ name: 'Chick', startDay: 3 }, { name: 'Grower', startDay: 20 }, { name: 'Sale', startDay: 40 }] }) });
+    expect(put.status).toBe(200);
+    const stages = await (await api('/api/lifecycle-stages?enterprise=broilers', owner)).json() as { name: string; startDay: number }[];
+    expect(stages.map(s => s.name)).toEqual(['Chick', 'Grower', 'Sale']);
+    expect(stages[0].startDay).toBe(0);
+  });
+
+  it('an over-age batch raises a stage_due alert (idempotent, workers never see it)', async () => {
+    const oldBatch = (await (await json(owner, '/api/data/batches', { name: 'Old flock', unitId: unitA, species: 'broiler', qty: 50, cost: 0, acquiredDate: '2020-01-01' })).json()).id;
+    expect((await json(owner, '/api/alerts/evaluate', {})).status).toBe(200);
+    const alerts = await (await api('/api/data/alerts', owner)).json() as { type: string; message: string }[];
+    const due = alerts.filter(a => a.type === 'stage_due');
+    expect(due.some(a => /Old flock/.test(a.message))).toBe(true);
+    await json(owner, '/api/alerts/evaluate', {}); // re-run
+    const again = (await (await api('/api/data/alerts', owner)).json() as { type: string; message: string }[]).filter(a => a.type === 'stage_due' && /Old flock/.test(a.message));
+    expect(again.length).toBe(due.filter(a => /Old flock/.test(a.message)).length); // no duplicate
+    void oldBatch;
+  });
+});

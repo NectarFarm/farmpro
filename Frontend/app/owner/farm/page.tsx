@@ -50,7 +50,13 @@ export default function FarmPage() {
   const [unitForm, setUnitForm] = useState(EMPTY_UNIT);
   const [batchForm, setBatchForm] = useState(EMPTY_BATCH);
 
-  const reload = () => Promise.all([api.getUnits(), api.getBatches()]).then(([u,b]) => { setUnits(u); setBatches(b); });
+  const [dueMap, setDueMap] = useState<Record<string, { due: boolean; nextStage: string | null; daysRemaining: number; overdueDays: number }>>({});
+  const reload = () => {
+    Promise.all([api.getUnits(), api.getBatches()]).then(([u,b]) => { setUnits(u); setBatches(b); });
+    fetch('/api/lifecycle-due', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then((rows: { batchId: string; due: typeof dueMap[string] }[]) => {
+      setDueMap(Object.fromEntries(rows.map(r => [r.batchId, r.due])));
+    }).catch(() => {});
+  };
   useEffect(() => { reload(); }, []);
 
   const create = async (resource: 'units' | 'batches', payload: object, reset: () => void) => {
@@ -74,6 +80,7 @@ export default function FarmPage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-gray-900">🐄 Farm</h1>
         <div className="flex gap-2">
+          <Link href="/owner/farm/stages" className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">🌱 Lifecycle stages</Link>
           <button onClick={() => setShow(show === 'unit' ? '' : 'unit')} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">+ Add Unit</button>
           <button onClick={() => setShow(show === 'batch' ? '' : 'batch')} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ Add Batch</button>
         </div>
@@ -205,7 +212,15 @@ export default function FarmPage() {
                         <td className="px-3 py-3 text-right hidden lg:table-cell">
                           <span className={parseFloat(mortPct) > 5 ? 'text-red-600 font-bold' : 'text-gray-600'}>{mortPct}%</span>
                         </td>
-                        <td className="px-3 py-3 text-center"><span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-semibold">{b.stage}</span></td>
+                        <td className="px-3 py-3 text-center">
+                          <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-semibold">{b.stage}</span>
+                          {dueMap[b.id]?.due && dueMap[b.id]?.nextStage && (
+                            <span className="block mt-0.5 text-[10px] font-semibold text-amber-600">→ due: {dueMap[b.id].nextStage}{dueMap[b.id].overdueDays > 0 ? ` (${dueMap[b.id].overdueDays}d)` : ''}</span>
+                          )}
+                          {dueMap[b.id] && !dueMap[b.id].due && dueMap[b.id].nextStage && (
+                            <span className="block mt-0.5 text-[10px] text-gray-400">→ {dueMap[b.id].nextStage} in {dueMap[b.id].daysRemaining}d</span>
+                          )}
+                        </td>
                         <td className="px-3 py-3 text-center"><StatusChip status={b.status === 'ACTIVE' ? 'ok' : 'offline'} size="sm" label={b.status} /></td>
                         <td className="px-3 py-3 text-center"><Link href={`/owner/farm/${b.id}`} className="text-green-600 font-semibold text-xs hover:underline">View →</Link></td>
                       </tr>

@@ -34,6 +34,11 @@ export default function BatchDetailPage() {
   const [ep, setEp] = useState<{ name: string; collectFrequency: string; flow: string; units: { name: string; perBase: string; price: string }[]; isAnimalProduct: boolean }>({ name: '', collectFrequency: 'per_cycle', flow: 'sale', units: [], isAnimalProduct: false });
   const [activity, setActivity] = useState<{ kind: string; at: string; by: string; text: string; photoId: string | null; gpsLat: number | null; gpsLng: number | null }[]>([]);
   const [pendingCounts, setPendingCounts] = useState<{ clientUuid: string; physicalCount: number; systemCount: number; variance: number; reason: string | null; capturedAt: string }[]>([]);
+  type Life = { stage: string; stageEnteredAt: string | null; age: number; stages: { name: string; startDay: number }[]; due: { due: boolean; nextStage: string | null; daysRemaining: number; overdueDays: number }; unitId: string; units: { id: string; name: string }[]; events: { fromStage: string | null; toStage: string; fromUnitId: string | null; toUnitId: string | null; qtyBefore: number | null; qtyAfter: number | null; note: string | null; at: string }[] };
+  const [life, setLife] = useState<Life | null>(null);
+  const [showAdvance, setShowAdvance] = useState(false);
+  const [adv, setAdv] = useState({ toStage: '', toUnitId: '', newQty: '', note: '' });
+  const [advErr, setAdvErr] = useState('');
 
   const reload = () => {
     Promise.all([api.getBatch(batchId), api.getCostSummary(batchId), api.getSales()]).then(([b,c,s]) => {
@@ -44,6 +49,25 @@ export default function BatchDetailPage() {
     fetch(`/api/batch-activity?batchId=${encodeURIComponent(batchId)}`, { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setActivity).catch(() => {});
     fetch('/api/physical-counts', { credentials: 'include' }).then(r => r.ok ? r.json() : [])
       .then((cs: { batchId: string }[]) => setPendingCounts(cs.filter(c => c.batchId === batchId) as never)).catch(() => {});
+    fetch(`/api/batches/lifecycle?batchId=${encodeURIComponent(batchId)}`, { credentials: 'include' }).then(r => r.ok ? r.json() : null).then(setLife).catch(() => {});
+  };
+
+  // Open the Advance/Move sheet with the next stage + current unit/qty prefilled.
+  const openAdvance = () => {
+    if (!life) return;
+    setAdv({ toStage: life.due.nextStage ?? life.stage, toUnitId: life.unitId, newQty: '', note: '' });
+    setAdvErr(''); setShowAdvance(true);
+  };
+  const submitAdvance = async () => {
+    setAdvErr('');
+    try {
+      const res = await fetch('/api/batches/advance', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId, toStage: adv.toStage, toUnitId: adv.toUnitId || undefined, newQty: adv.newQty !== '' ? Number(adv.newQty) : undefined, note: adv.note || undefined }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed');
+      setShowAdvance(false); reload();
+    } catch (e) { setAdvErr((e as Error).message); }
   };
 
   // Owner reconciles a worker head count: apply it to the live count, or dismiss it.
@@ -375,6 +399,87 @@ export default function BatchDetailPage() {
           )
         }
       </div>
+
+      {/* Lifecycle — growth stages, age, "due to move", advance/move + history */}
+      {life && life.stages.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="font-bold text-gray-800">🌱 Lifecycle</h2>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-500">Age <span className="font-bold text-gray-800">{life.age}d</span></span>
+              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-semibold">{life.stage}</span>
+            </div>
+          </div>
+
+          {life.due.nextStage && (life.due.due
+            ? <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 text-amber-800 text-sm font-semibold">⚠ Due to move to {life.due.nextStage}{life.due.overdueDays > 0 ? ` — ${life.due.overdueDays} day${life.due.overdueDays > 1 ? 's' : ''} overdue` : ' now'}.</div>
+            : <p className="text-sm text-gray-500">Next: <span className="font-semibold text-gray-700">{life.due.nextStage}</span> in {life.due.daysRemaining} day{life.due.daysRemaining !== 1 ? 's' : ''}.</p>)}
+
+          <div className="flex flex-wrap gap-1">
+            {life.stages.map((s, i) => {
+              const next = life.stages[i + 1];
+              const isCurrent = s.name === life.stage;
+              return (
+                <div key={i} className={`px-2.5 py-1 rounded-lg text-xs border ${isCurrent ? 'bg-green-600 text-white border-green-600' : life.age >= s.startDay ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                  {s.name} <span className="opacity-70">{next ? `d${s.startDay}–${next.startDay}` : `d${s.startDay}+`}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <button onClick={openAdvance} className="self-start px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">Advance stage / Move unit</button>
+
+          {life.events.length > 0 && (
+            <div className="border-t border-gray-100 pt-2">
+              <p className="text-xs font-semibold text-gray-400 mb-1">History</p>
+              <ul className="flex flex-col gap-1">
+                {life.events.map((e, i) => {
+                  const uName = (id: string | null) => life.units.find(u => u.id === id)?.name ?? '';
+                  const moved = e.fromUnitId && e.toUnitId && e.fromUnitId !== e.toUnitId;
+                  const lost = e.qtyBefore != null && e.qtyAfter != null && e.qtyAfter !== e.qtyBefore;
+                  return (
+                    <li key={i} className="text-xs text-gray-600">
+                      <span className="text-gray-400">{new Date(e.at).toLocaleDateString('en-KE')}</span>{' '}
+                      {e.fromStage && e.fromStage !== e.toStage ? <>{e.fromStage} → <span className="font-semibold">{e.toStage}</span></> : <span className="font-semibold">{e.toStage}</span>}
+                      {moved && <> · moved {uName(e.fromUnitId)} → {uName(e.toUnitId)}</>}
+                      {lost && <> · {e.qtyBefore}→{e.qtyAfter}</>}
+                      {e.note && <span className="text-gray-400"> · {e.note}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showAdvance && life && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setShowAdvance(false)} />
+          <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md p-5 flex flex-col gap-3">
+            <h3 className="font-bold text-gray-900">Advance / Move — {batch?.name}</h3>
+            {advErr && <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold">{advErr}</p>}
+            <label className="text-xs font-semibold text-gray-500">Stage
+              <select value={adv.toStage} onChange={e => setAdv({ ...adv, toStage: e.target.value })} className="mt-1 w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
+                {life.stages.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-gray-500">Move to unit (optional)
+              <select value={adv.toUnitId} onChange={e => setAdv({ ...adv, toUnitId: e.target.value })} className="mt-1 w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
+                {life.units.map(u => <option key={u.id} value={u.id}>{u.name}{u.id === life.unitId ? ' (current)' : ''}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-gray-500">New head count (optional — e.g. hatched / transferred)
+              <input type="number" min="0" value={adv.newQty} onChange={e => setAdv({ ...adv, newQty: e.target.value })} placeholder={`${batch?.currentQty ?? ''} now`} className="mt-1 w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </label>
+            <input value={adv.note} onChange={e => setAdv({ ...adv, note: e.target.value })} placeholder="Note (optional)" className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <div className="flex gap-2">
+              <button onClick={submitAdvance} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">Save</button>
+              <button onClick={() => setShowAdvance(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pending head counts — a worker counted the live animals; the owner decides
           whether to correct the system count. Workers never move it themselves. */}

@@ -30,6 +30,9 @@ function mockQuery(result: unknown[]) {
 beforeEach(() => {
   mockDbSelect.mockReset();
   mockDbInsert.mockReset();
+  // Default: any query not explicitly mocked (e.g. the config-driven stage-due check,
+  // or the per-alert existing-id lookup) returns empty and is a no-op.
+  mockDbSelect.mockReturnValue(mockQuery([]));
   mockDbInsert.mockReturnValue({ values: vi.fn(() => Promise.resolve()) });
 });
 
@@ -183,6 +186,7 @@ describe('alertEngine', () => {
       .mockReturnValueOnce(mockQuery([
         { batchId: 'b1', count: 15, tenantId: 't1' },
       ]))
+      .mockReturnValueOnce(mockQuery([])) // stage-due config (none) → no extra alerts
       .mockReturnValueOnce(mockQuery([
         { id: 'auto:mortality:b1' },
       ]));

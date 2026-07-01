@@ -3,8 +3,10 @@ import 'server-only';
 // rules. On-demand within Next.js (the scheduled version is the Celery tier).
 // Deterministic alert ids → re-running is idempotent and preserves ack state.
 import { db } from '@/db';
-import { batches, mortalityRecords, inventoryItems, inventoryLots, tasks, alertRules, alerts } from '@/db/schemas';
+import { batches, mortalityRecords, inventoryItems, inventoryLots, tasks, alertRules, alerts, lifecycleStages } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
+import { enterpriseFromSpecies } from './productTemplates';
+import { ageDays, dueToAdvance } from '@/lib/lifecycle';
 
 // Raise a single event alert with a deterministic id. Idempotent: if an alert with
 // the same id already exists it's left untouched (so a re-sync never duplicates it or
@@ -70,6 +72,31 @@ export async function evaluateAlerts(tenantId: string): Promise<{ conditions: nu
         toInsert.push({
           id: `auto:overdue:${t.id}`, tenantId, severity: tRule.severity, type: 'task_missed',
           title: 'Overdue task', message: `${t.title} is overdue`, createdAt: now, acknowledged: false,
+        });
+      }
+    }
+  }
+
+  // Stage-due: a batch old enough to move to the next lifecycle phase. Config-driven
+  // (not a threshold rule) so it's always on — this is how the farmer is warned that
+  // "the chicks have reached the age to move on".
+  const stageRows = await db.select().from(lifecycleStages).where(eq(lifecycleStages.tenantId, tenantId));
+  if (stageRows.length) {
+    const stageBatches = await db.select().from(batches).where(eq(batches.tenantId, tenantId));
+    for (const b of stageBatches) {
+      if (b.status !== 'ACTIVE') continue;
+      const ent = enterpriseFromSpecies(b.species);
+      if (!ent) continue;
+      const set = stageRows.filter((s) => s.enterprise === ent).sort((a, c) => a.ord - c.ord).map((s) => ({ name: s.name, startDay: s.startDay }));
+      if (!set.length) continue;
+      const age = ageDays(b.acquiredDate, b.ageAtAcquire ?? 0);
+      const due = dueToAdvance(set, b.stage, age);
+      if (due.due && due.nextStage) {
+        toInsert.push({
+          id: `auto:stage_due:${b.id}:${due.nextStage}`, tenantId, severity: 'warning', type: 'stage_due',
+          title: 'Ready to move stage',
+          message: `${b.name} is ${age}d old — due to move to ${due.nextStage}${due.overdueDays > 0 ? ` (${due.overdueDays}d overdue)` : ''}`,
+          createdAt: now, acknowledged: false,
         });
       }
     }

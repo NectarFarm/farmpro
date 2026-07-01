@@ -1,9 +1,10 @@
 import { db } from '@/db';
-import { tenants, users, batches, workerProfiles } from '@/db/schemas';
+import { tenants, users, batches, workerProfiles, lifecycleStages } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
 import { DEFAULT_WORKER_FIELDS, DEFAULT_WORKER_MODULES } from '@/lib/workerFields';
+import { STAGE_TEMPLATES } from '@/lib/lifecycle';
 import { deleteTenantData } from '@/lib/server/tenantAdmin';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { getActivePackages } from '@/lib/server/packagesConfig';
@@ -68,6 +69,11 @@ export async function POST(req: Request) {
     id: sid('wp'), tenantId, name: 'Standard Worker', fields: DEFAULT_WORKER_FIELDS,
     modules: DEFAULT_WORKER_MODULES, mortalityPhotoThreshold: 1, alertThresholds: {},
   });
+  // Seed default lifecycle stage sets for every enterprise so a new farm can track
+  // growth (and get "due to move" reminders) from day one; the farmer edits them.
+  const stageRows = Object.entries(STAGE_TEMPLATES).flatMap(([enterprise, stages]) =>
+    stages.map((s, i) => ({ id: sid('ls'), tenantId, enterprise, ord: i, name: s.name, startDay: s.startDay })));
+  if (stageRows.length) await db.insert(lifecycleStages).values(stageRows);
   await audit({ tenantId, actor: actorLabel(session), action: 'tenant.create', entity: farmName, after: { plan, ownerEmail } });
   return created({ id: tenantId, name: farmName, plan, ownerEmail });
 }

@@ -42,6 +42,14 @@ const PHASES: { phase: string; subtitle: string; steps: Step[] }[] = [
         ],
       },
       {
+        id: 'lifecycle', icon: '🌱', title: 'Set your growth stages', href: '/owner/farm/stages',
+        how: [
+          'Farm → "Lifecycle stages": each animal type comes with default phases (e.g. broilers Brooding → Grower → Finisher → Ready), each starting at an age in days. Edit the names/ages to match how YOUR farm raises them — a farmer who hatches can add an "Incubation" first phase.',
+          'Every batch then shows its age, current phase, and when it is due to move to the next one — so a worker or you know a flock has reached the age to move on (and you get a "Ready to move stage" alert).',
+          'On a batch, use "Advance stage / Move unit" to move the flock to another house/pen and, if needed, adjust the head count (e.g. eggs that hatched, or losses on transfer). Every move is kept in the batch\'s history.',
+        ],
+      },
+      {
         id: 'inventory', icon: '📦', title: 'Stock your store — feed, medicine, seed', href: '/owner/inventory',
         how: [
           'Click "+ Record Purchase" for what you already have and for every new delivery: item, supplier, quantity, unit cost.',

@@ -155,6 +155,38 @@ export const batches = pgTable('batches', {
   // Avg live weight (kg) of one animal, for stock sold by weight (fish, pork). Caps
   // a kg sale against the living headcount; refined by weight-sampling records.
   avgWeightKg: doublePrecision('avg_weight_kg'),
+  // Date the batch entered its CURRENT lifecycle stage (see lifecycleStages) — used
+  // to show "days in stage". `stage` holds the current stage name.
+  stageEnteredAt: text('stage_entered_at'),
+});
+
+// Per-tenant lifecycle stage SET for an enterprise (broilers, layers, pig_fatten…).
+// Ordered stages, each starting at an age in DAYS. Seeded from STAGE_TEMPLATES on
+// tenant creation; the farmer edits them. Drives "due to move to the next phase".
+export const lifecycleStages = pgTable('lifecycle_stages', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  enterprise: text('enterprise').notNull(),
+  ord: integer('ord').notNull(),
+  name: text('name').notNull(),
+  startDay: integer('start_day').notNull(),
+});
+
+// History/audit of a batch moving stage and/or unit (and any head-count change on the
+// move, e.g. eggs → chicks hatch loss). One row per transition.
+export const batchStageEvents = pgTable('batch_stage_events', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  batchId: text('batch_id').notNull(),
+  fromStage: text('from_stage'),
+  toStage: text('to_stage').notNull(),
+  fromUnitId: text('from_unit_id'),
+  toUnitId: text('to_unit_id'),
+  qtyBefore: integer('qty_before'),
+  qtyAfter: integer('qty_after'),
+  note: text('note'),
+  at: text('at').notNull(),
+  by: text('by').notNull(),
 });
 
 export const inventoryItems = pgTable('inventory_items', {
