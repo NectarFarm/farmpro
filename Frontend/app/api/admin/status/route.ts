@@ -4,6 +4,13 @@ import { sql, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, unauthorized, forbidden } from '@/lib/server/http';
 
+function safeStr(row: unknown, key: string): string {
+  return String((row as Record<string, unknown>)[key] ?? '');
+}
+function safeNum(row: unknown, key: string): number {
+  return Number((row as Record<string, unknown>)[key] ?? 0);
+}
+
 // GET /api/admin/status — platform health & system info for the admin status page.
 export async function GET() {
   const session = await getSession();
@@ -17,7 +24,7 @@ export async function GET() {
   try {
     const [row] = await db.execute(sql`SELECT version()`);
     dbOk = true;
-    dbVersion = String((row as Record<string, unknown>).version ?? '').split(',')[0] ?? '';
+    dbVersion = safeStr(row, 'version').split(',')[0] ?? '';
   } catch (e) {
     dbError = (e as Error).message;
   }
@@ -30,14 +37,14 @@ export async function GET() {
     const [countRow] = await db.execute(
       sql`SELECT count(*)::int AS cnt FROM ${sql.raw('audit_log')} WHERE ${sql.raw('at')} >= ${weekAgo}`,
     );
-    auditCount = Number((countRow as Record<string, unknown>).cnt ?? 0);
+    auditCount = safeNum(countRow, 'cnt');
 
     const [errRow] = await db.execute(
       sql`SELECT count(*)::int AS cnt FROM ${sql.raw('audit_log')}
           WHERE ${sql.raw('at')} >= ${weekAgo}
             AND (${sql.raw('action')} LIKE '%.delete' OR ${sql.raw('action')} LIKE '%.fail')`,
     );
-    errorCount = Number((errRow as Record<string, unknown>).cnt ?? 0);
+    errorCount = safeNum(errRow, 'cnt');
   } catch {
     /* best-effort */
   }
@@ -67,7 +74,7 @@ export async function GET() {
   let migrationVersion = 'unknown';
   try {
     const journal = await import('@/drizzle/meta/_journal.json').then(m => m.default ?? m);
-    const entries = journal.entries as Array<{ idx: number }>;
+    const entries = (journal.entries ?? []) as Array<{ idx: number }>;
     if (entries?.length) {
       migrationVersion = String(entries[entries.length - 1].idx).padStart(4, '0');
     }

@@ -6,11 +6,19 @@ import { ok, created, badRequest, unauthorized, forbidden } from '@/lib/server/h
 import { parseBody, testingActionSchema } from '@/lib/server/validate';
 import { isStorageConfigured, uploadPhoto } from '@/lib/server/storage';
 import { decodeDataUrl, validatePhotoDataUrl } from '@/lib/server/media';
-import { freshRun, applyStepUpdate, addPhotoToStep, canSubmit, summarize, type TestStep, type StepStatus } from '@/lib/testing';
+import { freshRun, applyStepUpdate, addPhotoToStep, canSubmit, summarize, type TestStep } from '@/lib/testing';
 import { getActiveSteps } from '@/lib/server/testingConfig';
 import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 
 const ALLOWED = ['owner', 'manager'];
+
+function safeSteps(v: unknown): TestStep[] {
+  return (Array.isArray(v) ? v : []) as TestStep[];
+}
+
+function asErrorMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e ?? 'Unknown error');
+}
 
 async function tenantTesting(tenantId: string) {
   const [t] = await db.select({ e: tenants.testingEnabled, max: tenants.testMaxScreenshots }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
@@ -55,7 +63,7 @@ export async function POST(req: Request) {
   if (body.action === 'start') {
     // Start OR restart — clean checklist; drop any screenshots from the old run.
     const old = await loadRun(tenantId);
-    if (old) await deletePhotos(tenantId, (old.steps as TestStep[]).flatMap((s) => s.photoIds ?? []));
+    if (old) await deletePhotos(tenantId, safeSteps(old.steps).flatMap((s) => s.photoIds ?? []));
     const steps = freshRun(await getActiveSteps());
     await db.insert(testRuns).values({ tenantId, status: 'in_progress', steps, startedAt: now, submittedAt: null })
       .onConflictDoUpdate({ target: testRuns.tenantId, set: { status: 'in_progress', steps, startedAt: now, submittedAt: null } });
@@ -64,7 +72,7 @@ export async function POST(req: Request) {
 
   const run = await loadRun(tenantId);
   if (!run) return badRequest('No test in progress. Start one first.');
-  const steps0 = run.steps as TestStep[];
+  const steps0 = safeSteps(run.steps);
 
   if (body.action === 'step') {
     if (run.status === 'submitted') return badRequest('This test was already submitted. Restart to test again.');
@@ -73,7 +81,7 @@ export async function POST(req: Request) {
     try {
       steps = applyStepUpdate(steps0, { id: body.id, status: body.status, note: body.note });
     } catch (e) {
-      return badRequest((e as Error).message);
+      return badRequest(asErrorMsg(e));
     }
     // A step that left 'fail' loses its screenshots — delete the orphaned images.
     const before = steps0.find((s) => s.id === body.id)?.photoIds ?? [];
@@ -90,13 +98,13 @@ export async function POST(req: Request) {
     const stepId = body.stepId;
     const validation = validatePhotoDataUrl(body.data);
     if (!validation.ok) return badRequest(validation.error);
-    const data = body.data as string;
+    const data = String(body.data ?? '');
     const photoId = crypto.randomUUID();
     let steps: TestStep[];
     try {
       steps = addPhotoToStep(steps0, stepId, photoId, maxScreenshots);
     } catch (e) {
-      return badRequest((e as Error).message);
+      return badRequest(asErrorMsg(e));
     }
     // Upload screenshot to R2 if configured; otherwise store as base64 in DB.
     if (isStorageConfigured()) {

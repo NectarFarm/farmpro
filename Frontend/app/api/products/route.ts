@@ -9,7 +9,7 @@ import { parseBody, productCreateSchema, productUpdateSchema } from '@/lib/serve
 import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 import type { Role } from '@/lib/types';
 
-type SaleUnit = { name: string; perBase: number; price: number };
+const ALLOWED: Role[] = ['owner', 'manager'];
 
 // GET /api/products?batchId=...  — price stripped for any role without financial
 // access (same default-deny rule as every other resource, via fieldPermissions.ts).
@@ -35,7 +35,7 @@ export async function DELETE(req: Request) {
   if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
-  if (!(['owner', 'manager'] as Role[]).includes(session.role)) return forbidden();
+  if (!ALLOWED.includes(session.role)) return forbidden();
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return badRequest('id required');
   await db.delete(products).where(and(eq(products.tenantId, session.tenantId), eq(products.id, id)));
@@ -48,14 +48,14 @@ export async function POST(req: Request) {
   if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
-  if (!(['owner', 'manager'] as Role[]).includes(session.role)) return forbidden();
+  if (!ALLOWED.includes(session.role)) return forbidden();
   const parsed = await parseBody(req, productCreateSchema);
   if ('error' in parsed) return parsed.error;
   const body = parsed.data;
   const def = {
     name: body.name, baseUnit: body.baseUnit,
     collectFrequency: body.collectFrequency,
-    flow: body.flow, saleUnits: body.saleUnits as { name: string; perBase: number; price: number }[],
+    flow: body.flow, saleUnits: body.saleUnits,
     isAnimalProduct: body.isAnimalProduct,
   };
   const res = await createProductsForBatch(session.tenantId, body.batchId, [def]);
@@ -68,7 +68,7 @@ export async function PATCH(req: Request) {
   if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
-  if (!(['owner', 'manager'] as Role[]).includes(session.role)) return forbidden();
+  if (!ALLOWED.includes(session.role)) return forbidden();
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return badRequest('id required');
   const parsed = await parseBody(req, productUpdateSchema);

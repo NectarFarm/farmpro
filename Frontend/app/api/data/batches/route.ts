@@ -1,15 +1,65 @@
 import { db } from '@/db';
 import { batches, productionUnits, lifecycleStages, sales, products, batchStageEvents, mortalityRecords, feedingRecords, healthRecords, productionRecords, laborLogs, physicalCounts, weightSamples, observations, tasks } from '@/db/schemas';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, asc } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, created, unauthorized, forbidden, notFound, badRequest, tooMany } from '@/lib/server/http';
 import { parseBody, createBatchSchema } from '@/lib/server/validate';
 import { toCents } from '@/lib/server/money';
-import { checkWriteRateLimit } from '@/lib/server/rateLimit';
+import { checkWriteRateLimit, checkReadRateLimit } from '@/lib/server/rateLimit';
 import { createProductsForBatch, defaultsForBatch } from '@/lib/server/products';
 import { defaultLiveWeightKg, enterpriseFromSpecies } from '@/lib/server/productTemplates';
 import { defaultStages } from '@/lib/lifecycle';
 import { audit, actorLabel } from '@/lib/server/audit';
+import { vetAssignedBatchIds } from '@/lib/server/resources';
+import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
+
+// GET /api/data/batches[?id=]  — this is a static route, so it shadows
+// app/api/data/[resource]/route.ts's GET for this exact path (Next.js prefers
+// a static segment match over a dynamic one) — that catch-all's GET (including
+// its FR-M5-5 vet-scoping branch) is never reached for 'batches' once this file
+// exists, so it must handle GET itself, vet-scoping included.
+export async function GET(req: Request) {
+  const session = await getSession();
+  if (!session) return unauthorized();
+  const readLimit = checkReadRateLimit(req);
+  if (!readLimit.allowed) return tooMany(`Too many requests.`, readLimit.retryAfter);
+
+  const url = new URL(req.url);
+  const id = url.searchParams.get('id');
+  const hidden = await hiddenFieldKeysFor(session);
+
+  // FR-M5-5: a vet sees only their assigned batches.
+  if (session.role === 'vet') {
+    const assigned = await vetAssignedBatchIds(session);
+    const rows = await db.select().from(batches).where(eq(batches.tenantId, session.tenantId));
+    const scoped = assigned ? rows.filter((b) => assigned.includes(b.id)) : rows;
+    const filtered = stripForRead('batches', scoped as unknown as Record<string, unknown>[], hidden);
+    if (id) {
+      const one = filtered.find((r) => r.id === id);
+      return one ? ok(one) : notFound();
+    }
+    return ok(filtered);
+  }
+
+  if (id) {
+    const [row] = await db.select().from(batches)
+      .where(and(eq(batches.tenantId, session.tenantId), eq(batches.id, id))).limit(1);
+    if (!row) return notFound();
+    return ok(stripForRead('batches', [row as unknown as Record<string, unknown>], hidden)[0]);
+  }
+
+  const limitParam = Number(url.searchParams.get('limit'));
+  let limit: number | undefined;
+  if (limitParam === 0) limit = undefined;
+  else if (Number.isFinite(limitParam) && limitParam > 0) limit = Math.min(5000, Math.floor(limitParam));
+  else limit = 2000;
+  const offsetParam = Number(url.searchParams.get('offset'));
+  const offset = Number.isFinite(offsetParam) && offsetParam > 0 ? Math.floor(offsetParam) : 0;
+
+  const baseQuery = db.select().from(batches).where(eq(batches.tenantId, session.tenantId)).orderBy(asc(batches.id));
+  const rows = limit != null ? await baseQuery.limit(limit).offset(offset) : await baseQuery;
+  return ok(stripForRead('batches', rows as unknown as Record<string, unknown>[], hidden));
+}
 
 // POST /api/data/batches — create a new batch with lifecycle stage + auto-products.
 export async function POST(req: Request) {

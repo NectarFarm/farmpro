@@ -11,13 +11,14 @@ const BAD_CREDS = 'Wrong phone number or PIN.';
 
 // POST /api/auth/worker  { phone, pin }
 export async function POST(req: Request) {
-  // Rate limit: 5 attempts per minute per IP (brute-force protection)
-  const limit = checkLoginRateLimit(req);
-  if (!limit.allowed) {
-    return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
-  }
   try {
     const parsed = await parseBody(req, workerLoginSchema);
+    // Rate limit per (identifier, IP) so one account can't be brute-forced, without
+    // penalizing every other user sharing the same router/IP (see rateLimit.ts).
+    const limit = checkLoginRateLimit(req, 'error' in parsed ? undefined : parsed.data.phone);
+    if (!limit.allowed) {
+      return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
+    }
     if ('error' in parsed) return parsed.error;
     const { phone, pin } = parsed.data;
 

@@ -37,7 +37,7 @@ export async function DELETE(req: Request) {
   // Unlink from the owning tenant's run.
   const [run] = await db.select().from(testRuns).where(eq(testRuns.tenantId, p.tenantId)).limit(1);
   if (run) {
-    const steps = (run.steps as TestStep[]).map((s) =>
+    const steps = ((Array.isArray(run.steps) ? run.steps : []) as TestStep[]).map((s) =>
       (s.photoIds ?? []).includes(id) ? { ...s, photoIds: (s.photoIds ?? []).filter((x) => x !== id) } : s);
     await db.update(testRuns).set({ steps }).where(eq(testRuns.tenantId, p.tenantId));
   }

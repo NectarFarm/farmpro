@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, unauthorized } from '@/lib/server/http';
 import { ALL_FEATURE_KEYS } from '@/lib/features';
+import { z } from 'zod';
 
 // GET /api/me — current user + the tenant's enabled features (for client gating).
 export async function GET() {
@@ -13,7 +14,7 @@ export async function GET() {
   return ok({
     userId: session.userId, role: session.role, tenantId: session.tenantId, name: session.name,
     plan: tenant?.plan ?? 'pro',
-    features: (tenant?.features as string[]) ?? ALL_FEATURE_KEYS,
+    features: z.array(z.string()).catch(ALL_FEATURE_KEYS).parse(tenant?.features),
     exp: session.exp,
   });
 }

@@ -10,7 +10,13 @@ export interface PendingRecord {
   type: string;
   payload: string; // JSON stringified
   capturedAt: string;
-  status: 'pending' | 'syncing' | 'synced' | 'conflict';
+  // 'rejected' = the server explicitly refused this record (e.g. failed
+  // validation) — distinct from 'conflict' (both versions were valid, one won)
+  // and from staying 'pending' (not yet sent / will retry). A rejected record
+  // will NOT succeed on retry without the worker fixing the underlying data,
+  // so it's surfaced to the UI rather than silently retried forever.
+  status: 'pending' | 'syncing' | 'synced' | 'conflict' | 'rejected';
+  error?: string;
 }
 
 export interface CachedPinHash {
@@ -67,6 +73,13 @@ export async function getPendingCount(): Promise<number> {
   try {
     const db = getDB();
     return db.pending.where('status').anyOf(['pending','syncing']).count();
+  } catch { return 0; }
+}
+
+export async function getRejectedCount(): Promise<number> {
+  try {
+    const db = getDB();
+    return db.pending.where('status').equals('rejected').count();
   } catch { return 0; }
 }
 

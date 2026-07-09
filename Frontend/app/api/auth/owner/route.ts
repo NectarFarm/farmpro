@@ -9,17 +9,22 @@ import { parseBody, ownerLoginSchema } from '@/lib/server/validate';
 import type { Role } from '@/lib/types';
 
 const WEB_ROLES: Role[] = ['owner', 'manager', 'vet', 'auditor', 'super_admin'];
+
+function isWebRole(r: string): r is Role {
+  return (WEB_ROLES as readonly string[]).includes(r);
+}
 const BAD_CREDS = 'Invalid email or password.';
 
 // POST /api/auth/owner  { email, password }
 export async function POST(req: Request) {
-  // Rate limit: 5 attempts per minute per IP (brute-force protection)
-  const limit = checkLoginRateLimit(req);
-  if (!limit.allowed) {
-    return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
-  }
   try {
     const parsed = await parseBody(req, ownerLoginSchema);
+    // Rate limit per (identifier, IP) so one account can't be brute-forced, without
+    // penalizing every other user sharing the same router/IP (see rateLimit.ts).
+    const limit = checkLoginRateLimit(req, 'error' in parsed ? undefined : parsed.data.email);
+    if (!limit.allowed) {
+      return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
+    }
     if ('error' in parsed) return parsed.error;
     const { email, password } = parsed.data;
 
@@ -31,11 +36,11 @@ export async function POST(req: Request) {
       return serviceUnavailable("We couldn't reach the server. Check your connection and try again.");
     }
     // Same response for unknown user and wrong password (no account enumeration).
-    if (!user || !WEB_ROLES.includes(user.role as Role) || !user.passwordHash) return unauthorized(BAD_CREDS);
+    if (!user || !isWebRole(user.role) || !user.passwordHash) return unauthorized(BAD_CREDS);
     if (!(await verifySecret(password, user.passwordHash))) return unauthorized(BAD_CREDS);
 
     await createSession({
-      userId: user.id, tenantId: user.tenantId, role: user.role as Role,
+      userId: user.id, tenantId: user.tenantId, role: user.role,
       workerProfileId: user.workerProfileId ?? undefined, name: user.name,
     });
     return ok({

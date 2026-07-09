@@ -8,6 +8,12 @@ import { ok, badRequest, unauthorized, serviceUnavailable, forbidden, tooMany } 
 import { parseBody, loginSchema } from '@/lib/server/validate';
 import type { Role } from '@/lib/types';
 
+const WEB_ROLES: Role[] = ['owner', 'manager', 'vet', 'auditor', 'super_admin'];
+
+function isWebRole(r: string): r is Role {
+  return (WEB_ROLES as readonly string[]).includes(r);
+}
+
 // Unified login: one form for everyone. The DB record decides the role — the
 // client never chooses it. Accepts an email OR phone identifier, and verifies the
 // secret against whichever credential the account uses (password for web roles,
@@ -15,13 +21,14 @@ import type { Role } from '@/lib/types';
 const BAD = 'Login failed. Check your details and try again.';
 
 export async function POST(req: Request) {
-  // Rate limit: 5 attempts per minute per IP (brute-force protection)
-  const limit = checkLoginRateLimit(req);
-  if (!limit.allowed) {
-    return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
-  }
   try {
     const parsed = await parseBody(req, loginSchema);
+    // Rate limit per (identifier, IP) so one account can't be brute-forced, without
+    // penalizing every other user sharing the same router/IP (see rateLimit.ts).
+    const limit = checkLoginRateLimit(req, 'error' in parsed ? undefined : parsed.data.identifier);
+    if (!limit.allowed) {
+      return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
+    }
     if ('error' in parsed) return parsed.error;
     const body = parsed.data;
     const identifier = body.identifier.trim();
@@ -48,7 +55,7 @@ export async function POST(req: Request) {
     }
 
     await createSession({
-      userId: user.id, tenantId: user.tenantId, role: user.role as Role,
+      userId: user.id, tenantId: user.tenantId, role: isWebRole(user.role) ? user.role : 'worker',
       workerProfileId: user.workerProfileId ?? undefined, name: user.name,
     });
     return ok({

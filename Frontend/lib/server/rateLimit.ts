@@ -83,20 +83,41 @@ export function clientIp(req: Request): string {
 
 // Convenience wrappers for common rate-limit profiles.
 
-/** Strict: 5 attempts per minute (configurable via RATE_LIMIT_LOGIN_MAX) — for login endpoints (brute-force protection). */
-export function checkLoginRateLimit(req: Request): { allowed: true } | { allowed: false; retryAfter: number } {
+/**
+ * Login brute-force protection, in two tiers:
+ *  - Per (identifier, IP): 5/min (RATE_LIMIT_LOGIN_MAX) — the real defense, since
+ *    it's what actually matters (repeated guesses against ONE account). Keyed by
+ *    identifier so a farm's workers sharing one router/NAT'd IP don't lock each
+ *    other out of unrelated accounts when several sign in around the same time.
+ *  - Per IP: a broader cap (RATE_LIMIT_LOGIN_IP_MAX, default 10x the per-account
+ *    max) — still catches one machine probing many DIFFERENT accounts
+ *    (enumeration / credential stuffing) without the tight per-account limit
+ *    colliding with shared-IP legitimate traffic (an office/cyber-café of a dozen
+ *    farm users signing in around the same time from one router).
+ * `identifier` is omitted when the request body hasn't been parsed yet — callers
+ * should check again with it once known, before doing any DB work.
+ */
+export function checkLoginRateLimit(req: Request, identifier?: string): { allowed: true } | { allowed: false; retryAfter: number } {
   const max = Number(process.env.RATE_LIMIT_LOGIN_MAX) || 5;
-  return checkRateLimit(`login:${clientIp(req)}`, max, 60_000);
+  const ip = clientIp(req);
+  if (identifier) {
+    const perAccount = checkRateLimit(`login:${identifier.trim().toLowerCase()}:${ip}`, max, 60_000);
+    if (!perAccount.allowed) return perAccount;
+  }
+  const ipMax = Number(process.env.RATE_LIMIT_LOGIN_IP_MAX) || max * 10;
+  return checkRateLimit(`login-ip:${ip}`, ipMax, 60_000);
 }
 
-/** Moderate: 30 writes per minute — for data submission endpoints. */
+/** Moderate: 30 writes per minute (configurable via RATE_LIMIT_WRITE_MAX) — for data submission endpoints. */
 export function checkWriteRateLimit(req: Request): { allowed: true } | { allowed: false; retryAfter: number } {
-  return checkRateLimit(`write:${clientIp(req)}`, 30, 60_000);
+  const max = Number(process.env.RATE_LIMIT_WRITE_MAX) || 30;
+  return checkRateLimit(`write:${clientIp(req)}`, max, 60_000);
 }
 
-/** Generous: 100 reads per minute — for read endpoints. */
+/** Generous: 100 reads per minute (configurable via RATE_LIMIT_READ_MAX) — for read endpoints. */
 export function checkReadRateLimit(req: Request): { allowed: true } | { allowed: false; retryAfter: number } {
-  return checkRateLimit(`read:${clientIp(req)}`, 100, 60_000);
+  const max = Number(process.env.RATE_LIMIT_READ_MAX) || 100;
+  return checkRateLimit(`read:${clientIp(req)}`, max, 60_000);
 }
 
 // One-liner guards for route handlers — `if (limited) return limited;` — so

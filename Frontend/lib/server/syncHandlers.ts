@@ -42,7 +42,15 @@ export async function handleProduction(
   r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
 ): Promise<RouteResult> {
   const parsed = productionPayloadSchema.safeParse(r.payload ?? {});
-  if (!parsed.success) return { routed: true };
+  // Throw (not `return { routed: true }`) on a genuinely malformed payload —
+  // the sync route's per-record db.transaction() catches this and puts the
+  // record in the response's `rejected[]` array instead of silently reporting
+  // it as accepted with nothing actually written. A record that fails Zod here
+  // needs to be visible to the client so it can alert the worker / retry, not
+  // disappear into a false "accepted" response.
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
+  }
   const p = parsed.data;
   const batchId = p.batchId || '';
   const type = p.type || 'eggs';
@@ -89,7 +97,15 @@ export async function handleFeeding(
   r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
 ): Promise<RouteResult> {
   const parsed = feedingPayloadSchema.safeParse(r.payload ?? {});
-  if (!parsed.success) return { routed: true };
+  // Throw (not `return { routed: true }`) on a genuinely malformed payload —
+  // the sync route's per-record db.transaction() catches this and puts the
+  // record in the response's `rejected[]` array instead of silently reporting
+  // it as accepted with nothing actually written. A record that fails Zod here
+  // needs to be visible to the client so it can alert the worker / retry, not
+  // disappear into a false "accepted" response.
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
+  }
   const p = parsed.data;
   const feedItemId = p.feedItemId ?? undefined;
   const qtyKg = p.quantityKg;
@@ -108,7 +124,15 @@ export async function handleMortality(
   r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
 ): Promise<RouteResult> {
   const parsed = mortalityPayloadSchema.safeParse(r.payload ?? {});
-  if (!parsed.success) return { routed: true };
+  // Throw (not `return { routed: true }`) on a genuinely malformed payload —
+  // the sync route's per-record db.transaction() catches this and puts the
+  // record in the response's `rejected[]` array instead of silently reporting
+  // it as accepted with nothing actually written. A record that fails Zod here
+  // needs to be visible to the client so it can alert the worker / retry, not
+  // disappear into a false "accepted" response.
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
+  }
   const p = parsed.data;
   const base = { clientUuid: r.clientUuid, tenantId, recordedBy: userId, capturedAt: r.capturedAt };
   let photoId: string | undefined;
@@ -152,7 +176,15 @@ export async function handleHealth(
   r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
 ): Promise<RouteResult> {
   const parsed = healthPayloadSchema.safeParse(r.payload ?? {});
-  if (!parsed.success) return { routed: true };
+  // Throw (not `return { routed: true }`) on a genuinely malformed payload —
+  // the sync route's per-record db.transaction() catches this and puts the
+  // record in the response's `rejected[]` array instead of silently reporting
+  // it as accepted with nothing actually written. A record that fails Zod here
+  // needs to be visible to the client so it can alert the worker / retry, not
+  // disappear into a false "accepted" response.
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
+  }
   const p = parsed.data;
   const base = { clientUuid: r.clientUuid, tenantId, recordedBy: userId, capturedAt: r.capturedAt };
   const lotId = p.productLotId ?? p.lotId ?? undefined;
@@ -180,7 +212,15 @@ export async function handleClosingStock(
   r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
 ): Promise<RouteResult> {
   const parsed = closingStockPayloadSchema.safeParse(r.payload ?? {});
-  if (!parsed.success) return { routed: true };
+  // Throw (not `return { routed: true }`) on a genuinely malformed payload —
+  // the sync route's per-record db.transaction() catches this and puts the
+  // record in the response's `rejected[]` array instead of silently reporting
+  // it as accepted with nothing actually written. A record that fails Zod here
+  // needs to be visible to the client so it can alert the worker / retry, not
+  // disappear into a false "accepted" response.
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
+  }
   const p = parsed.data;
   await tx.insert(closingStockCounts).values({
     clientUuid: r.clientUuid, tenantId, itemId: p.itemId, closingQty: p.closingQty,
@@ -195,7 +235,15 @@ export async function handleWeightSample(
   r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
 ): Promise<RouteResult> {
   const parsed = weightSamplePayloadSchema.safeParse(r.payload ?? {});
-  if (!parsed.success) return { routed: true };
+  // Throw (not `return { routed: true }`) on a genuinely malformed payload —
+  // the sync route's per-record db.transaction() catches this and puts the
+  // record in the response's `rejected[]` array instead of silently reporting
+  // it as accepted with nothing actually written. A record that fails Zod here
+  // needs to be visible to the client so it can alert the worker / retry, not
+  // disappear into a false "accepted" response.
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
+  }
   const p = parsed.data;
   const batchId = p.batchId;
   const avg = p.avgWeightKg;
@@ -226,7 +274,15 @@ export async function handlePhysicalCount(
   r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
 ): Promise<RouteResult> {
   const parsed = physicalCountPayloadSchema.safeParse(r.payload ?? {});
-  if (!parsed.success) return { routed: true };
+  // Throw (not `return { routed: true }`) on a genuinely malformed payload —
+  // the sync route's per-record db.transaction() catches this and puts the
+  // record in the response's `rejected[]` array instead of silently reporting
+  // it as accepted with nothing actually written. A record that fails Zod here
+  // needs to be visible to the client so it can alert the worker / retry, not
+  // disappear into a false "accepted" response.
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
+  }
   const p = parsed.data;
   const batchId = p.batchId;
   if (!batchId) return { routed: true };
@@ -255,7 +311,15 @@ export async function handleMorningRound(
   r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
 ): Promise<RouteResult> {
   const parsed = morningRoundPayloadSchema.safeParse(r.payload ?? {});
-  if (!parsed.success) return { routed: true };
+  // Throw (not `return { routed: true }`) on a genuinely malformed payload —
+  // the sync route's per-record db.transaction() catches this and puts the
+  // record in the response's `rejected[]` array instead of silently reporting
+  // it as accepted with nothing actually written. A record that fails Zod here
+  // needs to be visible to the client so it can alert the worker / retry, not
+  // disappear into a false "accepted" response.
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
+  }
   const p = parsed.data;
   for (const e of p.entries) {
     const batchId = e.batchId;

@@ -35,7 +35,12 @@ export const zYearMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Expected 
 export const zPin = z.string().regex(/^\d{4,6}$/, 'PIN must be 4–6 digits.');
 export const zPhone = z.string().trim().min(6).max(20);
 export const zRole = z.enum(['worker', 'manager', 'vet']);
-export const zPayDay = z.number().int().min(1).max(31).nullable().optional();
+// Deliberately lenient (matches the pre-Zod parsePayDay helper): an out-of-range
+// or non-integer value becomes null (no scheduled pay day) rather than rejecting
+// the whole request — a typo'd pay day shouldn't block creating/updating an
+// employee over an optional scheduling field.
+export const zPayDay = z.number().nullable().optional()
+  .transform((v) => (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 31 ? v : null));
 export const zSaleUnit = z.object({
   name: z.string().min(1),
   perBase: z.number().positive(),
@@ -262,22 +267,32 @@ export const testingActionSchema = z.object({
 // handlers parsed fields ad-hoc with num()/str() helpers — now they get typed,
 // validated data upfront with clear error messages.
 
+// Every worker record-entry form keeps numeric input as raw `string` state
+// (e.g. `useState('')`) and enqueues it unconverted — the pre-Zod backend
+// coerced with `Number(v) || 0`. `z.coerce.number()` matches that: it accepts
+// a string OR a number rather than rejecting a legitimate "400" the way plain
+// `z.number()` does. A genuinely malformed value (empty string, non-numeric
+// text) coerces to NaN, still caught by `.finite()`/`.min()`/`.int()` below —
+// this isn't a validation bypass, just accepting the wire format the client
+// actually sends.
+const zCoercedNum = () => z.coerce.number();
+
 export const feedingPayloadSchema = z.object({
   batchId: z.string().optional().default(''),
   feedItemId: z.string().optional().nullable(),
   lotId: z.string().optional().nullable(),
-  quantityKg: z.number().finite().min(0).optional().default(0),
+  quantityKg: zCoercedNum().finite().min(0).optional().default(0),
 });
 
 export const mortalityPayloadSchema = z.object({
   batchId: z.string().optional().default(''),
   unitId: z.string().optional().nullable(),
-  count: z.number().int().min(0).optional().default(0),
+  count: zCoercedNum().int().min(0).optional().default(0),
   cause: z.string().optional().nullable(),
   photo: z.string().optional().nullable(),
   photoId: z.string().optional().nullable(),
-  gpsLat: z.number().optional().nullable(),
-  gpsLng: z.number().optional().nullable(),
+  gpsLat: zCoercedNum().optional().nullable(),
+  gpsLng: zCoercedNum().optional().nullable(),
 });
 
 export const healthPayloadSchema = z.object({
@@ -285,36 +300,36 @@ export const healthPayloadSchema = z.object({
   type: z.string().optional().default('VACCINE'),
   productLotId: z.string().optional().nullable(),
   lotId: z.string().optional().nullable(),
-  quantity: z.number().finite().min(0).optional().default(1),
-  dose: z.number().finite().min(0).optional().default(1),
+  quantity: zCoercedNum().finite().min(0).optional().default(1),
+  dose: zCoercedNum().finite().min(0).optional().default(1),
 });
 
 export const closingStockPayloadSchema = z.object({
   itemId: z.string().optional().default(''),
-  closingQty: z.number().finite().min(0).optional().default(0),
+  closingQty: zCoercedNum().finite().min(0).optional().default(0),
 });
 
 export const productionPayloadSchema = z.object({
   batchId: z.string().optional().default(''),
   type: z.string().optional().default('eggs'),
-  qty: z.number().finite().min(0).optional(),
-  eggs: z.number().finite().min(0).optional(),
-  count: z.number().finite().min(0).optional(),
-  weightKg: z.number().optional().nullable(),
+  qty: zCoercedNum().finite().min(0).optional(),
+  eggs: zCoercedNum().finite().min(0).optional(),
+  count: zCoercedNum().finite().min(0).optional(),
+  weightKg: zCoercedNum().optional().nullable(),
 });
 
 export const weightSamplePayloadSchema = z.object({
   batchId: z.string().optional().nullable(),
-  avgWeightKg: z.number().optional().default(0),
-  sampleSize: z.number().int().min(0).optional().nullable(),
+  avgWeightKg: zCoercedNum().optional().default(0),
+  sampleSize: zCoercedNum().int().min(0).optional().nullable(),
 });
 
 export const physicalCountPayloadSchema = z.object({
   batchId: z.string().optional().nullable(),
   unitId: z.string().optional().nullable(),
-  systemCount: z.number().optional().default(0),
-  physicalCount: z.number().optional().default(0),
-  variance: z.number().optional(),
+  systemCount: zCoercedNum().optional().default(0),
+  physicalCount: zCoercedNum().optional().default(0),
+  variance: zCoercedNum().optional(),
   reason: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
@@ -322,15 +337,15 @@ export const physicalCountPayloadSchema = z.object({
 export const morningRoundEntrySchema = z.object({
   batchId: z.string().optional(),
   unitId: z.string().optional().nullable(),
-  eggsCollected: z.number().optional().default(0),
+  eggsCollected: zCoercedNum().optional().default(0),
   feedItemId: z.string().optional().nullable(),
-  feedUsed: z.number().optional().default(0),
+  feedUsed: zCoercedNum().optional().default(0),
   waterLevel: z.string().optional().nullable(),
   waterColour: z.string().optional().nullable(),
-  tempC: z.number().optional().nullable(),
-  doMgL: z.number().optional().nullable(),
-  ph: z.number().optional().nullable(),
-  ammonia: z.number().optional().nullable(),
+  tempC: zCoercedNum().optional().nullable(),
+  doMgL: zCoercedNum().optional().nullable(),
+  ph: zCoercedNum().optional().nullable(),
+  ammonia: zCoercedNum().optional().nullable(),
   abnormal: z.boolean().optional().default(false),
   abnormalNote: z.string().optional().nullable(),
 });

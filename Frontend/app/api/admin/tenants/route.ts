@@ -52,14 +52,16 @@ export async function POST(req: Request) {
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
 
-  const body = (await req.json().catch(() => ({}))) as {
-    farmName?: string; ownerName?: string; ownerEmail?: string; ownerPassword?: string; ownerPhone?: string; plan?: string;
-  };
-  const farmName = body.farmName?.trim();
-  const ownerName = body.ownerName?.trim();
-  const ownerEmail = body.ownerEmail?.trim().toLowerCase();
-  const ownerPassword = body.ownerPassword ?? '';
-  const ownerPhone = body.ownerPhone?.trim() || `+0${crypto.randomUUID().replace(/\D/g, '').slice(0, 11)}`;
+  const raw = await req.json().catch(() => null);
+  if (!raw || typeof raw !== 'object') return badRequest('Invalid JSON body.');
+  const body = raw as Record<string, unknown>;
+  const farmName = typeof body.farmName === 'string' ? body.farmName.trim() : '';
+  const ownerName = typeof body.ownerName === 'string' ? body.ownerName.trim() : '';
+  const ownerEmail = typeof body.ownerEmail === 'string' ? body.ownerEmail.trim().toLowerCase() : '';
+  const ownerPassword = typeof body.ownerPassword === 'string' ? body.ownerPassword : '';
+  const ownerPhone = typeof body.ownerPhone === 'string' && body.ownerPhone.trim()
+    ? body.ownerPhone.trim()
+    : `+0${crypto.randomUUID().replace(/\D/g, '').slice(0, 11)}`;
 
   if (!farmName || !ownerName || !ownerEmail) return badRequest('Farm name, owner name and owner email are required.');
   if (!ownerEmail.includes('@')) return badRequest('Enter a valid owner email.');
@@ -72,7 +74,8 @@ export async function POST(req: Request) {
 
   // Assign an admin-defined package (default to pro / first available).
   const pkgs = await getActivePackages();
-  const plan = pkgs.some((p) => p.id === body.plan) ? body.plan! : (pkgs.find((p) => p.id === 'pro')?.id ?? pkgs[0].id);
+  const planInput = typeof body.plan === 'string' ? body.plan : '';
+  const plan = pkgs.some((p) => p.id === planInput) ? planInput : (pkgs.find((p) => p.id === 'pro')?.id ?? pkgs[0]?.id ?? 'pro');
   const tenantId = sid('t');
   const passwordHash = await hashSecret(ownerPassword);
   // Tenant + owner login + worker profile + lifecycle stages must land together — a
@@ -109,9 +112,11 @@ export async function PATCH(req: Request) {
   if (session.role !== 'super_admin') return forbidden();
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return badRequest('id required');
-  const body = (await req.json().catch(() => ({}))) as { name?: string; plan?: string; features?: string[]; active?: boolean };
+  const raw = await req.json().catch(() => null);
+  if (!raw || typeof raw !== 'object') return badRequest('Invalid JSON body.');
+  const body = raw as Record<string, unknown>;
   const patch: Record<string, unknown> = {};
-  if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim();
+  if (typeof body.name === 'string' && (body.name as string).trim()) patch.name = (body.name as string).trim();
   if (typeof body.plan === 'string') patch.plan = body.plan;
   if (Array.isArray(body.features)) patch.features = body.features;
   if (typeof body.active === 'boolean') patch.active = body.active;

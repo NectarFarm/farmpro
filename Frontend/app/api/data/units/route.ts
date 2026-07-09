@@ -1,11 +1,46 @@
 import { db } from '@/db';
 import { productionUnits, batches } from '@/db/schemas';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, asc } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, created, unauthorized, forbidden, notFound, badRequest, tooMany } from '@/lib/server/http';
 import { parseBody, createUnitSchema } from '@/lib/server/validate';
-import { checkWriteRateLimit } from '@/lib/server/rateLimit';
+import { checkWriteRateLimit, checkReadRateLimit } from '@/lib/server/rateLimit';
 import { audit, actorLabel } from '@/lib/server/audit';
+import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
+
+// GET /api/data/units[?id=]  — this is a static route, so it shadows
+// app/api/data/[resource]/route.ts's GET for this exact path (Next.js prefers
+// a static segment match over a dynamic one) — that catch-all's GET is never
+// reached for 'units' once this file exists, so it must handle GET itself.
+export async function GET(req: Request) {
+  const session = await getSession();
+  if (!session) return unauthorized();
+  const readLimit = checkReadRateLimit(req);
+  if (!readLimit.allowed) return tooMany(`Too many requests.`, readLimit.retryAfter);
+
+  const url = new URL(req.url);
+  const id = url.searchParams.get('id');
+  const hidden = await hiddenFieldKeysFor(session);
+
+  if (id) {
+    const [row] = await db.select().from(productionUnits)
+      .where(and(eq(productionUnits.tenantId, session.tenantId), eq(productionUnits.id, id))).limit(1);
+    if (!row) return notFound();
+    return ok(stripForRead('units', [row as unknown as Record<string, unknown>], hidden)[0]);
+  }
+
+  const limitParam = Number(url.searchParams.get('limit'));
+  let limit: number | undefined;
+  if (limitParam === 0) limit = undefined;
+  else if (Number.isFinite(limitParam) && limitParam > 0) limit = Math.min(5000, Math.floor(limitParam));
+  else limit = 2000;
+  const offsetParam = Number(url.searchParams.get('offset'));
+  const offset = Number.isFinite(offsetParam) && offsetParam > 0 ? Math.floor(offsetParam) : 0;
+
+  const baseQuery = db.select().from(productionUnits).where(eq(productionUnits.tenantId, session.tenantId)).orderBy(asc(productionUnits.id));
+  const rows = limit != null ? await baseQuery.limit(limit).offset(offset) : await baseQuery;
+  return ok(stripForRead('units', rows as unknown as Record<string, unknown>[], hidden));
+}
 
 // POST /api/data/units — create a new production unit.
 export async function POST(req: Request) {

@@ -9,11 +9,24 @@ async function rawLogin(identifier: string, secret: string) {
     body: JSON.stringify({ identifier, secret }), redirect: 'manual',
   });
 }
+// Memoized per (identifier, secret): a real client logs in once and reuses the
+// session cookie, it doesn't re-authenticate before every request — and hitting
+// the real endpoint once per distinct account (instead of once per call site)
+// keeps this suite comfortably under the per-account login rate limit even
+// though several describe blocks independently need the same demo/admin login.
+const loginCache = new Map<string, Promise<string>>();
 async function login(identifier: string, secret: string): Promise<string> {
-  const res = await rawLogin(identifier, secret);
-  const cookie = res.headers.get('set-cookie');
-  if (!res.ok || !cookie) throw new Error(`login failed for ${identifier}: ${res.status}`);
-  return cookie.split(';')[0];
+  const key = `${identifier}:${secret}`;
+  const cached = loginCache.get(key);
+  if (cached) return cached;
+  const promise = (async () => {
+    const res = await rawLogin(identifier, secret);
+    const cookie = res.headers.get('set-cookie');
+    if (!res.ok || !cookie) throw new Error(`login failed for ${identifier}: ${res.status}`);
+    return cookie.split(';')[0];
+  })();
+  loginCache.set(key, promise);
+  return promise;
 }
 function api(path: string, cookie: string, init: RequestInit = {}) {
   return fetch(`${BASE}${path}`, {
@@ -1066,8 +1079,8 @@ describe('sync conflicts surface to the owner and can be overridden', () => {
   const avail = async () => (await (await api(`/api/availability?batchId=${batchId}&productId=${eggId}`, owner)).json()).available;
 
   it('two same-day egg records for one batch create a conflict; the later one is kept', async () => {
-    await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-a', type: 'production', capturedAt: '2026-03-15T08:00:00Z', payload: { batchId, type: 'eggs', qty: 100 } }] });
-    await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-b', type: 'production', capturedAt: '2026-03-15T14:00:00Z', payload: { batchId, type: 'eggs', qty: 120 } }] });
+    await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-record-a', type: 'production', capturedAt: '2026-03-15T08:00:00Z', payload: { batchId, type: 'eggs', qty: 100 } }] });
+    await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-record-b', type: 'production', capturedAt: '2026-03-15T14:00:00Z', payload: { batchId, type: 'eggs', qty: 120 } }] });
     expect(await avail()).toBe(120); // last-write-wins kept the 14:00 record
     const conflicts = await (await api('/api/conflicts', owner)).json();
     expect(conflicts.length).toBe(1);

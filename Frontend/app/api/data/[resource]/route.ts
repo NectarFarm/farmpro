@@ -15,9 +15,17 @@ import { toCents } from '@/lib/server/money';
 import { checkWriteRateLimit, checkReadRateLimit } from '@/lib/server/rateLimit';
 import type { Role, FieldConfig } from '@/lib/types';
 
-// GET — generic handler for all resources (used by resources not extracted
-// to their own route files: batches, employees, sales, tasks, units,
-// worker-profiles, alerts, items, lots, health-records, etc.)
+function toRecord<T extends object>(rows: T[]): Record<string, unknown>[] {
+  return rows.map((r) => ({ ...r } as Record<string, unknown>));
+}
+
+// GET — generic handler. batches/employees/units now have their own static
+// route files (app/api/data/{batches,employees,units}/route.ts) which Next.js
+// resolves in preference to this dynamic [resource] route for those exact
+// paths — this handler's branches for those three resources (including the
+// FR-M5-5 vet-scoping check below) are unreachable dead code kept only because
+// every other resource (sales, tasks, worker-profiles, alerts, items, lots,
+// health-records, etc.) still routes through here.
 export async function GET(req: Request, ctx: { params: Promise<{ resource: string }> }) {
   const session = await getSession();
   if (!session) return unauthorized();
@@ -45,7 +53,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ resource: strin
     const query = db.select().from(def.table).where(and(eq(def.table.tenantId, session.tenantId), eq(def.table.assignedTo, assignedTo))).orderBy(asc(def.table.id));
     const rows = limit != null ? await query.limit(limit).offset(offset) : await query;
     const hidden = await hiddenFieldKeysFor(session);
-    return ok(stripForRead(resource, rows as Record<string, unknown>[], hidden));
+    return ok(stripForRead(resource, toRecord(rows), hidden));
   }
 
   // FR-M5-5: a vet sees only their assigned batches.
@@ -54,9 +62,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ resource: strin
     const rows = await db.select().from(batches).where(eq(batches.tenantId, session.tenantId));
     const scoped = assigned ? rows.filter((b) => assigned.includes(b.id)) : rows;
     const hidden = await hiddenFieldKeysFor(session);
-    const filtered = stripForRead(resource, scoped as Record<string, unknown>[], hidden);
+    const filtered = stripForRead(resource, toRecord(scoped), hidden);
     if (id) {
-      const one = filtered.find((r) => (r as { id?: string }).id === id);
+      const one = filtered.find((r) => r.id === id);
       return one ? ok(one) : notFound();
     }
     return ok(limit != null ? filtered.slice(offset, offset + limit) : filtered);
@@ -65,15 +73,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ resource: strin
   if (id) {
     const rows = await db.select().from(def.table).where(tenantScope(def, session));
     const hidden = await hiddenFieldKeysFor(session);
-    const filtered = stripForRead(resource, rows as Record<string, unknown>[], hidden);
-    const one = filtered.find((r) => (r as { id?: string }).id === id);
+    const filtered = stripForRead(resource, toRecord(rows), hidden);
+    const one = filtered.find((r) => r.id === id);
     return one ? ok(one) : notFound();
   }
 
   const baseQuery = db.select().from(def.table).where(tenantScope(def, session)).orderBy(asc(def.table.id));
   const rows = limit != null ? await baseQuery.limit(limit).offset(offset) : await baseQuery;
   const hidden = await hiddenFieldKeysFor(session);
-  return ok(stripForRead(resource, rows as Record<string, unknown>[], hidden));
+  return ok(stripForRead(resource, toRecord(rows), hidden));
 }
 
 // POST — create handlers for resources NOT extracted to their own route files.

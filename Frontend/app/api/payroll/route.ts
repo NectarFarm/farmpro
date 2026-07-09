@@ -20,7 +20,10 @@ async function ledgerFor(tenantId: string, employeeId: string, period: string) {
   return db.select().from(employeeLedger)
     .where(and(eq(employeeLedger.tenantId, tenantId), eq(employeeLedger.employeeId, employeeId), eq(employeeLedger.period, period)));
 }
-const asEntries = (rows: { type: string; amount: number }[]): LedgerEntry[] => rows.map((r) => ({ type: r.type as LedgerType, amount: r.amount }));
+const asEntries = (rows: { type: string; amount: number }[]): LedgerEntry[] => rows.map((r) => {
+  const type = LEDGER_TYPES.includes(r.type as LedgerType) ? (r.type as LedgerType) : 'adjustment';
+  return { type, amount: r.amount };
+});
 
 // GET /api/payroll?period=YYYY-MM — every employee with their payslip (if any),
 // a LIVE preview of what they'd be paid, and the month's ledger entries.

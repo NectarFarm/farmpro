@@ -4,7 +4,17 @@ import { useSyncStore } from '@/lib/stores/sync';
 import { cn } from '@/lib/utils';
 
 export function SyncBadge({ className }: { className?: string }) {
-  const { isOnline, status, pendingCount } = useSyncStore();
+  const { isOnline, status, pendingCount, rejectedCount } = useSyncStore();
+
+  // Takes priority over every other state — data that failed to save needs the
+  // worker's attention regardless of whether the rest of the queue is clean.
+  if (rejectedCount > 0) {
+    return (
+      <span className={cn('inline-flex items-center gap-1 bg-red-100 text-red-700 border border-red-300 rounded-full px-3 py-1 text-sm font-bold', className)}>
+        <span>⚠</span> {rejectedCount} failed to save
+      </span>
+    );
+  }
 
   if (!isOnline || status === 'offline') {
     return (
