@@ -4,6 +4,7 @@
 //
 // Each key (IP or user-id) gets a bucket of `max` tokens, refilling at `windowMs / max` per request.
 // When empty, requests are rejected. Buckets are cleaned up after `windowMs` of inactivity.
+import { tooMany } from './http';
 
 interface Bucket {
   tokens: number;
@@ -96,4 +97,17 @@ export function checkWriteRateLimit(req: Request): { allowed: true } | { allowed
 /** Generous: 100 reads per minute — for read endpoints. */
 export function checkReadRateLimit(req: Request): { allowed: true } | { allowed: false; retryAfter: number } {
   return checkRateLimit(`read:${clientIp(req)}`, 100, 60_000);
+}
+
+// One-liner guards for route handlers — `if (limited) return limited;` — so
+// every mutating/read endpoint gets the same check without re-deriving the
+// allowed/tooMany branching by hand at each call site.
+export function writeRateLimited(req: Request): Response | null {
+  const limit = checkWriteRateLimit(req);
+  return limit.allowed ? null : tooMany('Too many requests.', limit.retryAfter);
+}
+
+export function readRateLimited(req: Request): Response | null {
+  const limit = checkReadRateLimit(req);
+  return limit.allowed ? null : tooMany('Too many requests.', limit.retryAfter);
 }

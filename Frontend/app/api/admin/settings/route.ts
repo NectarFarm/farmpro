@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { ok, unauthorized, forbidden } from '@/lib/server/http';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 
 const DEFAULTS = { id: 'global', appName: 'IFMS', tagline: 'Integrated Farm Management System', logoUrl: null as string | null };
 
@@ -13,7 +14,9 @@ export async function getSettings() {
 }
 
 // GET — current platform branding (super_admin).
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
@@ -23,6 +26,8 @@ export async function GET() {
 
 // PATCH { appName?, tagline?, logoUrl? } — rebrand the whole platform (super_admin).
 export async function PATCH(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();

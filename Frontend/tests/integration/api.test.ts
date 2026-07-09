@@ -76,6 +76,38 @@ describe('field-permission default-deny', () => {
   });
 });
 
+describe('worker task ownership', () => {
+  it('a worker cannot list another user\'s tasks via assignedTo', async () => {
+    const worker = await login('+254700333444', '1234');
+    const me = await (await api('/api/auth/session', worker)).json() as { userId?: string };
+    const otherId = 'not-this-worker-id';
+    // Must not be able to snoop tasks assigned to someone else.
+    expect((await api(`/api/data/tasks?assignedTo=${encodeURIComponent(otherId)}`, worker)).status).toBe(403);
+    // Own id is allowed (200 even if empty list).
+    if (me.userId) {
+      expect((await api(`/api/data/tasks?assignedTo=${encodeURIComponent(me.userId)}`, worker)).status).toBe(200);
+    }
+  });
+
+  it('a worker cannot mark another user\'s task done', async () => {
+    const owner = await login('kutswa@ifms.farm', 'demo1234');
+    const ownerSession = await (await api('/api/auth/session', owner)).json() as { userId?: string };
+    // Assign to the owner so the demo worker is not the assignee.
+    const assignee = ownerSession.userId ?? 'owner-assignee';
+    const create = await json(owner, '/api/data/tasks', {
+      title: 'Ownership probe', type: 'custom', assignedTo: assignee,
+      scheduledFor: new Date().toISOString(), dueAt: new Date().toISOString(),
+    });
+    expect([200, 201]).toContain(create.status);
+    const { id } = await create.json() as { id: string };
+    const worker = await login('+254700333444', '1234');
+    const patch = await api(`/api/data/tasks?id=${encodeURIComponent(id)}`, worker, {
+      method: 'PATCH', body: JSON.stringify({ status: 'DONE' }),
+    });
+    expect(patch.status).toBe(403);
+  });
+});
+
 describe('tenant isolation + over-sell guard', () => {
   let admin = '', ownerB = '', tenantB = '';
   const email = `itest+${Date.now()}@example.test`;

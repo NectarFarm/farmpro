@@ -6,16 +6,9 @@ import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
 import { created, unauthorized, forbidden, badRequest, serverError } from '@/lib/server/http';
+import { parseBody, setupSchema } from '@/lib/server/validate';
+import { toCents } from '@/lib/server/money';
 import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
-
-interface Body {
-  farmName?: string; farmLocation?: string;
-  units?: { name: string; type: string; capacity: string }[];
-  batches?: { name: string; species: string; qty: string; ageAtAcquire: string; cost: string; unitName?: string }[];
-  inventory?: { name: string; category: string; unit: string; qty: string; unitCost: string }[];
-  employees?: { name: string; phone: string; role: string; pin: string }[];
-  mortalityRate?: string; lowStockKg?: string; mortalityPhotoThreshold?: string;
-}
 
 // Thrown for bad/ambiguous input so the outer handler can turn it into a 400
 // instead of the request silently dropping data or crashing with a 500.
@@ -39,7 +32,9 @@ export async function POST(req: Request) {
   if (!session) return unauthorized();
   if (session.role !== 'owner') return forbidden();
   const tid = session.tenantId;
-  const b = (await req.json().catch(() => ({}))) as Body;
+  const parsed = await parseBody(req, setupSchema);
+  if ('error' in parsed) return parsed.error;
+  const b = parsed.data;
   const s = (v: unknown, d = '') => (typeof v === 'string' && v.trim() ? v.trim() : d);
   // Malformed numeric input (e.g. a typo'd acquisition cost) used to silently
   // coerce to 0 via `Number(v) || 0`, quietly zeroing out real values. Now:
@@ -101,7 +96,8 @@ export async function POST(req: Request) {
           id: crypto.randomUUID(), tenantId: tid, unitId, name: s(ba.name), species: s(ba.species, 'unknown'),
           source: 'PURCHASED', acquiredDate: today, ageAtAcquire: n(ba.ageAtAcquire, `batch "${ba.name}" age`),
           initialQty: qty, currentQty: qty,
-          stage: 'GROWING', acquisitionCost: n(ba.cost, `batch "${ba.name}" acquisition cost`), status: 'ACTIVE',
+          stage: 'GROWING', acquisitionCost: n(ba.cost, `batch "${ba.name}" acquisition cost`),
+          acquisitionCostCents: toCents(n(ba.cost, `batch "${ba.name}" acquisition cost`)), status: 'ACTIVE',
         });
         batchNames.add(key);
         summary.batches++;

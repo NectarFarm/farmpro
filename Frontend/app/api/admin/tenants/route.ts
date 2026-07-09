@@ -9,18 +9,30 @@ import { deleteTenantData } from '@/lib/server/tenantAdmin';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { getActivePackages } from '@/lib/server/packagesConfig';
 import { packageFeatures } from '@/lib/packages';
+import { DEFAULT_LIST_LIMIT, MAX_LIMIT } from '@/lib/server/validate';
 import { ok, created, unauthorized, forbidden, badRequest } from '@/lib/server/http';
+import { MIN_PASSWORD_LENGTH } from '@/lib/server/validate';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 
 const sid = (p: string) => `${p}_${crypto.randomUUID().slice(0, 8)}`;
 
 // GET /api/admin/tenants — every farm + plan/features/counts (super_admin only).
-export async function GET() {
+// Supports ?limit=&offset= for pagination; default limit is 2000.
+export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
 
+  const url = new URL(req.url);
+  const limitParam = Number(url.searchParams.get('limit'));
+  const offsetParam = Number(url.searchParams.get('offset'));
+  const limit = limitParam === 0 ? undefined : Math.min(MAX_LIMIT, Math.max(1, limitParam || DEFAULT_LIST_LIMIT));
+  const offset = Number.isFinite(offsetParam) && offsetParam > 0 ? offsetParam : 0;
+
   const [ts, us, bs] = await Promise.all([
-    db.select().from(tenants),
+    db.select().from(tenants).orderBy(tenants.name).limit(limit ?? 1000000).offset(offset),
     db.select({ id: users.id, tenantId: users.tenantId, role: users.role }).from(users),
     db.select({ id: batches.id, tenantId: batches.tenantId }).from(batches),
   ]);
@@ -34,6 +46,8 @@ export async function GET() {
 
 // POST /api/admin/tenants — onboard a new farm: create the tenant + its owner login.
 export async function POST(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
@@ -49,7 +63,9 @@ export async function POST(req: Request) {
 
   if (!farmName || !ownerName || !ownerEmail) return badRequest('Farm name, owner name and owner email are required.');
   if (!ownerEmail.includes('@')) return badRequest('Enter a valid owner email.');
-  if (ownerPassword.length < 8) return badRequest('Owner password must be at least 8 characters.');
+  if (ownerPassword.length < MIN_PASSWORD_LENGTH) {
+    return badRequest(`Owner password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+  }
 
   const [clash] = await db.select({ id: users.id }).from(users).where(eq(users.email, ownerEmail)).limit(1);
   if (clash) return badRequest('That owner email is already in use.');
@@ -86,6 +102,8 @@ export async function POST(req: Request) {
 
 // PATCH /api/admin/tenants?id=... { name?, plan?, features?, active? } (super_admin).
 export async function PATCH(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
@@ -106,6 +124,8 @@ export async function PATCH(req: Request) {
 
 // DELETE /api/admin/tenants?id=... — permanently remove a farm and all its data.
 export async function DELETE(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();

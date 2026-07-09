@@ -9,7 +9,7 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { enterpriseFromSpecies } from './productTemplates';
 import { labourByBatch } from '@/lib/payroll';
-import type { BatchCostSummary, EnterpriseKPIs, DashboardEnterpriseKPIs } from '@/lib/types';
+import type { BatchCostSummary } from '@/lib/types';
 
 // ACTUAL labour cost per batch, from real payroll: each worker's total paid gross
 // (from their payslips) allocated across the batches they're assigned to by head
@@ -29,64 +29,56 @@ export async function batchLabour(tenantId: string): Promise<Record<string, numb
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
-// `batchLabourCost` is this batch's ACTUAL labour-to-date from payroll (via
-// costing.batchLabour), computed by the caller so this function stays query-stable.
-export async function computeBatchCost(
-  tenantId: string,
-  batchId: string,
-  batchLabourCost = 0,
-): Promise<BatchCostSummary | null> {
-  const [batch] = await db.select().from(batches)
-    .where(and(eq(batches.tenantId, tenantId), eq(batches.id, batchId))).limit(1);
-  if (!batch) return null;
+type BatchRow = {
+  id: string;
+  species: string | null;
+  acquisitionCost: number;
+  initialQty: number;
+  currentQty: number;
+  status: string;
+  acquiredDate: string;
+};
 
-  const lots = await db.select().from(inventoryLots).where(eq(inventoryLots.tenantId, tenantId));
-  const lotCost = new Map(lots.map((l) => [l.id, l.unitCost]));
+type CostInputs = {
+  lotCost: Map<string, number>;
+  feedings: { quantityKg: number; lotId: string | null }[];
+  morts: { count: number }[];
+  prod: { type: string; qty: number; weightKg: number | null }[];
+  salesRows: { totalAmount: number; weightKg: number | null }[];
+  healthRows: { quantity: number; productLotId: string | null }[];
+  laborRows: { hours: number; ratePerHour: number }[];
+  totalOverhead: number;
+  totalActiveQty: number;
+  batchLabourCost: number;
+};
 
-  const feedings = await db.select().from(feedingRecords)
-    .where(and(eq(feedingRecords.tenantId, tenantId), eq(feedingRecords.batchId, batchId)));
+/**
+ * Pure cost roll-up for one batch given pre-loaded activity rows.
+ * Shared by single-batch computeBatchCost and bulk dashboard KPIs (avoids N+1).
+ */
+export function summarizeBatchCost(batch: BatchRow, inputs: CostInputs): BatchCostSummary {
+  const { lotCost, feedings, morts, prod, salesRows, healthRows, laborRows,
+    totalOverhead, totalActiveQty, batchLabourCost } = inputs;
+
   let feedKg = 0, feedCost = 0;
   for (const f of feedings) {
     feedKg += f.quantityKg;
     feedCost += f.quantityKg * (lotCost.get(f.lotId ?? '') ?? 0);
   }
 
-  const morts = await db.select().from(mortalityRecords)
-    .where(and(eq(mortalityRecords.tenantId, tenantId), eq(mortalityRecords.batchId, batchId)));
   const deaths = morts.reduce((s, m) => s + m.count, 0);
-
-  const prod = await db.select().from(productionRecords)
-    .where(and(eq(productionRecords.tenantId, tenantId), eq(productionRecords.batchId, batchId)));
   const eggs = prod.filter((p) => p.type.toLowerCase().includes('egg')).reduce((s, p) => s + p.qty, 0);
-
-  const salesRows = await db.select().from(sales)
-    .where(and(eq(sales.tenantId, tenantId), eq(sales.batchId, batchId)));
   const totalRevenue = salesRows.reduce((s, x) => s + x.totalAmount, 0);
 
-  // Output is measured per enterprise: egg layers count eggs; meat/fish/crop
-  // enterprises measure kilograms (harvest weight + weight recorded on sales).
   const enterprise = enterpriseFromSpecies(batch.species || '');
   const isLayer = enterprise === 'layers';
   const producedKg = prod.reduce((s, p) => s + (p.weightKg ?? 0), 0)
     + salesRows.reduce((s, x) => s + (x.weightKg ?? 0), 0);
 
-  const healthRows = await db.select().from(healthRecords)
-    .where(and(eq(healthRecords.tenantId, tenantId), eq(healthRecords.batchId, batchId)));
   const healthCost = healthRows.reduce((s, h) => s + h.quantity * (lotCost.get(h.productLotId ?? '') ?? 0), 0);
-
-  const laborRows = await db.select().from(laborLogs)
-    .where(and(eq(laborLogs.tenantId, tenantId), eq(laborLogs.batchId, batchId)));
   const laborCost = laborRows.reduce((s, l) => s + l.hours * l.ratePerHour, 0);
-
-  // Salaries: this batch's share of ACTUAL payroll disbursed (gross of payslips).
   const salaryCost = Math.max(0, batchLabourCost);
 
-  // Overhead allocated to this batch by population share (driver=population).
-  const overheadRows = await db.select().from(overheads).where(eq(overheads.tenantId, tenantId));
-  const totalOverhead = overheadRows.reduce((s, o) => s + o.amount, 0);
-  const activeBatches = await db.select({ id: batches.id, qty: batches.currentQty, status: batches.status })
-    .from(batches).where(eq(batches.tenantId, tenantId));
-  const totalActiveQty = activeBatches.filter((b) => b.status === 'ACTIVE').reduce((s, b) => s + b.qty, 0);
   const share = totalActiveQty > 0 ? batch.currentQty / totalActiveQty : 0;
   const overheadCost = batch.status === 'ACTIVE' ? totalOverhead * share : 0;
 
@@ -94,8 +86,6 @@ export async function computeBatchCost(
   const grossMargin = totalRevenue - totalCost;
   const mortalityPct = batch.initialQty ? (deaths / batch.initialQty) * 100 : 0;
 
-  // Per-unit cost & FCR are species-aware: layers price per egg with FCR as feed
-  // per dozen; meat/fish/crop price per kg with FCR as feed-kg per kg of output.
   const outputUnit = isLayer ? 'eggs' : 'kg';
   const outputQty = isLayer ? eggs : producedKg;
   const costPerUnit = outputQty > 0 ? totalCost / outputQty : 0;
@@ -103,27 +93,15 @@ export async function computeBatchCost(
     ? (eggs > 0 ? (feedKg / eggs) * 12 : undefined)
     : (producedKg > 0 ? feedKg / producedKg : undefined);
 
-  // Hen-day %: actual eggs collected ÷ (average hens alive × days in cycle).
-  // For layers only. Uses batch.acquiredDate as the cycle start — a reasonable
-  // proxy since layers start laying around 18-20 weeks regardless of when the
-  // batch was acquired. Avoids an extra DB query per batch.
-  // Hen-housed %: total eggs ÷ (initial hens × days) — accounts for mortality.
   let henDayPct: number | undefined;
   let henHousedPct: number | undefined;
   if (isLayer && eggs > 0) {
     const daysInCycle = Math.max(1, Math.floor((Date.now() - new Date(batch.acquiredDate).getTime()) / 86400000));
-    // Average surviving hens = (initial + current) / 2, adjusted for sold.
     const avgHens = Math.max(1, (batch.initialQty + Math.max(0, batch.initialQty - deaths)) / 2);
     henDayPct = Math.min(100, Math.round((eggs / (avgHens * daysInCycle)) * 100));
     henHousedPct = Math.min(100, Math.round((eggs / (batch.initialQty * daysInCycle)) * 100));
   }
 
-  // Headcount accounting separates the three fates of an animal:
-  //   died (mortality), sold (left the farm), or still on the farm (currentQty).
-  //   survivors = initial − died  → the cost of the whole batch (incl. the ones that
-  //   died) is borne by the animals that lived, so cost/animal divides by SURVIVORS,
-  //   never by what's left after sales (that would balloon as you sell).
-  //   Break-even spreads the still-unrecovered cost over the unsold animals only.
   const currentQty = batch.currentQty;
   const survivors = Math.max(0, batch.initialQty - deaths);
   const soldHead = Math.max(0, survivors - currentQty);
@@ -135,7 +113,7 @@ export async function computeBatchCost(
     : 0;
 
   return {
-    batchId,
+    batchId: batch.id,
     acquisitionCost: batch.acquisitionCost,
     feedCost: round(feedCost), healthCost: round(healthCost), laborCost: round(laborCost), salaryCost: round(salaryCost), overheadCost: round(overheadCost),
     totalCost: round(totalCost), totalRevenue: round(totalRevenue), grossMargin: round(grossMargin),
@@ -153,17 +131,123 @@ export async function computeBatchCost(
   };
 }
 
+// `batchLabourCost` is this batch's ACTUAL labour-to-date from payroll (via
+// costing.batchLabour), computed by the caller so this function stays query-stable.
+export async function computeBatchCost(
+  tenantId: string,
+  batchId: string,
+  batchLabourCost = 0,
+): Promise<BatchCostSummary | null> {
+  const [batch] = await db.select().from(batches)
+    .where(and(eq(batches.tenantId, tenantId), eq(batches.id, batchId))).limit(1);
+  if (!batch) return null;
+
+  const lots = await db.select().from(inventoryLots).where(eq(inventoryLots.tenantId, tenantId));
+  const lotCost = new Map(lots.map((l) => [l.id, l.unitCost]));
+
+  const feedings = await db.select().from(feedingRecords)
+    .where(and(eq(feedingRecords.tenantId, tenantId), eq(feedingRecords.batchId, batchId)));
+  const morts = await db.select().from(mortalityRecords)
+    .where(and(eq(mortalityRecords.tenantId, tenantId), eq(mortalityRecords.batchId, batchId)));
+  const prod = await db.select().from(productionRecords)
+    .where(and(eq(productionRecords.tenantId, tenantId), eq(productionRecords.batchId, batchId)));
+  const salesRows = await db.select().from(sales)
+    .where(and(eq(sales.tenantId, tenantId), eq(sales.batchId, batchId)));
+  const healthRows = await db.select().from(healthRecords)
+    .where(and(eq(healthRecords.tenantId, tenantId), eq(healthRecords.batchId, batchId)));
+  const laborRows = await db.select().from(laborLogs)
+    .where(and(eq(laborLogs.tenantId, tenantId), eq(laborLogs.batchId, batchId)));
+  const overheadRows = await db.select().from(overheads).where(eq(overheads.tenantId, tenantId));
+  const totalOverhead = overheadRows.reduce((s, o) => s + o.amount, 0);
+  const activeBatches = await db.select({ id: batches.id, qty: batches.currentQty, status: batches.status })
+    .from(batches).where(eq(batches.tenantId, tenantId));
+  const totalActiveQty = activeBatches.filter((b) => b.status === 'ACTIVE').reduce((s, b) => s + b.qty, 0);
+
+  return summarizeBatchCost(batch, {
+    lotCost,
+    feedings: feedings.map((f) => ({ quantityKg: f.quantityKg, lotId: f.lotId })),
+    morts: morts.map((m) => ({ count: m.count })),
+    prod: prod.map((p) => ({ type: p.type, qty: p.qty, weightKg: p.weightKg })),
+    salesRows: salesRows.map((x) => ({ totalAmount: x.totalAmount, weightKg: x.weightKg })),
+    healthRows: healthRows.map((h) => ({ quantity: h.quantity, productLotId: h.productLotId })),
+    laborRows: laborRows.map((l) => ({ hours: l.hours, ratePerHour: l.ratePerHour })),
+    totalOverhead,
+    totalActiveQty,
+    batchLabourCost,
+  });
+}
+
+// Bulk-loads every activity table for a tenant ONCE and rolls up per-batch costs
+// in memory — shared by the dashboard KPIs, reports, and admin analytics so none
+// of them fall back to N calls of computeBatchCost (one query round-trip per batch).
+export async function computeAllBatchCosts(tenantId: string): Promise<Map<string, BatchCostSummary>> {
+  const [allBatches, morts, salesRows, lots, feedings, allProd, healthRows, laborRows, overheadRows, alloc] =
+    await Promise.all([
+      db.select().from(batches).where(eq(batches.tenantId, tenantId)),
+      db.select().from(mortalityRecords).where(eq(mortalityRecords.tenantId, tenantId)),
+      db.select().from(sales).where(eq(sales.tenantId, tenantId)),
+      db.select().from(inventoryLots).where(eq(inventoryLots.tenantId, tenantId)),
+      db.select().from(feedingRecords).where(eq(feedingRecords.tenantId, tenantId)),
+      db.select().from(productionRecords).where(eq(productionRecords.tenantId, tenantId)),
+      db.select().from(healthRecords).where(eq(healthRecords.tenantId, tenantId)),
+      db.select().from(laborLogs).where(eq(laborLogs.tenantId, tenantId)),
+      db.select().from(overheads).where(eq(overheads.tenantId, tenantId)),
+      batchLabour(tenantId),
+    ]);
+
+  const lotCost = new Map(lots.map((l) => [l.id, l.unitCost]));
+  const totalOverhead = overheadRows.reduce((s, o) => s + o.amount, 0);
+  const totalActiveQty = allBatches.filter((b) => b.status === 'ACTIVE').reduce((s, b) => s + b.currentQty, 0);
+
+  const feedByBatch = groupBy(feedings, (f) => f.batchId);
+  const mortByBatch = groupBy(morts, (m) => m.batchId);
+  const productionByBatch = groupBy(allProd, (p) => p.batchId);
+  const salesByBatch = groupBy(salesRows, (s) => s.batchId);
+  const healthByBatch = groupBy(healthRows, (h) => h.batchId);
+  const laborByBatchMap = groupBy(laborRows, (l) => l.batchId ?? '');
+
+  const out = new Map<string, BatchCostSummary>();
+  for (const b of allBatches) {
+    out.set(b.id, summarizeBatchCost(b, {
+      lotCost,
+      feedings: (feedByBatch.get(b.id) ?? []).map((f) => ({ quantityKg: f.quantityKg, lotId: f.lotId })),
+      morts: (mortByBatch.get(b.id) ?? []).map((m) => ({ count: m.count })),
+      prod: (productionByBatch.get(b.id) ?? []).map((p) => ({ type: p.type, qty: p.qty, weightKg: p.weightKg })),
+      salesRows: (salesByBatch.get(b.id) ?? []).map((x) => ({ totalAmount: x.totalAmount, weightKg: x.weightKg })),
+      healthRows: (healthByBatch.get(b.id) ?? []).map((h) => ({ quantity: h.quantity, productLotId: h.productLotId })),
+      laborRows: (laborByBatchMap.get(b.id) ?? []).map((l) => ({ hours: l.hours, ratePerHour: l.ratePerHour })),
+      totalOverhead,
+      totalActiveQty,
+      batchLabourCost: alloc[b.id] ?? 0,
+    }));
+  }
+  return out;
+}
+
 export async function computeDashboardKPIs(tenantId: string) {
-  const allBatches = await db.select().from(batches).where(eq(batches.tenantId, tenantId));
+  // Bulk-load tenant data once (was N× per-batch computeBatchCost = severe N+1).
+  const [
+    allBatches,
+    morts,
+    salesRows,
+    alertRows,
+    taskRows,
+    batchCosts,
+  ] = await Promise.all([
+    db.select().from(batches).where(eq(batches.tenantId, tenantId)),
+    db.select().from(mortalityRecords).where(eq(mortalityRecords.tenantId, tenantId)),
+    db.select().from(sales).where(eq(sales.tenantId, tenantId)),
+    db.select().from(alerts).where(eq(alerts.tenantId, tenantId)),
+    db.select().from(tasks).where(eq(tasks.tenantId, tenantId)),
+    computeAllBatchCosts(tenantId),
+  ]);
+
   const active = allBatches.filter((b) => b.status === 'ACTIVE');
   const totalBirds = active.reduce((s, b) => s + b.currentQty, 0);
   const initial = allBatches.reduce((s, b) => s + b.initialQty, 0);
-
-  const morts = await db.select().from(mortalityRecords).where(eq(mortalityRecords.tenantId, tenantId));
   const deaths = morts.reduce((s, m) => s + m.count, 0);
-
-  const salesRows = await db.select().from(sales).where(eq(sales.tenantId, tenantId));
   const totalRevenue = salesRows.reduce((s, x) => s + x.totalAmount, 0);
+
   const now = new Date();
   const month = now.toISOString().slice(0, 7);
   const year = month.slice(0, 4);
@@ -174,19 +258,14 @@ export async function computeDashboardKPIs(tenantId: string) {
   const revenueThisYear = sumWhere((d) => d.slice(0, 4) === year);
   const revenueThisQuarter = sumWhere((d) => d.slice(0, 4) === year && Math.floor((Number(d.slice(5, 7)) - 1) / 3) === quarter);
 
-  const alloc = await batchLabour(tenantId);
   let totalCost = 0, fcrSum = 0, fcrN = 0;
   for (const b of allBatches) {
-    const c = await computeBatchCost(tenantId, b.id, alloc[b.id] ?? 0);
+    const c = batchCosts.get(b.id);
     if (!c) continue;
     totalCost += c.totalCost;
     if (b.status === 'ACTIVE' && c.fcr) { fcrSum += c.fcr; fcrN++; }
   }
 
-  const alertRows = await db.select().from(alerts).where(eq(alerts.tenantId, tenantId));
-  const taskRows = await db.select().from(tasks).where(eq(tasks.tenantId, tenantId));
-
-  // Enterprise breakdown: how many batches & animals per enterprise type.
   const enterpriseBreaks: Record<string, { batches: number; animals: number; mortalityPct: number }> = {};
   const entDeaths: Record<string, number> = {};
   const entInitial: Record<string, number> = {};
@@ -200,7 +279,7 @@ export async function computeDashboardKPIs(tenantId: string) {
     entInitial[ent] = (entInitial[ent] ?? 0) + b.initialQty;
   }
   for (const m of morts) {
-    const batch = allBatches.find(b => b.id === m.batchId);
+    const batch = allBatches.find((b) => b.id === m.batchId);
     if (!batch) continue;
     const ent = enterpriseFromSpecies(batch.species || '') || 'other';
     entDeaths[ent] = (entDeaths[ent] ?? 0) + m.count;
@@ -225,4 +304,15 @@ export async function computeDashboardKPIs(tenantId: string) {
     revenueAllTime: Math.round(totalRevenue),
     enterpriseBreaks,
   };
+}
+
+export function groupBy<T>(rows: T[], key: (r: T) => string): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const r of rows) {
+    const k = key(r);
+    const arr = m.get(k);
+    if (arr) arr.push(r);
+    else m.set(k, [r]);
+  }
+  return m;
 }

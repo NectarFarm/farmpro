@@ -41,10 +41,10 @@ export default function WorkerHomePage() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? t('goodMorning') : hour < 17 ? t('goodAfternoon') : t('goodEvening');
 
-  const statusOf = (t: Task) => {
-    if (t.overdue || t.status === 'MISSED') return 'critical';
-    if (t.status === 'DONE') return 'ok';
-    if (new Date(t.dueAt) < new Date()) return 'warning';
+  const statusOf = (task: Task) => {
+    if (task.overdue || task.status === 'MISSED') return 'critical';
+    if (task.status === 'DONE') return 'ok';
+    if (new Date(task.dueAt) < new Date()) return 'warning';
     return 'info';
   };
 
@@ -111,34 +111,34 @@ export default function WorkerHomePage() {
           </div>
         )}
         <div className="flex flex-col gap-2">
-          {tasks.map(t => {
-            const href = t.type === 'morning_round' ? '/worker/record/morning-round'
-              : t.type === 'vaccination' ? '/worker/record/health'
-              : t.type === 'sampling' ? '/worker/record/weight-sampling'
-              : t.type === 'stock_count' ? '/worker/record/physical-count'
+          {tasks.map(task => {
+            const href = task.type === 'morning_round' ? '/worker/record/morning-round'
+              : task.type === 'vaccination' ? '/worker/record/health'
+              : task.type === 'sampling' ? '/worker/record/weight-sampling'
+              : task.type === 'stock_count' ? '/worker/record/physical-count'
               : '/worker/record/feeding';
             return (
-              <div key={t.id} className={`rounded-xl px-4 py-3 border flex items-center gap-3 ${t.overdue || t.status === 'MISSED' ? 'bg-red-50 border-red-300' : t.status === 'DONE' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
-                <span className="text-2xl">{taskIcon(t.type)}</span>
+              <div key={task.id} className={`rounded-xl px-4 py-3 border flex items-center gap-3 ${task.overdue || task.status === 'MISSED' ? 'bg-red-50 border-red-300' : task.status === 'DONE' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                <span className="text-2xl">{taskIcon(task.type)}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900">{t.title}</p>
-                  <p className="text-xs text-gray-500">{new Date(t.dueAt).toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' })}</p>
+                  <p className="font-semibold text-gray-900">{task.title}</p>
+                  <p className="text-xs text-gray-500">{new Date(task.dueAt).toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' })}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <StatusChip status={statusOf(t)} size="sm" label={statusLabel(t)} />
-                  {t.status !== 'DONE' && (
+                  <StatusChip status={statusOf(task)} size="sm" label={statusLabel(task)} />
+                  {task.status !== 'DONE' && (
                     <button
                       onClick={async (e) => {
                         e.preventDefault();
                         try {
-                          await fetch(`/api/data/tasks?id=${encodeURIComponent(t.id)}`, {
+                          await fetch(`/api/data/tasks?id=${encodeURIComponent(task.id)}`, {
                             method: 'PATCH',
                             credentials: 'include',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ status: 'DONE' }),
                           });
                           // Optimistic update: mark as done in the local state
-                          setTasks(prev => prev.map(tk => tk.id === t.id ? { ...tk, status: 'DONE' } : tk));
+                          setTasks(prev => prev.map(tk => tk.id === task.id ? { ...tk, status: 'DONE' } : tk));
                         } catch { /* silently fail — the next refresh will correct it */ }
                       }}
                       className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 active:bg-green-800"
@@ -146,7 +146,7 @@ export default function WorkerHomePage() {
                       {t('done')}
                     </button>
                   )}
-                  {t.status !== 'DONE' && (
+                  {task.status !== 'DONE' && (
                     <Link href={href} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-200">
                       {t('open')}
                     </Link>

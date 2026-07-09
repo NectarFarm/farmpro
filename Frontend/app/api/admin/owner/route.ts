@@ -5,6 +5,8 @@ import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { ok, unauthorized, forbidden, badRequest, notFound } from '@/lib/server/http';
+import { MIN_PASSWORD_LENGTH } from '@/lib/server/validate';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 
 // Manage a farm's owner login (super_admin): fix typos, change email/phone, reset password.
 async function ownerOf(tenantId: string) {
@@ -13,6 +15,8 @@ async function ownerOf(tenantId: string) {
 }
 
 export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
@@ -25,6 +29,8 @@ export async function GET(req: Request) {
 
 // PATCH /api/admin/owner?tenantId=... { name?, email?, phone?, newPassword? }
 export async function PATCH(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
@@ -45,7 +51,9 @@ export async function PATCH(req: Request) {
     patch.email = email;
   }
   if (typeof body.newPassword === 'string' && body.newPassword.length > 0) {
-    if (body.newPassword.length < 8) return badRequest('Password must be at least 8 characters.');
+    if (body.newPassword.length < MIN_PASSWORD_LENGTH) {
+      return badRequest(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    }
     patch.passwordHash = await hashSecret(body.newPassword);
   }
   if (Object.keys(patch).length === 0) return badRequest('Nothing to update.');

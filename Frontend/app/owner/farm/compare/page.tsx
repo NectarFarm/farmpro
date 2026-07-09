@@ -72,7 +72,7 @@ export default function BatchComparePage() {
 
   const getVal = (cost: BatchCostSummary | null | undefined, key: string): number | undefined | null => {
     if (!cost) return null;
-    return (cost as Record<string, unknown>)[key] as number | undefined;
+    return (cost as unknown as Record<string, unknown>)[key] as number | undefined;
   };
 
   if (!loaded) return <div className="p-6 text-gray-400">Loading…</div>;

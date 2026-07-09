@@ -4,13 +4,17 @@ import { and, eq, desc } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { ok, badRequest, unauthorized, forbidden, notFound } from '@/lib/server/http';
+import { parseBody, physicalCountSchema } from '@/lib/server/validate';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
 
 // GET /api/physical-counts — pending (unreconciled) head counts for the owner to act on,
 // newest first, with the batch name for display.
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
@@ -28,15 +32,17 @@ export async function GET() {
 //          delta, write an audit row, and mark the count reconciled.
 // dismiss→ just mark it reconciled (keep the system count).
 export async function POST(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
 
-  const body = (await req.json().catch(() => ({}))) as { action?: string; id?: string };
-  const id = (body.id ?? '').trim();
+  const parsed = await parseBody(req, physicalCountSchema);
+  if ('error' in parsed) return parsed.error;
+  const body = parsed.data;
+  const id = body.id;
   const action = body.action;
-  if (!id) return badRequest('id required');
-  if (action !== 'apply' && action !== 'dismiss') return badRequest("action must be 'apply' or 'dismiss'.");
 
   const [count] = await db.select().from(physicalCounts)
     .where(and(eq(physicalCounts.tenantId, session.tenantId), eq(physicalCounts.clientUuid, id))).limit(1);

@@ -1,40 +1,47 @@
-# AI Coding Guide for Vibe Next (Pure Template)
+# AI Coding Guide for IFMS
 
-This document provides instructions for AI agents on how to contribute to this project. Follow these principles strictly to ensure consistency and maintainability.
+Conventions for humans and agents working on this codebase. Prefer
+[`ARCHITECTURE_ACTUAL.md`](./ARCHITECTURE_ACTUAL.md) over older Django docs.
 
 ## Core Principles
 
-1.  **Predictability**: Use established patterns only. Do not invent new ways of doing things.
-2.  **Composability**: Build modular components. Keep logic in services, not in UI components.
-3.  **No "Any"**: Always use strong typing. Generate types from DB schema or API responses.
+1. **Security first** — tenant isolation and field permissions are server-side only.
+2. **Predictability** — extend existing patterns (`lib/server/*`, `app/api/*`, Drizzle).
+3. **Composability** — put domain logic in `lib/server`, not in giant page components.
+4. **No silent data loss** — validate loudly; use transactions for multi-write flows.
 
 ## Directory Structure
 
-- `/db`: Database schema (`schema.ts`) and client (`index.ts`). **Start here for new features.**
-- `/lib/services`: Server-side business logic. API routes should call these.
-- `/lib`: Core utilities (`request.ts`, `env.ts`, `errors.ts`, `logger.ts`).
-- `/app/api`: Next.js Route Handlers. Use `handleApiError`.
-- `/types`: Shared TypeScript definitions.
+- `db/` — Drizzle client + `schemas/index.ts`. New tables + migrations go here.
+- `lib/server/` — Domain modules (sales, costing, inventory, media, session, …).
+- `lib/api/` — Client facade (`NEXT_PUBLIC_USE_REAL_API` switches mock vs real).
+- `lib/offline/` — Dexie queue + sync flush for workers.
+- `app/api/` — Route Handlers: auth, CRUD, sync, admin.
+- `app/{owner,worker,manager,vet,auditor,admin}/` — Role UIs.
+- `tests/unit` + `tests/integration` — Vitest.
 
 ## Coding Standards
 
-### 1. Database
-- Define tables in `db/schema.ts`.
-- Use `db` export from `@/db` for queries.
+### Database
+- Every tenant-owned row carries `tenant_id`.
+- Prefer migrations under `drizzle/` (do not hand-edit production without a migration).
+- Money: still `doublePrecision` for pilot; use `lib/server/money.ts` helpers for new math.
 
-### 2. API Routes
-- Return a standardized structure (or just the data if success).
-- Use `handleApiError(error)` in `catch` blocks.
-- Prefer `NextResponse.json()`.
+### API routes
+- Always `getSession()`; never trust client-sent `tenantId`.
+- Use helpers from `lib/server/http.ts` (`ok`, `badRequest`, `unauthorized`, …).
+- Rate-limit writes (`checkWriteRateLimit`) on mutating endpoints.
+- Validate bodies (Zod in `lib/server/validate.ts` where practical).
 
-### 3. Data Fetching
-- **Server Components**: Call database services directly.
-- **Client Components**: Use `apiClient` from `@/lib/request`.
+### Domain
+- Sales → `createSale()` (atomic).
+- Photos → `validatePhotoDataUrl()` before insert.
+- Costing pure core → `summarizeBatchCost()`; bulk KPIs avoid N+1.
 
-### 4. UI & Feedback
-- Use `sonner` for toast notifications.
-- Use `shadcn/ui` patterns for components.
-- Use `react-hook-form` + `zod` for all forms.
+### UI
+- `sonner` toasts; shadcn under `components/ui/`.
+- Prefer `lib/api` over raw `fetch` in screens when a facade method exists.
+- i18n via `lib/i18n` (`en` / `sw`).
 
 ## Providing Feedback
-Always inform the user when an action succeeds or fails using `toast()`.
+Inform the user on success/failure with `toast()` for interactive owner/worker flows.

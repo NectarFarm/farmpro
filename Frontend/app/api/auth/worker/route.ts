@@ -5,6 +5,7 @@ import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
 import { checkLoginRateLimit } from '@/lib/server/rateLimit';
 import { ok, badRequest, unauthorized, serviceUnavailable, tooMany } from '@/lib/server/http';
+import { parseBody, workerLoginSchema } from '@/lib/server/validate';
 
 const BAD_CREDS = 'Wrong phone number or PIN.';
 
@@ -16,8 +17,9 @@ export async function POST(req: Request) {
     return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
   }
   try {
-    const { phone, pin } = (await req.json().catch(() => ({}))) as { phone?: string; pin?: string };
-    if (!phone || !pin) return badRequest('Enter your phone number and PIN.');
+    const parsed = await parseBody(req, workerLoginSchema);
+    if ('error' in parsed) return parsed.error;
+    const { phone, pin } = parsed.data;
 
     let user;
     try {

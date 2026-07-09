@@ -4,6 +4,8 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { ok, badRequest, unauthorized, forbidden, notFound } from '@/lib/server/http';
+import { parseBody, conflictResolveSchema } from '@/lib/server/validate';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
@@ -11,7 +13,9 @@ const ALLOWED: Role[] = ['owner', 'manager'];
 // GET /api/conflicts — sync edit-conflicts still awaiting the owner's review. Two
 // workers recorded the same day's production for a batch; the server kept one
 // (last-write-wins) and logged the loser. The owner can accept or override.
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
@@ -29,16 +33,18 @@ export async function GET() {
 // kept_mine/kept_server → OVERRIDE: set the surviving production record's quantity to
 // the chosen version, then mark reviewed. Idempotent-safe (reviewed guards re-apply).
 export async function POST(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
   const tid = session.tenantId;
 
-  const body = (await req.json().catch(() => ({}))) as { id?: string; resolution?: string };
-  const id = (body.id ?? '').trim();
-  const resolution = body.resolution ?? 'accept';
-  if (!id) return badRequest('id required');
-  if (!['accept', 'kept_mine', 'kept_server'].includes(resolution)) return badRequest('bad resolution');
+  const parsed = await parseBody(req, conflictResolveSchema);
+  if ('error' in parsed) return parsed.error;
+  const body = parsed.data;
+  const id = body.id;
+  const resolution = body.resolution;
 
   const [c] = await db.select().from(conflictLog).where(and(eq(conflictLog.tenantId, tid), eq(conflictLog.id, id))).limit(1);
   if (!c) return notFound();

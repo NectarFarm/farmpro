@@ -5,7 +5,8 @@ import {
   users, workerProfiles, employees, productionUnits, batches, inventoryItems, inventoryLots,
   tasks, alerts, sales, purchases, records, conflictLog, feedingRecords, mortalityRecords,
   productionRecords, healthRecords, laborLogs, overheads, alertRules, products, photos,
-  closingStockCounts, feedFormulas, testRuns, testPhotos,
+  closingStockCounts, feedFormulas, testRuns, testPhotos, auditorLinks, payslips, employeeLedger,
+  physicalCounts, weightSamples, observations, lifecycleStages, batchStageEvents,
 } from '@/db/schemas';
 
 // Every tenant-scoped table (all carry tenant_id). The tenants row itself is
@@ -16,7 +17,8 @@ const TENANT_TABLES = [
   feedingRecords, mortalityRecords, productionRecords, healthRecords, laborLogs, closingStockCounts,
   feedFormulas, records, conflictLog, alerts, alertRules, tasks, sales, purchases,
   products, photos, inventoryLots, inventoryItems, overheads, batches, productionUnits,
-  employees, workerProfiles, testRuns, testPhotos, users,
+  employees, workerProfiles, testRuns, testPhotos, users, auditorLinks, payslips, employeeLedger,
+  physicalCounts, weightSamples, observations, lifecycleStages, batchStageEvents,
 ];
 
 // Permanently remove all data belonging to a tenant (irreversible).

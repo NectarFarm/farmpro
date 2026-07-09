@@ -4,6 +4,8 @@ import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { ok, badRequest, unauthorized, forbidden, notFound } from '@/lib/server/http';
+import { parseBody, batchAdvanceSchema } from '@/lib/server/validate';
+import { writeRateLimited } from '@/lib/server/rateLimit';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
@@ -13,15 +15,18 @@ const ALLOWED: Role[] = ['owner', 'manager'];
 // adjusting the head count for the move (e.g. 120 eggs → 98 chicks, or transfer loss).
 // Keeps both unit occupancies in step, records a transition event, and audits it.
 export async function POST(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
   const tid = session.tenantId;
 
-  const body = (await req.json().catch(() => ({}))) as { batchId?: string; toStage?: string; toUnitId?: string; newQty?: unknown; note?: string };
-  const batchId = (body.batchId ?? '').trim();
-  const toStage = (body.toStage ?? '').trim();
-  if (!batchId || !toStage) return badRequest('batchId and toStage required');
+  const parsed = await parseBody(req, batchAdvanceSchema);
+  if ('error' in parsed) return parsed.error;
+  const body = parsed.data;
+  const batchId = body.batchId;
+  const toStage = body.toStage;
 
   const [batch] = await db.select({ id: batches.id, unitId: batches.unitId, currentQty: batches.currentQty, stage: batches.stage })
     .from(batches).where(and(eq(batches.tenantId, tid), eq(batches.id, batchId))).limit(1);

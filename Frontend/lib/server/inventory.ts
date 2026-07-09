@@ -10,11 +10,11 @@ const round3 = (n: number) => Math.round(n * 1000) / 1000;
 // How many BASE units of a HARVESTED OUTPUT (eggs, pork-by-weight, fish, maize,
 // manure…) are still available to sell: everything collected/harvested
 // (production records) minus everything already sold (in base units).
-export async function productAvailability(tenantId: string, batchId: string, productName: string) {
+export async function productAvailability(tenantId: string, batchId: string, productName: string, client: DbClient = db) {
   const name = productName.toLowerCase();
   const [prod, sld] = await Promise.all([
-    db.select().from(productionRecords).where(and(eq(productionRecords.tenantId, tenantId), eq(productionRecords.batchId, batchId))),
-    db.select().from(sales).where(and(eq(sales.tenantId, tenantId), eq(sales.batchId, batchId))),
+    client.select().from(productionRecords).where(and(eq(productionRecords.tenantId, tenantId), eq(productionRecords.batchId, batchId))),
+    client.select().from(sales).where(and(eq(sales.tenantId, tenantId), eq(sales.batchId, batchId))),
   ]);
   const produced = prod.filter((p) => p.type.toLowerCase() === name).reduce((s, p) => s + p.qty, 0);
   const sold = sld.filter((x) => x.productType.toLowerCase() === name).reduce((s, x) => s + (x.baseQty ?? x.quantity), 0);
@@ -55,6 +55,7 @@ export async function sellableStock(
   tenantId: string,
   batch: BatchLike,
   product: ProductLike,
+  client: DbClient = db,
 ): Promise<SellableStock> {
   if (product.isAnimalProduct) {
     if ((product.baseUnit ?? 'head') === 'head') {
@@ -63,7 +64,7 @@ export async function sellableStock(
     const avg = liveWeightFor(batch);
     return { basis: 'biomass', available: avg > 0 ? round3(Math.max(0, batch.currentQty) * avg) : 0, avgWeightKg: avg };
   }
-  const a = await productAvailability(tenantId, batch.id, product.name);
+  const a = await productAvailability(tenantId, batch.id, product.name, client);
   return { basis: 'harvested', available: a.available, produced: a.produced, sold: a.sold };
 }
 

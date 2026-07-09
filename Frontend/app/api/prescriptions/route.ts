@@ -4,7 +4,9 @@ import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { vetAssignedBatchIds } from '@/lib/server/resources';
 import { ok, created, unauthorized, forbidden, badRequest } from '@/lib/server/http';
+import { parseBody, prescriptionSchema } from '@/lib/server/validate';
 import { audit, actorLabel } from '@/lib/server/audit';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 
 // Vet-only: prescribe a treatment for a batch. Writes a real healthRecords row
 // (type: 'PRESCRIPTION') so it shows up in the batch's health timeline and feeds
@@ -15,6 +17,8 @@ import { audit, actorLabel } from '@/lib/server/audit';
 // GET /api/prescriptions?batchId=<id> — a vet's own prescriptions for a batch
 // (owner/manager can also read, for the health timeline / withdrawal check).
 export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!['owner', 'manager', 'vet', 'auditor'].includes(session.role)) return forbidden();
@@ -43,26 +47,22 @@ export async function GET(req: Request) {
 
 // POST /api/prescriptions — create a prescription/advisory note for a batch.
 export async function POST(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'vet') return forbidden();
 
-  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  const s = (v: unknown, d = '') => (typeof v === 'string' ? v : d);
-  const batchId = s(body.batchId);
-  const product = s(body.product).trim();
-  const dose = Number(body.dose) || 0;
-  const route = s(body.route).trim();
-  const notes = s(body.notes).trim();
-  const withdrawalDays = body.withdrawal != null && s(body.withdrawal) !== ''
-    ? Math.max(0, Math.round(Number(body.withdrawal)))
-    : null;
-  // Optional: the vet may reference a specific inventory lot (e.g. dispensing from
-  // stock on hand). Most prescriptions are a free-text treatment with no lot.
-  const productLotId = body.productLotId ? s(body.productLotId) : null;
-
-  if (!batchId) return badRequest('batchId required');
-  if (!product) return badRequest('product/treatment required');
+  const parsed = await parseBody(req, prescriptionSchema);
+  if ('error' in parsed) return parsed.error;
+  const body = parsed.data;
+  const batchId = body.batchId;
+  const product = body.product;
+  const dose = body.dose;
+  const route = body.route;
+  const notes = body.notes;
+  const withdrawalDays = body.withdrawal ?? null;
+  const productLotId = body.productLotId ?? null;
 
   // Verify the batch belongs to this tenant.
   const [batch] = await db.select({ id: batches.id, tenantId: batches.tenantId }).from(batches)

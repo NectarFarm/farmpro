@@ -1,15 +1,10 @@
-// API facade. Screens import from here (not from lib/mock/api directly).
-// Flag NEXT_PUBLIC_USE_REAL_API=true → endpoint-backed reads hit the real Route
-// Handlers (Postgres, tenant-scoped, field-permission filtered). Off (default) →
-// identical to the mock, so the demo is unchanged and zero-risk.
-import * as mock from '@/lib/mock/api';
+// API facade. Every call routes through the real Next.js Route Handlers
+// (Postgres, tenant-scoped, field-permission filtered). No mock mode.
 import { uuid } from '@/lib/uuid';
 import type {
   ProductionUnit, Batch, InventoryItem, InventoryLot, Task, Alert, Sale, Purchase,
   Employee, WorkerProfile, User, BatchCostSummary, Product, HealthRecord,
 } from '@/lib/types';
-
-const USE_REAL = process.env.NEXT_PUBLIC_USE_REAL_API === 'true';
 
 // Rural/mobile connections can hang indefinitely with no error and no retry
 // prompt. Every fetch below is bounded so a stalled request surfaces as a
@@ -65,11 +60,7 @@ async function patchJSON<T>(url: string, body: unknown): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-// Real implementations for every endpoint-backed call. With USE_REAL on, nothing
-// falls through to the mock — the spread only seeds the object shape; every member
-// below is overridden so the running app is 100% live (Postgres, tenant-scoped).
-const realApi: typeof mock.api = {
-  ...mock.api,
+const api = {
   getUnits: () => getJSON<ProductionUnit[]>('/api/data/units'),
   getBatches: () => getJSON<Batch[]>('/api/data/batches'),
   getBatch: (id: string) =>
@@ -87,8 +78,10 @@ const realApi: typeof mock.api = {
     postJSON<{ id: string }>('/api/data/worker-profiles', data),
   updateWorkerProfile: async (id: string, data: Record<string, unknown>) =>
     patchJSON<{ id: string }>(`/api/data/worker-profiles?id=${encodeURIComponent(id)}`, data),
-  getSales: () => getJSON<Sale[]>('/api/data/sales'),
-  getPurchases: () => getJSON<Purchase[]>('/api/data/purchases'),
+  // limit=0 opts out of the route's default row cap — finance totals must sum
+  // every row, not a truncated page (app/api/data/[resource]/route.ts).
+  getSales: () => getJSON<Sale[]>('/api/data/sales?limit=0'),
+  getPurchases: () => getJSON<Purchase[]>('/api/data/purchases?limit=0'),
   recordSale: async (data: Record<string, unknown>) =>
     postJSON<{ id: string; status: string }>('/api/data/sales', data),
   // Purchases have their own route (it creates an inventory LOT + the purchase row);
@@ -119,49 +112,44 @@ const realApi: typeof mock.api = {
     postJSON<{ accepted: number; conflicts: never[] }>('/api/sync', { records }),
 };
 
-export const api = USE_REAL ? realApi : mock.api;
+export { api };
 
-export const loginOwner = USE_REAL
-  ? async (email: string, password: string) => {
-      const { user } = await postJSON<{ user: User }>('/api/auth/owner', { email, password });
-      return { access: 'session', refresh: 'session', user };
-    }
-  : mock.loginOwner;
+export const loginOwner = async (email: string, password: string) => {
+  const { user } = await postJSON<{ user: User }>('/api/auth/owner', { email, password });
+  return { access: 'session', refresh: 'session', user };
+};
 
-export const loginWorker = USE_REAL
-  ? async (phone: string, pin: string) => {
-      const { user } = await postJSON<{ user: User }>('/api/auth/worker', { phone, pin });
-      return { access: 'session', refresh: 'session', user };
-    }
-  : mock.loginWorker;
+export const loginWorker = async (phone: string, pin: string) => {
+  const { user } = await postJSON<{ user: User }>('/api/auth/worker', { phone, pin });
+  return { access: 'session', refresh: 'session', user };
+};
 
 // Products a batch yields (eggs/pork/manure…) with priced sale units.
-export const getProducts: (batchId?: string) => Promise<Product[]> = USE_REAL
-  ? (batchId?: string) => getJSON<Product[]>(`/api/products${batchId ? `?batchId=${encodeURIComponent(batchId)}` : ''}`)
-  : (batchId?: string) => mock.api.getProducts(batchId);
+export const getProducts = async (batchId?: string) =>
+  getJSON<Product[]>(`/api/products${batchId ? `?batchId=${encodeURIComponent(batchId)}` : ''}`);
 
-export const createProduct: (data: Record<string, unknown>) => Promise<{ id: string }> = USE_REAL
-  ? (data) => postJSON<{ id: string }>('/api/products', data)
-  : (data) => mock.api.createProduct(data);
+export const createProduct = async (data: Record<string, unknown>) =>
+  postJSON<{ id: string }>('/api/products', data);
 
-export const updateProduct: (id: string, data: Record<string, unknown>) => Promise<{ id: string }> = USE_REAL
-  ? (id, data) => patchJSON<{ id: string }>(`/api/products?id=${encodeURIComponent(id)}`, data)
-  : (id, data) => mock.api.updateProduct(id, data);
+export const updateProduct = async (id: string, data: Record<string, unknown>) =>
+  patchJSON<{ id: string }>(`/api/products?id=${encodeURIComponent(id)}`, data);
 
-// Layout-only (not a security boundary — server already strips fields). Mock for now.
-export const getWorkerProfile = mock.getWorkerProfile;
+// Worker profile is layout-only (not a security boundary — server already strips fields).
+// Retrieve the tenant's default profile for the current user.
+export const getWorkerProfile = async (profileId: string) =>
+  getJSON<WorkerProfile>(`/api/data/worker-profiles?id=${encodeURIComponent(profileId)}`);
 
-// Costing KPIs — real endpoint when enabled; always async (Promise) so callers
-// can await regardless of mode.
-export const getDashboardKPIs: () => Promise<ReturnType<typeof mock.getDashboardKPIs>> = USE_REAL
-  ? () => getJSON<ReturnType<typeof mock.getDashboardKPIs>>('/api/dashboard/kpis')
-  : () => Promise.resolve(mock.getDashboardKPIs());
+// Costing KPIs — real endpoint.
+export const getDashboardKPIs = () =>
+  getJSON<{
+    activeBatches: number; totalBirds: number; mortalityPct: number; avgFCR: number;
+    grossMargin: number; pendingAlerts: number; taskCompletionPct: number;
+    revenueThisMonth: number; revenueThisQuarter: number; revenueThisYear: number; revenueAllTime: number;
+  }>('/api/dashboard/kpis');
 
-// Chart series — real endpoints when enabled; always async so callers await.
-export const getProductionChartData: () => Promise<ReturnType<typeof mock.getProductionChartData>> = USE_REAL
-  ? () => getJSON<ReturnType<typeof mock.getProductionChartData>>('/api/charts/production')
-  : () => Promise.resolve(mock.getProductionChartData());
+// Chart series — real endpoints.
+export const getProductionChartData = () =>
+  getJSON<{ data: Record<string, string | number>[]; products: string[] }>('/api/charts/production');
 
-export const getCumulativeChartData: (batchId: string) => Promise<ReturnType<typeof mock.getCumulativeChartData>> = USE_REAL
-  ? (batchId: string) => getJSON<ReturnType<typeof mock.getCumulativeChartData>>(`/api/charts/cumulative?batchId=${encodeURIComponent(batchId)}`)
-  : (batchId: string) => Promise.resolve(mock.getCumulativeChartData(batchId));
+export const getCumulativeChartData = (batchId: string) =>
+  getJSON<{ day: number; cost: number; revenue: number }[]>(`/api/charts/cumulative?batchId=${encodeURIComponent(batchId)}`);

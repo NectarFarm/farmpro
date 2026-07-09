@@ -5,9 +5,12 @@ import { getSession } from '@/lib/server/session';
 import { ok, badRequest, unauthorized, forbidden } from '@/lib/server/http';
 import { freshRun, progress, summarize, normalizeSteps, type TestStep } from '@/lib/testing';
 import { getActiveSteps, saveActiveSteps } from '@/lib/server/testingConfig';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 
 // GET /api/admin/testing — every farm's testing status + the latest report.
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
@@ -34,6 +37,8 @@ export async function GET() {
 
 // POST /api/admin/testing  { action: 'enable'|'disable'|'request' (+tenantId) | 'save-steps' (+steps) }
 export async function POST(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();

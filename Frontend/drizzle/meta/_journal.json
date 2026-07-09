@@ -183,6 +183,27 @@
       "when": 1783587165373,
       "tag": "0025_health_records_prescription_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783938000000,
+      "tag": "0026_security_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783609700000,
+      "tag": "0027_photo_storage_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783610000000,
+      "tag": "0028_money_cents",
+      "breakpoints": true
     }
   ]
 }

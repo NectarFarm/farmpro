@@ -2,12 +2,15 @@ import { db } from '@/db';
 import { tenants, users, batches, sales, mortalityRecords, feedingRecords, productionRecords, auditLog, records } from '@/db/schemas';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
-import { computeBatchCost, batchLabour } from '@/lib/server/costing';
+import { computeAllBatchCosts } from '@/lib/server/costing';
 import { enterpriseFromSpecies } from '@/lib/server/productTemplates';
 import { ok, unauthorized, forbidden, badRequest } from '@/lib/server/http';
+import { readRateLimited } from '@/lib/server/rateLimit';
 
 // GET /api/admin/tenants/analytics?id=... — detailed analytics for a single farm.
 export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
@@ -57,14 +60,14 @@ export async function GET(req: Request) {
   const totalInitial = allBatches.reduce((s, b) => s + b.initialQty, 0);
   const mortalityPct = totalInitial > 0 ? Math.round((totalDeaths / totalInitial) * 10000) / 100 : 0;
 
-  // Cost summary per batch (compute for all active batches)
-  const alloc = await batchLabour(id);
+  // Cost summary per batch — one bulk-loaded pass instead of a per-batch query
+  // round-trip (computeAllBatchCosts already groups every activity table in memory).
+  const costs = await computeAllBatchCosts(id);
   const batchSummaries: Record<string, unknown>[] = [];
   let totalCost = 0;
   let fcrSum = 0, fcrN = 0;
   for (const b of allBatches) {
-    let cost;
-    try { cost = await computeBatchCost(id, b.id, alloc[b.id] ?? 0); } catch { /* skip */ }
+    const cost = costs.get(b.id);
     if (!cost) continue;
     totalCost += cost.totalCost;
     if (b.status === 'ACTIVE' && cost.fcr) { fcrSum += cost.fcr; fcrN++; }

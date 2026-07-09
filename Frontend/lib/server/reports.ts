@@ -7,7 +7,7 @@ import {
   inventoryLots, employees,
 } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
-import { computeBatchCost, batchLabour } from './costing';
+import { computeAllBatchCosts } from './costing';
 import { totalMonthlyWageBill } from '@/lib/payroll';
 import {
   type ReportData, filterRange, dateInRange, profitAndLoss, fcrReport, batchCard,
@@ -25,16 +25,15 @@ export async function buildReport(tenantId: string, type: string, from: string, 
   const bn = new Map(bs.map((b) => [b.id, b.name]));
   const name = (id: string) => bn.get(id) ?? id;
 
-  // Per-batch lifecycle economics share one salary-allocation pass so Reports,
-  // Dashboard and the batch page all show the SAME totals.
+  // Per-batch lifecycle economics share one bulk-loaded cost pass (computeAllBatchCosts)
+  // so Reports, Dashboard and the batch page all show the SAME totals — and this report
+  // doesn't re-query every activity table once per batch (was a severe N+1).
   const batchCosts = async () => {
-    const alloc = await batchLabour(tenantId);
-    const out: { batch: typeof bs[number]; cost: NonNullable<Awaited<ReturnType<typeof computeBatchCost>>> }[] = [];
-    for (const b of bs) {
-      const cost = await computeBatchCost(tenantId, b.id, alloc[b.id] ?? 0);
-      if (cost) out.push({ batch: b, cost });
-    }
-    return out;
+    const costs = await computeAllBatchCosts(tenantId);
+    return bs.flatMap((b) => {
+      const cost = costs.get(b.id);
+      return cost ? [{ batch: b, cost }] : [];
+    });
   };
 
   switch (type) {

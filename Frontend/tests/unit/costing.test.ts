@@ -306,40 +306,76 @@ describe('computeBatchCost — labour from actual payroll', () => {
 });
 
 describe('computeDashboardKPIs', () => {
-  it('computes KPIs across all batches', async () => {
+  it('computes KPIs across all batches (bulk load, not N+1)', async () => {
+    // Promise.all fires many selects; mock every from() chain to return empty/safe rows.
+    // batches must return the three test batches whenever queried (dashboard + batchLabour).
+    const batchRows = [
+      makeBatch({ id: 'b1', status: 'ACTIVE', currentQty: 100, initialQty: 100 }),
+      makeBatch({ id: 'b2', status: 'ACTIVE', currentQty: 50, initialQty: 55 }),
+      makeBatch({ id: 'b3', status: 'CLOSED', currentQty: 0, initialQty: 80 }),
+    ];
+    mockDbSelect.mockImplementation(() => ({
+      from: vi.fn((table: unknown) => {
+        // Heuristic: if the table object looks like batches (has name via drizzle internals
+        // is hard). Always return batchRows for the first where that needs batches-shaped
+        // data, empty for others — KPIs only need batch ids/qty for the totals asserted.
+        const where = vi.fn(() => {
+          const p = Promise.resolve([]) as Promise<unknown[]> & { limit?: ReturnType<typeof vi.fn> };
+          p.limit = vi.fn(() => Promise.resolve([]));
+          return p;
+        });
+        // Always resolve batches-shaped data when caller expects many fields — simpler:
+        // return batchRows for any select that isn't filtered to empty. The dashboard
+        // reduces activeBatches/totalBirds from allBatches only.
+        return {
+          where: vi.fn(() => {
+            // batchLabour and dashboard both select from batches — return batchRows.
+            // Other tables: empty. Distinguishing tables in mocks is fragile; return
+            // batchRows only when result items look needed — use call count.
+            return Promise.resolve(batchRows);
+          }),
+        };
+      }),
+    }));
+
+    // More precise: alternate by call order matching Promise.all + batchLabour internals.
+    mockDbSelect.mockReset();
+    const empty = mockChain('empty', []);
+    const batchesChain = mockChain('batches', batchRows);
+    // computeDashboardKPIs's own Promise.all: batches, morts, sales, alerts, tasks,
+    // then computeAllBatchCosts(tenantId) — which synchronously fires its own
+    // Promise.all (batches, morts, sales, lots, feedings, prod, health, labor,
+    // overhead, batchLabour(tenantId)), and batchLabour in turn fires its own
+    // Promise.all (emps, batches, slips). All of these are built (and their
+    // db.select() calls issued) synchronously before anything awaits, so the
+    // mock call order is exactly this depth-first sequence.
     mockDbSelect
-      .mockReturnValueOnce(mockChain('batches', [
-        makeBatch({ id: 'b1', status: 'ACTIVE', currentQty: 100, initialQty: 100 }),
-        makeBatch({ id: 'b2', status: 'ACTIVE', currentQty: 50, initialQty: 55 }),
-        makeBatch({ id: 'b3', status: 'CLOSED', currentQty: 0, initialQty: 80 }),
-      ]));
-
-    for (let i = 0; i < 20; i++) {
-      mockDbSelect.mockReturnValueOnce(mockChain('lots', []));
-      mockDbSelect.mockReturnValueOnce(mockChain('feedings', []));
-      mockDbSelect.mockReturnValueOnce(mockChain('morts', []));
-      mockDbSelect.mockReturnValueOnce(mockChain('prods', []));
-      mockDbSelect.mockReturnValueOnce(mockChain('sales', []));
-      mockDbSelect.mockReturnValueOnce(mockChain('health', []));
-      mockDbSelect.mockReturnValueOnce(mockChain('labor', []));
-      mockDbSelect.mockReturnValueOnce(mockChain('overhead', []));
-      mockDbSelect.mockReturnValueOnce(mockChain('batches2', []));
-    }
-
-    mockDbSelect.mockReturnValueOnce(mockChain('morts', []));
-    mockDbSelect.mockReturnValueOnce(mockChain('sales', []));
-    mockDbSelect.mockReturnValueOnce(mockChain('alerts', []));
-    mockDbSelect.mockReturnValueOnce(mockChain('tasks', []));
+      // computeDashboardKPIs: batches, morts, sales, alerts, tasks
+      .mockReturnValueOnce(batchesChain)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      // computeAllBatchCosts: batches, morts, sales, lots, feedings, prod, health, labor, overhead
+      .mockReturnValueOnce(batchesChain)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(empty)
+      // batchLabour: emps, batches, slips
+      .mockReturnValueOnce(empty)
+      .mockReturnValueOnce(batchesChain)
+      .mockReturnValueOnce(empty);
 
     const result = await computeDashboardKPIs('t1');
-    // Values derived directly from the batch set — assert the numbers, not just
-    // that keys exist (a toHaveProperty-only test passes even when every value is NaN).
-    expect(result.activeBatches).toBe(2);           // b1 + b2 ACTIVE; b3 CLOSED excluded
-    expect(result.totalBirds).toBe(150);            // 100 + 50 live head in active batches
-    expect(result.mortalityPct).toBe(0);            // no mortality records → 0%
-    expect(result.revenueThisMonth).toBe(0);        // no sales → 0
-    // Every KPI must be a finite number — guards against NaN/Infinity regressions.
-    // enterpriseBreaks is an object (not a number), so skip it in the numeric check.
+    expect(result.activeBatches).toBe(2);
+    expect(result.totalBirds).toBe(150);
+    expect(result.mortalityPct).toBe(0);
+    expect(result.revenueThisMonth).toBe(0);
     for (const [k, v] of Object.entries(result)) {
       if (k === 'enterpriseBreaks') continue;
       expect(typeof v).toBe('number');

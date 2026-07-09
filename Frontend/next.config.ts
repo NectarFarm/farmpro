@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   turbopack: {},
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   env: {
     PROJECT_ID: process.env.HAPPYSEEDS_PROJECT_ID ?? '',

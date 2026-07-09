@@ -3,6 +3,9 @@ import { inventoryItems, inventoryLots, feedFormulas } from '@/db/schemas';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, created, unauthorized, forbidden, badRequest, notFound } from '@/lib/server/http';
+import { parseBody, feedMixCreateSchema, feedMixUpdateSchema } from '@/lib/server/validate';
+import { toCents } from '@/lib/server/money';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
@@ -10,6 +13,8 @@ const ALLOWED: Role[] = ['owner', 'manager'];
 // PATCH /api/feed-mix?id=... { name?, components? } — edit a saved recipe in place.
 // Recomputes the recipe's cost from current ingredient prices; does NOT consume stock.
 export async function PATCH(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
@@ -18,7 +23,9 @@ export async function PATCH(req: Request) {
   const [formula] = await db.select().from(feedFormulas).where(and(eq(feedFormulas.tenantId, session.tenantId), eq(feedFormulas.id, id))).limit(1);
   if (!formula) return notFound('Recipe not found.');
 
-  const body = (await req.json().catch(() => ({}))) as { name?: string; components?: { itemId: string; kg: number }[] };
+  const parsed = await parseBody(req, feedMixUpdateSchema);
+  if ('error' in parsed) return parsed.error;
+  const body = parsed.data;
   const name = (body.name ?? formula.name).trim();
   const components = (body.components ?? formula.components).filter((c) => c.itemId && Number(c.kg) > 0);
   if (!name) return badRequest('Recipe name required.');
@@ -32,12 +39,15 @@ export async function PATCH(req: Request) {
     totalCost += Number(c.kg) * avg;
   }
   const unitCost = totalKg > 0 ? Math.round((totalCost / totalKg) * 100) / 100 : 0;
-  await db.update(feedFormulas).set({ name, components, totalKg, unitCost }).where(and(eq(feedFormulas.tenantId, session.tenantId), eq(feedFormulas.id, id)));
+  await db.update(feedFormulas).set({ name, components, totalKg, unitCost, unitCostCents: toCents(unitCost) })
+    .where(and(eq(feedFormulas.tenantId, session.tenantId), eq(feedFormulas.id, id)));
   return ok({ id, unitCost, totalKg });
 }
 
 // GET /api/feed-mix — saved formulas (recipes), newest first, so they can be reused.
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
@@ -48,6 +58,8 @@ export async function GET() {
 
 // DELETE /api/feed-mix?id=... — remove a saved formula (does not undo past mixes).
 export async function DELETE(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
@@ -60,15 +72,17 @@ export async function DELETE(req: Request) {
 // POST /api/feed-mix  { name, components: [{ itemId, kg }] }
 // Consumes ingredient lots (FIFO), produces a finished-feed lot with rolled-up cost.
 export async function POST(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
 
-  const body = (await req.json().catch(() => ({}))) as { name?: string; components?: { itemId: string; kg: number }[] };
-  const name = (body.name ?? '').trim();
-  const components = (body.components ?? []).filter((c) => c.itemId && Number(c.kg) > 0);
-  if (!name) return badRequest('formula name required');
-  if (!components.length) return badRequest('at least one ingredient required');
+  const parsed = await parseBody(req, feedMixCreateSchema);
+  if ('error' in parsed) return parsed.error;
+  const body = parsed.data;
+  const name = body.name;
+  const components = body.components.filter((c) => c.itemId && c.kg > 0);
 
   let totalKg = 0;
   let totalCost = 0;
@@ -120,12 +134,14 @@ export async function POST(req: Request) {
   const lotId = crypto.randomUUID();
   await db.insert(inventoryLots).values({
     id: lotId, tenantId: session.tenantId, itemId, lotNo: `MIX-${now.slice(0, 10)}-${lotId.slice(0, 4)}`,
-    qtyOnHand: totalKg, unit: 'kg', unitCost: Math.round(unitCost * 100) / 100, receivedDate: now.slice(0, 10),
+    qtyOnHand: totalKg, unit: 'kg', unitCost: Math.round(unitCost * 100) / 100,
+    unitCostCents: toCents(Math.round(unitCost * 100) / 100), receivedDate: now.slice(0, 10),
   });
 
+  const roundedUnitCost = Math.round(unitCost * 100) / 100;
   await db.insert(feedFormulas).values({
     id: crypto.randomUUID(), tenantId: session.tenantId, name, components, totalKg,
-    unitCost: Math.round(unitCost * 100) / 100, createdAt: now,
+    unitCost: roundedUnitCost, unitCostCents: toCents(roundedUnitCost), createdAt: now,
   });
 
   return created({ itemId, lotId, totalKg, unitCost: Math.round(unitCost * 100) / 100 });

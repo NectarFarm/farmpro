@@ -2,6 +2,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { getServerEnv } from '@/lib/env';
 import { signToken, verifyToken } from './crypto';
+import { isSessionRevoked, revokeSessionJti } from './sessionRevoke';
 import type { Role } from '@/lib/types';
 
 export const SESSION_COOKIE = 'ifms_session';
@@ -14,12 +15,15 @@ export interface Session {
   workerProfileId?: string;
   name: string;
   exp: number;
+  /** Unique token id — used for server-side revoke on logout. */
+  jti?: string;
 }
 
-export async function createSession(s: Omit<Session, 'exp'>): Promise<void> {
+export async function createSession(s: Omit<Session, 'exp' | 'jti'>): Promise<void> {
   const { SESSION_SECRET, COOKIE_SECURE } = getServerEnv();
   const exp = Math.floor(Date.now() / 1000) + MAX_AGE;
-  const token = await signToken({ ...s, exp }, SESSION_SECRET);
+  const jti = crypto.randomUUID();
+  const token = await signToken({ ...s, exp, jti }, SESSION_SECRET);
   const jar = await cookies();
   jar.set(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -38,10 +42,20 @@ export async function getSession(): Promise<Session | null> {
   const session = await verifyToken<Session>(token, SESSION_SECRET);
   if (!session) return null;
   if (session.exp * 1000 < Date.now()) return null;
+  // Older cookies may lack jti — still valid until they expire; new logins always have one.
+  if (session.jti && (await isSessionRevoked(session.jti))) return null;
   return session;
 }
 
 export async function clearSession(): Promise<void> {
+  const { SESSION_SECRET } = getServerEnv();
   const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value;
+  if (token) {
+    const session = await verifyToken<Session>(token, SESSION_SECRET);
+    if (session?.jti && session.exp) {
+      await revokeSessionJti(session.jti, session.userId, session.exp);
+    }
+  }
   jar.delete(SESSION_COOKIE);
 }

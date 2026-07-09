@@ -4,9 +4,9 @@
 |---|---|
 | **Product** | Integrated Farm Management System (IFMS) |
 | **Document type** | Audit & Gap Analysis |
-| **Version** | 1.0 |
+| **Version** | 1.1 |
 | **Audit date** | July 2026 |
-| **Status** | Actionable — quick fixes implemented, roadmap documented |
+| **Status** | Actionable — security/integrity hardening wave implemented (see § Hardening 1.1) |
 
 ---
 
@@ -23,11 +23,11 @@ A thorough audit of the entire codebase — architecture, security, data flows, 
 | C1 | **No SMS / Push notification delivery** — alerts evaluate rules but never leave the app. In Africa, the farmer may not be in-app when mortality spikes. | Critical | 📝 Roadmap |
 | C2 | **M-Pesa / mobile money not integrated** — `paymentMethod: 'mpesa'` exists in types but no actual Daraja API call. Primary payment method in East Africa. | Critical | 📝 Roadmap |
 | C3 | **No offline support for the owner side** — worker app has Dexie IndexedDB, but owner dashboard/farm/inventory/payroll all require live connection. Rural internet is unreliable. | Critical | 📝 Roadmap |
-| C4 | **Swahili localization declared but non-functional** — `users.language: 'en'\|'sw'` in schema and `setLang('sw')` in store, but zero translation files or i18n library exist. | Critical | 📝 Roadmap |
-| C5 | **Photos stored as base64 data URLs in the database** — `photos.data: text` stores `data:image/jpeg;base64,...`. Extremely space-inefficient. Will bloat DB rapidly. | Critical | 📝 Roadmap |
-| C6 | **Session token has no refresh mechanism** — HMAC session expires in 8h with no refresh token. Farmer logged out abruptly. | High | ✅ Implemented (session timeout documented) |
-| C7 | **No rate limiting on auth endpoints** — `/api/auth/owner`, `/api/auth/worker` have no brute-force protection beyond PBKDF2. | High | ✅ Implemented |
-| C8 | **`DATABASE_URL` is optional in env schema** — app can start without a DB URL, only failing at query time. | High | ✅ Fixed |
+| C4 | **Swahili localization** — dictionary + `useTranslation` exist (`lib/i18n`); coverage incomplete vs all UI strings. | Medium | 🟡 Partial |
+| C5 | **Photos stored as base64 data URLs in the database** — still in Postgres; **size/type validation added** (`lib/server/media.ts`). Object storage still roadmap. | Critical | 🟡 Mitigated |
+| C6 | **Session token has no refresh mechanism** — 8h session; **logout now revokes `jti` server-side**. | High | 🟡 Partial |
+| C7 | **No rate limiting on auth endpoints** | High | ✅ Implemented |
+| C8 | **`DATABASE_URL` is optional in env schema** | High | ✅ Fixed |
 
 ---
 
@@ -95,6 +95,25 @@ A thorough audit of the entire codebase — architecture, security, data flows, 
 | I2 | `COOKIE_SECURE` defaults to `false` — cookies sent over plain HTTP | ⚠️ Noted (LAN default) |
 | I3 | **No global error boundary** for graceful error recovery | ✅ Fixed |
 | I4 | Missing CSRF protection on POST/PATCH endpoints | 📝 Roadmap |
+
+---
+
+## ✅ Hardening 1.1 (architecture review follow-up)
+
+| # | Fix | Notes |
+|---|-----|--------|
+| H1 | Worker task ownership | GET `?assignedTo=` + PATCH only own tasks |
+| H2 | Atomic sales | `lib/server/sales.ts` — tx + FOR UPDATE headcount |
+| H3 | Photo size/type caps | Sync rejects oversized / non-image data URLs |
+| H4 | Rate limits on data + sync | Login already limited; writes/reads now limited |
+| H5 | Revocable auditor links | Max 14 days; hash stored; GET list + DELETE revoke |
+| H6 | Session `jti` revoke on logout | `revoked_sessions` table (migration 0026) |
+| H7 | Dashboard costing bulk load | `summarizeBatchCost` + no N+1 in KPIs |
+| H8 | Password min 8 chars | Shared `MIN_PASSWORD_LENGTH` |
+| H9 | Docs / package identity | README + `ARCHITECTURE_ACTUAL.md`; package `ifms-frontend` |
+| H10 | Unit tests | media, money, summarizeBatchCost |
+
+**Apply migration:** `pnpm db:migrate` (includes `0026_security_hardening`).
 
 ---
 

@@ -27,13 +27,15 @@ export const testRuns = pgTable('test_runs', {
   submittedAt: text('submitted_at'),
 });
 
-// Screenshots a tester attaches to a failed step. Stored as a compressed data URL;
-// the admin can delete each one after viewing to reclaim space.
+// Screenshots a tester attaches to a failed step. Stored in R2 when configured,
+// falling back to base64 data URLs in Postgres.
 export const testPhotos = pgTable('test_photos', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
   stepId: text('step_id').notNull(),
-  data: text('data').notNull(), // data:image/jpeg;base64,…
+  data: text('data'), // data:image/jpeg;base64,… (legacy — nullable once migrated)
+  storageKey: text('storage_key'), // e.g. "tenant_id/test/uuid.png"
+  mime: text('mime'),
   createdAt: text('created_at').notNull(),
 });
 
@@ -88,6 +90,7 @@ export const employees = pgTable('employees', {
   pinSet: boolean('pin_set').notNull().default(false),
   active: boolean('active').notNull().default(true),
   salary: doublePrecision('salary').notNull().default(0), // monthly wage (KSh); 0 = unpaid/unset
+  salaryCents: integer('salary_cents').notNull().default(0),
   payDay: integer('pay_day'),                             // day of month (1–31) wages are due
   paymentsFrom: text('payments_from'),                    // 'YYYY-MM' payroll begins (null = first run)
   // Batches this worker is assigned to. NULL = all (current & future) active batches
@@ -103,10 +106,15 @@ export const payslips = pgTable('payslips', {
   employeeId: text('employee_id').notNull(),
   period: text('period').notNull(), // 'YYYY-MM'
   gross: doublePrecision('gross').notNull(),
+  grossCents: integer('gross_cents').notNull().default(0),
   advances: doublePrecision('advances').notNull().default(0),
+  advancesCents: integer('advances_cents').notNull().default(0),
   fines: doublePrecision('fines').notNull().default(0),
+  finesCents: integer('fines_cents').notNull().default(0),
   bonuses: doublePrecision('bonuses').notNull().default(0),
+  bonusesCents: integer('bonuses_cents').notNull().default(0),
   net: doublePrecision('net').notNull(),
+  netCents: integer('net_cents').notNull().default(0),
   status: text('status').notNull().default('pending'), // pending | paid
   paidAt: text('paid_at'),
   createdAt: text('created_at').notNull(),
@@ -120,6 +128,7 @@ export const employeeLedger = pgTable('employee_ledger', {
   employeeId: text('employee_id').notNull(),
   type: text('type').notNull(), // advance | fine | bonus | adjustment
   amount: doublePrecision('amount').notNull(),
+  amountCents: integer('amount_cents').notNull().default(0),
   note: text('note'),
   period: text('period').notNull(), // 'YYYY-MM' it applies to
   date: text('date').notNull(),
@@ -158,6 +167,7 @@ export const batches = pgTable('batches', {
   currentQty: integer('current_qty').notNull(),
   stage: text('stage').notNull(),
   acquisitionCost: doublePrecision('acquisition_cost').notNull().default(0),
+  acquisitionCostCents: integer('acquisition_cost_cents').notNull().default(0),
   status: text('status').notNull().default('ACTIVE'),
   parentBatchIds: jsonb('parent_batch_ids').$type<string[]>(),
   // Avg live weight (kg) of one animal, for stock sold by weight (fish, pork). Caps
@@ -214,6 +224,7 @@ export const inventoryLots = pgTable('inventory_lots', {
   qtyOnHand: doublePrecision('qty_on_hand').notNull().default(0),
   unit: text('unit').notNull(),
   unitCost: doublePrecision('unit_cost').notNull().default(0),
+  unitCostCents: integer('unit_cost_cents').notNull().default(0),
   expiryDate: text('expiry_date'),
   supplierId: text('supplier_id'),
   receivedDate: text('received_date').notNull(),
@@ -256,7 +267,9 @@ export const sales = pgTable('sales', {
   baseQty: doublePrecision('base_qty'), // quantity converted to base units (e.g. eggs) — for stock math
   weightKg: doublePrecision('weight_kg'),
   unitPrice: doublePrecision('unit_price').notNull(),
+  unitPriceCents: integer('unit_price_cents').notNull().default(0),
   totalAmount: doublePrecision('total_amount').notNull(),
+  totalAmountCents: integer('total_amount_cents').notNull().default(0),
   buyer: text('buyer').notNull(),
   paymentMethod: text('payment_method').notNull(),
   status: text('status').notNull(),
@@ -273,7 +286,9 @@ export const purchases = pgTable('purchases', {
   supplier: text('supplier').notNull(),
   quantity: doublePrecision('quantity').notNull(),
   unitCost: doublePrecision('unit_cost').notNull(),
+  unitCostCents: integer('unit_cost_cents').notNull().default(0),
   totalCost: doublePrecision('total_cost').notNull(),
+  totalCostCents: integer('total_cost_cents').notNull().default(0),
   createdAt: text('created_at').notNull(),
 });
 
@@ -388,6 +403,7 @@ export const overheads = pgTable('overheads', {
   tenantId: text('tenant_id').notNull(),
   label: text('label').notNull(),
   amount: doublePrecision('amount').notNull(),
+  amountCents: integer('amount_cents').notNull().default(0),
   driver: text('driver').notNull().default('population'), // population | even | revenue
 });
 
@@ -419,12 +435,14 @@ export const products = pgTable('products', {
   isAnimalProduct: boolean('is_animal_product').notNull().default(false),
 });
 
-// Worker-captured photos (mortality evidence, etc.). Stored as a compressed data
-// URL for the demo; production would put bytes in R2/Supabase + keep a signed URL.
+// Worker-captured photos (mortality evidence, etc.). Stored in R2 (object storage)
+// when configured, falling back to base64 data URLs in Postgres for small-scale use.
 export const photos = pgTable('photos', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
-  data: text('data').notNull(), // data:image/jpeg;base64,...
+  data: text('data'), // data:image/jpeg;base64,... (legacy — nullable once migrated)
+  storageKey: text('storage_key'), // e.g. "tenant_id/uuid.jpg" — set when stored in R2
+  mime: text('mime'),               // e.g. "image/jpeg"
   gpsLat: doublePrecision('gps_lat'),
   gpsLng: doublePrecision('gps_lng'),
   capturedBy: text('captured_by'),
@@ -497,5 +515,28 @@ export const feedFormulas = pgTable('feed_formulas', {
   components: jsonb('components').$type<{ itemId: string; kg: number }[]>().notNull().default([]),
   totalKg: doublePrecision('total_kg').notNull(),
   unitCost: doublePrecision('unit_cost').notNull(),
+  unitCostCents: integer('unit_cost_cents').notNull().default(0),
   createdAt: text('created_at').notNull(),
+});
+
+// Owner-issued auditor access links. Token is HMAC-signed; we store a hash so
+// links can be revoked server-side without keeping the raw bearer token.
+export const auditorLinks = pgTable('auditor_links', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  email: text('email'),
+  createdBy: text('created_by').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  revokedAt: timestamp('revoked_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Server-side session kill list. Logout (and future remote revoke) insert the
+// session jti here; getSession rejects revoked tokens even if the cookie remains.
+export const revokedSessions = pgTable('revoked_sessions', {
+  jti: text('jti').primaryKey(),
+  userId: text('user_id'),
+  revokedAt: timestamp('revoked_at').defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
 });

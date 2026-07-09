@@ -1,0 +1,414 @@
+import 'server-only';
+import { z, type ZodTypeAny } from 'zod';
+import { badRequest } from './http';
+
+/**
+ * Parse a JSON request body with a Zod schema.
+ * Returns either `{ data }` or a ready-to-return NextResponse (400).
+ */
+export async function parseBody<T extends ZodTypeAny>(
+  req: Request,
+  schema: T,
+): Promise<{ data: z.infer<T> } | { error: ReturnType<typeof badRequest> }> {
+  let raw: unknown;
+  try {
+    raw = await req.json();
+  } catch {
+    return { error: badRequest('Invalid JSON body.') };
+  }
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    const msg = result.error.issues.map((i) => i.message).join('; ') || 'Invalid request.';
+    return { error: badRequest(msg) };
+  }
+  return { data: result.data };
+}
+
+// ── Shared fragments ──────────────────────────────────────────────────────
+
+export const zNonEmpty = z.string().trim().min(1);
+export const zPositiveNumber = z.number().finite().positive();
+export const zNonNegNumber = z.number().finite().min(0);
+export const zUuidLike = z.string().min(8).max(64);
+export const zDateString = z.string().regex(/^\d{4}-\d{2}-\d{2}(T|$)/, 'Expected ISO date string (YYYY-MM-DD or ISO)');
+export const zYearMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Expected YYYY-MM format');
+export const zPin = z.string().regex(/^\d{4,6}$/, 'PIN must be 4–6 digits.');
+export const zPhone = z.string().trim().min(6).max(20);
+export const zRole = z.enum(['worker', 'manager', 'vet']);
+export const zPayDay = z.number().int().min(1).max(31).nullable().optional();
+export const zSaleUnit = z.object({
+  name: z.string().min(1),
+  perBase: z.number().positive(),
+  price: z.number().min(0),
+});
+export const zStatus = z.enum(['ASSIGNED', 'IN_PROGRESS', 'DONE', 'MISSED', 'SKIPPED']);
+
+export const MIN_PASSWORD_LENGTH = 8;
+
+// Default pagination bounds for list endpoints. Callers pass `?limit=N` to
+// override; `?limit=0` opts into an explicit unbounded fetch (only for callers
+// that genuinely need all rows, e.g. admin exports or totals).
+export const DEFAULT_LIST_LIMIT = 2000;
+export const MAX_LIMIT = 5000;
+
+// ── Sync schemas (already in use) ─────────────────────────────────────────
+
+export const syncRecordSchema = z.object({
+  clientUuid: z.string().min(8).max(64),
+  type: z.string().min(1).max(64),
+  payload: z.record(z.unknown()).optional().default({}),
+  capturedAt: z.string().min(4).max(40).optional(),
+});
+
+export const syncBodySchema = z.object({
+  records: z.array(syncRecordSchema).max(200),
+});
+
+// ── POST /api/data/<resource> schemas ──────────────────────────────────────
+
+export const createUnitSchema = z.object({
+  name: zNonEmpty,
+  type: z.string().optional().default('HOUSE'),
+  capacity: zPositiveNumber.optional().default(0),
+  species: z.string().optional().nullable(),
+});
+
+export const createBatchSchema = z.object({
+  name: zNonEmpty,
+  unitId: zNonEmpty,
+  qty: zNonNegNumber.optional(),
+  quantity: zNonNegNumber.optional(),
+  acquiredDate: z.string().optional(),
+  species: z.string().optional().default('unknown'),
+  enterprise: z.string().optional().nullable(),
+  breed: z.string().optional().nullable(),
+  source: z.string().optional().default('PURCHASED'),
+  cost: zNonNegNumber.optional(),
+  acquisitionCost: zNonNegNumber.optional(),
+  ageAtAcquire: zNonNegNumber.optional().default(0),
+  stage: z.string().optional(),
+});
+
+export const createSaleSchema = z.object({
+  batchId: zNonEmpty,
+  quantity: zNonNegNumber,
+  unitPrice: zNonNegNumber,
+  productId: z.string().optional(),
+  productType: z.string().optional(),
+  unitName: z.string().optional(),
+  weightKg: z.number().nullable().optional(),
+  buyer: z.string().optional(),
+  paymentMethod: z.string().optional(),
+});
+
+export const createEmployeeSchema = z.object({
+  name: zNonEmpty,
+  phone: zPhone,
+  role: zRole.optional().default('worker'),
+  workerProfileId: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  pin: z.union([zPin, z.literal('')]).optional().default(''),
+  password: z.string().min(0).optional().default(''),
+  salary: zNonNegNumber.optional().default(0),
+  payDay: zPayDay.optional(),
+  paymentsFrom: zYearMonth.optional().nullable(),
+  assignedBatchIds: z.array(z.string()).nullable().optional(),
+});
+
+export const createTaskSchema = z.object({
+  assignedTo: zNonEmpty,
+  title: zNonEmpty,
+  description: z.string().optional().nullable(),
+  type: z.string().optional().default('custom'),
+  unitId: z.string().optional().nullable(),
+  batchId: z.string().optional().nullable(),
+  scheduledFor: z.string().optional(),
+  dueAt: z.string().optional(),
+});
+
+export const createWorkerProfileSchema = z.object({
+  name: z.string().optional().default('New Profile'),
+  description: z.string().optional().nullable(),
+});
+
+// ── PATCH /api/data/<resource> schemas ─────────────────────────────────────
+
+export const updateWorkerProfileSchema = z.object({
+  fields: z.array(z.unknown()).optional(),
+  mortalityPhotoThreshold: z.number().int().min(0).optional(),
+  name: z.string().optional(),
+});
+
+export const updateEmployeeSchema = z.object({
+  name: z.string().optional(),
+  role: zRole.optional(),
+  active: z.boolean().optional(),
+  salary: z.number().optional(),
+  payDay: zPayDay.optional(),
+  paymentsFrom: zYearMonth.optional().nullable(),
+  assignedBatchIds: z.array(z.string()).nullable().optional(),
+  workerProfileId: z.string().nullable().optional(),
+  pin: z.union([zPin, z.literal('')]).optional().default(''),
+  password: z.string().min(0).optional().default(''),
+  email: z.string().email().optional().nullable(),
+});
+
+export const updateAlertSchema = z.object({
+  acknowledged: z.boolean().default(true),
+});
+
+export const updateItemSchema = z.object({
+  name: z.string().optional(),
+  unit: z.string().optional(),
+  lowStockThreshold: z.number().min(0).optional(),
+});
+
+export const updateLotSchema = z.object({
+  qtyOnHand: z.number().min(0).optional(),
+  unitCost: z.number().min(0).optional(),
+});
+
+export const updateTaskSchema = z.object({
+  status: zStatus.optional(),
+});
+
+// ── Other API route schemas ────────────────────────────────────────────────
+
+export const purchaseSchema = z.object({
+  itemId: z.string().optional(),
+  itemName: z.string().optional(),
+  unit: z.string().optional().default('kg'),
+  category: z.string().optional().default('CONSUMABLE'),
+  quantity: zPositiveNumber,
+  unitCost: zNonNegNumber,
+  supplier: z.string().optional().default('Supplier'),
+  withdrawalDays: zPositiveNumber.optional().nullable(),
+});
+
+export const feedMixCreateSchema = z.object({
+  name: zNonEmpty,
+  components: z
+    .array(z.object({ itemId: zNonEmpty, kg: zPositiveNumber }))
+    .min(1, 'At least one ingredient is required.'),
+});
+
+export const feedMixUpdateSchema = z.object({
+  name: z.string().optional(),
+  components: z
+    .array(z.object({ itemId: zNonEmpty, kg: zPositiveNumber }))
+    .min(1, 'At least one ingredient is required.')
+    .optional(),
+});
+
+export const batchAdvanceSchema = z.object({
+  batchId: zNonEmpty,
+  toStage: zNonEmpty,
+  toUnitId: z.string().optional(),
+  newQty: z.number().min(0).optional(),
+  note: z.string().optional().nullable(),
+});
+
+export const productCreateSchema = z.object({
+  batchId: zNonEmpty,
+  name: zNonEmpty,
+  baseUnit: z.string().optional().default('unit'),
+  collectFrequency: z.enum(['daily', 'weekly', 'monthly', 'per_cycle']).optional().default('per_cycle'),
+  flow: z.enum(['sale', 'expense']).optional().default('sale'),
+  saleUnits: z.array(zSaleUnit).optional().default([{ name: 'Unit', perBase: 1, price: 0 }]),
+  isAnimalProduct: z.boolean().optional().default(false),
+});
+
+export const productUpdateSchema = z.object({
+  name: z.string().optional(),
+  collectFrequency: z.enum(['daily', 'weekly', 'monthly', 'per_cycle']).optional(),
+  baseUnit: z.string().optional(),
+  saleUnits: z.array(zSaleUnit).optional(),
+  active: z.boolean().optional(),
+  isAnimalProduct: z.boolean().optional(),
+});
+
+export const prescriptionSchema = z.object({
+  batchId: zNonEmpty,
+  product: zNonEmpty,
+  dose: z.number().min(0).optional().default(0),
+  route: z.string().optional().default(''),
+  notes: z.string().optional().default(''),
+  withdrawal: z.number().int().min(0).nullable().optional(),
+  productLotId: z.string().optional().nullable(),
+});
+
+export const payrollActionSchema = z.object({
+  action: z.enum(['run', 'pay', 'ledger', 'deleteLedger']),
+  period: zYearMonth.optional(),
+  employeeId: z.string().optional(),
+  type: z.enum(['advance', 'fine', 'bonus', 'adjustment']).optional(),
+  amount: z.number().optional(),
+  note: z.string().optional().nullable(),
+  ledgerId: z.string().optional(),
+  clientUuid: z.string().optional().nullable(),
+});
+
+export const testingActionSchema = z.object({
+  action: z.enum(['start', 'step', 'photo', 'submit']),
+  id: z.string().optional(),
+  stepId: z.string().optional(),
+  status: z.enum(['pass', 'fail', 'pending']).optional(),
+  note: z.string().optional(),
+  data: z.string().optional(),
+});
+
+// ── Sync payload schemas ────────────────────────────────────────────────────
+// These validate the `payload` field of each sync record type. Previously the
+// handlers parsed fields ad-hoc with num()/str() helpers — now they get typed,
+// validated data upfront with clear error messages.
+
+export const feedingPayloadSchema = z.object({
+  batchId: z.string().optional().default(''),
+  feedItemId: z.string().optional().nullable(),
+  lotId: z.string().optional().nullable(),
+  quantityKg: z.number().finite().min(0).optional().default(0),
+});
+
+export const mortalityPayloadSchema = z.object({
+  batchId: z.string().optional().default(''),
+  unitId: z.string().optional().nullable(),
+  count: z.number().int().min(0).optional().default(0),
+  cause: z.string().optional().nullable(),
+  photo: z.string().optional().nullable(),
+  photoId: z.string().optional().nullable(),
+  gpsLat: z.number().optional().nullable(),
+  gpsLng: z.number().optional().nullable(),
+});
+
+export const healthPayloadSchema = z.object({
+  batchId: z.string().optional().default(''),
+  type: z.string().optional().default('VACCINE'),
+  productLotId: z.string().optional().nullable(),
+  lotId: z.string().optional().nullable(),
+  quantity: z.number().finite().min(0).optional().default(1),
+  dose: z.number().finite().min(0).optional().default(1),
+});
+
+export const closingStockPayloadSchema = z.object({
+  itemId: z.string().optional().default(''),
+  closingQty: z.number().finite().min(0).optional().default(0),
+});
+
+export const productionPayloadSchema = z.object({
+  batchId: z.string().optional().default(''),
+  type: z.string().optional().default('eggs'),
+  qty: z.number().finite().min(0).optional(),
+  eggs: z.number().finite().min(0).optional(),
+  count: z.number().finite().min(0).optional(),
+  weightKg: z.number().optional().nullable(),
+});
+
+export const weightSamplePayloadSchema = z.object({
+  batchId: z.string().optional().nullable(),
+  avgWeightKg: z.number().optional().default(0),
+  sampleSize: z.number().int().min(0).optional().nullable(),
+});
+
+export const physicalCountPayloadSchema = z.object({
+  batchId: z.string().optional().nullable(),
+  unitId: z.string().optional().nullable(),
+  systemCount: z.number().optional().default(0),
+  physicalCount: z.number().optional().default(0),
+  variance: z.number().optional(),
+  reason: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+export const morningRoundEntrySchema = z.object({
+  batchId: z.string().optional(),
+  unitId: z.string().optional().nullable(),
+  eggsCollected: z.number().optional().default(0),
+  feedItemId: z.string().optional().nullable(),
+  feedUsed: z.number().optional().default(0),
+  waterLevel: z.string().optional().nullable(),
+  waterColour: z.string().optional().nullable(),
+  tempC: z.number().optional().nullable(),
+  doMgL: z.number().optional().nullable(),
+  ph: z.number().optional().nullable(),
+  ammonia: z.number().optional().nullable(),
+  abnormal: z.boolean().optional().default(false),
+  abnormalNote: z.string().optional().nullable(),
+});
+
+export const morningRoundPayloadSchema = z.object({
+  entries: z.array(morningRoundEntrySchema).optional().default([]),
+});
+
+// ── Auth schemas ────────────────────────────────────────────────────────────
+
+export const loginSchema = z.object({
+  identifier: z.string().trim().min(1, 'Identifier is required.'),
+  secret: z.string().min(1, 'Secret is required.'),
+});
+
+export const workerLoginSchema = z.object({
+  phone: z.string().trim().min(1, 'Phone is required.'),
+  pin: z.string().min(1, 'PIN is required.'),
+});
+
+export const ownerLoginSchema = z.object({
+  email: z.string().trim().email('Invalid email format.').min(1, 'Email is required.'),
+  password: z.string().min(1, 'Password is required.'),
+});
+
+export const conflictResolveSchema = z.object({
+  id: zNonEmpty,
+  resolution: z.enum(['accept', 'kept_mine', 'kept_server']).default('accept'),
+});
+
+export const physicalCountSchema = z.object({
+  action: z.enum(['apply', 'dismiss']),
+  id: zNonEmpty,
+});
+
+export const auditorLinkSchema = z.object({
+  email: z.string().email().optional(),
+  days: z.number().int().min(1).max(14).optional(),
+});
+
+export const setupSchema = z.object({
+  farmName: z.string().optional(),
+  farmLocation: z.string().optional(),
+  units: z
+    .array(z.object({
+      name: zNonEmpty,
+      type: z.string().optional().default('HOUSE'),
+      capacity: z.string().optional(),
+    }))
+    .optional(),
+  batches: z
+    .array(z.object({
+      name: zNonEmpty,
+      species: z.string().optional().default('unknown'),
+      qty: z.string().optional(),
+      ageAtAcquire: z.string().optional(),
+      cost: z.string().optional(),
+      unitName: z.string().optional(),
+    }))
+    .optional(),
+  inventory: z
+    .array(z.object({
+      name: zNonEmpty,
+      category: z.string().optional().default('CONSUMABLE'),
+      unit: z.string().optional().default('kg'),
+      qty: z.string().optional(),
+      unitCost: z.string().optional(),
+    }))
+    .optional(),
+  employees: z
+    .array(z.object({
+      name: zNonEmpty,
+      phone: zPhone,
+      role: z.string().optional().default('worker'),
+      pin: z.string().optional(),
+    }))
+    .optional(),
+  mortalityRate: z.string().optional(),
+  lowStockKg: z.string().optional(),
+  mortalityPhotoThreshold: z.string().optional(),
+});

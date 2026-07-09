@@ -5,6 +5,7 @@ import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
 import { checkLoginRateLimit } from '@/lib/server/rateLimit';
 import { ok, badRequest, unauthorized, serviceUnavailable, forbidden, tooMany } from '@/lib/server/http';
+import { parseBody, loginSchema } from '@/lib/server/validate';
 import type { Role } from '@/lib/types';
 
 // Unified login: one form for everyone. The DB record decides the role — the
@@ -20,10 +21,11 @@ export async function POST(req: Request) {
     return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
   }
   try {
-    const body = (await req.json().catch(() => ({}))) as { identifier?: string; secret?: string };
-    const identifier = (body.identifier ?? '').trim();
-    const secret = body.secret ?? '';
-    if (!identifier || !secret) return badRequest('Enter your email or phone, and your password or PIN.');
+    const parsed = await parseBody(req, loginSchema);
+    if ('error' in parsed) return parsed.error;
+    const body = parsed.data;
+    const identifier = body.identifier.trim();
+    const secret = body.secret;
 
     let user;
     try {

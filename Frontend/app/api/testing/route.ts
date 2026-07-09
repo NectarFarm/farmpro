@@ -3,11 +3,14 @@ import { tenants, testRuns, testPhotos } from '@/db/schemas';
 import { and, eq, inArray } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, created, badRequest, unauthorized, forbidden } from '@/lib/server/http';
+import { parseBody, testingActionSchema } from '@/lib/server/validate';
+import { isStorageConfigured, uploadPhoto } from '@/lib/server/storage';
+import { decodeDataUrl, validatePhotoDataUrl } from '@/lib/server/media';
 import { freshRun, applyStepUpdate, addPhotoToStep, canSubmit, summarize, type TestStep, type StepStatus } from '@/lib/testing';
 import { getActiveSteps } from '@/lib/server/testingConfig';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 
 const ALLOWED = ['owner', 'manager'];
-const MAX_PHOTO_BYTES = 900_000; // ~900KB after client compression
 
 async function tenantTesting(tenantId: string) {
   const [t] = await db.select({ e: tenants.testingEnabled, max: tenants.testMaxScreenshots }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
@@ -22,7 +25,9 @@ async function deletePhotos(tenantId: string, ids: string[]) {
 }
 
 // GET /api/testing — the farmer's current run (or { enabled:false } when off).
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
@@ -33,13 +38,17 @@ export async function GET() {
 
 // POST /api/testing  { action: 'start' | 'step' | 'photo' | 'submit', ... }
 export async function POST(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
   const { enabled, maxScreenshots } = await tenantTesting(session.tenantId);
   if (!enabled) return forbidden('Testing is not enabled for your farm.');
 
-  const body = (await req.json().catch(() => ({}))) as { action?: string; id?: string; stepId?: string; status?: StepStatus; note?: string; data?: string };
+  const parsed = await parseBody(req, testingActionSchema);
+  if ('error' in parsed) return parsed.error;
+  const body = parsed.data;
   const now = new Date().toISOString();
   const tenantId = session.tenantId;
 
@@ -77,16 +86,34 @@ export async function POST(req: Request) {
   if (body.action === 'photo') {
     if (run.status === 'submitted') return badRequest('This test was already submitted.');
     if (maxScreenshots <= 0) return forbidden('Screenshots are not enabled for this test.');
-    if (!body.stepId || typeof body.data !== 'string' || !body.data.startsWith('data:image/')) return badRequest('A step and an image are required.');
-    if (body.data.length > MAX_PHOTO_BYTES) return badRequest('That image is too large — please use a smaller screenshot.');
+    if (!body.stepId) return badRequest('A step and an image are required.');
+    const stepId = body.stepId;
+    const validation = validatePhotoDataUrl(body.data);
+    if (!validation.ok) return badRequest(validation.error);
+    const data = body.data as string;
     const photoId = crypto.randomUUID();
     let steps: TestStep[];
     try {
-      steps = addPhotoToStep(steps0, body.stepId, photoId, maxScreenshots);
+      steps = addPhotoToStep(steps0, stepId, photoId, maxScreenshots);
     } catch (e) {
       return badRequest((e as Error).message);
     }
-    await db.insert(testPhotos).values({ id: photoId, tenantId, stepId: body.stepId, data: body.data, createdAt: now });
+    // Upload screenshot to R2 if configured; otherwise store as base64 in DB.
+    if (isStorageConfigured()) {
+      const decoded = decodeDataUrl(data);
+      if (decoded) {
+        const storageKey = `${tenantId}/test/${photoId}.${decoded.mime.split('/')[1] ?? 'png'}`;
+        await uploadPhoto(storageKey, decoded.bytes, decoded.mime);
+        await db.insert(testPhotos).values({
+          id: photoId, tenantId, stepId, storageKey, mime: decoded.mime, createdAt: now,
+        });
+      } else {
+        // Fallback — store as-is if we can't parse the data URL.
+        await db.insert(testPhotos).values({ id: photoId, tenantId, stepId, data, createdAt: now });
+      }
+    } else {
+      await db.insert(testPhotos).values({ id: photoId, tenantId, stepId, data, createdAt: now });
+    }
     await db.update(testRuns).set({ steps }).where(eq(testRuns.tenantId, tenantId));
     return created({ run: { ...run, steps }, photoId });
   }

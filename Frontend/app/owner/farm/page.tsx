@@ -33,7 +33,7 @@ const unitStatusVariant = (s: string) => {
 };
 
 const EMPTY_UNIT = { name: '', type: 'HOUSE', capacity: '' };
-const EMPTY_BATCH = { name: '', species: '', enterprise: '', unitId: '', qty: '', ageAtAcquire: '', cost: '' };
+const EMPTY_BATCH = { name: '', species: '', enterprise: '', unitId: '', qty: '', ageAtAcquire: '', cost: '', acquiredDate: '' };
 
 export default function FarmPage() {
   const { t } = useTranslation();
@@ -298,10 +298,10 @@ export default function FarmPage() {
                         <td className="px-3 py-3 text-center">
                           <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-semibold">{b.stage}</span>
                           {dueMap[b.id]?.due && dueMap[b.id]?.nextStage && (
-                            <span className="block mt-0.5 text-[10px] font-semibold text-amber-600">{t('nextStageDue', { stage: dueMap[b.id].nextStage })}{dueMap[b.id].overdueDays > 0 ? ` (${dueMap[b.id].overdueDays}d)` : ''}</span>
+                            <span className="block mt-0.5 text-[10px] font-semibold text-amber-600">{t('nextStageDue', { stage: dueMap[b.id].nextStage ?? '' })}{dueMap[b.id].overdueDays > 0 ? ` (${dueMap[b.id].overdueDays}d)` : ''}</span>
                           )}
                           {dueMap[b.id] && !dueMap[b.id].due && dueMap[b.id].nextStage && (
-                            <span className="block mt-0.5 text-[10px] text-gray-400">{t('nextStageIn', { stage: dueMap[b.id].nextStage, days: dueMap[b.id].daysRemaining })}</span>
+                            <span className="block mt-0.5 text-[10px] text-gray-400">{t('nextStageIn', { stage: dueMap[b.id].nextStage ?? '', days: dueMap[b.id].daysRemaining })}</span>
                           )}
                         </td>
                         <td className="px-3 py-3 text-center"><StatusChip status={b.status === 'ACTIVE' ? 'ok' : 'offline'} size="sm" label={b.status} /></td>

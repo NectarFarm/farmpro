@@ -3,12 +3,17 @@ import { purchases, inventoryItems, inventoryLots } from '@/db/schemas';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, created, unauthorized, forbidden, badRequest } from '@/lib/server/http';
+import { parseBody, purchaseSchema } from '@/lib/server/validate';
+import { toCents } from '@/lib/server/money';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
 
 // GET /api/purchases — list (tenant-scoped).
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
@@ -17,22 +22,20 @@ export async function GET() {
 
 // POST /api/purchases — record a delivery: creates an inventory LOT (stock in) + a purchase (expense).
 export async function POST(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
 
-  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  const s = (v: unknown, d = '') => (typeof v === 'string' ? v : d);
-  const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
-  const quantity = n(body.quantity);
-  const unitCost = n(body.unitCost);
-  if (quantity <= 0) return badRequest('Quantity must be greater than zero');
-  if (unitCost < 0) return badRequest('Cost cannot be negative');
+  const parsed = await parseBody(req, purchaseSchema);
+  if ('error' in parsed) return parsed.error;
+  const body = parsed.data;
 
   // Resolve or create the inventory item. The picker sends '__new' (or nothing)
   // when the user is adding a brand-new item alongside this delivery.
-  let itemId = s(body.itemId);
-  let unit = 'kg';
+  let itemId = body.itemId ?? '';
+  let unit = body.unit;
   if (itemId && itemId !== '__new') {
     const [item] = await db.select().from(inventoryItems)
       .where(and(eq(inventoryItems.tenantId, session.tenantId), eq(inventoryItems.id, itemId))).limit(1);
@@ -41,9 +44,8 @@ export async function POST(req: Request) {
   } else {
     if (!body.itemName) return badRequest('itemId or itemName required');
     itemId = crypto.randomUUID();
-    unit = s(body.unit, 'kg');
     await db.insert(inventoryItems).values({
-      id: itemId, tenantId: session.tenantId, name: s(body.itemName), category: s(body.category, 'CONSUMABLE'),
+      id: itemId, tenantId: session.tenantId, name: body.itemName, category: body.category,
       unit, lowStockThreshold: 0,
     });
   }
@@ -52,14 +54,21 @@ export async function POST(req: Request) {
   const now = new Date().toISOString();
   await db.insert(inventoryLots).values({
     id: lotId, tenantId: session.tenantId, itemId, lotNo: `PO-${now.slice(0, 10)}-${lotId.slice(0, 4)}`,
-    qtyOnHand: quantity, unit, unitCost, receivedDate: now.slice(0, 10),
-    withdrawalDays: body.withdrawalDays ? n(body.withdrawalDays) : null,
+    qtyOnHand: body.quantity, unit, unitCost: body.unitCost,
+    unitCostCents: toCents(body.unitCost),
+    receivedDate: now.slice(0, 10),
+    withdrawalDays: body.withdrawalDays ?? null,
   });
 
+  const purchaseTotal = body.quantity * body.unitCost;
   const purchaseId = crypto.randomUUID();
   await db.insert(purchases).values({
-    id: purchaseId, tenantId: session.tenantId, itemId, lotId, supplier: s(body.supplier, 'Supplier'),
-    quantity, unitCost, totalCost: quantity * unitCost, createdAt: now,
+    id: purchaseId, tenantId: session.tenantId, itemId, lotId, supplier: body.supplier,
+    quantity: body.quantity, unitCost: body.unitCost,
+    unitCostCents: toCents(body.unitCost),
+    totalCost: purchaseTotal,
+    totalCostCents: toCents(purchaseTotal),
+    createdAt: now,
   });
 
   return created({ id: purchaseId, lotId, itemId });

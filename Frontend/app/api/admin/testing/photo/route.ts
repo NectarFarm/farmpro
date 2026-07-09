@@ -3,10 +3,13 @@ import { testPhotos, testRuns } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, badRequest, unauthorized, forbidden, notFound } from '@/lib/server/http';
+import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 import type { TestStep } from '@/lib/testing';
 
 // GET /api/admin/testing/photo?id=… — the screenshot's data URL (super-admin only).
 export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();
@@ -20,6 +23,8 @@ export async function GET(req: Request) {
 // DELETE /api/admin/testing/photo?id=… — remove a screenshot after viewing, and
 // unlink it from the run's step so the report no longer references it.
 export async function DELETE(req: Request) {
+  const limited = writeRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();

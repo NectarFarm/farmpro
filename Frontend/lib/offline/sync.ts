@@ -9,7 +9,6 @@
 
 import { useEffect, useRef } from 'react';
 import { getDB, getPendingCount, type PendingRecord } from './db';
-import { api } from '@/lib/mock/api';
 import { useSyncStore } from '@/lib/stores/sync';
 
 async function postSync(
@@ -40,9 +39,7 @@ export async function flushPendingRecords(): Promise<{ synced: number; conflicts
       capturedAt: r.capturedAt,
     }));
 
-    // Option B: real /api/sync when enabled; mock otherwise (keeps the demo working).
-    const useReal = process.env.NEXT_PUBLIC_USE_REAL_API === 'true';
-    const res = useReal ? await postSync(records) : await api.syncBatch(records);
+    const res = await postSync(records);
     const conflictUuids = new Set(
       ((res.conflicts as Array<{ clientUuid: string }>) ?? []).map((c) => c.clientUuid)
     );

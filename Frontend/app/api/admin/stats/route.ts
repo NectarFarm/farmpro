@@ -3,9 +3,12 @@ import { tenants, users, batches } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, unauthorized, forbidden } from '@/lib/server/http';
+import { readRateLimited } from '@/lib/server/rateLimit';
 
 // GET /api/admin/stats — platform-level KPIs for the admin dashboard.
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = readRateLimited(req);
+  if (limited) return limited;
   const session = await getSession();
   if (!session) return unauthorized();
   if (session.role !== 'super_admin') return forbidden();

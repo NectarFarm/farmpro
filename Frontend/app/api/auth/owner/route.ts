@@ -5,6 +5,7 @@ import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
 import { checkLoginRateLimit } from '@/lib/server/rateLimit';
 import { ok, badRequest, unauthorized, serviceUnavailable, tooMany } from '@/lib/server/http';
+import { parseBody, ownerLoginSchema } from '@/lib/server/validate';
 import type { Role } from '@/lib/types';
 
 const WEB_ROLES: Role[] = ['owner', 'manager', 'vet', 'auditor', 'super_admin'];
@@ -18,8 +19,9 @@ export async function POST(req: Request) {
     return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
   }
   try {
-    const { email, password } = (await req.json().catch(() => ({}))) as { email?: string; password?: string };
-    if (!email || !password) return badRequest('Enter your email and password.');
+    const parsed = await parseBody(req, ownerLoginSchema);
+    if ('error' in parsed) return parsed.error;
+    const { email, password } = parsed.data;
 
     let user;
     try {

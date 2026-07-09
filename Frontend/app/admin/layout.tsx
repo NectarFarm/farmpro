@@ -3,13 +3,14 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { LayoutDashboard, Tractor, ScrollText, Settings, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Tractor, ScrollText, Settings, Gauge, type LucideIcon } from 'lucide-react';
 import { AppShell, type AppShellTheme } from '@/components/layout/AppShell';
 
 const ADMIN_NAV: { href: string; Icon: LucideIcon; label: string }[] = [
   { href: '/admin/dashboard', Icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/admin/farms',     Icon: Tractor,         label: 'Farms' },
   { href: '/admin/audit',     Icon: ScrollText,      label: 'Audit' },
+  { href: '/admin/status',    Icon: Gauge,           label: 'Status' },
   { href: '/admin/settings',  Icon: Settings,        label: 'Settings' },
 ];
 

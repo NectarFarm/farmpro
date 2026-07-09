@@ -1,69 +1,95 @@
-# vibe-web-template
+# IFMS — Integrated Farm Management System
 
-A general-purpose Next.js web application template with database initialization and AI-friendly foundations.
+Mobile-first, offline-capable management for diversified farms (poultry, pigs, fish, crops, and more). Workers record daily activity in the field; owners see costs, yields, alerts, payroll, and profit per batch.
+
+> **Architecture:** this repo is a **Next.js full-stack monolith** (App Router + Route Handlers + Drizzle + PostgreSQL).  
+> See [`docs/ARCHITECTURE_ACTUAL.md`](docs/ARCHITECTURE_ACTUAL.md) for the live design. Older Django/Celery docs under `attachements/` are historical targets only.
 
 ## Features
 
-- **Standardized Utilities**: Prediction-first wrappers for `fetch`, `env` validation, and a leveled `logger`.
-- **Database Ready**: Drizzle ORM + PostgreSQL initialization pre-configured.
-- **UI System**: Tailwind CSS 4, the full Radix UI primitive set (shadcn-style components under `components/ui/`), and `sonner` for notifications.
-- **Forms**: React Hook Form + Zod resolvers.
-- **AI-Friendly**: Ships with `docs/AI_GUIDE.md` to keep AI-generated code consistent.
+- **Roles:** owner, manager, worker, vet, auditor, super-admin
+- **Field ops (offline-first worker PWA):** morning rounds, feeding, mortality (+ photo/GPS), health, collection, physical counts, weight sampling
+- **Inventory:** lots, FIFO feed consume, purchases, feed mix, closing stock / variance
+- **Commercial:** sales with stock + medicine-withdrawal guards; products & sale units
+- **Finance:** batch costing, overheads, payroll / payslips / advances
+- **Ops:** lifecycle stages, alerts, reports, AI advisor (optional OpenRouter key)
+- **Platform admin:** multi-tenant farms, packages/features, audit, UAT testing
 
-## Tech Stack
+## Tech stack
 
-- Next.js 16 (App Router)
-- React 19 / TypeScript 5
-- Tailwind CSS 4
-- Drizzle ORM + PostgreSQL (`postgres` driver)
-- Zod + React Hook Form
-- Zustand (state management)
-- Vercel Analytics + optional Umami script injection
+- Next.js 16 (App Router) · React 19 · TypeScript
+- Tailwind CSS 4 · Radix/shadcn UI
+- Drizzle ORM · PostgreSQL (`postgres` driver)
+- Zod · Zustand · Dexie (offline queue)
+- Vitest (unit + integration)
 
-## Getting Started
+## Getting started
 
-1. **Install dependencies**:
-   ```bash
-   pnpm install
-   ```
+```bash
+pnpm install
+cp .env.example .env   # if present; otherwise create .env
+# Required:
+#   DATABASE_URL=postgres://...
+#   SESSION_SECRET=<32+ random chars>
+#   NEXT_PUBLIC_USE_REAL_API=true
+pnpm db:migrate
+pnpm db:seed
+pnpm dev               # http://localhost:13000
+```
 
-2. **Environment variables**:
-   Copy `.env.example` to `.env` and configure at minimum `DATABASE_URL`. Umami analytics variables (`NEXT_PUBLIC_UMAMI_SCRIPT_URL`, `NEXT_PUBLIC_UMAMI_WEBSITE_ID`) are optional and only injected in production.
+**Demo logins** (when `SEED_DEMO` is not `false`):
 
-3. **Run development server** (port 13000):
-   ```bash
-   pnpm dev
-   ```
+| Role | Credentials |
+|------|-------------|
+| Owner | `kutswa@ifms.farm` / `demo1234` |
+| Worker | phone `+254700333444` / PIN `1234` |
+| Super-admin | `admin@ifms.app` / `demo1234` |
 
-4. **Database commands**:
-   - `pnpm db:generate` — generate migrations
-   - `pnpm db:migrate` — run migrations
-   - `pnpm db:studio` — open Drizzle Studio
+## Scripts
 
-## Project Structure
+| Command | Purpose |
+|---------|---------|
+| `pnpm dev` | Dev server (port 13000) |
+| `pnpm build` / `pnpm start` | Production build |
+| `pnpm test:unit` | Unit tests |
+| `pnpm test:integration` | Live API tests (app must be running) |
+| `pnpm db:generate` / `db:migrate` / `db:seed` | Schema & seed |
+| `pnpm lint` | ESLint |
 
-- `app/` — Next.js App Router (`layout.tsx`, `page.tsx`, `api/`).
-- `components/` — `AgentationGuard.tsx` plus shadcn-style primitives in `components/ui/`.
-- `db/` — Drizzle client (`db/index.ts`).
-- `lib/` — Core utilities: `request.ts`, `env.ts`, `logger.ts`, `errors.ts`, `utils.ts`, `agentationFeedbackMode.ts`.
-- `hooks/` — Shared hooks (`use-mobile.ts`, `use-toast.ts`).
-- `utils/` — `cn.ts` (clsx + tailwind-merge).
-- `docs/` — `AI_GUIDE.md` (AI/developer conventions).
-- `Dockerfile` — Multi-stage node:22-slim build exposing port 13000.
+## Project layout
 
-## Running on a LAN (worker phones) — HTTPS for camera & GPS
+```
+app/           # Role UIs + app/api/* Route Handlers
+components/    # UI + role components
+lib/server/    # Domain: auth, sales, costing, inventory, media, …
+lib/offline/   # Dexie queue + sync flush
+lib/api/       # Client facade (mock vs real via NEXT_PUBLIC_USE_REAL_API)
+db/            # Drizzle client + schemas
+drizzle/       # SQL migrations
+docs/          # Setup, architecture, AI guide
+tests/         # unit + integration
+```
 
-Workers open the app on their phones at `http://<lan-ip>:13000`. Record-saving works
-over plain HTTP, but the **camera** (mortality/health photos) and **GPS** need a browser
-"secure context" — i.e. HTTPS (or `localhost`). To use them across the LAN, run the
-optional TLS proxy:
+## Security notes (production)
+
+- Set a strong `SESSION_SECRET` (never the dev default).
+- Set `COOKIE_SECURE=true` when serving over HTTPS.
+- Run migrations including `0026_security_hardening` (auditor link revoke + session jti kill list).
+- Photos are size-capped; long-term they should move to object storage (see architecture doc).
+
+## Docker / LAN HTTPS
+
+See [`DOCKER.md`](DOCKER.md). For worker camera/GPS on LAN phones:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.tls.yml --profile tls up -d --build
 ```
 
-Then open `https://<lan-ip>` on the device and accept the self-signed certificate once
-(Caddy's `tls internal` CA). From then on it's a secure context and camera + GPS work.
-When serving over HTTPS you may also set `COOKIE_SECURE=true` for the `app` service so
-session cookies are marked `Secure`. The default `docker compose up` is unchanged (plain
-HTTP on :13000).
+## Documentation
+
+| Doc | Content |
+|-----|---------|
+| [`docs/ARCHITECTURE_ACTUAL.md`](docs/ARCHITECTURE_ACTUAL.md) | **Current** system architecture |
+| [`docs/BACKEND_SETUP.md`](docs/BACKEND_SETUP.md) | Env, migrate, seed, API overview |
+| [`docs/AI_GUIDE.md`](docs/AI_GUIDE.md) | Conventions for AI-assisted changes |
+| [`docs/AUDIT_SUMMARY.md`](docs/AUDIT_SUMMARY.md) | Gap analysis / roadmap |
