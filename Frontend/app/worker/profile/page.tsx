@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { useWorkerProfileStore } from '@/lib/stores/workerProfile';
@@ -9,6 +10,7 @@ import { getPendingCount } from '@/lib/offline/db';
 import type { Task } from '@/lib/types';
 
 export default function WorkerProfilePage() {
+  const { t } = useTranslation();
   const { user, logout } = useAuthStore();
   const { isOnline, pendingCount, status } = useSyncStore();
   const { lang, setLang, highContrast, toggleHighContrast, profile } = useWorkerProfileStore();
@@ -42,26 +44,26 @@ export default function WorkerProfilePage() {
 
       {/* Sync status */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <h2 className="font-bold text-gray-800 mb-3">Sync Status</h2>
+        <h2 className="font-bold text-gray-800 mb-3">{t('syncStatus')}</h2>
         <div className="flex items-center justify-between mb-2">
-          <span className="text-gray-600">Connection</span>
-          <span className={`font-bold ${isOnline ? 'text-green-600' : 'text-gray-500'}`}>{isOnline ? '🟢 Online' : '⤬ Offline'}</span>
+          <span className="text-gray-600">{t('connectionStatus')}</span>
+          <span className={`font-bold ${isOnline ? 'text-green-600' : 'text-gray-500'}`}>{isOnline ? `🟢 ${t('online')}` : `⤬ ${t('offline')}`}</span>
         </div>
         <div className="flex items-center justify-between mb-2">
-          <span className="text-gray-600">Pending records</span>
+          <span className="text-gray-600">{t('pendingRecords')}</span>
           <span className="font-bold text-amber-600">{dbPending || pendingCount}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-gray-600">Status</span>
-          <span className="font-semibold text-gray-700">{status === 'syncing' ? '↻ Syncing…' : status === 'offline' ? '⤬ Offline' : '✓ Idle'}</span>
+          <span className="text-gray-600">{t('status')}</span>
+          <span className="font-semibold text-gray-700">{status === 'syncing' ? `↻ ${t('syncingStatus')}…` : status === 'offline' ? `⤬ ${t('offline')}` : `✓ ${t('idle')}`}</span>
         </div>
       </div>
 
       {/* Completed today */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <h2 className="font-bold text-gray-800 mb-3">Today&apos;s Completed Records</h2>
+        <h2 className="font-bold text-gray-800 mb-3">{t('completedTasks')}</h2>
         {tasks.length === 0
-          ? <p className="text-gray-400 text-sm">No completed tasks yet today.</p>
+          ? <p className="text-gray-400 text-sm">{t('noCompletedToday')}</p>
           : tasks.map(t => (
             <div key={t.id} className="flex items-center gap-2 py-1 border-b last:border-0">
               <span className="text-green-500">✓</span>
@@ -73,13 +75,13 @@ export default function WorkerProfilePage() {
 
       {/* Settings */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-4">
-        <h2 className="font-bold text-gray-800">Settings</h2>
+        <h2 className="font-bold text-gray-800">{t('settings')}</h2>
 
         {/* Language toggle — NFR-L-2, offline capable */}
         <div className="flex items-center justify-between min-h-[48px]">
           <div>
-            <p className="font-semibold text-gray-700">🌐 Language</p>
-            <p className="text-xs text-gray-400">Switch offline — no reinstall needed</p>
+          <p className="font-semibold text-gray-700">🌐 {t('language')}</p>
+          <p className="text-xs text-gray-400">{t('offlineMode')}</p>
           </div>
           <button onClick={() => setLang(lang === 'en' ? 'sw' : 'en')}
             className="px-4 py-2 bg-green-100 text-green-800 rounded-xl font-bold border border-green-300 min-h-[48px]">
@@ -90,12 +92,12 @@ export default function WorkerProfilePage() {
         {/* High contrast / sunlight mode — DS-1, A11Y-1 */}
         <div className="flex items-center justify-between min-h-[48px]">
           <div>
-            <p className="font-semibold text-gray-700">☀ Sunlight Mode</p>
-            <p className="text-xs text-gray-400">High contrast for outdoor use</p>
+          <p className="font-semibold text-gray-700">☀ {t('sunlightMode')}</p>
+          <p className="text-xs text-gray-400">{t('highContrast')}</p>
           </div>
           <button onClick={toggleHighContrast}
             className={`px-4 py-2 rounded-xl font-bold border min-h-[48px] ${highContrast ? 'bg-yellow-400 border-yellow-600 text-black' : 'bg-gray-100 text-gray-600 border-gray-300'}`}>
-            {highContrast ? 'ON' : 'OFF'}
+            {highContrast ? t('on') : t('off')}
           </button>
         </div>
       </div>
@@ -103,7 +105,7 @@ export default function WorkerProfilePage() {
       {/* Logout */}
       <button onClick={handleLogout}
         className="w-full min-h-[56px] bg-gray-200 text-gray-800 rounded-xl text-lg font-bold border border-gray-300 active:bg-gray-300">
-        Logout
+        {t('logout')}
       </button>
     </div>
   );

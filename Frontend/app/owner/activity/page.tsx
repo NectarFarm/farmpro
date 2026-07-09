@@ -1,11 +1,13 @@
 'use client';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { ConflictResolver, type Conflict } from '@/components/owner/ConflictResolver';
 
 interface Row { kind: string; at: string; by: string; byId: string | null; batch: string; text: string; photoId: string | null; gpsLat: number | null; gpsLng: number | null }
 const icon = (k: string) => ({ mortality: '💀', health: '💉', feeding: '🌾', collection: '🥚', 'stock count': '📦', 'head count': '🔢', 'weight sample': '⚖️', observation: '👁️' }[k] ?? '📋');
 
 export default function ActivityPage() {
+  const { t } = useTranslation();
   const [rows, setRows] = useState<Row[]>([]);
   const [workers, setWorkers] = useState<{ id: string; name: string }[]>([]);
   const [worker, setWorker] = useState('');
@@ -17,7 +19,7 @@ export default function ActivityPage() {
   const load = (w: string) => {
     setLoading(true);
     fetch(`/api/worker-activity${w ? `?workerId=${w}` : ''}`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : []).then(d => { setRows(d); setLoading(false); }).catch(() => setLoading(false));
+      .then(r => r.ok ? r.json() : { data: [] }).then(d => { setRows(Array.isArray(d) ? d : d.data ?? []); setLoading(false); }).catch(() => setLoading(false));
   };
   const loadConflicts = () => fetch('/api/conflicts', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setConflicts).catch(() => {});
   const resolve = async (id: string, resolution: 'accept' | 'kept_mine' | 'kept_server') => {
@@ -39,8 +41,8 @@ export default function ActivityPage() {
   return (
     <div className="p-6 flex flex-col gap-6 max-w-4xl">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">📝 Worker Activity Log</h1>
-        <p className="text-gray-500 text-sm mt-1">Everything your field team recorded — by worker, by day, with photos.</p>
+        <h1 className="text-2xl font-bold text-gray-900">📝 {t('workerActivity')}</h1>
+        <p className="text-gray-500 text-sm mt-1">{t('workerActivity')}</p>
       </div>
 
       {conflicts.length > 0 && (
@@ -52,20 +54,20 @@ export default function ActivityPage() {
       )}
 
       <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center gap-3 flex-wrap">
-        <span className="text-sm font-semibold text-gray-700">Worker:</span>
+        <span className="text-sm font-semibold text-gray-700">{t('worker')}:</span>
         <select value={worker} onChange={e => { setWorker(e.target.value); load(e.target.value); }} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          <option value="">All workers</option>
+          <option value="">{t('allWorkers')}</option>
           {workers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
-        <span className="text-sm font-semibold text-gray-700">Day:</span>
+        <span className="text-sm font-semibold text-gray-700">{t('day')}:</span>
         <input type="date" value={day} onChange={e => setDay(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         {day && <button onClick={() => setDay('')} className="text-xs text-gray-500 underline">clear</button>}
       </div>
 
-      {loading ? <p className="text-gray-400">Loading…</p>
+      {loading ? <p className="text-gray-400">{t('loading')}</p>
         : dates.length === 0 ? (
           <div className="text-center py-10 bg-white border border-dashed border-gray-200 rounded-xl">
-            <p className="text-gray-400">No activity recorded yet{worker ? ' for this worker' : ''}.</p>
+            <p className="text-gray-400">{t('noActivity')}{worker ? ` ${t('for')} ${t('worker')}` : ''}.</p>
           </div>
         ) : dates.map(d => (
           <div key={d}>

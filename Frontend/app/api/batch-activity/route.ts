@@ -6,14 +6,20 @@ import { ok, unauthorized, forbidden, badRequest } from '@/lib/server/http';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager', 'vet', 'auditor'];
+const DEFAULT_LIMIT = 25;
+const MAX_LIMIT = 100;
 
-// GET /api/batch-activity?batchId=... — recent worker records for a batch (with photos).
+// GET /api/batch-activity?batchId=...&cursor=&limit= — paginated worker records for
+// a batch (with photos). Cursor-based: pass the `at` of the last item for the next page.
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
-  const batchId = new URL(req.url).searchParams.get('batchId');
+  const url = new URL(req.url);
+  const batchId = url.searchParams.get('batchId');
   if (!batchId) return badRequest('batchId required');
+  const cursor = url.searchParams.get('cursor');
+  const limit = Math.min(MAX_LIMIT, Math.max(1, Number(url.searchParams.get('limit')) || DEFAULT_LIMIT));
   const tid = session.tenantId;
 
   const [morts, healths, feeds, prods, counts, weights, obs, us, phs] = await Promise.all([
@@ -41,7 +47,11 @@ export async function GET(req: Request) {
     ...counts.map((c) => ({ kind: 'head count', at: c.capturedAt, by: name(c.recordedBy), text: `counted ${c.physicalCount} (system ${c.systemCount}, variance ${c.variance > 0 ? '+' : ''}${c.variance})${c.reconciled ? '' : ' · pending'}`, photoId: null, gpsLat: null, gpsLng: null })),
     ...weights.map((w) => ({ kind: 'weight sample', at: w.capturedAt, by: name(w.recordedBy), text: `avg ${w.avgWeightKg} kg${w.sampleSize ? ` (n=${w.sampleSize})` : ''}`, photoId: null, gpsLat: null, gpsLng: null })),
     ...obs.filter((o) => o.abnormal).map((o) => ({ kind: 'observation', at: o.capturedAt, by: name(o.recordedBy), text: `▲ ${o.abnormalNote || 'abnormal'}`, photoId: null, gpsLat: null, gpsLng: null })),
-  ].sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 50);
+  ]
+    .filter((a) => !cursor || a.at < cursor)
+    .sort((a, b) => (a.at < b.at ? 1 : -1))
+    .slice(0, limit);
 
-  return ok(activity);
+  const nextCursor = activity.length === limit ? activity[activity.length - 1].at : null;
+  return ok({ data: activity, nextCursor });
 }

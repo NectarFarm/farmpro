@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useState, useCallback } from 'react';
 import { currentPeriod, periodLabel } from '@/lib/payslip';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 type Slip = { gross: number; advances: number; fines: number; bonuses: number; net: number; status: 'pending' | 'paid'; paidAt: string | null } | null;
@@ -12,6 +13,7 @@ interface Row {
 interface Summary { gross: number; net: number; fines: number; paid: number; withSlip: number }
 
 export default function PayrollPage() {
+  const { t } = useTranslation();
   const [period, setPeriod] = useState(currentPeriod(new Date()));
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -44,8 +46,14 @@ export default function PayrollPage() {
   const payAll = () => post({ action: 'pay', period }, 'payall');
   const addEntry = async (employeeId: string) => {
     const amount = Number(entry.amount);
-    if (!amount) { setErr('Enter an amount.'); return; }
-    if (await post({ action: 'ledger', employeeId, period, type: entry.type, amount, note: entry.note }, `add:${employeeId}`)) {
+    // Every type except 'adjustment' must be strictly positive — the backend
+    // (app/api/payroll/route.ts) already enforces this same rule and allows a
+    // negative adjustment (e.g. reversing a bonus entered by mistake).
+    if (!entry.amount || Number.isNaN(amount) || amount === 0 || (entry.type !== 'adjustment' && amount < 0)) {
+      setErr(entry.type === 'adjustment' ? 'Enter a non-zero amount.' : 'Enter an amount greater than 0.');
+      return;
+    }
+    if (await post({ action: 'ledger', employeeId, period, type: entry.type, amount, note: entry.note, clientUuid: crypto.randomUUID() }, `add:${employeeId}`)) {
       setAddFor(null); setEntry({ type: 'advance', amount: '', note: '' });
     }
   };
@@ -55,13 +63,13 @@ export default function PayrollPage() {
     const b = row.payslip ?? row.preview;
     const { exportReport } = await import('@/lib/export');
     await exportReport({
-      title: `Payslip — ${row.name}`,
-      columns: ['Line', 'Amount (KSh)'],
+      title: `${t('payslip')} — ${row.name}`,
+      columns: [t('line'), `${t('amount')} (KSh)`],
       rows: [
-        ['Gross salary', b.gross], ['Advances', -b.advances], ['Fines', -b.fines], ['Bonuses', b.bonuses],
-        ['NET PAY', b.net],
+        [t('grossSalary'), b.gross], [t('advances'), -b.advances], [t('fines'), -b.fines], [t('bonuses'), b.bonuses],
+        [t('netPay'), b.net],
       ],
-      meta: { Employee: row.name, Period: periodLabel(period), Status: row.payslip?.status ?? 'preview', Paid: row.payslip?.paidAt ? new Date(row.payslip.paidAt).toLocaleDateString('en-KE') : '—' },
+      meta: { [t('employee')]: row.name, [t('period')]: periodLabel(period), [t('status')]: row.payslip?.status ?? t('preview'), [t('paid')]: row.payslip?.paidAt ? new Date(row.payslip.paidAt).toLocaleDateString('en-KE') : '—' },
     }, 'PDF');
   };
 
@@ -74,28 +82,28 @@ export default function PayrollPage() {
       const d = await r.json();
       const { exportReport } = await import('@/lib/export');
       await exportReport({
-        title: `${year} pay statement — ${row.name}`,
-        columns: ['Month', 'Gross', 'Advances', 'Fines', 'Bonuses', 'Net', 'Status'],
+        title: `${year} ${t('payStatement')} — ${row.name}`,
+        columns: [t('month'), t('gross'), t('advances'), t('fines'), t('bonuses'), t('net'), t('status')],
         rows: [
           ...d.payslips.map((p: { period: string; gross: number; advances: number; fines: number; bonuses: number; net: number; status: string }) =>
             [periodLabel(p.period), p.gross, p.advances, p.fines, p.bonuses, p.net, p.status.toUpperCase()]),
-          ['TOTAL', d.totals.gross, d.totals.advances, d.totals.fines, d.totals.bonuses, d.totals.net, `${d.totals.paidMonths} paid`],
+          [t('total'), d.totals.gross, d.totals.advances, d.totals.fines, d.totals.bonuses, d.totals.net, `${d.totals.paidMonths} ${t('paid')}`],
         ],
-        meta: { Employee: row.name, Year: year, 'Months paid': d.totals.paidMonths },
+        meta: { [t('employee')]: row.name, [t('year')]: year, [t('paidMonths')]: d.totals.paidMonths },
       }, 'PDF');
-    } catch { setErr('Could not build the year statement.'); } finally { setBusy(''); }
+    } catch { setErr(t('couldNotBuildStatement')); } finally { setBusy(''); }
   };
 
   return (
     <div className="p-6 flex flex-col gap-5 max-w-5xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">💵 Payroll</h1>
-          <p className="text-gray-500 text-sm">Run monthly pay, record advances & fines, lock a paid month, print payslips.</p>
+          <h1 className="text-2xl font-bold text-gray-900">💵 {t('payroll')}</h1>
+          <p className="text-gray-500 text-sm">{t('payroll')}</p>
         </div>
         <div className="flex items-center gap-2">
           <input type="month" value={period} onChange={e => setPeriod(e.target.value)} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          <button onClick={runPayroll} disabled={busy !== ''} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{busy === 'run' ? 'Running…' : 'Run payroll'}</button>
+          <button onClick={runPayroll} disabled={busy !== ''} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{busy === 'run' ? t('saving') : t('runPayroll')}</button>
         </div>
       </div>
 
@@ -103,10 +111,10 @@ export default function PayrollPage() {
 
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[['Gross', summary.gross], ['Net to pay', summary.net], ['Fines (income)', summary.fines], ['Paid', summary.paid]].map(([l, v]) => (
-            <div key={l as string} className="bg-white border border-gray-200 rounded-xl p-3 text-center">
-              <p className="text-xs text-gray-500">{l}</p>
-              <p className="text-lg font-bold text-gray-900">{l === 'Paid' ? `${v}/${summary.withSlip}` : fmtKES(v as number)}</p>
+          {([['gross', t('gross'), summary.gross], ['net', t('netProfit'), summary.net], ['fines', t('fines'), summary.fines], ['paid', t('paid'), summary.paid]] as const).map(([id, label, val]) => (
+            <div key={id} className="bg-white border border-gray-200 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-500">{label}</p>
+              <p className="text-lg font-bold text-gray-900">{id === 'paid' ? `${val}/${summary.withSlip}` : fmtKES(val)}</p>
             </div>
           ))}
         </div>
@@ -115,11 +123,11 @@ export default function PayrollPage() {
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
           <span className="font-bold text-gray-800 text-sm">{periodLabel(period)}</span>
-          <button onClick={payAll} disabled={busy !== ''} className="text-xs font-semibold text-green-700 hover:underline">Mark all paid</button>
+          <button onClick={payAll} disabled={busy !== ''} className="text-xs font-semibold text-green-700 hover:underline">{t('markPaid')}</button>
         </div>
         <table className="w-full text-sm">
           <thead className="text-gray-500 text-xs font-semibold border-b">
-            <tr><th className="px-3 py-2 text-left">Employee</th><th className="px-2 py-2 text-right">Gross</th><th className="px-2 py-2 text-right">Adv</th><th className="px-2 py-2 text-right">Fines</th><th className="px-2 py-2 text-right">Net</th><th className="px-2 py-2 text-center">Status</th><th className="px-2 py-2"></th></tr>
+            <tr><th className="px-3 py-2 text-left">{t('name')}</th><th className="px-2 py-2 text-right">{t('gross')}</th><th className="px-2 py-2 text-right">{t('adv')}</th><th className="px-2 py-2 text-right">{t('fines')}</th><th className="px-2 py-2 text-right">{t('netProfit')}</th><th className="px-2 py-2 text-center">{t('status')}</th><th className="px-2 py-2"></th></tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {rows.map(row => {
@@ -134,24 +142,24 @@ export default function PayrollPage() {
                     <td className="px-2 py-2 text-right text-red-600">{b.fines ? `−${fmtKES(b.fines)}` : '—'}</td>
                     <td className="px-2 py-2 text-right font-bold">{fmtKES(b.net)}</td>
                     <td className="px-2 py-2 text-center">
-                      {locked ? <span className="text-xs font-semibold text-green-700">🔒 Paid</span>
-                        : row.payslip ? <span className="text-xs font-semibold text-amber-600">Pending</span>
-                        : <span className="text-xs text-gray-400">— run —</span>}
+                      {locked ? <span className="text-xs font-semibold text-green-700">🔒 {t('paid')}</span>
+                        : row.payslip ? <span className="text-xs font-semibold text-amber-600">{t('pending')}</span>
+                        : <span className="text-xs text-gray-400">{t('notRun')}</span>}
                     </td>
                     <td className="px-2 py-2 text-right whitespace-nowrap">
-                      {!locked && <button onClick={() => setAddFor(addFor === row.id ? null : row.id)} className="text-xs font-semibold text-gray-600 hover:underline mr-2">+ Adv/Fine</button>}
-                      {row.payslip && !locked && <button onClick={() => pay(row.id)} disabled={busy !== ''} className="text-xs font-semibold text-green-700 hover:underline mr-2">Pay</button>}
-                      <button onClick={() => payslipPdf(row)} className="text-xs font-semibold text-gray-500 hover:underline mr-2">Payslip</button>
-                      <button onClick={() => yearPdf(row)} disabled={busy !== ''} className="text-xs font-semibold text-gray-500 hover:underline">{busy === `year:${row.id}` ? '…' : 'Year'}</button>
+                      {!locked && <button onClick={() => setAddFor(addFor === row.id ? null : row.id)} className="text-xs font-semibold text-gray-600 hover:underline mr-2">{t('addAdvFine')}</button>}
+                      {row.payslip && !locked && <button onClick={() => pay(row.id)} disabled={busy !== ''} className="text-xs font-semibold text-green-700 hover:underline mr-2">{t('pay')}</button>}
+                      <button onClick={() => payslipPdf(row)} className="text-xs font-semibold text-gray-500 hover:underline mr-2">{t('payslip')}</button>
+                      <button onClick={() => yearPdf(row)} disabled={busy !== ''} className="text-xs font-semibold text-gray-500 hover:underline">{busy === `year:${row.id}` ? '…' : t('yearStatement')}</button>
                     </td>
                   </tr>
                   {addFor === row.id && !locked && (
                     <tr className="bg-gray-50/70"><td colSpan={7} className="px-3 py-3">
                       <div className="flex flex-wrap items-end gap-2">
                         <select value={entry.type} onChange={e => setEntry({ ...entry, type: e.target.value })} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
-                          <option value="advance">Advance</option><option value="fine">Fine</option><option value="bonus">Bonus</option><option value="adjustment">Adjustment (±)</option>
+                          <option value="advance">{t('advance')}</option><option value="fine">{t('fines')}</option><option value="bonus">{t('bonus')}</option><option value="adjustment">{t('adjustment')}</option>
                         </select>
-                        <input type="number" placeholder="Amount" value={entry.amount} onChange={e => setEntry({ ...entry, amount: e.target.value })} className="w-28 border border-gray-300 rounded-lg px-2 py-1.5 text-sm" />
+                        <input type="number" min={entry.type === 'adjustment' ? undefined : 0} placeholder={t('amount')} value={entry.amount} onChange={e => setEntry({ ...entry, amount: e.target.value })} className="w-28 border border-gray-300 rounded-lg px-2 py-1.5 text-sm" />
                         <input placeholder="Note (e.g. lateness)" value={entry.note} onChange={e => setEntry({ ...entry, note: e.target.value })} className="flex-1 min-w-[140px] border border-gray-300 rounded-lg px-2 py-1.5 text-sm" />
                         <button onClick={() => addEntry(row.id)} disabled={busy !== ''} className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold disabled:opacity-50">Add</button>
                       </div>

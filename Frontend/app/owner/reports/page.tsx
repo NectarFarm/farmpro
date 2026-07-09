@@ -1,5 +1,6 @@
 'use client';
 import React, { useState } from 'react';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 
 type Scope = 'range' | 'lifecycle';
 interface Report { id: string; icon: string; title: string; desc: string; cat: 'finance' | 'ops' | 'health' | 'performance'; scope: Scope; }
@@ -26,6 +27,7 @@ const CAT_ACCENT: Record<Report['cat'], string> = {
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 export default function ReportsPage() {
+  const { t } = useTranslation();
   const [generated, setGenerated] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState('');
@@ -53,13 +55,29 @@ export default function ReportsPage() {
     setErr(''); setBusy(`${id}:${fmt}`);
     try {
       const res = await fetch(`/api/reports/${id}?from=${dateFrom}&to=${dateTo}`, { credentials: 'include' });
-      if (!res.ok) throw new Error(res.status === 401 ? 'Please sign in again' : res.status === 403 ? 'Not permitted for your role' : `Report failed (${res.status})`);
+      if (!res.ok) throw new Error(res.status === 401 ? t('errorUnauthorized') : res.status === 403 ? t('notPermittedForRole') : t('reportFailed', { status: String(res.status) }));
       const data = await res.json();
+      // Translate server-side report column headers for exported PDF/CSV/Excel
+      const colMap: Record<string, string> = {
+        'Date': 'date', 'Batch': 'batch', 'Type': 'type', 'Qty': 'qty',
+        'Product': 'product', 'Unit Price': 'unitPrice', 'Total': 'total',
+        'Buyer': 'buyer', 'Deaths': 'deaths', 'Cause': 'cause', 'Lot': 'lot',
+        'Hours': 'hours', 'Rate': 'rate', 'Cost': 'cost', 'Feed kg': 'feedKg',
+        'Line': 'line', 'Amount': 'amount', 'Info': 'details',
+        'Feed': 'feedConsumed', 'Health': 'health', 'Labour': 'labour',
+        'Salaries': 'salaries', 'Overhead': 'overhead', 'Acquisition': 'acquisition',
+        'Total Cost': 'totalCost', 'Revenue': 'revenue', 'Gross Margin': 'grossMargin',
+        'Species': 'species',        'FCR': 'fcr', 'FCR basis': 'fcrBasis',
+        'Mortality': 'mortalityRate', 'Feed Cost (KSh)': 'feedConsumed',
+        'Stage': 'stage', 'Survived': 'survivors', 'Sold': 'sold',
+        'On farm': 'onFarmNow', 'Cost/Unit': 'costPerUnit', 'Margin': 'margin',
+      };
+      data.columns = data.columns.map((c: string) => (t as (k: string) => string)(colMap[c] ?? c));
       const { exportReport } = await import('@/lib/export');
       await exportReport(data, fmt);
       setGenerated(id); setTimeout(() => setGenerated(null), 2500);
     } catch (e) {
-      setErr((e as Error).message ?? 'Export failed');
+      setErr((e as Error).message ?? t('exportFailed'));
     } finally { setBusy(null); }
   };
 
@@ -95,8 +113,8 @@ export default function ReportsPage() {
   return (
     <div className="p-6 flex flex-col gap-7 max-w-5xl">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">📈 Reports</h1>
-        <p className="text-gray-500 text-sm mt-1">Board- and funder-ready exports — PDF, Excel or CSV, generated live from your data.</p>
+        <h1 className="text-2xl font-bold text-gray-900">📈 {t('reports')}</h1>
+        <p className="text-gray-500 text-sm mt-1">{t('reports')}</p>
       </div>
 
       {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}

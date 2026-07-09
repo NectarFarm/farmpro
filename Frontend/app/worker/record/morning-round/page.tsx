@@ -1,9 +1,9 @@
 'use client';
-import { Sunrise } from 'lucide-react';
+import { Sunrise, CheckCircle2 } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
-import { CheckCircle2 } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
@@ -29,6 +29,7 @@ interface UnitEntry {
 }
 
 export default function MorningRoundPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
   const { doneToday } = useTodayActivity();
@@ -41,6 +42,8 @@ export default function MorningRoundPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [activeField, setActiveField] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     Promise.all([api.getUnits(), api.getBatches(), api.getItems(), api.getLots()]).then(([us, bs, items, ls]) => {
@@ -56,8 +59,8 @@ export default function MorningRoundPage() {
         abnormal: null, abnormalNote: '',
         waterColour: null, tempC: '', doMgL: '', ph: '', ammonia: '',
       })));
-    });
-  }, []);
+    }).catch(() => setLoadError(t('loadFormDataFailed')));
+  }, [t]);
 
   // kg of a feed item currently on hand (sum of its lots).
   const onHand = (itemId: string) => lots.filter(l => l.itemId === itemId).reduce((s, l) => s + l.qtyOnHand, 0);
@@ -83,7 +86,13 @@ export default function MorningRoundPage() {
   const handleFinish = async () => {
     const clientUuid = uuid();
     const payload = { clientUuid, startedAt: new Date().toISOString(), entries, recordedBy: user?.id };
-    await enqueuePendingRecord('morning_round', payload, clientUuid);
+    try {
+      await enqueuePendingRecord('morning_round', payload, clientUuid);
+    } catch {
+      setError(t('saveFailedRetry'));
+      setShowConfirm(false);
+      return;
+    }
     setPendingCount(pendingCount + 1);
     setSaved(true);
     setShowConfirm(false);
@@ -95,9 +104,10 @@ export default function MorningRoundPage() {
     return (
       <div className="p-4 flex flex-col gap-6">
         <div className="bg-green-700 text-white rounded-2xl p-6">
-          <h1 className="text-2xl font-bold mb-1 flex items-center gap-2"><Sunrise className="w-6 h-6 shrink-0" /><span>Morning Round</span></h1>
+          <h1 className="text-2xl font-bold mb-1 flex items-center gap-2"><Sunrise className="w-6 h-6 shrink-0" /><span>{t('morningRound')}</span></h1>
           <p className="text-green-200 text-sm">{new Date().toLocaleString('en-KE')}</p>
         </div>
+        {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
         {round.count > 0 && (
           <div className="bg-amber-50 border-2 border-amber-300 rounded-xl px-4 py-3">
             <p className="text-amber-900 font-bold text-sm">✓ Today&apos;s round was already done at {timeLabel(round.lastAt)}{round.count > 1 ? ` (${round.count} times)` : ''}.</p>
@@ -115,7 +125,7 @@ export default function MorningRoundPage() {
         </div>
         <button onClick={() => setStep(0)} disabled={units.length === 0}
           className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold active:bg-green-700 disabled:opacity-40">
-          {round.count > 0 ? '🌅 Start another round' : '🌅 Start Round'}
+          🌅 {round.count > 0 ? t('startAnotherRound') : t('startRound')}
         </button>
         {units.length === 0 && (
           <p className="text-center text-sm text-gray-500">No active units with a batch yet — ask the owner to add one before doing the round.</p>
@@ -130,18 +140,18 @@ export default function MorningRoundPage() {
       <div className="p-4 flex flex-col gap-5">
         <div className="bg-green-50 border border-green-300 rounded-2xl p-5 text-center">
           <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
-          <h1 className="text-xl font-bold text-green-800">Round Complete!</h1>
-          {saved && <p className="text-sm text-green-600 mt-1">✓ Saved — will sync</p>}
+          <h1 className="text-xl font-bold text-green-800">{t('roundComplete')}</h1>
+          {saved && <p className="text-sm text-green-600 mt-1">{t('savedWillSync')}</p>}
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col gap-2">
-          <h2 className="font-bold text-gray-800">Summary</h2>
-          <div className="flex justify-between"><span className="text-gray-500">Eggs collected</span><span className="font-bold">{total}</span></div>
-          <div className="flex justify-between"><span className="text-gray-500">Units visited</span><span className="font-bold">{entries.length}</span></div>
-          <div className="flex justify-between"><span className="text-gray-500">Abnormalities</span><span className="font-bold">{entries.filter(e => e.abnormal).length}</span></div>
+          <h2 className="font-bold text-gray-800">{t('roundSummary')}</h2>
+          <div className="flex justify-between"><span className="text-gray-500">{t('eggsCollected')}</span><span className="font-bold">{total}</span></div>
+          <div className="flex justify-between"><span className="text-gray-500">{t('unitsVisited')}</span><span className="font-bold">{entries.length}</span></div>
+          <div className="flex justify-between"><span className="text-gray-500">{t('abnormalitiesCount')}</span><span className="font-bold">{entries.filter(e => e.abnormal).length}</span></div>
         </div>
         <button onClick={() => router.replace('/worker/home')}
           className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold">
-          Back to Home
+          {t('backToHome')}
         </button>
       </div>
     );
@@ -168,8 +178,8 @@ export default function MorningRoundPage() {
 
       {/* Water Level */}
       <SegmentedToggle
-        label="Water Level"
-        options={[{value:'LOW',label:'Low',icon:'⚠'},{value:'OK',label:'OK ✓',icon:''},{value:'FULL',label:'Full',icon:''}]}
+        label={t('waterLevel')}
+        options={[{value:'LOW',label:t('waterLevelLow'),icon:'⚠'},{value:'OK',label:t('waterLevelOK'),icon:''},{value:'FULL',label:t('waterLevelFull'),icon:''}]}
         value={entry.waterLevel}
         onChange={v => updateEntry(idx, { waterLevel: v })}
         error={entry.waterLevel === null ? 'Required' : undefined}
@@ -178,7 +188,7 @@ export default function MorningRoundPage() {
       {/* Feed USED today — deducted from stock. (We capture what was used, not what's
           left: "remaining" is a guess and never updates the store.) */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col gap-2">
-        <label className="text-sm font-medium text-gray-700">Feed used today <span className="text-gray-400 font-normal">— comes off your stock</span></label>
+        <label className="text-sm font-medium text-gray-700">{t('feedUsed')} <span className="text-gray-400 font-normal">— {t('comesOffStock')}</span></label>
         <select value={entry.feedItemId} onChange={e => updateEntry(idx, { feedItemId: e.target.value })}
           className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-h-[48px]">
           <option value="">— Which feed? —</option>
@@ -192,7 +202,7 @@ export default function MorningRoundPage() {
         ) : (
           <button type="button" onClick={() => setActiveField('feed')}
             className="w-full flex justify-between items-center bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 min-h-[52px]">
-            <span className="font-medium text-gray-700">Feed used</span>
+            <span className="font-medium text-gray-700">{t('feedUsed')}</span>
             <span className={cn('text-xl font-bold', entry.feedUsed ? 'text-gray-900' : 'text-gray-400')}>{entry.feedUsed || '—'} <span className="text-base text-gray-500">kg</span></span>
           </button>
         )}
@@ -204,8 +214,8 @@ export default function MorningRoundPage() {
         <>
           {activeField === 'eggs' ? (
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <NumericKeypad large label="Eggs collected" value={entry.eggsCollected} onChange={v => updateEntry(idx, { eggsCollected: v })} unit="eggs" />
-              <NumericKeypad label="Cracked" value={entry.eggsCracked} onChange={v => updateEntry(idx, { eggsCracked: v })} className="mt-3" />
+              <NumericKeypad large label={t('eggsCollected')} value={entry.eggsCollected} onChange={v => updateEntry(idx, { eggsCollected: v })} unit={t('eggs')} />
+              <NumericKeypad label={t('cracked')} value={entry.eggsCracked} onChange={v => updateEntry(idx, { eggsCracked: v })} className="mt-3" />
               <button type="button" onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
             </div>
           ) : (
@@ -221,21 +231,21 @@ export default function MorningRoundPage() {
       {/* Fish/pond fields */}
       {isFish && (
         <>
-          <SegmentedToggle label="Water Colour"
+          <SegmentedToggle label={t('waterColour')}
             options={[{value:'CLEAR',label:'Clear'},{value:'GREEN',label:'Green ✓'},{value:'MURKY',label:'Murky'}]}
             value={entry.waterColour} onChange={v => updateEntry(idx, { waterColour: v })} />
           {activeField === 'water_params' ? (
             <div className="bg-white rounded-xl border border-gray-200 p-4 grid grid-cols-2 gap-3">
-              <NumericKeypad label="Temp °C" value={entry.tempC} onChange={v => updateEntry(idx, { tempC: v })} allowDecimal unit="°C" />
-              <NumericKeypad label="DO mg/L" value={entry.doMgL} onChange={v => updateEntry(idx, { doMgL: v })} allowDecimal unit="mg/L" />
+              <NumericKeypad label={`${t('temperature')} °C`} value={entry.tempC} onChange={v => updateEntry(idx, { tempC: v })} allowDecimal unit="°C" />
+              <NumericKeypad label={`DO ${t('mgPerL')}`} value={entry.doMgL} onChange={v => updateEntry(idx, { doMgL: v })} allowDecimal unit="mg/L" />
               <NumericKeypad label="pH" value={entry.ph} onChange={v => updateEntry(idx, { ph: v })} allowDecimal unit="pH" />
-              <NumericKeypad label="Ammonia" value={entry.ammonia} onChange={v => updateEntry(idx, { ammonia: v })} allowDecimal unit="mg/L" />
+              <NumericKeypad label={t('ammonia')} value={entry.ammonia} onChange={v => updateEntry(idx, { ammonia: v })} allowDecimal unit="mg/L" />
               <button type="button" onClick={() => setActiveField(null)} className="col-span-2 bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
             </div>
           ) : (
             <button type="button" onClick={() => setActiveField('water_params')}
               className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-left min-h-[56px]">
-              <span className="font-medium text-gray-700">Water Parameters</span>
+              <span className="font-medium text-gray-700">{t('waterParameters')}</span>
               <span className="ml-2 text-gray-400 text-sm">{entry.ph ? `pH ${entry.ph} · DO ${entry.doMgL}` : 'Tap to enter'}</span>
             </button>
           )}
@@ -244,9 +254,9 @@ export default function MorningRoundPage() {
 
       {/* Abnormal — no default, DS-2 */}
       <div>
-        <p className="text-sm font-medium text-gray-700 mb-1">▲ Abnormal? <span className="text-red-500 text-xs">— required, no default</span></p>
+        <p className="text-sm font-medium text-gray-700 mb-1">▲ {t('abnormalQuestion')} <span className="text-red-500 text-xs">— required, no default</span></p>
         <div className="flex gap-3">
-          {[{v:false,l:'No'},{v:true,l:'Yes'}].map(({v,l}) => (
+          {[{v:false,l:t('no')},{v:true,l:t('yes')}].map(({v,l}) => (
             <button key={l} type="button" onClick={() => updateEntry(idx, { abnormal: v })}
               className={cn('flex-1 min-h-[56px] rounded-xl text-lg font-bold border-2 transition-colors',
                 entry.abnormal === v ? (v ? 'bg-amber-500 border-amber-600 text-white' : 'bg-green-600 border-green-700 text-white') : 'bg-white border-gray-300 text-gray-700')}>
@@ -261,12 +271,14 @@ export default function MorningRoundPage() {
         )}
       </div>
 
+      {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
+
       {/* Save & Next */}
       <button
         disabled={!canSaveEntry(entry)}
         onClick={() => { if (idx < entries.length - 1) setStep(idx + 1); else setShowConfirm(true); }}
         className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
-        {idx < entries.length - 1 ? 'SAVE & NEXT →' : 'FINISH ROUND'}
+        {idx < entries.length - 1 ? `${t('saveAndNext')} →` : t('finishRound')}
       </button>
 
       <ConfirmSheet

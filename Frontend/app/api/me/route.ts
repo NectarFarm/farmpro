@@ -14,5 +14,6 @@ export async function GET() {
     userId: session.userId, role: session.role, tenantId: session.tenantId, name: session.name,
     plan: tenant?.plan ?? 'pro',
     features: (tenant?.features as string[]) ?? ALL_FEATURE_KEYS,
+    exp: session.exp,
   });
 }

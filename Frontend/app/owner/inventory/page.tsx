@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { InventoryItem, InventoryLot } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 
@@ -8,6 +9,7 @@ const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const EMPTY = { itemId: '', itemName: '', unit: 'kg', category: 'FEED_FINISHED', supplier: '', quantity: '', unitCost: '' };
 
 export default function InventoryPage() {
+  const { t } = useTranslation();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [lots, setLots] = useState<InventoryLot[]>([]);
   const [purchases, setPurchases] = useState<{ id: string; itemId: string; supplier: string; quantity: number; unitCost: number; totalCost: number; createdAt: string }[]>([]);
@@ -25,6 +27,7 @@ export default function InventoryPage() {
   const [itemEdit, setItemEdit] = useState({ name: '', unit: '', lowStockThreshold: '' });
   const [editLot, setEditLot] = useState<string | null>(null);
   const [lotEdit, setLotEdit] = useState({ qtyOnHand: '', unitCost: '' });
+  const [lotEditErr, setLotEditErr] = useState('');
 
   const [formulas, setFormulas] = useState<{ id: string; name: string; components: { itemId: string; kg: number }[]; totalKg: number; unitCost: number }[]>([]);
   const [editFormulaId, setEditFormulaId] = useState<string | null>(null);
@@ -47,13 +50,34 @@ export default function InventoryPage() {
 
   const reload = () => Promise.all([api.getItems(), api.getLots(), api.getPurchases()]).then(([i,l,p]) => { setItems(i); setLots(l); setPurchases(p); });
   const patchData = async (resource: string, id: string, body: Record<string, unknown>) => {
-    await fetch(`/api/data/${resource}?id=${id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch(`/api/data/${resource}?id=${id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || t('errorGeneric'));
+    }
     await reload();
   };
   const startItemEdit = (it: InventoryItem) => { setEditItem(it.id); setItemEdit({ name: it.name, unit: it.unit, lowStockThreshold: String(it.lowStockThreshold) }); };
-  const saveItemEdit = async () => { if (!editItem) return; await patchData('items', editItem, { name: itemEdit.name, unit: itemEdit.unit, lowStockThreshold: Number(itemEdit.lowStockThreshold) }); setEditItem(null); };
-  const startLotEdit = (l: InventoryLot) => { setEditLot(l.id); setLotEdit({ qtyOnHand: String(l.qtyOnHand), unitCost: String(l.unitCost) }); };
-  const saveLotEdit = async () => { if (!editLot) return; await patchData('lots', editLot, { qtyOnHand: Number(lotEdit.qtyOnHand), unitCost: Number(lotEdit.unitCost) }); setEditLot(null); };
+  const saveItemEdit = async () => {
+    if (!editItem) return;
+    try {
+      await patchData('items', editItem, { name: itemEdit.name, unit: itemEdit.unit, lowStockThreshold: Number(itemEdit.lowStockThreshold) });
+      setEditItem(null);
+    } catch (e) { setErr((e as Error).message); }
+  };
+  const startLotEdit = (l: InventoryLot) => { setEditLot(l.id); setLotEdit({ qtyOnHand: String(l.qtyOnHand), unitCost: String(l.unitCost) }); setLotEditErr(''); };
+  const saveLotEdit = async () => {
+    if (!editLot) return;
+    if (Number(lotEdit.qtyOnHand) < 0 || Number(lotEdit.unitCost) < 0) {
+      setLotEditErr(t('errorGeneric'));
+      return;
+    }
+    try {
+      await patchData('lots', editLot, { qtyOnHand: Number(lotEdit.qtyOnHand), unitCost: Number(lotEdit.unitCost) });
+      setEditLot(null);
+      setLotEditErr('');
+    } catch (e) { setLotEditErr((e as Error).message); }
+  };
   useEffect(() => {
     reload(); loadFormulas();
     fetch('/api/inventory/variance', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setVariances).catch(() => {});
@@ -104,22 +128,22 @@ export default function InventoryPage() {
   const [variances, setVariances] = useState<{ item: string; unit: string; expected: number; counted: number; variance: number }[]>([]);
 
   const tabs = [
-    { key:'stock', label:'Stock & Lots' },
-    { key:'formulation', label:'Feed Formulation' },
-    { key:'variance', label:'Variance Flags' },
-    { key:'recent', label:'Recent Stock' },
+    { key:'stock', label: t('stockLots') },
+    { key:'formulation', label: t('feedFormulation') },
+    { key:'variance', label: t('inventoryVariance') },
+    { key:'recent', label: t('recentStock') },
   ] as const;
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-5xl">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">📦 Inventory</h1>
-        <button onClick={() => setShow(v => !v)} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ Record Purchase</button>
+        <h1 className="text-2xl font-bold text-gray-900">📦 {t('inventory')}</h1>
+        <button onClick={() => setShow(v => !v)} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ {t('recordPurchase')}</button>
       </div>
 
       {show && (
         <form onSubmit={recordPurchase} className="bg-white border border-green-300 rounded-xl p-5 flex flex-col gap-3">
-          <h3 className="font-bold text-gray-800">Record a Purchase (adds stock)</h3>
+          <h3 className="font-bold text-gray-800">{t('recordPurchase')}</h3>
           {err && <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <select required value={form.itemId} onChange={e => setForm({ ...form, itemId: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
@@ -127,7 +151,7 @@ export default function InventoryPage() {
               {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
               <option value="__new">+ New item…</option>
             </select>
-            <input placeholder="Supplier" value={form.supplier} onChange={e => setForm({ ...form, supplier: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <input placeholder={t('supplier')} value={form.supplier} onChange={e => setForm({ ...form, supplier: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             {form.itemId === '__new' && (
               <>
                 <input required placeholder="New item name (e.g. Maize, Dewormer)" value={form.itemName} onChange={e => setForm({ ...form, itemName: e.target.value })} className="border-2 border-green-300 rounded-lg px-3 py-2 text-sm" />
@@ -147,8 +171,8 @@ export default function InventoryPage() {
             <p className="text-sm text-gray-600">{form.quantity} × KSh {form.unitCost} each = <span className="font-bold text-gray-900">Total KSh {(Number(form.quantity) * Number(form.unitCost)).toLocaleString()}</span></p>
           )}
           <div className="flex gap-2">
-            <button type="submit" disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? 'Saving…' : 'Add Stock'}</button>
-            <button type="button" onClick={() => setShow(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">Cancel</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? t('saving') : t('addStock')}</button>
+            <button type="button" onClick={() => setShow(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">{t('cancel')}</button>
           </div>
         </form>
       )}
@@ -178,7 +202,7 @@ export default function InventoryPage() {
                     </div>
                     <div className="flex gap-2">
                       <button onClick={saveItemEdit} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">Save</button>
-                      <button onClick={() => setEditItem(null)} className="px-3 py-1.5 bg-gray-200 rounded-lg text-xs font-semibold">Cancel</button>
+                      <button onClick={() => setEditItem(null)} className="px-3 py-1.5 bg-gray-200 rounded-lg text-xs font-semibold">{t('cancel')}</button>
                     </div>
                   </div>
                 ) : (
@@ -196,14 +220,17 @@ export default function InventoryPage() {
                 )}
                 {itemLots.length > 0 && (
                   <div className="overflow-x-auto -mx-1">
+                  {lotEditErr && itemLots.some(l => l.id === editLot) && (
+                    <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-xs font-semibold mb-2">{lotEditErr}</p>
+                  )}
                   <table className="w-full text-xs text-gray-600 min-w-[440px]">
                     <thead className="text-gray-400 font-semibold border-b border-gray-100">
                       <tr>
-                        <th className="text-left px-2 pb-2">Lot No.</th>
-                        <th className="text-right px-3 pb-2">Qty</th>
-                        <th className="text-right px-3 pb-2">Unit Cost</th>
-                        <th className="text-left px-3 pb-2 whitespace-nowrap">Received</th>
-                        <th className="text-left px-3 pb-2 whitespace-nowrap">Expiry</th>
+                        <th className="text-left px-2 pb-2">{t('lotNo')}</th>
+                        <th className="text-right px-3 pb-2">{t('qty')}</th>
+                        <th className="text-right px-3 pb-2">{t('unitCost')}</th>
+                        <th className="text-left px-3 pb-2 whitespace-nowrap">{t('received')}</th>
+                        <th className="text-left px-3 pb-2 whitespace-nowrap">{t('expiry')}</th>
                         <th className="text-center px-2 pb-2">WD</th>
                       </tr>
                     </thead>
@@ -213,12 +240,12 @@ export default function InventoryPage() {
                           <td className="py-2 px-2 font-mono">{lot.lotNo}</td>
                           <td className="py-2 px-3 text-right font-bold text-gray-900 whitespace-nowrap">
                             {editLot === lot.id
-                              ? <input type="number" value={lotEdit.qtyOnHand} onChange={e => setLotEdit({ ...lotEdit, qtyOnHand: e.target.value })} className="w-20 border rounded px-2 py-1 text-right" />
+                              ? <input type="number" min="0" value={lotEdit.qtyOnHand} onChange={e => setLotEdit({ ...lotEdit, qtyOnHand: e.target.value })} className="w-20 border rounded px-2 py-1 text-right" />
                               : <>{lot.qtyOnHand} {lot.unit}</>}
                           </td>
                           <td className="py-2 px-3 text-right whitespace-nowrap">
                             {editLot === lot.id
-                              ? <input type="number" value={lotEdit.unitCost} onChange={e => setLotEdit({ ...lotEdit, unitCost: e.target.value })} className="w-20 border rounded px-2 py-1 text-right" />
+                              ? <input type="number" min="0" value={lotEdit.unitCost} onChange={e => setLotEdit({ ...lotEdit, unitCost: e.target.value })} className="w-20 border rounded px-2 py-1 text-right" />
                               : <>KSh {lot.unitCost}</>}
                           </td>
                           <td className="py-2 px-3 whitespace-nowrap">{new Date(lot.receivedDate).toLocaleDateString('en-KE')}</td>
@@ -230,7 +257,7 @@ export default function InventoryPage() {
                           </td>
                           <td className="py-2 px-2 text-center whitespace-nowrap">
                             {editLot === lot.id
-                              ? <span className="flex gap-1 justify-center"><button onClick={saveLotEdit} className="text-green-600 font-bold">✓</button><button onClick={() => setEditLot(null)} className="text-gray-400">✕</button></span>
+                              ? <span className="flex gap-1 justify-center"><button onClick={saveLotEdit} className="text-green-600 font-bold">✓</button><button onClick={() => { setEditLot(null); setLotEditErr(''); }} className="text-gray-400">✕</button></span>
                               : <button onClick={() => startLotEdit(lot)} className="text-gray-400 hover:text-green-600" title="Fix qty/cost">✎</button>}
                           </td>
                         </tr>
@@ -263,7 +290,7 @@ export default function InventoryPage() {
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <button onClick={() => applyFormula(f)} className="text-xs text-green-600 font-semibold hover:underline">Use / edit</button>
-                      <button onClick={() => deleteFormula(f.id)} className="text-xs text-gray-400 hover:text-red-600">Delete</button>
+                      <button onClick={() => deleteFormula(f.id)} className="text-xs text-gray-400 hover:text-red-600">{t('delete')}</button>
                     </div>
                   </div>
                 ))}
@@ -300,11 +327,11 @@ export default function InventoryPage() {
             <div className="flex flex-col sm:flex-row gap-2">
               {editFormulaId && (
                 <button onClick={updateFormula} disabled={mixing || !mixName || mixKg <= 0} className="flex-1 bg-indigo-600 text-white rounded-xl py-3 font-bold disabled:opacity-50">
-                  {mixing ? 'Saving…' : 'Update recipe'}
+                  {mixing ? t('saving') : t('updateRecipe')}
                 </button>
               )}
               <button onClick={recordMix} disabled={mixing || !mixName || mixKg <= 0} className="flex-1 bg-green-600 text-white rounded-xl py-3 font-bold disabled:opacity-50">
-                {mixing ? 'Mixing…' : 'Record Mix Event'}
+                {mixing ? t('mixing') : t('recordMixEvent')}
               </button>
               {editFormulaId && (
                 <button type="button" onClick={() => { setEditFormulaId(null); setMixName(''); setMixRows([{ itemId: '', kg: '' }]); }} className="px-4 bg-gray-100 text-gray-700 rounded-xl py-3 font-semibold text-sm">New</button>
@@ -359,12 +386,12 @@ export default function InventoryPage() {
                 <table className="w-full text-sm">
                   <thead className="text-gray-500 text-xs font-semibold border-b">
                     <tr>
-                      <th className="text-left pb-2">Date</th>
-                      <th className="text-left pb-2">Item</th>
-                      <th className="text-left pb-2">Supplier</th>
-                      <th className="text-right pb-2">Qty</th>
-                      <th className="text-right pb-2">Unit Cost</th>
-                      <th className="text-right pb-2">Total</th>
+                      <th className="text-left pb-2">{t('date')}</th>
+                      <th className="text-left pb-2">{t('item')}</th>
+                      <th className="text-left pb-2">{t('supplier')}</th>
+                      <th className="text-right pb-2">{t('qty')}</th>
+                      <th className="text-right pb-2">{t('unitCost')}</th>
+                      <th className="text-right pb-2">{t('total')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">

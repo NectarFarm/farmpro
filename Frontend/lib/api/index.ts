@@ -11,13 +11,33 @@ import type {
 
 const USE_REAL = process.env.NEXT_PUBLIC_USE_REAL_API === 'true';
 
+// Rural/mobile connections can hang indefinitely with no error and no retry
+// prompt. Every fetch below is bounded so a stalled request surfaces as a
+// clear, catchable error instead of blocking forever.
+const REQUEST_TIMEOUT_MS = 15000;
+
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timed out — check your connection and try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url, { credentials: 'include' });
+  const r = await fetchWithTimeout(url, { credentials: 'include' });
   if (!r.ok) throw new Error(`${url} -> ${r.status}`);
   return r.json() as Promise<T>;
 }
 async function postJSON<T>(url: string, body: unknown): Promise<T> {
-  const r = await fetch(url, {
+  const r = await fetchWithTimeout(url, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -31,7 +51,7 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
   return r.json() as Promise<T>;
 }
 async function patchJSON<T>(url: string, body: unknown): Promise<T> {
-  const r = await fetch(url, {
+  const r = await fetchWithTimeout(url, {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -53,13 +73,13 @@ const realApi: typeof mock.api = {
   getUnits: () => getJSON<ProductionUnit[]>('/api/data/units'),
   getBatches: () => getJSON<Batch[]>('/api/data/batches'),
   getBatch: (id: string) =>
-    getJSON<Batch>(`/api/data/batches?id=${encodeURIComponent(id)}`).catch(() => null),
+    getJSON<Batch>(`/api/data/batches?id=${encodeURIComponent(id)}`),
   getItems: () => getJSON<InventoryItem[]>('/api/data/items'),
   getLots: () => getJSON<InventoryLot[]>('/api/data/lots'),
   getLotsByItem: async (itemId: string) =>
     (await getJSON<InventoryLot[]>('/api/data/lots')).filter((l) => l.itemId === itemId),
   getTasks: async (userId: string) =>
-    (await getJSON<Task[]>('/api/data/tasks')).filter((t) => t.assignedTo === userId),
+    getJSON<Task[]>(`/api/data/tasks?assignedTo=${encodeURIComponent(userId)}`),
   getAlerts: () => getJSON<Alert[]>('/api/data/alerts'),
   getEmployees: () => getJSON<Employee[]>('/api/data/employees'),
   getWorkerProfiles: () => getJSON<WorkerProfile[]>('/api/data/worker-profiles'),
@@ -79,9 +99,13 @@ const realApi: typeof mock.api = {
     return { id: r.id, status: 'accepted' };
   },
   getCostSummary: (batchId: string) =>
-    getJSON<BatchCostSummary>(`/api/cost-summary?batchId=${encodeURIComponent(batchId)}`).catch(() => null),
+    getJSON<BatchCostSummary>(`/api/cost-summary?batchId=${encodeURIComponent(batchId)}`),
   getHealthRecords: async (batchId: string) =>
     (await getJSON<HealthRecord[]>('/api/data/health-records')).filter((h) => h.batchId === batchId),
+  // Vet prescriptions have their own route (writes a healthRecords row + optionally
+  // the referenced lot's withdrawalDays — see app/api/prescriptions/route.ts).
+  prescribe: (data: Record<string, unknown>) =>
+    postJSON<{ id: string }>('/api/prescriptions', data),
   getUsers: () => getJSON<User[]>('/api/workers'),
   // Field events go through the offline-sync contract (clientUuid = server PK → idempotent).
   submitRecord: async (type: string, payload: unknown) => {
@@ -113,7 +137,7 @@ export const loginWorker = USE_REAL
 
 // Products a batch yields (eggs/pork/manure…) with priced sale units.
 export const getProducts: (batchId?: string) => Promise<Product[]> = USE_REAL
-  ? (batchId?: string) => getJSON<Product[]>(`/api/products${batchId ? `?batchId=${encodeURIComponent(batchId)}` : ''}`).catch(() => [])
+  ? (batchId?: string) => getJSON<Product[]>(`/api/products${batchId ? `?batchId=${encodeURIComponent(batchId)}` : ''}`)
   : (batchId?: string) => mock.api.getProducts(batchId);
 
 export const createProduct: (data: Record<string, unknown>) => Promise<{ id: string }> = USE_REAL
@@ -139,5 +163,5 @@ export const getProductionChartData: () => Promise<ReturnType<typeof mock.getPro
   : () => Promise.resolve(mock.getProductionChartData());
 
 export const getCumulativeChartData: (batchId: string) => Promise<ReturnType<typeof mock.getCumulativeChartData>> = USE_REAL
-  ? (batchId: string) => getJSON<ReturnType<typeof mock.getCumulativeChartData>>(`/api/charts/cumulative?batchId=${encodeURIComponent(batchId)}`).catch(() => [])
+  ? (batchId: string) => getJSON<ReturnType<typeof mock.getCumulativeChartData>>(`/api/charts/cumulative?batchId=${encodeURIComponent(batchId)}`)
   : (batchId: string) => Promise.resolve(mock.getCumulativeChartData(batchId));

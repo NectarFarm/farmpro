@@ -3,9 +3,12 @@ import { PRODUCT_TEMPLATES, enterpriseFromSpecies, ENTERPRISE_LABELS } from '@/l
 
 describe('productTemplates', () => {
   describe('PRODUCT_TEMPLATES', () => {
-    it('has all expected enterprise keys', () => {
+    it('has all expected enterprise keys (7 original + 5 new)', () => {
       const keys = Object.keys(PRODUCT_TEMPLATES);
-      expect(keys.sort()).toEqual(['broilers', 'catfish', 'layers', 'maize', 'pig_breed', 'pig_fatten', 'tilapia'].sort());
+      expect(keys.sort()).toEqual(
+        ['bees', 'broilers', 'catfish', 'dairy', 'ducks', 'goats',
+         'layers', 'maize', 'pig_breed', 'pig_fatten', 'rabbits', 'tilapia'].sort(),
+      );
     });
 
     it('every product has a name, baseUnit, collectFrequency, and saleUnits', () => {
@@ -43,8 +46,9 @@ describe('productTemplates', () => {
     it('the live animal is marked as an animal product — sold from stock, never collected', () => {
       // Animal products = the living stock you SELL (a per-head bird/piglet OR a
       // weight-sold fish/pig). They must never be treated as a collectible output.
-      const animalMains = ['Live bird', 'Spent hen', 'Piglets', 'Pork (live weight)', 'Fish'];
-      const harvested = ['Eggs', 'Manure', 'Maize grain'];
+      const animalMains = ['Live bird', 'Spent hen', 'Piglets', 'Pork (live weight)', 'Fish',
+                           'Live goat', 'Mature cow', 'Live duck', 'Rabbit meat', 'Colony / nuc'];
+      const harvested = ['Eggs', 'Manure', 'Maize grain', 'Milk', 'Honey', 'Wax', 'Eggs (duck)'];
       for (const defs of Object.values(PRODUCT_TEMPLATES)) {
         for (const d of defs) {
           if (animalMains.includes(d.name)) expect(d.isAnimalProduct).toBe(true);
@@ -91,6 +95,31 @@ describe('productTemplates', () => {
     it('maize has Maize grain', () => {
       expect(PRODUCT_TEMPLATES.maize.map((d) => d.name)).toEqual(['Maize grain']);
     });
+
+    it('goats has Live goat, Milk, and Manure', () => {
+      const names = PRODUCT_TEMPLATES.goats.map((d) => d.name);
+      expect(names).toEqual(['Live goat', 'Milk', 'Manure']);
+    });
+
+    it('dairy has Mature cow, Milk, Calf, and Manure', () => {
+      const names = PRODUCT_TEMPLATES.dairy.map((d) => d.name);
+      expect(names).toEqual(['Mature cow', 'Milk', 'Calf', 'Manure']);
+    });
+
+    it('ducks has Eggs (duck), Live duck, and Manure', () => {
+      const names = PRODUCT_TEMPLATES.ducks.map((d) => d.name);
+      expect(names).toEqual(['Eggs (duck)', 'Live duck', 'Manure']);
+    });
+
+    it('rabbits has Rabbit meat, Breeding stock, and Manure', () => {
+      const names = PRODUCT_TEMPLATES.rabbits.map((d) => d.name);
+      expect(names).toEqual(['Rabbit meat', 'Breeding stock', 'Manure']);
+    });
+
+    it('bees has Honey, Wax, and Colony / nuc', () => {
+      const names = PRODUCT_TEMPLATES.bees.map((d) => d.name);
+      expect(names).toEqual(['Honey', 'Wax', 'Colony / nuc']);
+    });
   });
 
   describe('enterpriseFromSpecies', () => {
@@ -98,6 +127,8 @@ describe('productTemplates', () => {
       ['layer', 'layers'],
       ['LAYER', 'layers'],
       ['pullet layer', 'layers'],
+      ['kienyeji', 'layers'],
+      ['indigenous chicken', 'layers'],
       ['broiler', 'broilers'],
       ['BROILER', 'broilers'],
       ['cobb broiler', 'broilers'],
@@ -115,9 +146,22 @@ describe('productTemplates', () => {
       ['chicken', 'layers'],
       ['poultry', 'layers'],
       ['hen', 'layers'],
-      ['cattle', null],
-      ['goat', null],
+      ['goat', 'goats'],
+      ['kid', 'goats'],
+      ['cattle', 'dairy'],
+      ['cow', 'dairy'],
+      ['dairy cow', 'dairy'],
+      ['calf', 'dairy'],
+      ['duck', 'ducks'],
+      ['muscovy', 'ducks'],
+      ['rabbit', 'rabbits'],
+      ['bunny', 'rabbits'],
+      ['bee', 'bees'],
+      ['honey', 'bees'],
+      ['hive', 'bees'],
       ['', null],
+      ['camel', null],
+      ['sheep', null],
     ])('maps "%s" → %s', (species, expected) => {
       expect(enterpriseFromSpecies(species)).toBe(expected);
     });

@@ -23,6 +23,11 @@ export const STAGE_TEMPLATES: Record<string, StageDef[]> = {
   tilapia:    [{ name: 'Fingerling', startDay: 0 }, { name: 'Juvenile', startDay: 28 }, { name: 'Grow-out', startDay: 84 }, { name: 'Harvest', startDay: 168 }],
   catfish:    [{ name: 'Fingerling', startDay: 0 }, { name: 'Juvenile', startDay: 28 }, { name: 'Grow-out', startDay: 84 }, { name: 'Harvest', startDay: 140 }],
   maize:      [{ name: 'Seedling', startDay: 0 }, { name: 'Vegetative', startDay: 14 }, { name: 'Tasseling', startDay: 56 }, { name: 'Maturity', startDay: 90 }, { name: 'Harvest', startDay: 120 }],
+  goats:      [{ name: 'Kid', startDay: 0 }, { name: 'Weaner', startDay: 90 }, { name: 'Grower', startDay: 180 }, { name: 'Market', startDay: 270 }],
+  dairy:      [{ name: 'Calf', startDay: 0 }, { name: 'Heifer', startDay: 365 }, { name: 'Lactating', startDay: 730 }, { name: 'Dry', startDay: 1095 }],
+  ducks:      [{ name: 'Brooding', startDay: 0 }, { name: 'Grower', startDay: 21 }, { name: 'Layer', startDay: 140 }, { name: 'Spent', startDay: 560 }],
+  rabbits:    [{ name: 'Kit', startDay: 0 }, { name: 'Weaner', startDay: 28 }, { name: 'Grower', startDay: 56 }, { name: 'Market / Breeding', startDay: 84 }],
+  bees:       [{ name: 'Establishing', startDay: 0 }, { name: 'Growing colony', startDay: 30 }, { name: 'Producing', startDay: 90 }, { name: 'Dormant', startDay: 270 }],
 };
 
 export const STAGE_ENTERPRISES = Object.keys(STAGE_TEMPLATES);

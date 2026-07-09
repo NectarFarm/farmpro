@@ -1,6 +1,6 @@
 'use client';
 // DS-4: Confirmation for irreversible actions
-import React from 'react';
+import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -9,14 +9,28 @@ interface Props {
   summary: string;
   confirmLabel?: string;
   cancelLabel?: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   onCancel: () => void;
   danger?: boolean;
   children?: React.ReactNode;
 }
 
 export function ConfirmSheet({ open, title, summary, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm, onCancel, danger, children }: Props) {
+  // Guards against a laggy double-tap firing the async onConfirm (an offline
+  // enqueue) twice and creating duplicate records.
+  const [busy, setBusy] = useState(false);
   if (!open) return null;
+
+  const handleConfirm = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onConfirm();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
@@ -27,15 +41,17 @@ export function ConfirmSheet({ open, title, summary, confirmLabel = 'Confirm', c
         <div className="flex flex-col gap-3 mt-2">
           <button
             type="button"
-            onClick={onConfirm}
-            className={cn('w-full min-h-[56px] rounded-xl text-lg font-bold text-white', danger ? 'bg-red-600 active:bg-red-700' : 'bg-green-600 active:bg-green-700')}
+            onClick={handleConfirm}
+            disabled={busy}
+            className={cn('w-full min-h-[56px] rounded-xl text-lg font-bold text-white disabled:opacity-60', danger ? 'bg-red-600 active:bg-red-700' : 'bg-green-600 active:bg-green-700')}
           >
-            {confirmLabel}
+            {busy ? '…' : confirmLabel}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="w-full min-h-[56px] rounded-xl text-lg font-semibold text-gray-700 bg-gray-100 active:bg-gray-200"
+            disabled={busy}
+            className="w-full min-h-[56px] rounded-xl text-lg font-semibold text-gray-700 bg-gray-100 active:bg-gray-200 disabled:opacity-60"
           >
             {cancelLabel}
           </button>

@@ -190,6 +190,24 @@ export const api = {
     return { id: purchase.id, status: 'accepted' };
   },
   getHealthRecords: async (batchId: string) => { await delay(150); return mockHealthRecords.filter(h => h.batchId === batchId); },
+  prescribe: async (data: Record<string, unknown>) => {
+    await delay(300);
+    const batchId = String(data.batchId ?? '');
+    if (!batchId) throw new Error('batchId required');
+    const product = String(data.product ?? '').trim();
+    if (!product) throw new Error('product/treatment required');
+    const id = 'h_' + Math.random().toString(36).slice(2, 10);
+    const now = new Date().toISOString();
+    const withdrawalDays = data.withdrawal != null && String(data.withdrawal) !== '' ? Number(data.withdrawal) : undefined;
+    mockHealthRecords.push({
+      id, clientUuid: id, batchId, type: 'PRESCRIPTION',
+      productLotId: String(data.productLotId ?? ''), dose: Number(data.dose) || 0, route: String(data.route ?? ''),
+      appliedBy: 'vet', appliedAt: now, capturedAt: now, status: 'synced',
+      withdrawalUntil: withdrawalDays ? new Date(Date.now() + withdrawalDays * 86400000).toISOString() : undefined,
+      notes: String(data.notes ?? ''),
+    });
+    return { id };
+  },
 
   // Write ops — simulate Django accepting the record
   submitRecord: async (type: string, payload: unknown) => {

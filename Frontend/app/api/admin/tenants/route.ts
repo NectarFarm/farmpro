@@ -58,22 +58,28 @@ export async function POST(req: Request) {
   const pkgs = await getActivePackages();
   const plan = pkgs.some((p) => p.id === body.plan) ? body.plan! : (pkgs.find((p) => p.id === 'pro')?.id ?? pkgs[0].id);
   const tenantId = sid('t');
-  await db.insert(tenants).values({ id: tenantId, name: farmName, plan, features: packageFeatures(pkgs, plan) });
-  await db.insert(users).values({
-    id: sid('u'), tenantId, name: ownerName, email: ownerEmail, phone: ownerPhone, role: 'owner', language: 'en',
-    passwordHash: await hashSecret(ownerPassword),
+  const passwordHash = await hashSecret(ownerPassword);
+  // Tenant + owner login + worker profile + lifecycle stages must land together — a
+  // failure partway through (e.g. the owner-user insert throwing) would otherwise leave
+  // a tenant row with no owner login and no way in except a direct DB fix.
+  await db.transaction(async (tx) => {
+    await tx.insert(tenants).values({ id: tenantId, name: farmName, plan, features: packageFeatures(pkgs, plan) });
+    await tx.insert(users).values({
+      id: sid('u'), tenantId, name: ownerName, email: ownerEmail, phone: ownerPhone, role: 'owner', language: 'en',
+      passwordHash,
+    });
+    // Seed a default worker profile so the owner has something to assign & edit
+    // from day one (Worker Config is otherwise empty on a brand-new farm).
+    await tx.insert(workerProfiles).values({
+      id: sid('wp'), tenantId, name: 'Standard Worker', fields: DEFAULT_WORKER_FIELDS,
+      modules: DEFAULT_WORKER_MODULES, mortalityPhotoThreshold: 1, alertThresholds: {},
+    });
+    // Seed default lifecycle stage sets for every enterprise so a new farm can track
+    // growth (and get "due to move" reminders) from day one; the farmer edits them.
+    const stageRows = Object.entries(STAGE_TEMPLATES).flatMap(([enterprise, stages]) =>
+      stages.map((s, i) => ({ id: sid('ls'), tenantId, enterprise, ord: i, name: s.name, startDay: s.startDay })));
+    if (stageRows.length) await tx.insert(lifecycleStages).values(stageRows);
   });
-  // Seed a default worker profile so the owner has something to assign & edit
-  // from day one (Worker Config is otherwise empty on a brand-new farm).
-  await db.insert(workerProfiles).values({
-    id: sid('wp'), tenantId, name: 'Standard Worker', fields: DEFAULT_WORKER_FIELDS,
-    modules: DEFAULT_WORKER_MODULES, mortalityPhotoThreshold: 1, alertThresholds: {},
-  });
-  // Seed default lifecycle stage sets for every enterprise so a new farm can track
-  // growth (and get "due to move" reminders) from day one; the farmer edits them.
-  const stageRows = Object.entries(STAGE_TEMPLATES).flatMap(([enterprise, stages]) =>
-    stages.map((s, i) => ({ id: sid('ls'), tenantId, enterprise, ord: i, name: s.name, startDay: s.startDay })));
-  if (stageRows.length) await db.insert(lifecycleStages).values(stageRows);
   await audit({ tenantId, actor: actorLabel(session), action: 'tenant.create', entity: farmName, after: { plan, ownerEmail } });
   return created({ id: tenantId, name: farmName, plan, ownerEmail });
 }

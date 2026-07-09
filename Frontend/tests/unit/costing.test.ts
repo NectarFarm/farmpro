@@ -339,7 +339,9 @@ describe('computeDashboardKPIs', () => {
     expect(result.mortalityPct).toBe(0);            // no mortality records → 0%
     expect(result.revenueThisMonth).toBe(0);        // no sales → 0
     // Every KPI must be a finite number — guards against NaN/Infinity regressions.
-    for (const v of Object.values(result)) {
+    // enterpriseBreaks is an object (not a number), so skip it in the numeric check.
+    for (const [k, v] of Object.entries(result)) {
+      if (k === 'enterpriseBreaks') continue;
       expect(typeof v).toBe('number');
       expect(Number.isFinite(v as number)).toBe(true);
     }

@@ -2,6 +2,12 @@ import 'server-only'
 import { cache } from 'react'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
+import type { PgDatabase } from 'drizzle-orm/pg-core'
+import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js'
+
+// Shared type for "either the top-level db or a transaction handle" — functions
+// that must be callable both standalone and inside db.transaction() take this.
+export type DbClient = PgDatabase<PostgresJsQueryResultHKT, Record<string, never>>
 
 // Connection strategy depends on the runtime, because the two have OPPOSITE needs:
 //

@@ -3,12 +3,18 @@ import { users } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
-import { ok, badRequest, unauthorized, serviceUnavailable } from '@/lib/server/http';
+import { checkLoginRateLimit } from '@/lib/server/rateLimit';
+import { ok, badRequest, unauthorized, serviceUnavailable, tooMany } from '@/lib/server/http';
 
 const BAD_CREDS = 'Wrong phone number or PIN.';
 
 // POST /api/auth/worker  { phone, pin }
 export async function POST(req: Request) {
+  // Rate limit: 5 attempts per minute per IP (brute-force protection)
+  const limit = checkLoginRateLimit(req);
+  if (!limit.allowed) {
+    return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
+  }
   try {
     const { phone, pin } = (await req.json().catch(() => ({}))) as { phone?: string; pin?: string };
     if (!phone || !pin) return badRequest('Enter your phone number and PIN.');

@@ -1,12 +1,14 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { api } from '@/lib/api';
 import type { Alert } from '@/lib/types';
 import { alertDestination } from '@/lib/alerts';
 import { StatusChip } from '@/components/worker/StatusChip';
 
 export default function AlertsPage() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [acked, setAcked] = useState<Set<string>>(new Set());
@@ -15,6 +17,7 @@ export default function AlertsPage() {
   const [rulesSaved, setRulesSaved] = useState(false);
   const [rulesErr, setRulesErr] = useState('');
   const [checking, setChecking] = useState(false);
+  const [ackErr, setAckErr] = useState('');
 
   const load = async () => {
     try { await fetch('/api/alerts/evaluate', { method: 'POST', credentials: 'include' }); } catch { /* ignore (mock mode) */ }
@@ -42,13 +45,20 @@ export default function AlertsPage() {
   };
 
   const ackAlert = async (id: string) => {
+    setAckErr('');
     setAcked(s => new Set([...s, id])); // optimistic (also covers mock mode)
     try {
-      await fetch(`/api/data/alerts?id=${id}`, {
+      const res = await fetch(`/api/data/alerts?id=${id}`, {
         method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acknowledged: true }),
       });
-      api.getAlerts().then(setAlerts);
-    } catch { /* optimistic state already applied */ }
+      if (!res.ok) throw new Error('Acknowledge failed');
+      api.getAlerts().then(setAlerts).catch(() => {}); // ack itself already succeeded; a refetch failure here just means the list won't refresh until next load
+    } catch {
+      // Revert the optimistic change so the alert reappears as active,
+      // rather than silently staying "acknowledged" until next reload.
+      setAcked(s => { const next = new Set(s); next.delete(id); return next; });
+      setAckErr('Failed to acknowledge alert. Please try again.');
+    }
   };
 
   const active = alerts.filter(a => !a.acknowledged && !acked.has(a.id));
@@ -57,17 +67,19 @@ export default function AlertsPage() {
   return (
     <div className="p-6 flex flex-col gap-6 max-w-3xl">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">🔔 Alerts</h1>
+        <h1 className="text-2xl font-bold text-gray-900">🔔 {t('alerts')}</h1>
         <button onClick={runChecks} disabled={checking}
           className="px-4 py-2 bg-gray-800 text-white rounded-lg font-semibold text-sm disabled:opacity-50">
-          {checking ? 'Checking…' : '↻ Run checks now'}
+          {checking ? `${t('loading')}` : `↻ ${t('runChecksNow')}`}
         </button>
       </div>
 
+      {ackErr && <p className="text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm font-semibold">{ackErr}</p>}
+
       <section>
-        <h2 className="font-semibold text-gray-700 mb-3">Active ({active.length})</h2>
+        <h2 className="font-semibold text-gray-700 mb-3">{t('active')} ({active.length})</h2>
         {active.length === 0
-          ? <div className="text-center py-8 bg-white border border-dashed rounded-xl text-gray-400">No active alerts 🎉</div>
+          ? <div className="text-center py-8 bg-white border border-dashed rounded-xl text-gray-400">{t('noActiveAlerts')} 🎉</div>
           : (
             <div className="flex flex-col gap-3">
               {active.map(a => (
@@ -92,7 +104,7 @@ export default function AlertsPage() {
 
       {resolved.length > 0 && (
         <section>
-          <h2 className="font-semibold text-gray-400 mb-3">Acknowledged ({resolved.length})</h2>
+          <h2 className="font-semibold text-gray-400 mb-3">{t('acknowledged')} ({resolved.length})</h2>
           <div className="flex flex-col gap-2 opacity-50">
             {resolved.map(a => (
               <div key={a.id} className="bg-gray-50 border border-gray-200 rounded-xl px-5 py-3 flex gap-3">
@@ -106,11 +118,11 @@ export default function AlertsPage() {
 
       {/* Alert rules config */}
       <section className="bg-white border border-gray-200 rounded-xl p-5">
-        <h2 className="font-bold text-gray-800 mb-3">Alert Rules (FR-M14-3)</h2>
-        <p className="text-gray-500 text-sm mb-3">Configure when alerts fire — no code changes needed.</p>
+        <h2 className="font-bold text-gray-800 mb-3">{t('alertRules')}</h2>
+        <p className="text-gray-500 text-sm mb-3">{t('alertRules')}</p>
         {rulesErr && <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold mb-2">{rulesErr}</p>}
         <div className="flex flex-col gap-3">
-          {rules.length === 0 && <p className="text-gray-400 text-sm">No rules configured.</p>}
+          {rules.length === 0 && <p className="text-gray-400 text-sm">{t('noRulesConfigured')}</p>}
           {rules.map((r, i) => (
             <div key={r.metric} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
               <div>
@@ -128,7 +140,7 @@ export default function AlertsPage() {
         </div>
         <button onClick={saveRules} disabled={rules.length === 0}
           className={`mt-3 px-4 py-2 rounded-lg font-semibold text-sm disabled:opacity-50 ${rulesSaved ? 'bg-green-100 text-green-700' : 'bg-green-600 text-white'}`}>
-          {rulesSaved ? '✓ Rules Saved' : 'Save Rules'}
+          {rulesSaved ? `✓ ${t('saveRules')}` : t('saveRules')}
         </button>
       </section>
     </div>

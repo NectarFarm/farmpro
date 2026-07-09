@@ -3,29 +3,34 @@ import { PackageOpen } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
+import { useToast } from '@/hooks/use-toast';
 import type { InventoryItem, InventoryLot } from '@/lib/types';
 
 export default function ClosingStockPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
   const router = useRouter();
+  const { toast } = useToast();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [lots, setLots] = useState<InventoryLot[]>([]);
   const [counts, setCounts] = useState<Record<string,string>>({});
-  const [toast, setToast] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     Promise.all([api.getItems(), api.getLots()]).then(([i,l]) => {
       const feedItems = i.filter(it => it.category.startsWith('FEED'));
       setItems(feedItems);
       setLots(l);
-    });
-  }, []);
+    }).catch(() => setLoadError(t('loadFormDataFailed')));
+  }, [t]);
 
   const getOnHand = (itemId: string) => lots.filter(l => l.itemId === itemId).reduce((s,l) => s + l.qtyOnHand, 0);
   const getVariance = (itemId: string) => {
@@ -35,19 +40,27 @@ export default function ClosingStockPage() {
   };
 
   const handleSubmit = async () => {
+    setError('');
+    const enteredEntries = items.filter(item => counts[item.id] !== undefined && counts[item.id] !== '');
+    const negative = enteredEntries.find(item => parseFloat(counts[item.id]) < 0);
+    if (negative) { setError('Count cannot be negative'); return; }
     setLoading(true);
     const capturedAt = new Date().toISOString();
-    for (const item of items) {
-      if (counts[item.id] !== undefined && counts[item.id] !== '') {
+    try {
+      for (const item of enteredEntries) {
         const clientUuid = uuid();
         await enqueuePendingRecord('closing_stock', {
           clientUuid, itemId: item.id, closingQty: parseFloat(counts[item.id]),
           recordedBy: user?.id, capturedAt,
         }, clientUuid);
       }
+    } catch {
+      setLoading(false);
+      setError(t('saveFailedRetry'));
+      return;
     }
     setPendingCount(pendingCount + Object.keys(counts).length);
-    setToast('✓ Saved — will sync');
+    toast({ description: '✓ Saved — will sync' });
     setLoading(false);
     setTimeout(() => router.replace('/worker/home'), 1500);
   };
@@ -55,12 +68,14 @@ export default function ClosingStockPage() {
   return (
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-teal-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><PackageOpen className="w-6 h-6 shrink-0" /><span>Closing Stock Count</span></h1>
-        <p className="text-teal-200 text-sm">Enter remaining quantities for each feed item</p>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><PackageOpen className="w-6 h-6 shrink-0" /><span>{t('closingStockCount')}</span></h1>
+        <p className="text-teal-200 text-sm">{t('closingStockCount')}</p>
       </div>
 
-      {items.length === 0 && (
-        <div className="text-center py-10 text-gray-400">Loading items…</div>
+      {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
+
+      {items.length === 0 && !loadError && (
+        <div className="text-center py-10 text-gray-400">{t('loadingItems')}</div>
       )}
 
       {items.map(item => {
@@ -72,14 +87,14 @@ export default function ClosingStockPage() {
             <div className="flex justify-between items-start">
               <div>
                 <p className="font-bold text-gray-900">{item.name}</p>
-                <p className="text-xs text-gray-500">System: {onHand} {item.unit} on hand</p>
+                <p className="text-xs text-gray-500">{t('system')}: {onHand} {item.unit} {t('onHand')}</p>
               </div>
               {onHand <= item.lowStockThreshold && (
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">▲ LOW</span>
               )}
             </div>
             <div className="flex items-center gap-3">
-              <label className="text-sm text-gray-600 shrink-0">Counted ({item.unit})</label>
+              <label className="text-sm text-gray-600 shrink-0">{t('youCounted')} ({item.unit})</label>
               <input
                 type="number" step="0.1" min="0"
                 value={counts[item.id] ?? ''}
@@ -97,12 +112,12 @@ export default function ClosingStockPage() {
         );
       })}
 
+      {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
+
       <button onClick={handleSubmit} disabled={loading || Object.keys(counts).length === 0}
         className="w-full min-h-[56px] bg-teal-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
-        {loading ? 'Saving…' : 'SUBMIT ALL'}
+        {loading ? t('saving') : t('submitAll')}
       </button>
-
-      {toast && <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-700 text-white px-5 py-3 rounded-xl font-semibold shadow-lg">{toast}</div>}
     </div>
   );
 }

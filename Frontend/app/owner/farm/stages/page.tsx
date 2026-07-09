@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { STAGE_ENTERPRISES, defaultStages, type StageDef } from '@/lib/lifecycle';
 
 const LABELS: Record<string, string> = {
@@ -9,23 +10,33 @@ const LABELS: Record<string, string> = {
 };
 
 export default function LifecycleStagesPage() {
+  const { t } = useTranslation();
   const [enterprise, setEnterprise] = useState(STAGE_ENTERPRISES[0]);
   const [all, setAll] = useState<Record<string, StageDef[]>>({});
   const [rows, setRows] = useState<StageDef[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [confirmedDefaults, setConfirmedDefaults] = useState(false);
 
   useEffect(() => {
-    fetch('/api/lifecycle-stages', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then((data: { enterprise: string; name: string; startDay: number }[]) => {
+    fetch('/api/lifecycle-stages', { credentials: 'include' }).then(r => {
+      if (!r.ok) throw new Error(`status ${r.status}`);
+      return r.json();
+    }).then((data: { enterprise: string; name: string; startDay: number }[]) => {
       const grouped: Record<string, StageDef[]> = {};
       for (const d of data) (grouped[d.enterprise] ??= []).push({ name: d.name, startDay: d.startDay });
       setAll(grouped);
-    }).catch(() => {});
+    }).catch(() => { setLoadFailed(true); });
   }, []);
 
   useEffect(() => {
     setSaved(false); setErr('');
+    // Confirming "these are defaults, save anyway" for one enterprise tab must not
+    // silently carry over to another — each tab's real saved stages were equally
+    // never fetched if the initial load failed, so switching tabs re-arms the gate.
+    setConfirmedDefaults(false);
     setRows((all[enterprise] && all[enterprise].length ? all[enterprise] : defaultStages(enterprise)).map(s => ({ ...s })));
   }, [enterprise, all]);
 
@@ -34,8 +45,12 @@ export default function LifecycleStagesPage() {
   const removeRow = (i: number) => setRows(rs => rs.filter((_, idx) => idx !== i));
 
   const save = async () => {
+    if (loadFailed && !confirmedDefaults) {
+      setErr("Couldn't load your saved stages — showing defaults. Confirm you want to overwrite with these before saving.");
+      return;
+    }
     const clean = rows.map(r => ({ name: r.name.trim(), startDay: Math.max(0, Math.round(Number(r.startDay) || 0)) })).filter(r => r.name);
-    if (!clean.length) { setErr('Add at least one stage.'); return; }
+    if (!clean.length) { setErr(t('atLeastOneStage')); return; }
     setSaving(true); setErr('');
     try {
       const res = await fetch('/api/lifecycle-stages', {
@@ -53,8 +68,8 @@ export default function LifecycleStagesPage() {
   return (
     <div className="p-6 flex flex-col gap-5 max-w-3xl">
       <div>
-        <div className="flex items-center gap-2 text-sm text-gray-500"><Link href="/owner/farm" className="hover:underline">← Farm</Link></div>
-        <h1 className="text-2xl font-bold text-gray-900 mt-1">🌱 Lifecycle stages</h1>
+        <div className="flex items-center gap-2 text-sm text-gray-500"><Link href="/owner/farm" className="hover:underline">← {t('farm')}</Link></div>
+        <h1 className="text-2xl font-bold text-gray-900 mt-1">🌱 {t('lifecycleStages')}</h1>
         <p className="text-gray-500 text-sm">Set the growth phases for each animal type and the AGE (days) each begins. The farm then shows when a batch is due to move to the next phase.</p>
       </div>
 
@@ -69,9 +84,26 @@ export default function LifecycleStagesPage() {
 
       {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
 
+      {loadFailed && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-3 text-sm flex flex-col gap-2">
+          <p className="text-amber-800 font-semibold">
+            ⚠️ Couldn&apos;t load your saved stages — showing defaults; do NOT save until you&apos;ve confirmed this is intentional.
+          </p>
+          <label className="flex items-center gap-2 text-amber-800 font-medium">
+            <input
+              type="checkbox"
+              checked={confirmedDefaults}
+              onChange={e => setConfirmedDefaults(e.target.checked)}
+              className="w-4 h-4 accent-amber-600"
+            />
+            I understand these are defaults, not my saved stages, and want to proceed anyway
+          </label>
+        </div>
+      )}
+
       <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-3">
         <div className="grid grid-cols-[1fr_120px_40px] gap-2 text-xs font-semibold text-gray-400">
-          <span>Stage name</span><span>Begins at (days)</span><span></span>
+          <span>{t('stageName')}</span><span>{t('beginsAtDays')}</span><span></span>
         </div>
         {rows.map((r, i) => (
           <div key={i} className="grid grid-cols-[1fr_120px_40px] gap-2 items-center">
@@ -82,22 +114,22 @@ export default function LifecycleStagesPage() {
             <button onClick={() => removeRow(i)} aria-label="Remove" className="text-gray-400 hover:text-red-600">✕</button>
           </div>
         ))}
-        <button onClick={addRow} className="self-start text-green-700 font-semibold text-sm">+ Add stage</button>
+        <button onClick={addRow} className="self-start text-green-700 font-semibold text-sm">+ {t('addStage')}</button>
         <p className="text-[11px] text-gray-400">The earliest stage is always pinned to day 0. Stages are ordered by their start day.</p>
       </div>
 
       {sortedPreview.length > 1 && (
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-600">
-          <span className="font-semibold text-gray-700">Timeline: </span>
+          <span className="font-semibold text-gray-700">{t('timeline')}: </span>
           {sortedPreview.map((s, i) => (
             <span key={i}>{i > 0 && ' → '}{s.name || '?'} <span className="text-gray-400">(d{Math.max(0, Math.round(Number(s.startDay) || 0))})</span></span>
           ))}
         </div>
       )}
 
-      <button onClick={save} disabled={saving}
+      <button onClick={save} disabled={saving || (loadFailed && !confirmedDefaults)}
         className={`w-full min-h-[52px] rounded-xl font-bold text-base disabled:opacity-50 ${saved ? 'bg-green-100 text-green-700' : 'bg-green-600 text-white hover:bg-green-700'}`}>
-        {saving ? 'Saving…' : saved ? '✓ Stages saved' : `Save ${LABELS[enterprise] ?? enterprise} stages`}
+        {saving ? t('saving') : saved ? t('stagesSaved') : t('saveStages', { label: LABELS[enterprise] ?? enterprise })}
       </button>
     </div>
   );

@@ -54,8 +54,12 @@ export const users = pgTable('users', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
   name: text('name').notNull(),
-  phone: text('phone').notNull(),
-  email: text('email'),
+  // Globally unique (not per-tenant) — login is looked up by phone/email alone,
+  // before the tenant is known (see app/api/auth/*), matching how the app already
+  // queries this table. The DB constraint backs what the app-level duplicate check
+  // in app/api/data/[resource]/route.ts was only racily enforcing before.
+  phone: text('phone').notNull().unique(),
+  email: text('email').unique(),
   role: text('role').notNull(),
   workerProfileId: text('worker_profile_id'),
   language: text('language').notNull().default('en'),
@@ -120,6 +124,10 @@ export const employeeLedger = pgTable('employee_ledger', {
   period: text('period').notNull(), // 'YYYY-MM' it applies to
   date: text('date').notNull(),
   createdAt: text('created_at').notNull(),
+  // Optional client-generated idempotency key (a retry or double-click resolves to
+  // one insert). Nullable — older clients may not send one, in which case we fall
+  // back to a plain insert with a server-generated id.
+  clientUuid: text('client_uuid').unique(),
 });
 
 export const productionUnits = pgTable('production_units', {
@@ -351,11 +359,17 @@ export const healthRecords = pgTable('health_records', {
   clientUuid: text('client_uuid').primaryKey(),
   tenantId: text('tenant_id').notNull(),
   batchId: text('batch_id').notNull(),
-  type: text('type').notNull(), // VACCINE | MEDICATION | ...
+  type: text('type').notNull(), // VACCINE | MEDICATION | PRESCRIPTION | ...
   productLotId: text('product_lot_id'),
   quantity: doublePrecision('quantity').notNull().default(0), // units consumed from the lot
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
+  // Set on vet prescriptions that don't reference a specific inventory lot
+  // (free-text treatment). When a lot IS referenced, the withdrawal period lives
+  // on inventoryLots.withdrawalDays instead — read both when computing a batch's
+  // withdrawal status.
+  withdrawalDays: integer('withdrawal_days'),
+  notes: text('notes'), // free-text: product/treatment name, route, vet's advisory note
 });
 
 export const laborLogs = pgTable('labor_logs', {

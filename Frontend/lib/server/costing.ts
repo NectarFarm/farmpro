@@ -9,7 +9,7 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { enterpriseFromSpecies } from './productTemplates';
 import { labourByBatch } from '@/lib/payroll';
-import type { BatchCostSummary } from '@/lib/types';
+import type { BatchCostSummary, EnterpriseKPIs, DashboardEnterpriseKPIs } from '@/lib/types';
 
 // ACTUAL labour cost per batch, from real payroll: each worker's total paid gross
 // (from their payslips) allocated across the batches they're assigned to by head
@@ -103,6 +103,21 @@ export async function computeBatchCost(
     ? (eggs > 0 ? (feedKg / eggs) * 12 : undefined)
     : (producedKg > 0 ? feedKg / producedKg : undefined);
 
+  // Hen-day %: actual eggs collected ÷ (average hens alive × days in cycle).
+  // For layers only. Uses batch.acquiredDate as the cycle start — a reasonable
+  // proxy since layers start laying around 18-20 weeks regardless of when the
+  // batch was acquired. Avoids an extra DB query per batch.
+  // Hen-housed %: total eggs ÷ (initial hens × days) — accounts for mortality.
+  let henDayPct: number | undefined;
+  let henHousedPct: number | undefined;
+  if (isLayer && eggs > 0) {
+    const daysInCycle = Math.max(1, Math.floor((Date.now() - new Date(batch.acquiredDate).getTime()) / 86400000));
+    // Average surviving hens = (initial + current) / 2, adjusted for sold.
+    const avgHens = Math.max(1, (batch.initialQty + Math.max(0, batch.initialQty - deaths)) / 2);
+    henDayPct = Math.min(100, Math.round((eggs / (avgHens * daysInCycle)) * 100));
+    henHousedPct = Math.min(100, Math.round((eggs / (batch.initialQty * daysInCycle)) * 100));
+  }
+
   // Headcount accounting separates the three fates of an animal:
   //   died (mortality), sold (left the farm), or still on the farm (currentQty).
   //   survivors = initial − died  → the cost of the whole batch (incl. the ones that
@@ -127,6 +142,7 @@ export async function computeBatchCost(
     costPerUnit: round(costPerUnit), outputUnit,
     mortalityPct: round(mortalityPct),
     fcr: fcr !== undefined ? round(fcr) : undefined,
+    henDayPct, henHousedPct,
     currentQty,
     costPerBird: round(costPerBird),
     breakEvenPricePerRemaining: round(breakEvenPricePerRemaining),
@@ -170,6 +186,29 @@ export async function computeDashboardKPIs(tenantId: string) {
   const alertRows = await db.select().from(alerts).where(eq(alerts.tenantId, tenantId));
   const taskRows = await db.select().from(tasks).where(eq(tasks.tenantId, tenantId));
 
+  // Enterprise breakdown: how many batches & animals per enterprise type.
+  const enterpriseBreaks: Record<string, { batches: number; animals: number; mortalityPct: number }> = {};
+  const entDeaths: Record<string, number> = {};
+  const entInitial: Record<string, number> = {};
+  for (const b of allBatches) {
+    const ent = enterpriseFromSpecies(b.species || '') || 'other';
+    if (!enterpriseBreaks[ent]) enterpriseBreaks[ent] = { batches: 0, animals: 0, mortalityPct: 0 };
+    if (b.status === 'ACTIVE') {
+      enterpriseBreaks[ent].batches++;
+      enterpriseBreaks[ent].animals += b.currentQty;
+    }
+    entInitial[ent] = (entInitial[ent] ?? 0) + b.initialQty;
+  }
+  for (const m of morts) {
+    const batch = allBatches.find(b => b.id === m.batchId);
+    if (!batch) continue;
+    const ent = enterpriseFromSpecies(batch.species || '') || 'other';
+    entDeaths[ent] = (entDeaths[ent] ?? 0) + m.count;
+  }
+  for (const ent of Object.keys(enterpriseBreaks)) {
+    enterpriseBreaks[ent].mortalityPct = entInitial[ent] > 0 ? round(((entDeaths[ent] ?? 0) / entInitial[ent]) * 100) : 0;
+  }
+
   return {
     activeBatches: active.length,
     totalBirds,
@@ -184,5 +223,6 @@ export async function computeDashboardKPIs(tenantId: string) {
     revenueThisQuarter: Math.round(revenueThisQuarter),
     revenueThisYear: Math.round(revenueThisYear),
     revenueAllTime: Math.round(totalRevenue),
+    enterpriseBreaks,
   };
 }

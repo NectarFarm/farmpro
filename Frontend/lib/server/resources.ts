@@ -2,9 +2,10 @@ import 'server-only';
 // Resource registry powering /api/data/[resource]. One tenant-scoped, field-filtered
 // read path for many entities. Add a resource = add a line here.
 import { and, eq, type SQL } from 'drizzle-orm';
+import { db } from '@/db';
 import {
   productionUnits, batches, inventoryItems, inventoryLots,
-  tasks, alerts, sales, purchases, employees, workerProfiles, healthRecords,
+  tasks, alerts, sales, purchases, employees, workerProfiles, healthRecords, users,
 } from '@/db/schemas';
 import type { Session } from './session';
 import type { Role } from '@/lib/types';
@@ -45,4 +46,22 @@ export function tenantScope(def: ResourceDef, session: Session): SQL | undefined
   const tenant = eq(def.table.tenantId, session.tenantId);
   const extra = def.scope?.(session);
   return extra ? and(tenant, extra) : tenant;
+}
+
+// FR-M5-5: a vet sees only batches they're assigned to. Assignment reuses
+// employees.assignedBatchIds (the same field workers use) — vets go through the
+// same `employees` row (see employees POST/PATCH in app/api/data/[resource]/route.ts),
+// joined to their `users` login row by phone (the key those two inserts share).
+// null = all batches (current & future), matching the existing worker convention —
+// unassigned honestly means "sees everything" rather than fake-restrictive.
+export async function vetAssignedBatchIds(session: Session): Promise<string[] | null> {
+  if (session.role !== 'vet') return null;
+  const [u] = await db.select({ phone: users.phone }).from(users).where(eq(users.id, session.userId)).limit(1);
+  if (!u) return null;
+  // employees.phone has no unique constraint (unlike users.phone) — filter by
+  // role too so a duplicate/re-hired phone entry can't scope this vet to some
+  // other employee's assignment by whichever row Postgres happens to return first.
+  const [emp] = await db.select({ assignedBatchIds: employees.assignedBatchIds }).from(employees)
+    .where(and(eq(employees.tenantId, session.tenantId), eq(employees.phone, u.phone), eq(employees.role, 'vet'))).limit(1);
+  return emp?.assignedBatchIds ?? null;
 }

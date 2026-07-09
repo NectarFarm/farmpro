@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { api, getCumulativeChartData, getProducts, createProduct, updateProduct } from '@/lib/api';
 import type { Batch, BatchCostSummary, Sale, Product } from '@/lib/types';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Legend } from 'recharts';
@@ -12,6 +13,7 @@ import { headNoun, groupNoun } from '@/lib/species';
 const fmtKES = (n: number) => `KSh ${Math.abs(n).toLocaleString('en-KE')}`;
 
 export default function BatchDetailPage() {
+  const { t } = useTranslation();
   const { batchId } = useParams<{ batchId: string }>();
   const [batch, setBatch] = useState<Batch | null>(null);
   const [cost, setCost] = useState<BatchCostSummary | null>(null);
@@ -30,6 +32,7 @@ export default function BatchDetailPage() {
   const [pForm, setPForm] = useState({ name: '', baseUnit: 'unit', collectFrequency: 'per_cycle', flow: 'sale', isAnimalProduct: false, units: [{ name: '', perBase: '1', price: '' }] });
   const [saleProductId, setSaleProductId] = useState('');
   const [saleUnitName, setSaleUnitName] = useState('');
+  const [avail, setAvail] = useState<{ basis: 'headcount' | 'harvested' | 'biomass'; available: number; produced?: number; sold?: number; avgWeightKg?: number } | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [ep, setEp] = useState<{ name: string; collectFrequency: string; flow: string; units: { name: string; perBase: string; price: string }[]; isAnimalProduct: boolean }>({ name: '', collectFrequency: 'per_cycle', flow: 'sale', units: [], isAnimalProduct: false });
   const [activity, setActivity] = useState<{ kind: string; at: string; by: string; text: string; photoId: string | null; gpsLat: number | null; gpsLng: number | null }[]>([]);
@@ -39,17 +42,33 @@ export default function BatchDetailPage() {
   const [showAdvance, setShowAdvance] = useState(false);
   const [adv, setAdv] = useState({ toStage: '', toUnitId: '', newQty: '', note: '' });
   const [advErr, setAdvErr] = useState('');
+  const [savingBatch, setSavingBatch] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [wdCheck, setWdCheck] = useState<{ cleared: boolean; until: string | null; daysLeft: number } | null>(null);
+  const [wdError, setWdError] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; body: string; danger?: boolean; onConfirm: () => void } | null>(null);
+  const [deleteBatchTyped, setDeleteBatchTyped] = useState('');
+  const [showDeleteBatch, setShowDeleteBatch] = useState(false);
 
   const reload = () => {
+    setLoadError('');
     Promise.all([api.getBatch(batchId), api.getCostSummary(batchId), api.getSales()]).then(([b,c,s]) => {
       setBatch(b); setCost(c); setSales(s.filter(sl => sl.batchId === batchId));
-    });
-    getCumulativeChartData(batchId).then(setChartData);
-    getProducts(batchId).then(setProducts);
-    fetch(`/api/batch-activity?batchId=${encodeURIComponent(batchId)}`, { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(setActivity).catch(() => {});
+    }).catch((e) => setLoadError((e as Error).message || 'Failed to load batch'));
+    getCumulativeChartData(batchId).then(setChartData).catch(() => {});
+    getProducts(batchId).then(setProducts).catch(() => {});
+    fetch(`/api/batch-activity?batchId=${encodeURIComponent(batchId)}`, { credentials: 'include' }).then(r => r.ok ? r.json() : { data: [] }).then(d => setActivity(Array.isArray(d) ? d : d.data ?? [])).catch(() => {});
     fetch('/api/physical-counts', { credentials: 'include' }).then(r => r.ok ? r.json() : [])
       .then((cs: { batchId: string }[]) => setPendingCounts(cs.filter(c => c.batchId === batchId) as never)).catch(() => {});
     fetch(`/api/batches/lifecycle?batchId=${encodeURIComponent(batchId)}`, { credentials: 'include' }).then(r => r.ok ? r.json() : null).then(setLife).catch(() => {});
+  };
+
+  const loadWithdrawal = () => {
+    setWdError('');
+    fetch(`/api/withdrawal-check?batchId=${encodeURIComponent(batchId)}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load withdrawal status')))
+      .then(setWdCheck)
+      .catch((e) => setWdError((e as Error).message || 'Failed to load withdrawal status'));
   };
 
   // Open the Advance/Move sheet with the next stage + current unit/qty prefilled.
@@ -72,12 +91,18 @@ export default function BatchDetailPage() {
 
   // Owner reconciles a worker head count: apply it to the live count, or dismiss it.
   const resolveCount = async (id: string, action: 'apply' | 'dismiss') => {
-    await fetch('/api/physical-counts', {
-      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, id }),
-    });
-    reload();
-    setToast(action === 'apply' ? '✓ Head count applied' : 'Count dismissed');
+    try {
+      const res = await fetch('/api/physical-counts', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, id }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to update count');
+      reload();
+      setToast(action === 'apply' ? t('headCountApplied') : t('countDismissed'));
+    } catch (e) {
+      setToast('⚠ ' + (e as Error).message);
+    }
+    setTimeout(() => setToast(''), 3500);
   };
 
   const startEdit = (p: Product) => {
@@ -86,9 +111,76 @@ export default function BatchDetailPage() {
   };
   const saveEdit = async () => {
     if (!editId) return;
-    const saleUnits = ep.units.filter(u => u.name).map(u => ({ name: u.name, perBase: Number(u.perBase) || 1, price: Number(u.price) || 0 }));
-    await updateProduct(editId, { name: ep.name, collectFrequency: ep.collectFrequency, saleUnits, isAnimalProduct: ep.isAnimalProduct });
-    setEditId(null); getProducts(batchId).then(setProducts);
+    try {
+      const saleUnits = ep.units.filter(u => u.name).map(u => ({ name: u.name, perBase: Number(u.perBase) || 1, price: Number(u.price) || 0 }));
+      await updateProduct(editId, { name: ep.name, collectFrequency: ep.collectFrequency, saleUnits, isAnimalProduct: ep.isAnimalProduct });
+      setEditId(null); getProducts(batchId).then(setProducts).catch(err => console.error('Failed to reload products', err));
+      setToast(t('changesSaved'));
+    } catch (e) {
+      setToast('⚠ ' + (e as Error).message);
+    }
+    setTimeout(() => setToast(''), 3500);
+  };
+
+  const doDeleteProduct = async (id: string) => {
+    try {
+      const res = await fetch(`/api/products?id=${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Delete failed');
+      getProducts(batchId).then(setProducts).catch(err => console.error('Failed to reload products', err));
+      setToast(t('productDeleted'));
+    } catch (e) { setToast('⚠ ' + (e as Error).message); }
+    setTimeout(() => setToast(''), 3500);
+  };
+  const deleteProduct = (id: string, name: string) => {
+    setConfirmDialog({
+      title: t('deleteProduct'),
+      body: t('confirmDeleteProduct', { name }),
+      danger: true,
+      onConfirm: () => { setConfirmDialog(null); doDeleteProduct(id); },
+    });
+  };
+
+  const doCloseBatch = async () => {
+    if (!batch) return;
+    setSavingBatch(true);
+    try {
+      const res = await fetch(`/api/data/batches?id=${encodeURIComponent(batch.id)}&action=close`, { method: 'DELETE', credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Close failed');
+      setToast(t('batchClosed'));
+      reload();
+    } catch (e) { setToast('⚠ ' + (e as Error).message); }
+    finally { setSavingBatch(false); setTimeout(() => setToast(''), 3500); }
+  };
+  const closeBatch = () => {
+    if (!batch) return;
+    setConfirmDialog({
+      title: t('closeBatch'),
+      body: t('confirmCloseBatch', { name: batch.name, qty: batch.currentQty }),
+      onConfirm: () => { setConfirmDialog(null); doCloseBatch(); },
+    });
+  };
+
+  const doDeleteBatch = async () => {
+    if (!batch) return;
+    setShowDeleteBatch(false); setDeleteBatchTyped('');
+    setSavingBatch(true);
+    try {
+      const res = await fetch(`/api/data/batches?id=${encodeURIComponent(batch.id)}`, { method: 'DELETE', credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error && data.error.includes('Close')) {
+          setToast(t('cannotDeleteBatchHasData'));
+        } else {
+          throw new Error(data.error || 'Delete failed');
+        }
+      } else {
+        setToast(data.closed ? t('batchClosed') : t('batchDeleted'));
+        window.location.href = '/owner/farm';
+        return;
+      }
+    } catch (e) { setToast('⚠ ' + (e as Error).message); }
+    finally { setSavingBatch(false); setTimeout(() => setToast(''), 3500); }
   };
 
   const addProduct = async () => {
@@ -98,29 +190,32 @@ export default function BatchDetailPage() {
       if (!pForm.name || saleUnits.length === 0) throw new Error('Enter a name and at least one sale unit with a price');
       await createProduct({ batchId, name: pForm.name, baseUnit: pForm.baseUnit, collectFrequency: pForm.collectFrequency, flow: pForm.flow, isAnimalProduct: pForm.isAnimalProduct, saleUnits });
       setPForm({ name: '', baseUnit: 'unit', collectFrequency: 'per_cycle', flow: 'sale', isAnimalProduct: false, units: [{ name: '', perBase: '1', price: '' }] });
-      setShowProduct(false); getProducts(batchId).then(setProducts);
+      setShowProduct(false); getProducts(batchId).then(setProducts).catch(err => console.error('Failed to reload products', err));
     } catch (e) { setPErr((e as Error).message); } finally { setSavingProduct(false); }
   };
 
-  useEffect(() => { if (batchId) reload(); }, [batchId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (batchId) { reload(); loadWithdrawal(); } }, [batchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!batch) return <div className="p-6 text-gray-400">Loading…</div>;
+  if (loadError) {
+    return (
+      <div className="p-6 flex flex-col items-center gap-3 text-center">
+        <p className="text-red-600 font-semibold">{loadError}</p>
+        <button onClick={reload} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{t('retry')}</button>
+      </div>
+    );
+  }
+
+  if (!batch) return <div className="p-6 text-gray-400">{t('loading')}</div>;
 
   const days = Math.floor((Date.now() - new Date(batch.acquiredDate).getTime()) / 86400000);
 
-  // Withdrawal check — BR-WD
-  const checkWithdrawal = () => ({
-    cleared: true, until: null, daysLeft: 0,
-  });
-  const wdCheck = checkWithdrawal();
-
   const costBreakdown = cost ? [
-    { name: 'Feed', value: cost.feedCost, color: '#16a34a' },
-    { name: 'Stock purchase', value: cost.acquisitionCost, color: '#2563eb' },
-    { name: 'Health', value: cost.healthCost, color: '#7c3aed' },
-    { name: 'Labor', value: cost.laborCost, color: '#d97706' },
-    { name: 'Salaries', value: cost.salaryCost ?? 0, color: '#db2777' },
-    { name: 'Other', value: cost.overheadCost, color: '#6b7280' },
+    { name: t('costFeed'), value: cost.feedCost, color: '#16a34a' },
+    { name: t('costStock'), value: cost.acquisitionCost, color: '#2563eb' },
+    { name: t('costHealth'), value: cost.healthCost, color: '#7c3aed' },
+    { name: t('costLabor'), value: cost.laborCost, color: '#d97706' },
+    { name: t('costSalaries'), value: cost.salaryCost ?? 0, color: '#db2777' },
+    { name: t('costOther'), value: cost.overheadCost, color: '#6b7280' },
   ].filter(d => d.value > 0) : [];
 
   const saleProduct = products.find(p => p.id === saleProductId);
@@ -129,19 +224,34 @@ export default function BatchDetailPage() {
   const pickSaleProduct = (id: string) => {
     const p = products.find(x => x.id === id); const u = p?.saleUnits[0];
     setSaleProductId(id); setSaleUnitName(u?.name ?? ''); if (u) setSalePrice(String(u.price));
+    setAvail(null);
+    if (p && batchId) {
+      fetch(`/api/availability?batchId=${encodeURIComponent(batchId)}&productId=${encodeURIComponent(p.id)}`, { credentials: 'include' })
+        .then(r => r.ok ? r.json() : null).then(setAvail).catch(() => {});
+    }
   };
   const pickSaleUnit = (name: string) => {
     const u = saleProduct?.saleUnits.find(x => x.name === name);
     setSaleUnitName(name); if (u) setSalePrice(String(u.price));
   };
 
+  // Base units this entry would sell (quantity × the unit's perBase) — same check finance/page.tsx enforces.
+  const sellingBase = (Number(saleQty) || 0) * (saleUnit?.perBase ?? 1);
+  const overSell = avail != null && sellingBase > avail.available + 1e-6;
+
   const handleSale = async () => {
     if (!batch) return;
+    const qtyNum = Number(saleQty);
+    const priceNum = Number(salePrice);
+    if (!saleQty || Number.isNaN(qtyNum) || qtyNum <= 0) { setToast('⚠ Enter a valid quantity'); setTimeout(() => setToast(''), 2500); return; }
+    if (!salePrice || Number.isNaN(priceNum) || priceNum < 0) { setToast('⚠ Enter a valid price'); setTimeout(() => setToast(''), 2500); return; }
+    if (overSell) { setToast(`⚠ Only ${avail?.available ?? 0} available — reduce quantity`); setTimeout(() => setToast(''), 2500); return; }
+    if (wdCheck && !wdCheck.cleared) { setToast('⚠ ' + t('saleUnsafe')); setTimeout(() => setToast(''), 2500); return; }
     setSaving(true);
     try {
       await api.recordSale({ batchId, productId: saleProductId, productType: saleProductType(), unitName: saleUnitName, quantity: saleQty, unitPrice: salePrice, buyer: saleBuyer });
-      setShowSaleModal(false); setSaleQty(''); setSalePrice(''); setSaleBuyer('');
-      setToast('✓ Sale recorded'); reload();
+      setShowSaleModal(false); setSaleQty(''); setSalePrice(''); setSaleBuyer(''); setAvail(null);
+      setToast(t('saleRecorded')); reload();
     } catch (e) { setToast('⚠ ' + (e as Error).message); }
     finally { setSaving(false); setTimeout(() => setToast(''), 2500); }
   };
@@ -150,7 +260,7 @@ export default function BatchDetailPage() {
     <div className="p-6 flex flex-col gap-6 max-w-5xl">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500">
-        <Link href="/owner/farm" className="hover:underline">Farm</Link>
+        <Link href="/owner/farm" className="hover:underline">{t('farm')}</Link>
         <span>›</span>
         <span className="text-gray-900 font-semibold">{batch.name}</span>
       </div>
@@ -160,15 +270,36 @@ export default function BatchDetailPage() {
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{batch.name}</h1>
-            <p className="text-gray-500 text-sm">Day {days} · {batch.species} · {batch.breed ?? ''}</p>
-            <p className="text-gray-400 text-xs">Source: {batch.source} · Initial: {batch.initialQty}</p>
+            <p className="text-gray-500 text-sm">{t('day')} {days} · {batch.species} · {batch.breed ?? ''}</p>
+            <p className="text-gray-400 text-xs">{t('source')}: {batch.source} · {t('initialQty')}: {batch.initialQty}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <StatusChip status={batch.status === 'ACTIVE' ? 'ok' : 'offline'} label={batch.status} />
-            <button onClick={() => setShowSaleModal(true)}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700">
-              Record Sale
-            </button>
+            {batch.status === 'ACTIVE' && (
+              <>
+                <button onClick={() => setShowSaleModal(true)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700">
+                  {t('recordSale')}
+                </button>
+                <div className="relative group">
+                  <button className="px-3 py-2 border border-gray-300 text-gray-600 rounded-lg font-semibold text-sm hover:bg-gray-50">
+                    ⚙ {t('manage')}
+                  </button>
+                  <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10 hidden group-hover:block min-w-[200px]">
+                    <button onClick={closeBatch} disabled={savingBatch}
+                      className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 font-semibold disabled:opacity-50">
+                      {t('closeBatch')}
+                      <span className="block text-xs text-gray-400 font-normal">{t('closeBatchDesc')}</span>
+                    </button>
+                    <button onClick={() => { setDeleteBatchTyped(''); setShowDeleteBatch(true); }} disabled={savingBatch}
+                      className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 font-semibold disabled:opacity-50 border-t border-gray-100">
+                      {t('deleteBatch')}
+                      <span className="block text-xs text-gray-400 font-normal">{t('deleteBatchDesc')}</span>
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -176,11 +307,11 @@ export default function BatchDetailPage() {
         {cost && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4 pt-4 border-t border-gray-100">
             {[
-              { label:'Current Qty', value: String(batch.currentQty) },
-              { label:'FCR', value: cost.fcr ? `${cost.fcr} ✓` : '—', good: cost.fcr ? cost.fcr <= 2.8 : null },
-              { label:'Mortality %', value: cost.mortalityPct ? `${cost.mortalityPct}%` : '—', bad: cost.mortalityPct ? cost.mortalityPct > 5 : false },
-              { label: cost.outputUnit === 'eggs' ? 'Cost/egg' : 'Cost/kg', value: cost.costPerUnit ? fmtKES(cost.costPerUnit) : '—' },
-              { label:'Gross Margin', value: fmtKES(cost.grossMargin), good: cost.grossMargin > 0, bad: cost.grossMargin < 0 },
+              { label: t('currentQty'), value: String(batch.currentQty) },
+              { label: t('fcr'), value: cost.fcr ? `${cost.fcr} ✓` : '—', good: cost.fcr ? cost.fcr <= 2.8 : null },
+              { label: t('mortalityRate'), value: cost.mortalityPct ? `${cost.mortalityPct}%` : '—', bad: cost.mortalityPct ? cost.mortalityPct > 5 : false },
+              { label: cost.outputUnit === 'eggs' ? t('costPerUnit') : t('costPerUnit'), value: cost.costPerUnit ? fmtKES(cost.costPerUnit) : '—' },
+              { label: t('grossMargin'), value: fmtKES(cost.grossMargin), good: cost.grossMargin > 0, bad: cost.grossMargin < 0 },
             ].map(k => (
               <div key={k.label} className="text-center">
                 <p className="text-xs text-gray-400">{k.label}</p>
@@ -196,8 +327,8 @@ export default function BatchDetailPage() {
         {/* Cost donut */}
         {cost && (
           <div className="bg-white border border-gray-200 rounded-xl p-5">
-            <h2 className="font-bold text-gray-800 mb-2">Cost Breakdown</h2>
-            <p className="text-xs text-gray-400 mb-3">Total cost: {fmtKES(cost.totalCost)}</p>
+            <h2 className="font-bold text-gray-800 mb-2">{t('costBreakdown')}</h2>
+            <p className="text-xs text-gray-400 mb-3">{t('totalCost')}: {fmtKES(cost.totalCost)}</p>
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie data={costBreakdown} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false}>
@@ -219,16 +350,16 @@ export default function BatchDetailPage() {
 
         {/* Cumulative cost vs revenue — FR-M10-6 honest cumulative */}
         <div className="bg-white border border-gray-200 rounded-xl p-5">
-          <h2 className="font-bold text-gray-800 mb-1">Cumulative Cost vs Revenue</h2>
-          <p className="text-xs text-gray-400 mb-3">Intersection = break-even (honest cumulative, no instant flips)</p>
+          <h2 className="font-bold text-gray-800 mb-1">{t('cumulativeCostVsRevenue')}</h2>
+          <p className="text-xs text-gray-400 mb-3">{t('breakEven')}</p>
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={chartData} margin={{ top:5, right:10, bottom:0, left:0 }}>
               <XAxis dataKey="day" tick={{ fontSize:10 }} label={{ value:'Day', position:'insideBottom', offset:-2 }} />
               <YAxis tick={{ fontSize:10 }} tickFormatter={v=>`${(v/1000).toFixed(0)}K`} />
-              <Tooltip formatter={(v: number, n) => [fmtKES(v), n === 'cost' ? 'Cost' : 'Revenue']} />
+              <Tooltip formatter={(v: number, n) => [fmtKES(v), n === 'cost' ? t('cost') : t('revenue')]} />
               <Legend />
-              <Area type="monotone" dataKey="cost" stroke="#ef4444" fill="#fee2e2" name="Cost" strokeWidth={2} />
-              <Area type="monotone" dataKey="revenue" stroke="#16a34a" fill="#dcfce7" name="Revenue" strokeWidth={2} />
+              <Area type="monotone" dataKey="cost" stroke="#ef4444" fill="#fee2e2" name={t('cost')} strokeWidth={2} />
+              <Area type="monotone" dataKey="revenue" stroke="#16a34a" fill="#dcfce7" name={t('revenue')} strokeWidth={2} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -238,18 +369,18 @@ export default function BatchDetailPage() {
       {cost && (cost.remainingQty ?? 0) > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
-            <p className="text-xs text-gray-400">Cost per surviving {headNoun(batch.species, 1)}</p>
+            <p className="text-xs text-gray-400">{t('costPerSurviving')} {headNoun(batch.species, 1)}</p>
             <p className="text-2xl font-bold text-gray-900">{fmtKES(cost.costPerBird ?? 0)}</p>
-            <p className="text-xs text-gray-400">{fmtKES(cost.totalCost)} ÷ {cost.survivors ?? 0} survivors</p>
+            <p className="text-xs text-gray-400">{fmtKES(cost.totalCost)} \u00f7 {cost.survivors ?? 0} {t('survivors')}</p>
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
-            <p className="text-xs text-gray-400">Revenue received so far</p>
+            <p className="text-xs text-gray-400">{t('revenueReceivedSoFar')}</p>
             <p className="text-2xl font-bold text-green-700">{fmtKES(cost.totalRevenue)}</p>
-            <p className="text-xs text-gray-400">{cost.soldHead ?? 0} {headNoun(batch.species)} sold</p>
+            <p className="text-xs text-gray-400">{cost.soldHead ?? 0} {headNoun(batch.species)} {t('sold')}</p>
           </div>
           <div className={`bg-white border rounded-xl p-4 text-center ${cost.grossMargin < 0 ? 'border-amber-300' : 'border-green-200'}`}>
             <p className="text-xs text-gray-400">
-              {cost.grossMargin < 0 ? `Break-even price per remaining ${headNoun(batch.species, 1)}` : 'Already in profit'}
+              {cost.grossMargin < 0 ? `${t('breakEven')} per ${headNoun(batch.species, 1)}` : t('alreadyInProfit')}
             </p>
             <p className={`text-2xl font-bold ${cost.grossMargin < 0 ? 'text-amber-700' : 'text-green-700'}`}>
               {cost.grossMargin < 0
@@ -258,8 +389,8 @@ export default function BatchDetailPage() {
             </p>
             <p className="text-xs text-gray-400">
               {cost.grossMargin < 0
-                ? `Need ${fmtKES(Math.abs(cost.grossMargin))} more from the ${cost.remainingQty ?? 0} unsold ${headNoun(batch.species)}`
-                : `Already ${fmtKES(cost.grossMargin)} ahead`}
+                ? t('needMoreFrom', { amount: fmtKES(Math.abs(cost.grossMargin)), qty: cost.remainingQty ?? 0, noun: headNoun(batch.species) })
+                : t('alreadyAhead', { amount: fmtKES(cost.grossMargin) })}
             </p>
           </div>
         </div>
@@ -268,42 +399,42 @@ export default function BatchDetailPage() {
       {/* Per-batch analysis section (species-aware wording) */}
       {cost && (
         <div className="bg-white border border-gray-200 rounded-xl p-5">
-          <h2 className="font-bold text-gray-800 mb-3">{groupNoun(batch.species)} Analysis</h2>
+          <h2 className="font-bold text-gray-800 mb-3">{groupNoun(batch.species)} {t('details')}</h2>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-xs text-gray-400">Mortality Rate</p>
+              <p className="text-xs text-gray-400">{t('mortalityRate')}</p>
               <p className={`text-lg font-bold ${(cost.mortalityPct ?? 0) > 5 ? 'text-red-600' : 'text-gray-900'}`}>
                 {cost.mortalityPct ? `${cost.mortalityPct}%` : '0%'}
               </p>
               <p className="text-xs text-gray-400">
-                {cost.deaths ?? 0} of {batch.initialQty} died
+                {t('ofCountDied', { count: cost.deaths ?? 0, total: batch.initialQty })}
               </p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-xs text-gray-400">Survival Rate</p>
+              <p className="text-xs text-gray-400">{t('survivalRate')}</p>
               <p className="text-lg font-bold text-gray-900">
                 {batch.initialQty > 0 ? (((cost.survivors ?? 0) / batch.initialQty) * 100).toFixed(0) : 0}%
               </p>
-              <p className="text-xs text-gray-400">{cost.survivors ?? 0} of {batch.initialQty} survived</p>
+              <p className="text-xs text-gray-400">{t('ofCountSurvived', { count: cost.survivors ?? 0, total: batch.initialQty })}</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-xs text-gray-400">Feed Conversion (FCR)</p>
+              <p className="text-xs text-gray-400">{t('feedConversion')}</p>
               <p className={`text-lg font-bold ${cost.fcr && cost.fcr > 2.8 ? 'text-amber-600' : 'text-gray-900'}`}>
                 {cost.fcr ?? '—'}
               </p>
-              <p className="text-xs text-gray-400">{cost.outputUnit === 'eggs' ? 'kg feed / dozen eggs' : 'kg feed / kg output'}</p>
+              <p className="text-xs text-gray-400">{cost.outputUnit === 'eggs' ? t('fcrPerDozen') : t('fcrPerKg')}</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-xs text-gray-400">On farm now</p>
+              <p className="text-xs text-gray-400">{t('onFarmNow')}</p>
               <p className="text-lg font-bold text-gray-900">{cost.currentQty}</p>
-              <p className="text-xs text-gray-400">{cost.soldHead ?? 0} sold · {cost.deaths ?? 0} died</p>
+              <p className="text-xs text-gray-400">{t('countSoldAndDied', { sold: cost.soldHead ?? 0, died: cost.deaths ?? 0 })}</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-xs text-gray-400">Acquisition cost / {headNoun(batch.species, 1)}</p>
+              <p className="text-xs text-gray-400">{t('acquisitionCost')} / {headNoun(batch.species, 1)}</p>
               <p className="text-lg font-bold text-gray-900">
                 {fmtKES(batch.initialQty > 0 ? Math.round(batch.acquisitionCost / batch.initialQty) : 0)}
               </p>
-              <p className="text-xs text-gray-400">Initial purchase price</p>
+              <p className="text-xs text-gray-400">{t('initialPurchasePrice')}</p>
             </div>
           </div>
         </div>
@@ -312,86 +443,87 @@ export default function BatchDetailPage() {
       {/* Products this batch yields */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-gray-800">Products this batch yields</h2>
-          <button onClick={() => setShowProduct(v => !v)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">+ Add Product</button>
+          <h2 className="font-bold text-gray-800">{t('productsThisBatchYields')}</h2>
+          <button onClick={() => setShowProduct(v => !v)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">+ {t('addProduct')}</button>
         </div>
 
         {showProduct && (
           <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-3 flex flex-col gap-3">
             {pErr && <p className="text-red-600 text-xs font-semibold">{pErr}</p>}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <input placeholder="Product (e.g. Eggs, Manure)" value={pForm.name} onChange={e => setPForm({ ...pForm, name: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" />
-              <input list="baseunits" placeholder="Base unit (piece, kg, head)" value={pForm.baseUnit} onChange={e => setPForm({ ...pForm, baseUnit: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" />
+              <input placeholder={t('productNamePlaceholder')} value={pForm.name} onChange={e => setPForm({ ...pForm, name: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" />
+              <input list="baseunits" placeholder={t('baseUnitPlaceholder')} value={pForm.baseUnit} onChange={e => setPForm({ ...pForm, baseUnit: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" />
               <datalist id="baseunits"><option value="piece" /><option value="kg" /><option value="head" /><option value="bag" /><option value="litre" /><option value="tray" /><option value="crate" /></datalist>
               <select value={pForm.collectFrequency} onChange={e => setPForm({ ...pForm, collectFrequency: e.target.value })} className="border rounded-lg px-3 py-2 text-sm">
                 {['daily','weekly','monthly','per_cycle'].map(f => <option key={f} value={f}>Collected {f.replace('_',' ')}</option>)}
               </select>
-              <select value={pForm.flow} onChange={e => setPForm({ ...pForm, flow: e.target.value })} className="border rounded-lg px-3 py-2 text-sm md:col-span-3" title="Sale = you sell it; Expense = an input you consume">
-                <option value="sale">Sold for revenue (sale)</option>
-                <option value="expense">Consumed / input (expense)</option>
+              <select value={pForm.flow} onChange={e => setPForm({ ...pForm, flow: e.target.value })} className="border rounded-lg px-3 py-2 text-sm md:col-span-3" title={t('soldForRevenue')}>
+                <option value="sale">{t('soldForRevenue')}</option>
+                <option value="expense">{t('consumedInput')}</option>
               </select>
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-600">
               <input type="checkbox" checked={pForm.isAnimalProduct} onChange={e => setPForm({ ...pForm, isAnimalProduct: e.target.checked })} className="rounded" />
-              This product IS the animal — selling it removes the animal from the live count
+              {t('productIsAnimal')}
             </label>
-            <p className="text-xs font-semibold text-gray-500">Sale units & prices</p>
+            <p className="text-xs font-semibold text-gray-500">{t('saleUnitsLabel')}</p>
             {pForm.units.map((u, i) => (
               <div key={i} className="flex gap-2">
-                <input placeholder="Unit (e.g. Tray)" value={u.name} onChange={e => setPForm(f => ({ ...f, units: f.units.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))} className="flex-1 border rounded-lg px-3 py-2 text-sm" />
+                <input placeholder={t('unitPlaceholder')} value={u.name} onChange={e => setPForm(f => ({ ...f, units: f.units.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))} className="flex-1 border rounded-lg px-3 py-2 text-sm" />
                 <input type="number" min="1" placeholder={`${pForm.baseUnit}/unit`} value={u.perBase} onChange={e => setPForm(f => ({ ...f, units: f.units.map((x, j) => j === i ? { ...x, perBase: e.target.value } : x) }))} className="w-24 border rounded-lg px-3 py-2 text-sm" title={`How many ${pForm.baseUnit} in one ${u.name || 'unit'}`} />
                 <input type="number" min="0" placeholder="Price KES" value={u.price} onChange={e => setPForm(f => ({ ...f, units: f.units.map((x, j) => j === i ? { ...x, price: e.target.value } : x) }))} className="w-28 border rounded-lg px-3 py-2 text-sm" />
                 {pForm.units.length > 1 && <button type="button" onClick={() => setPForm(f => ({ ...f, units: f.units.filter((_, j) => j !== i) }))} className="px-2 text-gray-400 hover:text-red-600">✕</button>}
               </div>
             ))}
-            <button type="button" onClick={() => setPForm(f => ({ ...f, units: [...f.units, { name: '', perBase: '1', price: '' }] }))} className="text-xs text-green-600 font-semibold self-start">+ Add sale unit</button>
+            <button type="button" onClick={() => setPForm(f => ({ ...f, units: [...f.units, { name: '', perBase: '1', price: '' }] }))} className="text-xs text-green-600 font-semibold self-start">{t('addSaleUnit')}</button>
             <div className="flex gap-2">
-              <button onClick={addProduct} disabled={savingProduct} className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">{savingProduct ? 'Saving…' : 'Save Product'}</button>
-              <button onClick={() => setShowProduct(false)} className="px-4 py-2 bg-gray-200 rounded-lg text-xs font-semibold">Cancel</button>
+              <button onClick={addProduct} disabled={savingProduct} className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">{savingProduct ? t('saving') : t('saveProduct')}</button>
+              <button onClick={() => setShowProduct(false)} className="px-4 py-2 bg-gray-200 rounded-lg text-xs font-semibold">{t('cancel')}</button>
             </div>
           </div>
         )}
 
         {products.length === 0
-          ? <p className="text-gray-400 text-sm">No products yet. Add what this batch gives — eggs, manure, meat, etc.</p>
+          ? <p className="text-gray-400 text-sm">{t('noProductsYet')}</p>
           : (
             <div className="flex flex-col gap-2">
               {products.map(p => editId === p.id ? (
                 <div key={p.id} className="border-2 border-indigo-300 rounded-lg p-3 flex flex-col gap-2 bg-indigo-50/40">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <input value={ep.name} onChange={e => setEp({ ...ep, name: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" placeholder="Product name" />
+                    <input value={ep.name} onChange={e => setEp({ ...ep, name: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" placeholder={t('productNamePlaceholder')} />
                     <select value={ep.collectFrequency} onChange={e => setEp({ ...ep, collectFrequency: e.target.value })} className="border rounded-lg px-3 py-2 text-sm">
                       {['daily','weekly','monthly','per_cycle'].map(f => <option key={f} value={f}>Collected {f.replace('_',' ')}</option>)}
                     </select>
                   </div>
                   <label className="flex items-center gap-2 text-sm text-gray-600">
                     <input type="checkbox" checked={ep.isAnimalProduct} onChange={e => setEp({ ...ep, isAnimalProduct: e.target.checked })} className="rounded" />
-                    This product IS the animal — selling it removes the animal from inventory
+                    {t('productIsAnimalInv')}
                   </label>
-                  <p className="text-xs font-semibold text-gray-500">Sale units & prices (edit freely)</p>
+                  <p className="text-xs font-semibold text-gray-500">{t('saleUnitsLabel')}</p>
                   {ep.units.map((u, i) => (
                     <div key={i} className="flex gap-2">
-                      <input value={u.name} onChange={e => setEp(s => ({ ...s, units: s.units.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))} className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Unit" />
+                      <input value={u.name} onChange={e => setEp(s => ({ ...s, units: s.units.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))} className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder={t('unitPlaceholder')} />
                       <input type="number" value={u.perBase} onChange={e => setEp(s => ({ ...s, units: s.units.map((x, j) => j === i ? { ...x, perBase: e.target.value } : x) }))} className="w-20 border rounded-lg px-3 py-2 text-sm" />
-                      <input type="number" value={u.price} onChange={e => setEp(s => ({ ...s, units: s.units.map((x, j) => j === i ? { ...x, price: e.target.value } : x) }))} className="w-28 border rounded-lg px-3 py-2 text-sm" placeholder="Price" />
+                      <input type="number" value={u.price} onChange={e => setEp(s => ({ ...s, units: s.units.map((x, j) => j === i ? { ...x, price: e.target.value } : x) }))} className="w-28 border rounded-lg px-3 py-2 text-sm" placeholder={t('price')} />
                       {ep.units.length > 1 && <button type="button" onClick={() => setEp(s => ({ ...s, units: s.units.filter((_, j) => j !== i) }))} className="px-2 text-gray-400 hover:text-red-600">✕</button>}
                     </div>
                   ))}
-                  <button type="button" onClick={() => setEp(s => ({ ...s, units: [...s.units, { name: '', perBase: '1', price: '' }] }))} className="text-xs text-indigo-600 font-semibold self-start">+ Add sale unit</button>
+                  <button type="button" onClick={() => setEp(s => ({ ...s, units: [...s.units, { name: '', perBase: '1', price: '' }] }))} className="text-xs text-indigo-600 font-semibold self-start">{t('addSaleUnit')}</button>
                   <div className="flex gap-2">
-                    <button onClick={saveEdit} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold">Save changes</button>
-                    <button onClick={() => setEditId(null)} className="px-4 py-2 bg-gray-200 rounded-lg text-xs font-semibold">Cancel</button>
+                    <button onClick={saveEdit} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold">{t('saveChanges')}</button>
+                    <button onClick={() => setEditId(null)} className="px-4 py-2 bg-gray-200 rounded-lg text-xs font-semibold">{t('cancel')}</button>
                   </div>
                 </div>
               ) : (
                 <div key={p.id} className="flex items-center justify-between border border-gray-100 rounded-lg px-3 py-2">
                   <div>
-                    <p className="font-semibold text-gray-800 text-sm">{p.name} <span className="text-xs text-gray-400">· collected {String(p.collectFrequency).replace('_',' ')}</span></p>
+                    <p className="font-semibold text-gray-800 text-sm">{p.name} <span className="text-xs text-gray-400">{t('collectedFreq', { freq: String(p.collectFrequency).replace('_',' ') })}</span></p>
                     <p className="text-xs text-gray-500">{p.saleUnits.map(u => `${u.name} ${fmtKES(u.price)}`).join(' · ')}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded capitalize">{p.flow}</span>
-                    <button onClick={() => startEdit(p)} className="text-xs text-indigo-600 font-semibold hover:underline">Edit</button>
+                    <button onClick={() => startEdit(p)} className="text-xs text-indigo-600 font-semibold hover:underline">{t('edit')}</button>
+                    <button onClick={() => deleteProduct(p.id, p.name)} className="text-xs text-red-500 hover:text-red-700 hover:underline px-1">✕</button>
                   </div>
                 </div>
               ))}
@@ -404,7 +536,7 @@ export default function BatchDetailPage() {
       {life && life.stages.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <h2 className="font-bold text-gray-800">🌱 Lifecycle</h2>
+            <h2 className="font-bold text-gray-800">🌱 {t('lifecycle')}</h2>
             <div className="flex items-center gap-2 text-sm">
               <span className="text-gray-500">Age <span className="font-bold text-gray-800">{life.age}d</span></span>
               <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-semibold">{life.stage}</span>
@@ -427,11 +559,11 @@ export default function BatchDetailPage() {
             })}
           </div>
 
-          <button onClick={openAdvance} className="self-start px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">Advance stage / Move unit</button>
+          <button onClick={openAdvance} className="self-start px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{t('advancedStageOrMove')}</button>
 
           {life.events.length > 0 && (
             <div className="border-t border-gray-100 pt-2">
-              <p className="text-xs font-semibold text-gray-400 mb-1">History</p>
+              <p className="text-xs font-semibold text-gray-400 mb-1">{t('history')}</p>
               <ul className="flex flex-col gap-1">
                 {life.events.map((e, i) => {
                   const uName = (id: string | null) => life.units.find(u => u.id === id)?.name ?? '';
@@ -457,25 +589,24 @@ export default function BatchDetailPage() {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
           <div className="absolute inset-0 bg-black/30" onClick={() => setShowAdvance(false)} />
           <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md p-5 flex flex-col gap-3">
-            <h3 className="font-bold text-gray-900">Advance / Move — {batch?.name}</h3>
+            <h3 className="font-bold text-gray-900">{t('advanceMoveTitle', { name: batch?.name ?? '' })}</h3>
             {advErr && <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold">{advErr}</p>}
-            <label className="text-xs font-semibold text-gray-500">Stage
+            <label className="text-xs font-semibold text-gray-500">{t('stage')}
               <select value={adv.toStage} onChange={e => setAdv({ ...adv, toStage: e.target.value })} className="mt-1 w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
                 {life.stages.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
               </select>
             </label>
-            <label className="text-xs font-semibold text-gray-500">Move to unit (optional)
+            <label className="text-xs font-semibold text-gray-500">{t('moveToUnit')}
               <select value={adv.toUnitId} onChange={e => setAdv({ ...adv, toUnitId: e.target.value })} className="mt-1 w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
-                {life.units.map(u => <option key={u.id} value={u.id}>{u.name}{u.id === life.unitId ? ' (current)' : ''}</option>)}
+                {life.units.map(u => <option key={u.id} value={u.id}>{u.name}{u.id === life.unitId ? t('currentLabel') : ''}</option>)}
               </select>
             </label>
             <label className="text-xs font-semibold text-gray-500">New head count (optional — e.g. hatched / transferred)
-              <input type="number" min="0" value={adv.newQty} onChange={e => setAdv({ ...adv, newQty: e.target.value })} placeholder={`${batch?.currentQty ?? ''} now`} className="mt-1 w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            </label>
-            <input value={adv.note} onChange={e => setAdv({ ...adv, note: e.target.value })} placeholder="Note (optional)" className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input type="number" min="0" value={adv.newQty} onChange={e => setAdv({ ...adv, newQty: e.target.value })} placeholder={`${batch?.currentQty ?? ''} ${t('now')}`} className="mt-1 w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </label>              <input value={adv.note} onChange={e => setAdv({ ...adv, note: e.target.value })} placeholder={t('noteOptional')} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             <div className="flex gap-2">
-              <button onClick={submitAdvance} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">Save</button>
-              <button onClick={() => setShowAdvance(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">Cancel</button>
+              <button onClick={submitAdvance} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{t('save')}</button>
+              <button onClick={() => setShowAdvance(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">{t('cancel')}</button>
             </div>
           </div>
         </div>
@@ -485,18 +616,18 @@ export default function BatchDetailPage() {
           whether to correct the system count. Workers never move it themselves. */}
       {pendingCounts.length > 0 && (
         <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-5">
-          <h2 className="font-bold text-amber-900 mb-1">⚠ Head count to review</h2>
-          <p className="text-amber-800 text-xs mb-3">A worker counted the animals. Apply to set the live count, or dismiss to keep the current figure.</p>
+          <h2 className="font-bold text-amber-900 mb-1">{t('headCountReview')}</h2>
+          <p className="text-amber-800 text-xs mb-3">{t('headCountDesc')}</p>
           <div className="flex flex-col gap-2">
             {pendingCounts.map(c => (
               <div key={c.clientUuid} className="flex items-center justify-between flex-wrap gap-2 bg-white border border-amber-200 rounded-lg px-3 py-2">
                 <div className="text-sm">
-                  <span className="font-semibold text-gray-900">Counted {c.physicalCount}</span>
-                  <span className="text-gray-500"> · system {c.systemCount} · variance <span className={c.variance < 0 ? 'text-red-600 font-semibold' : 'text-amber-700 font-semibold'}>{c.variance > 0 ? '+' : ''}{c.variance}</span>{c.reason ? ` · ${c.reason}` : ''}</span>
+                  <span className="font-semibold text-gray-900">{t('countedLabel', { count: c.physicalCount })}</span>
+                  <span className="text-gray-500"> · {t('systemLabel', { count: c.systemCount })} · {t('varianceLabel', { variance: (c.variance > 0 ? '+' : '') + c.variance })}</span>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => resolveCount(c.clientUuid, 'apply')} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">Apply (set to {c.physicalCount})</button>
-                  <button onClick={() => resolveCount(c.clientUuid, 'dismiss')} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold">Dismiss</button>
+                  <button onClick={() => resolveCount(c.clientUuid, 'apply')} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">{t('applyCount', { count: c.physicalCount })}</button>
+                  <button onClick={() => resolveCount(c.clientUuid, 'dismiss')} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold">{t('dismissLabel')}</button>
                 </div>
               </div>
             ))}
@@ -506,9 +637,9 @@ export default function BatchDetailPage() {
 
       {/* Worker activity — what the field team recorded, with photos & GPS */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
-        <h2 className="font-bold text-gray-800 mb-3">Worker Activity</h2>
+        <h2 className="font-bold text-gray-800 mb-3">{t('workerActivity')}</h2>
         {activity.length === 0
-          ? <p className="text-gray-400 text-sm">No field records yet. Mortality, feeding, health and collections recorded by workers show here.</p>
+          ? <p className="text-gray-400 text-sm">{t('noFieldRecordsYet')}</p>
           : (
             <div className="flex flex-col gap-2">
               {activity.map((a, i) => {
@@ -520,7 +651,7 @@ export default function BatchDetailPage() {
                       <p className="text-sm font-medium text-gray-800 capitalize">{a.kind} · {a.text}</p>
                       <p className="text-xs text-gray-400">{new Date(a.at).toLocaleString('en-KE')} · by {a.by}
                         {a.gpsLat != null && a.gpsLng != null && (
-                          <> · <a className="text-blue-600 underline" href={`https://maps.google.com/?q=${a.gpsLat},${a.gpsLng}`} target="_blank" rel="noreferrer">📍 location</a></>
+                          <> · <a className="text-blue-600 underline" href={`https://maps.google.com/?q=${a.gpsLat},${a.gpsLng}`} target="_blank" rel="noreferrer">{t('locationLabel')}</a></>
                         )}
                       </p>
                     </div>
@@ -540,13 +671,13 @@ export default function BatchDetailPage() {
 
       {/* Sales history */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
-        <h2 className="font-bold text-gray-800 mb-3">Sales History</h2>
+        <h2 className="font-bold text-gray-800 mb-3">{t('salesHistory')}</h2>
         {sales.length === 0
-          ? <p className="text-gray-400 text-sm">No sales recorded yet.</p>
+          ? <p className="text-gray-400 text-sm">{t('noSales')}</p>
           : (
             <table className="w-full text-sm">
               <thead className="text-gray-500 text-xs font-semibold border-b">
-                <tr><th className="text-left pb-2">Date</th><th className="text-left">Product</th><th className="text-right">Qty</th><th className="text-right">Amount</th><th className="text-left">Buyer</th><th className="text-center">Status</th></tr>
+                <tr><th className="text-left pb-2">{t('date')}</th><th className="text-left">{t('product')}</th><th className="text-right">{t('qty')}</th><th className="text-right">{t('amount')}</th><th className="text-left">{t('buyer')}</th><th className="text-center">{t('status')}</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {sales.map(s => (
@@ -556,7 +687,7 @@ export default function BatchDetailPage() {
                     <td className="py-2 text-right">{s.quantity}</td>
                     <td className="py-2 text-right font-semibold text-gray-900">{fmtKES(s.totalAmount)}</td>
                     <td className="py-2 text-gray-600">{s.buyer}</td>
-                    <td className="py-2 text-center"><StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? '✓ Cleared' : '⛔ Blocked'} /></td>
+                    <td className="py-2 text-center"><StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? t('clearedLabel') : t('blockedLabel')} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -570,37 +701,98 @@ export default function BatchDetailPage() {
       {/* Sale modal — BR-WD withdrawal check */}
       <ConfirmSheet
         open={showSaleModal}
-        title="Record Sale"
+        title={t('recordSale')}
         summary=""
         onConfirm={handleSale}
         onCancel={() => setShowSaleModal(false)}
-        confirmLabel="Record Sale"
+        confirmLabel={t('recordSale')}
       >
         <div className="flex flex-col gap-3">
-          <div className={`rounded-xl px-4 py-3 border-2 ${wdCheck.cleared ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-500'}`}>
-            {wdCheck.cleared
-              ? <p className="text-green-800 font-semibold text-sm">✓ Cleared for sale — no active withdrawal period.</p>
-              : <><p className="text-red-800 font-bold">⛔ BLOCKED — withdrawal until {wdCheck.until} ({wdCheck.daysLeft} days left).</p><p className="text-red-700 text-xs">Selling this product is unsafe.</p></>
-            }
-          </div>
+          {wdError ? (
+            <div className="rounded-xl px-4 py-3 border-2 bg-amber-50 border-amber-400 flex items-center justify-between gap-2">
+              <p className="text-amber-800 text-sm font-semibold">⚠ {wdError}</p>
+              <button type="button" onClick={loadWithdrawal} className="text-amber-800 text-xs font-bold underline shrink-0">{t('retry')}</button>
+            </div>
+          ) : wdCheck == null ? (
+            <div className="rounded-xl px-4 py-3 border-2 bg-gray-50 border-gray-300">
+              <p className="text-gray-500 text-sm">{t('loading')}</p>
+            </div>
+          ) : (
+            <div className={`rounded-xl px-4 py-3 border-2 ${wdCheck.cleared ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-500'}`}>
+              {wdCheck.cleared
+                ? <p className="text-green-800 font-semibold text-sm">{t('clearedForSale')}</p>
+                : <><p className="text-red-800 font-bold">{t('blockedWithdrawal', { date: wdCheck.until ?? '', days: wdCheck.daysLeft })}</p><p className="text-red-700 text-xs">{t('saleUnsafe')}</p></>
+              }
+            </div>
+          )}
           <select value={saleProductId} onChange={e => pickSaleProduct(e.target.value)} className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base">
-            <option value="">Select product…</option>
+            <option value="">{t('selectProduct')}</option>
             {products.filter(p => p.flow === 'sale').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           {saleProduct && (
             <select value={saleUnitName} onChange={e => pickSaleUnit(e.target.value)} className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base">
-              <option value="">Sale unit…</option>
+              <option value="">{t('selectSaleUnit')}</option>
               {saleProduct.saleUnits.map(u => <option key={u.name} value={u.name}>{u.name} — {fmtKES(u.price)}</option>)}
             </select>
           )}
-          <input value={saleQty} onChange={e => setSaleQty(e.target.value)} type="number" placeholder={`Quantity${saleUnit ? ` (${saleUnit.name})` : ' / weight'}`}
+          {avail && (
+            <p className={`text-sm rounded-lg px-3 py-2 ${overSell ? 'bg-red-50 text-red-700 font-semibold' : 'bg-gray-50 text-gray-600'}`}>
+              {overSell
+                ? `⚠ Only ${avail.available} available — you're trying to sell ${sellingBase}.`
+                : `${avail.available} available to sell${sellingBase > 0 ? ` · this sale = ${sellingBase}` : ''}`}
+            </p>
+          )}
+          <input value={saleQty} onChange={e => setSaleQty(e.target.value)} type="number" min="0" placeholder={t('quantityWithUnit', { unit: saleUnit ? ` (${saleUnit.name})` : ' / weight' })}
             className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base" />
-          <input value={salePrice} onChange={e => setSalePrice(e.target.value)} type="number" placeholder="Price per unit (KSh)"
+          <input value={salePrice} onChange={e => setSalePrice(e.target.value)} type="number" min="0" placeholder={t('pricePerUnit')}
             className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base" />
-          <input value={saleBuyer} onChange={e => setSaleBuyer(e.target.value)} placeholder="Buyer name"
+          <input value={saleBuyer} onChange={e => setSaleBuyer(e.target.value)} placeholder={t('buyer')}
             className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base" />
         </div>
       </ConfirmSheet>
+
+      {/* Generic styled confirm dialog — replaces window.confirm for delete-product / close-batch */}
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDialog(null)} />
+          <div className="relative bg-white rounded-2xl w-full max-w-sm mx-4 p-5 flex flex-col gap-3 shadow-2xl">
+            <h3 className={`font-bold ${confirmDialog.danger ? 'text-red-700' : 'text-gray-900'}`}>{confirmDialog.title}</h3>
+            <p className="text-sm text-gray-600">{confirmDialog.body}</p>
+            <div className="flex gap-2 mt-2">
+              <button onClick={confirmDialog.onConfirm}
+                className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white ${confirmDialog.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}>
+                {t('confirm')}
+              </button>
+              <button onClick={() => setConfirmDialog(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">
+                {t('cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete-batch dialog — irreversible, so require typing the batch name before enabling delete */}
+      {showDeleteBatch && batch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowDeleteBatch(false)} />
+          <div className="relative bg-white rounded-2xl w-full max-w-sm mx-4 p-5 flex flex-col gap-3 shadow-2xl">
+            <h3 className="font-bold text-red-700">{t('deleteBatch')}</h3>
+            <p className="text-sm text-gray-600">{t('confirmDeleteBatch', { name: batch.name })}</p>
+            <p className="text-xs text-gray-500">Type <span className="font-mono font-semibold text-gray-800">{batch.name}</span> to confirm.</p>
+            <input value={deleteBatchTyped} onChange={e => setDeleteBatchTyped(e.target.value)} placeholder={batch.name}
+              className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <div className="flex gap-2 mt-2">
+              <button onClick={doDeleteBatch} disabled={deleteBatchTyped !== batch.name || savingBatch}
+                className="flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                {t('deleteBatch')}
+              </button>
+              <button onClick={() => { setShowDeleteBatch(false); setDeleteBatchTyped(''); }} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">
+                {t('cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

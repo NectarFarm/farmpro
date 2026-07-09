@@ -3,7 +3,8 @@ import { users } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
-import { ok, badRequest, unauthorized, serviceUnavailable } from '@/lib/server/http';
+import { checkLoginRateLimit } from '@/lib/server/rateLimit';
+import { ok, badRequest, unauthorized, serviceUnavailable, tooMany } from '@/lib/server/http';
 import type { Role } from '@/lib/types';
 
 const WEB_ROLES: Role[] = ['owner', 'manager', 'vet', 'auditor', 'super_admin'];
@@ -11,6 +12,11 @@ const BAD_CREDS = 'Invalid email or password.';
 
 // POST /api/auth/owner  { email, password }
 export async function POST(req: Request) {
+  // Rate limit: 5 attempts per minute per IP (brute-force protection)
+  const limit = checkLoginRateLimit(req);
+  if (!limit.allowed) {
+    return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
+  }
   try {
     const { email, password } = (await req.json().catch(() => ({}))) as { email?: string; password?: string };
     if (!email || !password) return badRequest('Enter your email and password.');

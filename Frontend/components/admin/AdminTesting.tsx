@@ -3,6 +3,7 @@
 // a tester may attach), request a (re)test, read the submitted report, view & delete
 // the tester's screenshots, and download the report as PDF.
 import { useEffect, useState } from 'react';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 
 interface Failure { id: string; area: string; title: string; note: string; photoIds: string[] }
 interface ResultRow { area: string; title: string; status: string; note: string; photos: number }
@@ -16,6 +17,7 @@ interface RunView {
 interface FarmTesting { tenantId: string; name: string; testingEnabled: boolean; maxScreenshots: number; run: RunView | null }
 
 export function AdminTesting() {
+  const { t } = useTranslation();
   const [farms, setFarms] = useState<FarmTesting[]>([]);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -93,14 +95,14 @@ export function AdminTesting() {
       }
       const { exportReport } = await import('@/lib/export');
       await exportReport({
-        title: `Acceptance test — ${f.name}`,
-        columns: ['Step', 'Area', 'Result', 'Note', 'Shots'],
+        title: `${t('acceptanceTesting')} — ${f.name}`,
+        columns: [t('step'), t('area'), t('result'), t('notes'), t('shots')],
         rows: f.run.results.map(r => [r.title, r.area, r.status.toUpperCase(), r.note, r.photos]),
         meta: {
-          Farm: f.name,
-          Submitted: f.run.submittedAt ? new Date(f.run.submittedAt).toLocaleString('en-KE') : '—',
-          Result: `${f.run.report.passed} passed · ${f.run.report.failed} failed of ${f.run.report.total}`,
-          Screenshots: images.length,
+          [t('farmName')]: f.name,
+          [t('submitted')]: f.run.submittedAt ? new Date(f.run.submittedAt).toLocaleString('en-KE') : '—',
+          [t('result')]: `${f.run.report.passed} ${t('passed')} · ${f.run.report.failed} ${t('failed')} ${t('of')} ${f.run.report.total}`,
+          [t('screenshots')]: images.length,
         },
         images,
       }, 'PDF');
@@ -161,7 +163,7 @@ export function AdminTesting() {
             ))}
             <div className="flex items-center gap-2">
               <button onClick={addStep} className="text-xs font-semibold text-green-600">+ Add step</button>
-              <button onClick={saveSteps} disabled={savingSteps} className="ml-auto px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold disabled:opacity-50">{savingSteps ? 'Saving…' : 'Save checklist'}</button>
+              <button onClick={saveSteps} disabled={savingSteps} className="ml-auto px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 disabled:opacity-50">{savingSteps ? 'Saving…' : 'Save checklist'}</button>
             </div>
             {stepsMsg && <p className="text-xs text-gray-600">{stepsMsg}</p>}
             <p className="text-[11px] text-gray-400">Applies to new tests and re-tests. A farmer&apos;s in-progress run keeps the steps it started with.</p>

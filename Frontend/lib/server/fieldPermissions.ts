@@ -66,6 +66,30 @@ export function stripForRead<T extends Record<string, unknown>>(
   });
 }
 
+type PricedSaleUnit = { name: string; perBase: number; price: number };
+type StrippedSaleUnit = Omit<PricedSaleUnit, 'price'>;
+
+// Products carry their price inside a nested saleUnits[] array, not a flat column,
+// so the generic prop-level stripForRead can't reach it. Same default-deny financial
+// gating as everywhere else (egg_sale_price), just applied to the nested field.
+//
+// Return type reflects the stripped shape (not T[]) so a caller that reads
+// .saleUnits[i].price on the result gets a compile error instead of a silent
+// runtime `undefined` — a generic `T[]` signature here would let TS believe price
+// still exists.
+export function stripProductSaleUnitPrices<T extends { saleUnits: unknown }>(
+  rows: T[],
+  hidden: Set<string>
+): (Omit<T, 'saleUnits'> & { saleUnits: StrippedSaleUnit[] | T['saleUnits'] })[] {
+  if (!hidden.has('egg_sale_price')) return rows;
+  return rows.map((row) => ({
+    ...row,
+    saleUnits: (row.saleUnits as PricedSaleUnit[]).map(
+      ({ name, perBase }): StrippedSaleUnit => ({ name, perBase })
+    ),
+  }));
+}
+
 // On writes: reject any attempt to set a non-editable field (FR-M16 editable flag).
 export async function assertWritable(session: Session, fieldKeys: string[]): Promise<void> {
   if (session.role === 'owner') return;

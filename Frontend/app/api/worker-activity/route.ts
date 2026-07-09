@@ -6,14 +6,21 @@ import { ok, unauthorized, forbidden } from '@/lib/server/http';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
 
-// GET /api/worker-activity[?workerId=] — every field record, by worker, for the farm.
+// GET /api/worker-activity[?workerId=&cursor=&limit=] — every field record, by worker,
+// for the farm. Paginated with cursor-based pagination for stable scrolling.
+// Cursor is the `capturedAt` ISO timestamp of the last item on the previous page.
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
   const tid = session.tenantId;
-  const workerId = new URL(req.url).searchParams.get('workerId');
+  const url = new URL(req.url);
+  const workerId = url.searchParams.get('workerId');
+  const cursor = url.searchParams.get('cursor'); // ISO timestamp for pagination
+  const limit = Math.min(MAX_LIMIT, Math.max(1, Number(url.searchParams.get('limit')) || DEFAULT_LIMIT));
 
   const [morts, healths, feeds, prods, closes, counts, weights, obs, us, bs, items, phs] = await Promise.all([
     db.select().from(mortalityRecords).where(eq(mortalityRecords.tenantId, tid)),
@@ -45,7 +52,11 @@ export async function GET(req: Request) {
     ...weights.map((w): Row => ({ kind: 'weight sample', at: w.capturedAt, by: wname(w.recordedBy), byId: w.recordedBy, batch: bname(w.batchId), text: `avg ${w.avgWeightKg} kg${w.sampleSize ? ` (n=${w.sampleSize})` : ''}`, photoId: null, gpsLat: null, gpsLng: null })),
     ...obs.filter((o) => o.abnormal || o.waterLevel === 'LOW' || o.waterColour === 'MURKY').map((o): Row => ({ kind: 'observation', at: o.capturedAt, by: wname(o.recordedBy), byId: o.recordedBy, batch: bname(o.batchId), text: `${o.abnormal ? `▲ ${o.abnormalNote || 'abnormal'}` : ''}${o.waterLevel === 'LOW' ? ' · water LOW' : ''}${o.waterColour === 'MURKY' ? ' · water murky' : ''}`.replace(/^ · /, '').trim(), photoId: null, gpsLat: null, gpsLng: null })),
   ];
+  // Filter by worker and/or cursor
   if (workerId) rows = rows.filter((r) => r.byId === workerId);
+  if (cursor) rows = rows.filter((r) => r.at < cursor);
   rows.sort((a, b) => (a.at < b.at ? 1 : -1));
-  return ok(rows.slice(0, 200));
+  const page = rows.slice(0, limit);
+  const nextCursor = page.length === limit ? page[page.length - 1].at : null;
+  return ok({ data: page, nextCursor });
 }

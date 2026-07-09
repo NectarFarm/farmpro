@@ -3,6 +3,7 @@ import { Skull } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useWorkerProfileStore } from '@/lib/stores/workerProfile';
 import { useSyncStore } from '@/lib/stores/sync';
@@ -10,16 +11,19 @@ import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { CameraCapture, type CaptureResult } from '@/components/worker/CameraCapture';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
+import { useToast } from '@/hooks/use-toast';
 import type { ProductionUnit, Batch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const CAUSES = ['Sudden death','Disease','Injury','Unknown','Heat stress','Respiratory','Other'];
 
 export default function MortalityPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { profile } = useWorkerProfileStore();
   const { setPendingCount, pendingCount } = useSyncStore();
   const router = useRouter();
+  const { toast } = useToast();
 
   const [units, setUnits] = useState<ProductionUnit[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -28,8 +32,8 @@ export default function MortalityPage() {
   const [cause, setCause] = useState('');
   const [capture, setCapture] = useState<CaptureResult | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [toast, setToast] = useState('');
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const photoThreshold = profile?.mortalityPhotoThreshold ?? 1;
   const photoRequired = count > photoThreshold;
@@ -41,8 +45,8 @@ export default function MortalityPage() {
     Promise.all([api.getUnits(), api.getBatches()]).then(([u,b]) => {
       setUnits(u.filter(u => u.status === 'ACTIVE'));
       setBatches(b.filter(b => b.status === 'ACTIVE'));
-    });
-  }, []);
+    }).catch(() => setLoadError(t('loadFormDataFailed')));
+  }, [t]);
 
   const mortalityRate = batch ? ((count / batch.initialQty) * 100).toFixed(1) : null;
   const threshold = profile?.alertThresholds?.mortalityRate ?? 2.0;
@@ -69,9 +73,14 @@ export default function MortalityPage() {
       photo: capture?.dataUrl, // the actual compressed image — uploaded on sync
       recordedBy: user?.id, capturedAt: new Date().toISOString(),
     };
-    await enqueuePendingRecord('mortality', payload, clientUuid);
+    try {
+      await enqueuePendingRecord('mortality', payload, clientUuid);
+    } catch {
+      setError(t('saveFailedRetry')); setShowConfirm(false);
+      return;
+    }
     setPendingCount(pendingCount + 1);
-    setToast('✓ Saved — will sync'); setShowConfirm(false);
+    toast({ description: '✓ Saved — will sync' }); setShowConfirm(false);
     setTimeout(() => router.replace('/worker/home'), 1500);
   };
 
@@ -79,15 +88,15 @@ export default function MortalityPage() {
     <div className="p-4 flex flex-col gap-5">
       {/* Header */}
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Skull className="w-6 h-6 shrink-0" /><span>Record Mortality</span></h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Skull className="w-6 h-6 shrink-0" /><span>{t('recordMortality')}</span></h1>
       </div>
 
       {/* Unit select */}
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Unit</label>
+        <label className="text-sm font-medium text-gray-700">{t('unit')}</label>
         <select value={unitId} onChange={e => setUnitId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
-          <option value="">— Select unit —</option>
+          <option value="">{t('selectUnit')}</option>
           {units.map(u => {
             const b = batches.find(b => b.unitId === u.id && b.status === 'ACTIVE');
             return <option key={u.id} value={u.id}>{u.name}{b ? ` · ${b.currentQty} animals` : ''}</option>;
@@ -98,7 +107,7 @@ export default function MortalityPage() {
 
       {/* Death stepper — DS-2: small count */}
       <div className="flex flex-col gap-2">
-        <label className="text-sm font-medium text-gray-700">Deaths{batch ? ` (max ${batch.currentQty})` : ''}</label>
+        <label className="text-sm font-medium text-gray-700">{t('deaths')}{batch ? ` (${t('maximum')} ${batch.currentQty})` : ''}</label>
         <div className="flex items-center gap-4 bg-white border-2 border-gray-300 rounded-xl px-5 py-3">
           <button type="button" onClick={() => setCount(c => Math.max(0, c-1))}
             className="w-14 h-14 rounded-xl bg-gray-100 text-3xl font-bold flex items-center justify-center active:bg-gray-200">−</button>
@@ -115,10 +124,10 @@ export default function MortalityPage() {
 
       {/* Cause */}
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Cause (optional)</label>
+        <label className="text-sm font-medium text-gray-700">{t('cause')} ({t('optional')})</label>
         <select value={cause} onChange={e => setCause(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
-          <option value="">— Select cause —</option>
+          <option value="">{t('selectCause')}</option>
           {CAUSES.map(c => <option key={c}>{c}</option>)}
         </select>
       </div>
@@ -134,27 +143,21 @@ export default function MortalityPage() {
 
       {/* Error */}
       {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
+      {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
 
       {/* Submit */}
       <button
         onClick={handleSubmit}
         disabled={!unitId}
         className={cn('w-full min-h-[56px] rounded-xl text-xl font-bold text-white', 'bg-red-600 active:bg-red-700 disabled:opacity-40')}>
-        SUBMIT
+        {t('submit')}
       </button>
-
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-700 text-white px-5 py-3 rounded-xl font-semibold shadow-lg">
-          {toast}
-        </div>
-      )}
 
       <ConfirmSheet
         open={showConfirm} danger
-        title="Confirm Mortality Record"
-        summary={`Recording ${count} death${count !== 1 ? 's' : ''} in ${unit?.name ?? 'unit'}. Population → ${(batch?.currentQty ?? 0) - count}. This action is audited and cannot be silently undone.`}
-        confirmLabel="Confirm Mortality"
+        title={t('confirmMortality')}
+        summary={`${t('recording')} ${count} ${t('deaths')} ${t('in')} ${unit?.name ?? t('unit')}. ${t('populationArrow')} ${(batch?.currentQty ?? 0) - count}.`}
+        confirmLabel={t('confirmMortality')}
         onConfirm={handleConfirm}
         onCancel={() => setShowConfirm(false)}
       />

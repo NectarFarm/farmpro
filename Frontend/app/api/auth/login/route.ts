@@ -3,7 +3,8 @@ import { users, tenants } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
-import { ok, badRequest, unauthorized, serviceUnavailable, forbidden } from '@/lib/server/http';
+import { checkLoginRateLimit } from '@/lib/server/rateLimit';
+import { ok, badRequest, unauthorized, serviceUnavailable, forbidden, tooMany } from '@/lib/server/http';
 import type { Role } from '@/lib/types';
 
 // Unified login: one form for everyone. The DB record decides the role — the
@@ -13,6 +14,11 @@ import type { Role } from '@/lib/types';
 const BAD = 'Login failed. Check your details and try again.';
 
 export async function POST(req: Request) {
+  // Rate limit: 5 attempts per minute per IP (brute-force protection)
+  const limit = checkLoginRateLimit(req);
+  if (!limit.allowed) {
+    return tooMany(`Too many login attempts. Try again in ${limit.retryAfter} seconds.`, limit.retryAfter);
+  }
   try {
     const body = (await req.json().catch(() => ({}))) as { identifier?: string; secret?: string };
     const identifier = (body.identifier ?? '').trim();

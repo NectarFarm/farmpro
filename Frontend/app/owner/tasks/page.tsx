@@ -1,20 +1,22 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Task, Batch } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 
-const TASK_TYPES = [
-  { value: 'custom', label: 'Custom' },
-  { value: 'morning_round', label: 'Morning round' },
-  { value: 'feeding', label: 'Feeding' },
-  { value: 'vaccination', label: 'Vaccination / treatment' },
-  { value: 'weighing', label: 'Weight sampling' },
-  { value: 'stock_count', label: 'Stock count' },
-];
 const statusOf = (s: string) => (s === 'DONE' ? 'ok' : s === 'OVERDUE' ? 'critical' : 'info') as 'ok' | 'critical' | 'info';
 
 export default function OwnerTasksPage() {
+  const { t } = useTranslation();
+  const TASK_TYPES = [
+    { value: 'custom', label: t('taskCustom') },
+    { value: 'morning_round', label: t('taskMorningRound') },
+    { value: 'feeding', label: t('taskFeeding') },
+    { value: 'vaccination', label: t('taskVaccination') },
+    { value: 'weighing', label: t('taskWeightSampling') },
+    { value: 'stock_count', label: t('taskStockCount') },
+  ];
   const [tasks, setTasks] = useState<Task[]>([]);
   const [workers, setWorkers] = useState<{ id: string; name: string }[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -53,10 +55,10 @@ export default function OwnerTasksPage() {
     <div className="p-6 flex flex-col gap-5 max-w-4xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">📋 Tasks</h1>
-          <p className="text-gray-500 text-sm">Assign work to staff — they see it on their phone when they sign in.</p>
+          <h1 className="text-2xl font-bold text-gray-900">📋 {t('tasks')}</h1>
+          <p className="text-gray-500 text-sm">{t('tasks')}</p>
         </div>
-        <button onClick={() => { setErr(''); setShow(s => !s); }} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{show ? 'Close' : '+ Assign Task'}</button>
+        <button onClick={() => { setErr(''); setShow(s => !s); }} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{show ? t('close') : `+ ${t('assignTask')}`}</button>
       </div>
 
       {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
@@ -80,7 +82,7 @@ export default function OwnerTasksPage() {
           </div>
           {workers.length === 0 && <p className="text-xs text-amber-600">No staff with a login yet — add a worker and set their PIN on the People page first.</p>}
           <div className="flex gap-2">
-            <button type="submit" disabled={saving || !tf.assignedTo} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? 'Assigning…' : 'Assign'}</button>
+            <button type="submit" disabled={saving || !tf.assignedTo} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? t('saving') : t('assign')}</button>
             <button type="button" onClick={() => setShow(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">Cancel</button>
           </div>
         </form>
@@ -90,11 +92,11 @@ export default function OwnerTasksPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
             <tr>
-              <th className="px-4 py-3 text-left">Task</th>
-              <th className="px-3 py-3 text-left">Assigned to</th>
-              <th className="px-3 py-3 text-left hidden md:table-cell">Batch</th>
-              <th className="px-3 py-3 text-center hidden md:table-cell">Due</th>
-              <th className="px-3 py-3 text-center">Status</th>
+              <th className="px-4 py-3 text-left">{t('tasks')}</th>
+              <th className="px-3 py-3 text-left">{t('people')}</th>
+              <th className="px-3 py-3 text-left hidden md:table-cell">{t('batch')}</th>
+              <th className="px-3 py-3 text-center hidden md:table-cell">{t('due')}</th>
+              <th className="px-3 py-3 text-center">{t('status')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -107,7 +109,7 @@ export default function OwnerTasksPage() {
                 <td className="px-3 py-3 text-center"><StatusChip status={statusOf(t.status)} size="sm" label={t.status} /></td>
               </tr>
             ))}
-            {tasks.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">No tasks yet. Click “+ Assign Task”.</td></tr>}
+            {tasks.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">{t('noTasksYet')}</td></tr>}
           </tbody>
         </table>
       </div>

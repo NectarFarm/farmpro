@@ -5,35 +5,38 @@ import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
+import { useTranslation, type TranslationKey } from '@/lib/i18n/useTranslation';
 import { useSyncStore } from '@/lib/stores/sync';
 import { useSync } from '@/lib/offline/sync';
 import { SyncBadge } from '@/components/worker/SyncBadge';
 import { cn } from '@/lib/utils';
 import { useBranding } from '@/lib/useBranding';
+import { Toaster } from '@/components/ui/toaster';
 import { Home, ClipboardList, Wallet, User, type LucideIcon } from 'lucide-react';
 
-const tabs: { href: string; Icon: LucideIcon; label: string }[] = [
-  { href: '/worker/home', Icon: Home, label: 'Home' },
-  { href: '/worker/record/morning-round', Icon: ClipboardList, label: 'Record' },
-  { href: '/worker/pay', Icon: Wallet, label: 'My Pay' },
-  { href: '/worker/profile', Icon: User, label: 'Profile' },
-];
+const tabs = [
+  { href: '/worker/home', Icon: Home, labelKey: 'home' },
+  { href: '/worker/record/morning-round', Icon: ClipboardList, labelKey: 'record' },
+  { href: '/worker/pay', Icon: Wallet, labelKey: 'myPay' },
+  { href: '/worker/profile', Icon: User, labelKey: 'profile' },
+] as const;
 
-const TITLES: Record<string, string> = {
-  '/worker/home': 'Home',
-  '/worker/pay': 'My Pay',
-  '/worker/profile': 'Profile',
-  '/worker/record/collect': 'Collect Products',
-  '/worker/record/morning-round': 'Morning Round',
-  '/worker/record/mortality': 'Record Mortality',
-  '/worker/record/feeding': 'Feeding Log',
-  '/worker/record/health': 'Health & Vaccination',
-  '/worker/record/weight-sampling': 'Weight Sampling',
-  '/worker/record/physical-count': 'Physical Count',
-  '/worker/record/closing-stock': 'Closing Stock',
+const TITLE_KEYS: Record<string, TranslationKey> = {
+  '/worker/home': 'home',
+  '/worker/pay': 'myPay',
+  '/worker/profile': 'profile',
+  '/worker/record/collect': 'collectProducts',
+  '/worker/record/morning-round': 'morningRound',
+  '/worker/record/mortality': 'recordMortality',
+  '/worker/record/feeding': 'feedingLog',
+  '/worker/record/health': 'healthVaccination',
+  '/worker/record/weight-sampling': 'weightSample',
+  '/worker/record/physical-count': 'physicalCount',
+  '/worker/record/closing-stock': 'closingStock',
 };
 
 export default function WorkerLayout({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const pathname = usePathname();
   const router = useRouter();
   const { setOnline } = useSyncStore();
@@ -53,7 +56,8 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
 
   if (pathname === '/worker/login') return <>{children}</>;
 
-  const title = TITLES[pathname] ?? brand.appName;
+  const titleKey: TranslationKey = TITLE_KEYS[pathname] ?? 'home';
+  const title = t(titleKey) ?? brand.appName;
   const isHome = pathname === '/worker/home';
   const handleLogout = () => { logout(); router.replace('/worker/login'); };
 
@@ -94,12 +98,14 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
                   active ? 'text-green-700 bg-green-50' : 'text-gray-500 hover:text-gray-700'
                 )}>
                 <tab.Icon className="w-5 h-5" strokeWidth={2} />
-                {tab.label}
+                {t(tab.labelKey)}
               </Link>
             );
           })}
         </div>
       </nav>
+
+      <Toaster />
     </div>
   );
 }

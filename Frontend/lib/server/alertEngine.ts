@@ -3,6 +3,7 @@ import 'server-only';
 // rules. On-demand within Next.js (the scheduled version is the Celery tier).
 // Deterministic alert ids → re-running is idempotent and preserves ack state.
 import { db } from '@/db';
+import type { DbClient } from '@/db';
 import { batches, mortalityRecords, inventoryItems, inventoryLots, tasks, alertRules, alerts, lifecycleStages } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { enterpriseFromSpecies } from './productTemplates';
@@ -12,14 +13,29 @@ import { ageDays, dueToAdvance } from '@/lib/lifecycle';
 // the same id already exists it's left untouched (so a re-sync never duplicates it or
 // resets the owner's acknowledgement). Used by /api/sync for point-in-time events
 // (stock variance, abnormal observation, weight loss) so the owner is warned at once.
+//
+// Takes an optional client because /api/sync calls this from inside an open
+// db.transaction() — reusing that tx (rather than defaulting to the top-level db)
+// matters for more than atomicity: on the Cloudflare Workers deployment target the
+// connection pool is capped at 1 (see db/index.ts), so issuing a second query against
+// the plain `db` while a transaction already holds that one connection would block
+// forever waiting for a connection that can't free up until this very call returns.
 export async function raiseAlert(
   tenantId: string,
   a: { id: string; severity: string; type: string; title: string; message: string },
+  client: DbClient = db,
 ): Promise<boolean> {
-  const existing = await db.select({ id: alerts.id }).from(alerts).where(eq(alerts.id, a.id)).limit(1);
-  if (existing.length) return false;
-  await db.insert(alerts).values({ ...a, tenantId, createdAt: new Date().toISOString(), acknowledged: false });
-  return true;
+  // Atomic insert-if-absent (not select-then-insert): two concurrent callers
+  // raising the same deterministic alert id no longer race on which one commits
+  // second and throws a unique-violation — the loser's insert just no-ops. This
+  // matters more since raiseAlert now typically runs inside app/api/sync/route.ts's
+  // per-record transaction: a unique-violation there would have rolled back the
+  // whole record (insert + stock/population decrement), not just the alert.
+  const inserted = await client.insert(alerts)
+    .values({ ...a, tenantId, createdAt: new Date().toISOString(), acknowledged: false })
+    .onConflictDoNothing({ target: alerts.id })
+    .returning({ id: alerts.id });
+  return inserted.length > 0;
 }
 
 export async function evaluateAlerts(tenantId: string): Promise<{ conditions: number; created: number }> {

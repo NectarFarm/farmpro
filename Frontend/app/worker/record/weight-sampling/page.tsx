@@ -3,29 +3,36 @@ import { Scale } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
+import { useToast } from '@/hooks/use-toast';
 import type { Batch } from '@/lib/types';
 
 export default function WeightSamplingPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
   const { doneToday } = useTodayActivity();
   const router = useRouter();
+  const { toast } = useToast();
   const [batches, setBatches] = useState<Batch[]>([]);
   const [batchId, setBatchId] = useState('');
   const [sampleSize, setSampleSize] = useState('10');
   const [avgWeight, setAvgWeight] = useState('');
   const [activeField, setActiveField] = useState<'size'|'weight'|null>(null);
-  const [toast, setToast] = useState('');
+  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    api.getBatches().then(b => setBatches(b.filter(b => b.status === 'ACTIVE')));
-  }, []);
+    api.getBatches().then(b => setBatches(b.filter(b => b.status === 'ACTIVE')))
+      .catch(() => setLoadError(t('loadFormDataFailed')));
+  }, [t]);
 
   const [now] = useState(() => Date.now());
   const batch = batches.find(b => b.id === batchId);
@@ -37,25 +44,32 @@ export default function WeightSamplingPage() {
   const projectedDays = adg && avgKg ? Math.round((2.5 - avgKg) / (parseFloat(adg)/1000)) : null;
 
   const handleSubmit = async () => {
-    if (!batchId || !avgWeight) return;
+    if (!batchId || !avgWeight || submitting) return;
+    setSubmitting(true); setError('');
     const clientUuid = uuid();
-    await enqueuePendingRecord('weight_sample', { clientUuid, batchId, sampleSize: parseInt(sampleSize)||10, avgWeightKg: avgKg, measuredAt: new Date().toISOString(), measuredBy: user?.id }, clientUuid);
+    try {
+      await enqueuePendingRecord('weight_sample', { clientUuid, batchId, sampleSize: parseInt(sampleSize)||10, avgWeightKg: avgKg, measuredAt: new Date().toISOString(), measuredBy: user?.id }, clientUuid);
+    } catch {
+      setSubmitting(false);
+      setError(t('saveFailedRetry'));
+      return;
+    }
     setPendingCount(pendingCount + 1);
-    setToast('✓ Saved — will sync');
+    toast({ description: '✓ Saved — will sync' });
     setTimeout(() => router.replace('/worker/home'), 1500);
   };
 
   return (
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-purple-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Scale className="w-6 h-6 shrink-0" /><span>Weight Sampling</span></h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Scale className="w-6 h-6 shrink-0" /><span>{t('weightSample')}</span></h1>
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Batch</label>
+        <label className="text-sm font-medium text-gray-700">{t('batch')}</label>
         <select value={batchId} onChange={e => setBatchId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 bg-white min-h-[52px]">
-          <option value="">— Select batch —</option>
+          <option value="">{t('selectBatch')}</option>
           {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         {batchId && doneToday('weight_sample', batchId).count > 0 && (
@@ -65,26 +79,26 @@ export default function WeightSamplingPage() {
 
       {activeField === 'size' ? (
         <div className="bg-white rounded-xl border p-4">
-          <NumericKeypad label="Sample size (animals)" value={sampleSize} onChange={setSampleSize} />
+          <NumericKeypad label={t('sampleSize')} value={sampleSize} onChange={setSampleSize} />
           <button onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
         </div>
       ) : (
         <button type="button" onClick={() => setActiveField('size')}
           className="flex justify-between items-center bg-white border-2 border-gray-300 rounded-xl px-4 py-3 min-h-[56px]">
-          <span className="font-medium text-gray-700">Sample size</span>
-          <span className="text-2xl font-bold text-gray-900">{sampleSize} animals</span>
+          <span className="font-medium text-gray-700">{t('sampleSize')}</span>
+          <span className="text-2xl font-bold text-gray-900">{sampleSize} {t('animals')}</span>
         </button>
       )}
 
       {activeField === 'weight' ? (
         <div className="bg-white rounded-xl border p-4">
-          <NumericKeypad large label="Average weight (kg)" value={avgWeight} onChange={setAvgWeight} allowDecimal unit="kg" />
+          <NumericKeypad large label={t('averageWeight')} value={avgWeight} onChange={setAvgWeight} allowDecimal unit="kg" />
           <button onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
         </div>
       ) : (
         <button type="button" onClick={() => setActiveField('weight')}
           className="flex justify-between items-center bg-white border-2 border-gray-300 rounded-xl px-4 py-3 min-h-[56px]">
-          <span className="font-medium text-gray-700">Average weight</span>
+          <span className="font-medium text-gray-700">{t('averageWeight')}</span>
           <span className={`text-2xl font-bold ${avgWeight ? 'text-gray-900' : 'text-gray-400'}`}>{avgWeight || '—'} kg</span>
         </button>
       )}
@@ -99,12 +113,13 @@ export default function WeightSamplingPage() {
         </div>
       )}
 
-      <button onClick={handleSubmit} disabled={!batchId || !avgWeight}
-        className="w-full min-h-[56px] bg-purple-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
-        SAVE
-      </button>
+      {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
+      {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
 
-      {toast && <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-700 text-white px-5 py-3 rounded-xl font-semibold shadow-lg">{toast}</div>}
+      <button onClick={handleSubmit} disabled={!batchId || !avgWeight || submitting}
+        className="w-full min-h-[56px] bg-purple-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
+        {submitting ? t('saving') : 'SAVE'}
+      </button>
     </div>
   );
 }

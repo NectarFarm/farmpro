@@ -14,6 +14,8 @@ export default function VetUnitsPage() {
   const [showPrescription, setShowPrescription] = useState(false);
   const [prescription, setPrescription] = useState({ product: '', dose: '', route: '', withdrawal: '', notes: '' });
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [prescribeError, setPrescribeError] = useState('');
 
   useEffect(() => {
     if (!user) { router.replace('/owner/login'); return; }
@@ -24,7 +26,30 @@ export default function VetUnitsPage() {
     if (selected) api.getHealthRecords(selected).then(setHealth);
   }, [selected]);
 
-  const handlePrescribe = () => { setSaved(true); setShowPrescription(false); setTimeout(() => setSaved(false), 2000); };
+  const handlePrescribe = async () => {
+    if (!selected) return;
+    if (!prescription.product.trim()) { setPrescribeError('Enter a product / treatment.'); return; }
+    setSaving(true); setPrescribeError('');
+    try {
+      await api.prescribe({
+        batchId: selected,
+        product: prescription.product.trim(),
+        dose: Number(prescription.dose) || 0,
+        route: prescription.route.trim(),
+        withdrawal: prescription.withdrawal,
+        notes: prescription.notes.trim(),
+      });
+      setSaved(true);
+      setShowPrescription(false);
+      setPrescription({ product: '', dose: '', route: '', withdrawal: '', notes: '' });
+      api.getHealthRecords(selected).then(setHealth);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      setPrescribeError((e as Error).message || 'Could not submit the prescription. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-6 flex flex-col gap-5 max-w-3xl mx-auto">
@@ -96,9 +121,16 @@ export default function VetUnitsPage() {
               </div>
               <input value={prescription.withdrawal} onChange={e => setPrescription(p=>({...p,withdrawal:e.target.value}))} placeholder="Withdrawal period (days)" type="number" className="border-2 border-gray-300 rounded-xl px-4 py-2 text-sm" />
               <textarea value={prescription.notes} onChange={e => setPrescription(p=>({...p,notes:e.target.value}))} placeholder="Advisory notes…" rows={2} className="border border-gray-300 rounded-xl px-3 py-2 text-sm" />
+              {prescribeError && <p className="text-red-600 text-sm font-semibold">⚠ {prescribeError}</p>}
               <div className="flex gap-2">
-                <button onClick={handlePrescribe} className="flex-1 bg-teal-600 text-white rounded-xl py-2.5 font-semibold">Submit Prescription</button>
-                <button onClick={() => setShowPrescription(false)} className="flex-1 bg-gray-100 text-gray-700 rounded-xl py-2.5 font-semibold">Cancel</button>
+                <button onClick={handlePrescribe} disabled={saving}
+                  className="flex-1 bg-teal-600 text-white rounded-xl py-2.5 font-semibold disabled:opacity-60">
+                  {saving ? 'Submitting…' : 'Submit Prescription'}
+                </button>
+                <button onClick={() => { setShowPrescription(false); setPrescribeError(''); }} disabled={saving}
+                  className="flex-1 bg-gray-100 text-gray-700 rounded-xl py-2.5 font-semibold disabled:opacity-60">
+                  Cancel
+                </button>
               </div>
             </div>
           )}

@@ -1,15 +1,17 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { WorkerProfile, FieldConfig, FieldPermission } from '@/lib/types';
 
-const permissionOptions: { value: FieldPermission; label: string; color: string }[] = [
-  { value: 'editable', label: 'Editable', color: 'bg-green-100 text-green-700 border-green-300' },
-  { value: 'readonly', label: 'Read-only', color: 'bg-blue-100 text-blue-700 border-blue-300' },
-  { value: 'hidden', label: 'Hidden', color: 'bg-red-100 text-red-700 border-red-300' },
-];
-
 export default function WorkerConfigPage() {
+  const { t } = useTranslation();
+  const permissionOptions: { value: FieldPermission; label: string; color: string }[] = [
+    { value: 'editable', label: t('editable'), color: 'bg-green-100 text-green-700 border-green-300' },
+    { value: 'readonly', label: t('readOnly'), color: 'bg-blue-100 text-blue-700 border-blue-300' },
+    { value: 'hidden', label: t('hidden'), color: 'bg-red-100 text-red-700 border-red-300' },
+  ];
+  const permSubHeaders = [t('editable'), t('readOnly'), t('hidden')];
   const [profiles, setProfiles] = useState<WorkerProfile[]>([]);
   const [selected, setSelected] = useState<WorkerProfile | null>(null);
   const [edited, setEdited] = useState<FieldConfig[]>([]);
@@ -71,8 +73,8 @@ export default function WorkerConfigPage() {
   return (
     <div className="p-6 flex flex-col gap-6 max-w-4xl">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">⚙️ Worker Portal Config</h1>
-        <p className="text-gray-500 text-sm mt-1">Field-level permissions · Hidden fields are <strong>stripped server-side</strong> — not CSS-hidden (NFR-SEC-2)</p>
+        <h1 className="text-2xl font-bold text-gray-900">⚙️ {t('config')}</h1>
+        <p className="text-gray-500 text-sm mt-1">{t('fieldPermissions')}</p>
       </div>
 
       {/* Profile selector */}
@@ -83,14 +85,14 @@ export default function WorkerConfigPage() {
             {p.name}
           </button>
         ))}
-        <button onClick={openNewProfile} className="px-4 py-2 rounded-xl font-semibold text-sm border-2 border-dashed border-green-400 text-green-600">+ New Profile</button>
+        <button onClick={openNewProfile} className="px-4 py-2 rounded-xl font-semibold text-sm border-2 border-dashed border-green-400 text-green-600">+ {t('newProfile')}</button>
       </div>
 
       {/* New-profile inline form (replaces the old browser prompt) */}
       {showNew && (
         <form onSubmit={submitNewProfile} className="bg-white border border-green-300 rounded-xl p-4 flex flex-col sm:flex-row gap-3 sm:items-end">
           <div className="flex-1">
-            <label className="block text-xs font-semibold text-gray-500 mb-1">New profile name</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">{t('profileName')}</label>
             <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
               placeholder="e.g. Poultry worker, Fish hand, Crop labourer"
               className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
@@ -98,7 +100,7 @@ export default function WorkerConfigPage() {
           <div className="flex gap-2">
             <button type="submit" disabled={creating || !newName.trim()}
               className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">
-              {creating ? 'Creating…' : 'Create profile'}
+              {creating ? t('saving') : t('createProfile')}
             </button>
             <button type="button" onClick={() => { setShowNew(false); setErr(''); }}
               className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">Cancel</button>
@@ -110,8 +112,8 @@ export default function WorkerConfigPage() {
 
       {profiles.length === 0 && (
         <div className="text-center py-10 bg-white border border-dashed border-gray-200 rounded-xl">
-          <p className="text-gray-500 font-semibold">No worker profile yet</p>
-          <p className="text-gray-400 text-sm mt-1 max-w-md mx-auto">A profile controls exactly what each worker can see and enter — hide costs &amp; prices, choose required fields. Click <span className="font-semibold text-green-700">+ New Profile</span> to create one, then assign it to workers.</p>
+          <p className="text-gray-500 font-semibold">{t('noProfileYet')}</p>
+          <p className="text-gray-400 text-sm mt-1 max-w-md mx-auto">{t('fieldPermissions')}</p>
         </div>
       )}
 
@@ -120,22 +122,22 @@ export default function WorkerConfigPage() {
           {/* Field permission matrix */}
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
-              <h2 className="font-bold text-gray-800">Field Permissions — {selected.name}</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Controls exactly what workers can see and enter. Changes propagate on next sync.</p>
+              <h2 className="font-bold text-gray-800">{t('fieldPermissions')} — {selected.name}</h2>
+              <p className="text-xs text-gray-400 mt-0.5">{t('fieldPermissions')}</p>
             </div>
             <table className="w-full text-sm">
               <thead className="text-gray-500 text-xs font-semibold border-b">
                 <tr>
-                  <th className="px-5 py-3 text-left">Field</th>
-                  <th className="px-3 py-3 text-center" colSpan={3}>Permission</th>
-                  <th className="px-3 py-3 text-center">Required</th>
+                  <th className="px-5 py-3 text-left">{t('field')}</th>
+                  <th className="px-3 py-3 text-center" colSpan={3}>{t('permission')}</th>
+                  <th className="px-3 py-3 text-center">{t('required')}</th>
                 </tr>
                 <tr className="bg-gray-50 text-gray-400">
                   <th className="px-5 pb-2"></th>
-                  <th className="px-2 pb-2 text-green-600">Editable</th>
-                  <th className="px-2 pb-2 text-blue-600">Read-only</th>
-                  <th className="px-2 pb-2 text-red-500">Hidden</th>
-                  <th className="px-3 pb-2">Required</th>
+                  <th className="px-2 pb-2 text-green-600">{permSubHeaders[0]}</th>
+                  <th className="px-2 pb-2 text-blue-600">{permSubHeaders[1]}</th>
+                  <th className="px-2 pb-2 text-red-500">{permSubHeaders[2]}</th>
+                  <th className="px-3 pb-2">{t('required')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -178,7 +180,7 @@ export default function WorkerConfigPage() {
           {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
           <button onClick={handleSave} disabled={saving}
             className={`w-full min-h-[52px] rounded-xl font-bold text-base disabled:opacity-50 ${saved ? 'bg-green-100 text-green-700' : 'bg-green-600 text-white hover:bg-green-700'}`}>
-            {saving ? 'Saving…' : saved ? '✓ Changes Saved' : 'Save Profile'}
+            {saving ? t('saving') : saved ? `✓ ${t('changesSaved')}` : t('saveProfile')}
           </button>
 
           {/* Security notice */}

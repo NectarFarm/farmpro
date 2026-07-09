@@ -65,7 +65,7 @@ export function AdminPackages({ onSaved }: { onSaved?: () => void }) {
           ))}
           <div className="flex items-center gap-2">
             <button onClick={add} className="text-xs font-semibold text-green-600">+ Add package</button>
-            <button onClick={save} disabled={saving} className="ml-auto px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Save packages'}</button>
+            <button onClick={save} disabled={saving} className="ml-auto px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 disabled:opacity-50">{saving ? 'Saving…' : 'Save packages'}</button>
           </div>
           {msg && <p className="text-xs text-gray-600">{msg}</p>}
           <p className="text-[11px] text-gray-400">Editing a package updates the choices below. Existing farms keep their current features until you re-assign their package.</p>

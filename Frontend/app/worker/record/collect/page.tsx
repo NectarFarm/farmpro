@@ -3,21 +3,25 @@ import { Egg } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api, getProducts } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
+import { useToast } from '@/hooks/use-toast';
 import type { Batch, Product } from '@/lib/types';
 
 const freqLabel = (f: string) => ({ daily: 'Collect daily', weekly: 'Collect weekly', monthly: 'Collect monthly', per_cycle: 'Collect at harvest' }[f] ?? f);
 
 export default function CollectProductsPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
   const { doneToday, refresh } = useTodayActivity();
   const router = useRouter();
+  const { toast } = useToast();
 
   const [batches, setBatches] = useState<Batch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -28,16 +32,19 @@ export default function CollectProductsPage() {
   const [keypad, setKeypad] = useState(false);
   const [doneBatches, setDoneBatches] = useState<string[]>([]);
   const [error, setError] = useState('');
-  const [toast, setToast] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
-  useEffect(() => { api.getBatches().then(b => setBatches(b.filter(x => x.status === 'ACTIVE'))); }, []);
+  useEffect(() => {
+    api.getBatches().then(b => setBatches(b.filter(x => x.status === 'ACTIVE')))
+      .catch(() => setLoadError(t('loadFormDataFailed')));
+  }, [t]);
   useEffect(() => {
     setProductId(''); setQty('');
     if (!batchId) { setProducts([]); return; }
     // Only show things a worker actually COLLECTS (eggs, manure, milk, crop harvest).
     // The live animal itself is sold from the batch, never "collected", so exclude it.
-    getProducts(batchId).then(ps => setProducts(ps.filter(p => !p.isAnimalProduct)));
+    getProducts(batchId).then(ps => setProducts(ps.filter(p => !p.isAnimalProduct))).catch(err => console.error('Failed to load products', err));
   }, [batchId]);
 
   const product = products.find(p => p.id === productId);
@@ -55,25 +62,30 @@ export default function CollectProductsPage() {
     if (!qty || qtyNum <= 0) { setError('Enter how much you collected'); return; }
     setLoading(true); setError('');
     const clientUuid = uuid();
-    // Always store the BASE-unit quantity so sales/stock math stays consistent.
-    await enqueuePendingRecord('production', {
-      clientUuid, batchId, productId: product.id, type: product.name, qty: baseQty,
-      collectedUnit: unitName, collectedQty: qtyNum,
-      recordedBy: user?.id, capturedAt: new Date().toISOString(),
-    }, clientUuid);
+    try {
+      // Always store the BASE-unit quantity so sales/stock math stays consistent.
+      await enqueuePendingRecord('production', {
+        clientUuid, batchId, productId: product.id, type: product.name, qty: baseQty,
+        collectedUnit: unitName, collectedQty: qtyNum,
+        recordedBy: user?.id, capturedAt: new Date().toISOString(),
+      }, clientUuid);
+    } catch {
+      setLoading(false);
+      setError(t('saveFailedRetry'));
+      return;
+    }
     setPendingCount(pendingCount + 1);
     setDoneBatches(d => d.includes(batchId) ? d : [...d, batchId]);
-    setToast(`✓ ${qtyNum} ${unitName} of ${product.name} saved — pick the next batch or finish`);
+    toast({ description: `✓ ${qtyNum} ${unitName} of ${product.name} saved — pick the next batch or finish` });
     // Stay in the flow for the next batch/product.
     setBatchId(''); setProductId(''); setQty(''); setLoading(false); refresh();
-    setTimeout(() => setToast(''), 2500);
   };
 
   return (
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-green-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Egg className="w-6 h-6 shrink-0" /><span>Collect Products</span></h1>
-        <p className="text-green-200 text-sm">Record what you collected, then pick the next batch — no need to leave.</p>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Egg className="w-6 h-6 shrink-0" /><span>{t('collectProducts')}</span></h1>
+        <p className="text-green-200 text-sm">{t('collectProducts')}</p>
       </div>
 
       {doneBatches.length > 0 && (
@@ -85,10 +97,10 @@ export default function CollectProductsPage() {
 
       {/* Batch */}
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Batch</label>
+        <label className="text-sm font-medium text-gray-700">{t('batch')}</label>
         <select value={batchId} onChange={e => setBatchId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
-          <option value="">— Select batch —</option>
+          <option value="">{t('selectBatch')}</option>
           {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty}{doneBatches.includes(b.id) ? ' ✓' : ''}</option>)}
         </select>
         {batchId && doneToday('production', batchId).count > 0 && (
@@ -99,7 +111,7 @@ export default function CollectProductsPage() {
       {/* Product */}
       {batchId && (
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-gray-700">Product</label>
+          <label className="text-sm font-medium text-gray-700">{t('products')}</label>
           {products.length === 0
             ? <p className="text-gray-400 text-sm bg-gray-50 rounded-lg px-3 py-2">No products set for this batch yet. Ask the owner to add them.</p>
             : (
@@ -120,7 +132,7 @@ export default function CollectProductsPage() {
       {/* Collection unit — collect in pieces, trays, crates… */}
       {product && units.length > 1 && (
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-gray-700">Counted in</label>
+          <label className="text-sm font-medium text-gray-700">{t('unit')}</label>
           <div className="flex flex-wrap gap-2">
             {units.map(u => (
               <button key={u.name} type="button" onClick={() => { setUnitName(u.name); setQty(''); }}
@@ -135,7 +147,7 @@ export default function CollectProductsPage() {
       {/* Quantity */}
       {product && (keypad ? (
         <div className="bg-white rounded-xl border p-4">
-          <NumericKeypad large label={`How many ${unitName}?`} value={qty} onChange={setQty} allowDecimal unit={unitName} />
+          <NumericKeypad large label={`${t('howMany')} ${unitName}?`} value={qty} onChange={setQty} allowDecimal unit={unitName} />
           <button onClick={() => setKeypad(false)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
         </div>
       ) : (
@@ -151,10 +163,8 @@ export default function CollectProductsPage() {
 
       <button onClick={submit} disabled={loading || !batchId || !product || !qty}
         className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
-        {loading ? 'Saving…' : 'SUBMIT'}
+        {loading ? t('saving') : t('submit')}
       </button>
-
-      {toast && <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-700 text-white px-5 py-3 rounded-xl font-semibold shadow-lg text-center">{toast}</div>}
     </div>
   );
 }

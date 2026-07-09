@@ -26,13 +26,18 @@ export async function PUT(req: Request) {
   const { rules } = (await req.json().catch(() => ({}))) as { rules?: RuleInput[] };
   if (!Array.isArray(rules)) return badRequest('rules[] required');
 
-  await db.delete(alertRules).where(eq(alertRules.tenantId, session.tenantId));
-  if (rules.length) {
-    await db.insert(alertRules).values(rules.map((r) => ({
-      id: crypto.randomUUID(), tenantId: session.tenantId,
-      metric: String(r.metric), label: String(r.label), threshold: Number(r.threshold) || 0,
-      unit: String(r.unit ?? ''), severity: String(r.severity ?? 'warning'), enabled: r.enabled !== false,
-    })));
-  }
+  // Delete + re-insert must be one transaction — a failure between the two steps would
+  // otherwise leave the tenant with ZERO alert rules (not stale data, total loss),
+  // silently turning off every alert for that tenant.
+  await db.transaction(async (tx) => {
+    await tx.delete(alertRules).where(eq(alertRules.tenantId, session.tenantId));
+    if (rules.length) {
+      await tx.insert(alertRules).values(rules.map((r) => ({
+        id: crypto.randomUUID(), tenantId: session.tenantId,
+        metric: String(r.metric), label: String(r.label), threshold: Number(r.threshold) || 0,
+        unit: String(r.unit ?? ''), severity: String(r.severity ?? 'warning'), enabled: r.enabled !== false,
+      })));
+    }
+  });
   return ok({ saved: rules.length });
 }

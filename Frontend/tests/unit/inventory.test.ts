@@ -1,17 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { productAvailability, feedOnHand, consumeFeedFIFO, sellableStock } from '@/lib/server/inventory';
 
-const { mockDbSelect, mockDbUpdate } = vi.hoisted(() => ({
+const { mockDbSelect, mockDbUpdate, mockDbTransaction } = vi.hoisted(() => ({
   mockDbSelect: vi.fn(),
   mockDbUpdate: vi.fn(),
+  mockDbTransaction: vi.fn(),
 }));
 vi.mock('@/db', () => ({
-  db: { select: mockDbSelect, update: mockDbUpdate },
+  db: { select: mockDbSelect, update: mockDbUpdate, transaction: mockDbTransaction },
 }));
 
 function makeWhere(rows: unknown[]) {
-  const p = Promise.resolve(rows) as Promise<unknown[]> & { limit?: ReturnType<typeof vi.fn> };
+  const p = Promise.resolve(rows) as Promise<unknown[]> & { limit?: ReturnType<typeof vi.fn>; for?: ReturnType<typeof vi.fn> };
   p.limit = vi.fn(() => Promise.resolve(rows.slice(0, 1)));
+  p.for = vi.fn(() => Promise.resolve(rows)); // .for('update') row-lock — same rows in tests
   return p;
 }
 
@@ -25,6 +27,11 @@ function mockQuery(result: unknown[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // consumeFeedFIFO runs its work inside db.transaction(); the mock transaction just
+  // invokes the callback with the same select/update mocks, same as a real tx would
+  // expose the same query-builder surface as the top-level db.
+  mockDbTransaction.mockImplementation((cb: (tx: { select: typeof mockDbSelect; update: typeof mockDbUpdate }) => unknown) =>
+    cb({ select: mockDbSelect, update: mockDbUpdate }));
 });
 
 describe('productAvailability', () => {

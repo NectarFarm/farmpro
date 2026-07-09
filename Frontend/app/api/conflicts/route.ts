@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import { conflictLog, productionRecords } from '@/db/schemas';
-import { and, eq, like } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { ok, badRequest, unauthorized, forbidden, notFound } from '@/lib/server/http';
@@ -47,10 +47,17 @@ export async function POST(req: Request) {
   if (resolution !== 'accept' && c.recordType === 'production') {
     const chosen = (resolution === 'kept_mine' ? c.myVersion : c.serverVersion) as { qty?: unknown } | null;
     const qty = Number(chosen?.qty);
-    const [batchId, type, day] = (c.recordId ?? '').split(':');
-    if (batchId && type && day && Number.isFinite(qty)) {
+    // Scope the override to the exact record(s) this conflict was about — the incoming
+    // ("mine") and the pre-existing ("server") clientUuids stashed on the conflict row —
+    // never a day-wide pattern, so other legitimate same-day entries are untouched.
+    // Only one of the two survives in the table (handleProduction deleted or never
+    // inserted the loser), so this updates exactly that one row.
+    const myUuid = (c.myVersion as { clientUuid?: unknown } | null)?.clientUuid;
+    const serverUuid = (c.serverVersion as { clientUuid?: unknown } | null)?.clientUuid;
+    const targets = [myUuid, serverUuid].filter((u): u is string => typeof u === 'string' && u.length > 0);
+    if (targets.length && Number.isFinite(qty)) {
       await db.update(productionRecords).set({ qty })
-        .where(and(eq(productionRecords.tenantId, tid), eq(productionRecords.batchId, batchId), eq(productionRecords.type, type), like(productionRecords.capturedAt, `${day}%`)));
+        .where(and(eq(productionRecords.tenantId, tid), inArray(productionRecords.clientUuid, targets)));
     }
   }
 

@@ -3,20 +3,24 @@ import { Wheat, Plus, X } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
+import { useToast } from '@/hooks/use-toast';
 import type { Batch, InventoryItem, InventoryLot } from '@/lib/types';
 
 type Row = { itemId: string; qty: string };
 
 export default function FeedingPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
   const { doneToday, refresh } = useTodayActivity();
   const router = useRouter();
+  const { toast } = useToast();
 
   const [batches, setBatches] = useState<Batch[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -25,7 +29,7 @@ export default function FeedingPage() {
   const [rows, setRows] = useState<Row[]>([{ itemId: '', qty: '' }]);
   const [doneBatches, setDoneBatches] = useState<string[]>([]); // batches fed this visit
   const [error, setError] = useState('');
-  const [toast, setToast] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -33,8 +37,8 @@ export default function FeedingPage() {
       setBatches(b.filter(b => b.status === 'ACTIVE'));
       setItems(i.filter(i => i.category.startsWith('FEED')));
       setLots(l);
-    });
-  }, []);
+    }).catch(() => setLoadError(t('loadFormDataFailed')));
+  }, [t]);
 
   const onHand = (itemId: string) => lots.filter(l => l.itemId === itemId).reduce((s, l) => s + l.qtyOnHand, 0);
   const itemOf = (id: string) => items.find(i => i.id === id);
@@ -60,28 +64,35 @@ export default function FeedingPage() {
     if (new Set(ids).size !== ids.length) { setError('The same feed is listed twice — combine them into one'); return; }
     setLoading(true); setError('');
     const at = new Date().toISOString();
-    for (const r of validRows) {
-      const clientUuid = uuid();
-      await enqueuePendingRecord('feeding', {
-        clientUuid, batchId, feedItemId: r.itemId, lotId: activeLot(r.itemId)?.id,
-        quantityKg: parseFloat(r.qty),
-        recordedBy: user?.id, capturedAt: at,
-      }, clientUuid);
+    try {
+      for (const r of validRows) {
+        const clientUuid = uuid();
+        await enqueuePendingRecord('feeding', {
+          clientUuid, batchId, feedItemId: r.itemId, lotId: activeLot(r.itemId)?.id,
+          quantityKg: parseFloat(r.qty),
+          recordedBy: user?.id, capturedAt: at,
+        }, clientUuid);
+      }
+    } catch {
+      setLoading(false);
+      setError(t('saveFailedRetry'));
+      return;
     }
     setPendingCount(pendingCount + validRows.length);
     setDoneBatches(d => d.includes(batchId) ? d : [...d, batchId]);
-    setToast(`✓ ${batchName(batchId)} fed — pick the next batch or finish`);
+    toast({ description: `✓ ${batchName(batchId)} fed — pick the next batch or finish` });
     // Stay in the flow for the next batch instead of leaving the page.
     setBatchId(''); setRows([{ itemId: '', qty: '' }]); setLoading(false); refresh();
-    setTimeout(() => setToast(''), 2500);
   };
 
   return (
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-green-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Wheat className="w-6 h-6 shrink-0" /><span>Feeding Log</span></h1>
-        <p className="text-green-200 text-sm">Feed a batch, then pick the next — feed the whole farm without leaving.</p>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Wheat className="w-6 h-6 shrink-0" /><span>{t('feedingLog')}</span></h1>
+        <p className="text-green-200 text-sm">{t('feedingLog')}</p>
       </div>
+
+      {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
 
       {/* Progress this visit + finish */}
       {doneBatches.length > 0 && (
@@ -93,10 +104,10 @@ export default function FeedingPage() {
 
       {/* Batch */}
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Batch</label>
+        <label className="text-sm font-medium text-gray-700">{t('batch')}</label>
         <select value={batchId} onChange={e => setBatchId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
-          <option value="">— Select batch —</option>
+          <option value="">{t('selectBatch')}</option>
           {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty} animals{doneBatches.includes(b.id) ? ' ✓ fed' : ''}</option>)}
         </select>
         {batchId && (fedThisVisit || fedToday.count > 0) && (
@@ -106,7 +117,7 @@ export default function FeedingPage() {
 
       {/* Feed rows — pick a specific feed; add another for the same batch */}
       <div className="flex flex-col gap-3">
-        <label className="text-sm font-medium text-gray-700">Feeds given</label>
+        <label className="text-sm font-medium text-gray-700">{t('feedConsumed')}</label>
         {rows.map((r, i) => {
           const it = itemOf(r.itemId);
           const stock = r.itemId ? onHand(r.itemId) : 0;
@@ -116,7 +127,7 @@ export default function FeedingPage() {
               <div className="flex gap-2 items-center">
                 <select value={r.itemId} onChange={e => setRow(i, { itemId: e.target.value, qty: '' })}
                   className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[44px] bg-white">
-                  <option value="">— Pick a feed —</option>
+                  <option value="">{t('selectFeed')}</option>
                   {items.map(fi => { const s = onHand(fi.id); return <option key={fi.id} value={fi.id}>{fi.name} — {s} {fi.unit} left{s < fi.lowStockThreshold ? ' ⚠ LOW' : ''}</option>; })}
                 </select>
                 {rows.length > 1 && <button type="button" onClick={() => removeRow(i)} aria-label="Remove" className="text-gray-400 hover:text-red-600 p-2"><X className="w-5 h-5" /></button>}
@@ -138,10 +149,8 @@ export default function FeedingPage() {
 
       <button onClick={handleSubmit} disabled={loading || !batchId || !validRows.length || anyOver}
         className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
-        {loading ? 'Saving…' : anyOver ? 'A feed exceeds stock' : `SUBMIT${validRows.length > 1 ? ` (${validRows.length} feeds)` : ''}`}
+        {loading ? t('saving') : anyOver ? t('feedExceedsStock') : `${t('submit')}${validRows.length > 1 ? ` (${validRows.length} ${t('feeds')})` : ''}`}
       </button>
-
-      {toast && <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-700 text-white px-5 py-3 rounded-xl font-semibold shadow-lg">{toast}</div>}
     </div>
   );
 }

@@ -57,7 +57,16 @@ export async function middleware(req: NextRequest) {
   const allowed = sectionRoles(pathname);
   if (!allowed) return NextResponse.next();
 
-  const secret = process.env.SESSION_SECRET ?? 'dev-insecure-secret-change-me-please';
+  // Fail closed in production rather than sign/verify sessions with the fallback
+  // secret sitting in plain text in this file — matches lib/env.ts's guard on the
+  // Node-runtime session code path exactly (unset OR still the literal insecure
+  // default), so a misconfigured deploy can't pass the edge gate on a forgeable
+  // cookie while every real API route 500s on the same secret.
+  const DEV_INSECURE_SECRET = 'dev-insecure-secret-change-me-please';
+  if ((!process.env.SESSION_SECRET || process.env.SESSION_SECRET === DEV_INSECURE_SECRET) && process.env.NODE_ENV === 'production') {
+    return new NextResponse('Server misconfigured: SESSION_SECRET is not set.', { status: 500 });
+  }
+  const secret = process.env.SESSION_SECRET ?? DEV_INSECURE_SECRET;
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   const session = token ? await readSession(token, secret) : null;
 

@@ -3,6 +3,7 @@ import { Syringe } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
@@ -10,16 +11,19 @@ import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { CameraCapture, type CaptureResult } from '@/components/worker/CameraCapture';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
+import { useToast } from '@/hooks/use-toast';
 import type { Batch, InventoryItem, InventoryLot } from '@/lib/types';
 
 const ROUTES = ['Drinking water','Injection','Oral','Spray','Feed mix'];
 const TYPES = ['VACCINE','MEDICATION','SUPPLEMENT','DEWORM','OTHER'];
 
 export default function HealthPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { setPendingCount, pendingCount } = useSyncStore();
   const { doneToday } = useTodayActivity();
   const router = useRouter();
+  const { toast } = useToast();
 
   const [batches, setBatches] = useState<Batch[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -32,16 +36,16 @@ export default function HealthPage() {
   const [notes, setNotes] = useState('');
   const [capture, setCapture] = useState<CaptureResult | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [toast, setToast] = useState('');
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     Promise.all([api.getBatches(), api.getItems(), api.getLots()]).then(([b,i,l]) => {
       setBatches(b.filter(b => b.status === 'ACTIVE'));
       setItems(i.filter(i => i.category === 'MEDICINE' || i.category === 'VACCINE'));
       setLots(l);
-    });
-  }, []);
+    }).catch(() => setLoadError(t('loadFormDataFailed')));
+  }, [t]);
 
   const selectedLot = lots.find(l => l.id === lotId);
   const available = selectedLot?.qtyOnHand ?? 0;
@@ -55,7 +59,7 @@ export default function HealthPage() {
   const nextDue = new Date(appliedAt.getTime() + 30 * 86400000).toLocaleDateString('en-KE');
 
   const handleConfirm = async () => {
-    if (!batchId || !lotId || !dose) { setError('Fill all required fields'); setShowConfirm(false); return; }
+    if (!batchId || !lotId || !dose || Number(dose) <= 0) { setError('Fill all required fields with a valid dose'); setShowConfirm(false); return; }
     if (selectedLot && doseNum > selectedLot.qtyOnHand + 1e-6) {
       setError(`Only ${selectedLot.qtyOnHand} ${selectedLot.unit} left in this lot — you entered ${doseNum}.`); setShowConfirm(false); return;
     }
@@ -68,9 +72,14 @@ export default function HealthPage() {
       nextDueAt: new Date(appliedAt.getTime() + 30 * 86400000).toISOString(),
       hasPhoto: !!capture, capturedAt: appliedAt.toISOString(),
     };
-    await enqueuePendingRecord('health', payload, clientUuid);
+    try {
+      await enqueuePendingRecord('health', payload, clientUuid);
+    } catch {
+      setError(t('saveFailedRetry')); setShowConfirm(false);
+      return;
+    }
     setPendingCount(pendingCount + 1);
-    setToast('✓ Saved — will sync'); setShowConfirm(false);
+    toast({ description: '✓ Saved — will sync' }); setShowConfirm(false);
     setTimeout(() => router.replace('/worker/home'), 1800);
   };
 
@@ -82,14 +91,14 @@ export default function HealthPage() {
   return (
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-blue-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Syringe className="w-6 h-6 shrink-0" /><span>Health / Vaccination</span></h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><Syringe className="w-6 h-6 shrink-0" /><span>{t('healthVaccination')}</span></h1>
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Batch *</label>
+        <label className="text-sm font-medium text-gray-700">{t('batch')} *</label>
         <select value={batchId} onChange={e => setBatchId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 bg-white min-h-[52px]">
-          <option value="">— Select batch —</option>
+          <option value="">{t('selectBatch')}</option>
           {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         {batchId && doneToday('health', batchId).count > 0 && (
@@ -98,7 +107,7 @@ export default function HealthPage() {
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Type *</label>
+        <label className="text-sm font-medium text-gray-700">{t('treatmentType')} *</label>
         <select value={type} onChange={e => setType(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 bg-white min-h-[52px]">
           {TYPES.map(t => <option key={t}>{t}</option>)}
@@ -106,10 +115,10 @@ export default function HealthPage() {
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Product Lot *</label>
+        <label className="text-sm font-medium text-gray-700">{t('productLot')} *</label>
         <select value={lotId} onChange={e => setLotId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 bg-white min-h-[52px]">
-          <option value="">— Select product —</option>
+          <option value="">{t('selectProduct')}</option>
           {medicineLots.map(l => {
             const item = items.find(i => i.id === l.itemId);
             return <option key={l.id} value={l.id}>{item?.name} · Lot {l.lotNo} · {l.qtyOnHand} {l.unit}{l.withdrawalDays ? ` · WD ${l.withdrawalDays}d` : ''}</option>;
@@ -126,15 +135,15 @@ export default function HealthPage() {
 
       <div className="flex gap-3">
         <div className="flex-1 flex flex-col gap-1">
-          <label className="text-sm font-medium text-gray-700">Dose *</label>
-          <input type="number" value={dose} onChange={e => setDose(e.target.value)}
+          <label className="text-sm font-medium text-gray-700">{t('dosage')} *</label>
+          <input type="number" min="0" value={dose} onChange={e => setDose(e.target.value)}
             className={`border-2 rounded-xl px-4 py-3 text-lg min-h-[52px] ${overDose ? 'border-red-400' : 'border-gray-300'}`} placeholder="e.g. 100" />
         </div>
         <div className="flex-1 flex flex-col gap-1">
-          <label className="text-sm font-medium text-gray-700">Route</label>
+          <label className="text-sm font-medium text-gray-700">{t('applicationRoute')}</label>
           <select value={route} onChange={e => setRoute(e.target.value)}
             className="border-2 border-gray-300 rounded-xl px-4 py-3 bg-white min-h-[52px]">
-            <option value="">— Route —</option>
+            <option value="">{t('route')}</option>
             {ROUTES.map(r => <option key={r}>{r}</option>)}
           </select>
         </div>
@@ -155,18 +164,17 @@ export default function HealthPage() {
         className="border border-gray-300 rounded-xl px-3 py-2 text-sm" />
 
       {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
+      {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
 
-      <button onClick={() => { if (!batchId || !lotId || !dose) { setError('Fill batch, product, and dose'); return; } if (overDose) { setError('Dose exceeds what is left in the lot.'); return; } setShowConfirm(true); }}
+      <button onClick={() => { if (!batchId || !lotId || !dose || Number(dose) <= 0) { setError('Fill batch, product, and a valid dose'); return; } if (overDose) { setError('Dose exceeds what is left in the lot.'); return; } setShowConfirm(true); }}
         disabled={overDose}
         className="w-full min-h-[56px] bg-blue-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
-        SUBMIT
+        {t('submit')}
       </button>
 
-      {toast && <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-700 text-white px-5 py-3 rounded-xl font-semibold shadow-lg">{toast}</div>}
-
-      <ConfirmSheet open={showConfirm} title="Confirm Treatment" onConfirm={handleConfirm} onCancel={() => setShowConfirm(false)}
-        summary={`Applying ${type.toLowerCase()} to ${batches.find(b=>b.id===batchId)?.name ?? 'batch'}.${withdrawalUntil ? ` Withdrawal until ${withdrawalUntil} — no sale before then.` : ''}`}
-        confirmLabel="Confirm Treatment"
+      <ConfirmSheet open={showConfirm} title={t('confirmTreatment')} onConfirm={handleConfirm} onCancel={() => setShowConfirm(false)}
+        summary={`${t('applyingTreatmentSummary', { type: type.toLowerCase(), batch: batches.find(b => b.id === batchId)?.name ?? t('batch') })}${withdrawalUntil ? ` ${t('withdrawalNoSaleNote', { date: withdrawalUntil })}` : ''}`}
+        confirmLabel={t('confirmTreatment')}
       />
     </div>
   );

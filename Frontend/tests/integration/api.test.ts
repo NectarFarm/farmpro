@@ -858,7 +858,7 @@ describe('worker activities land on the owner side, mutate data & warn the owner
   afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
 
   const alerts = async () => (await (await api('/api/data/alerts', owner)).json()) as { title: string; severity: string; type: string }[];
-  const workerActivity = async () => (await (await api('/api/worker-activity', owner)).json()) as { kind: string; text: string }[];
+  const workerActivity = async () => ((await (await api('/api/worker-activity', owner)).json()) as { data: { kind: string; text: string }[] }).data;
   const batchOf = async () => (await (await api(`/api/data/batches?id=${batchId}`, owner)).json());
 
   it('head count: records + alerts + surfaces, but does NOT change the count until the owner applies', async () => {
@@ -868,7 +868,7 @@ describe('worker activities land on the owner side, mutate data & warn the owner
 
     // surfaced on the owner side
     expect((await workerActivity()).some(r => r.kind === 'head count' && /counted 95/.test(r.text))).toBe(true);
-    expect((await (await api(`/api/batch-activity?batchId=${batchId}`, owner)).json()).some((r: { kind: string }) => r.kind === 'head count')).toBe(true);
+    expect(((await (await api(`/api/batch-activity?batchId=${batchId}`, owner)).json()) as { data: { kind: string }[] }).data.some((r: { kind: string }) => r.kind === 'head count')).toBe(true);
     // owner warned (critical, because variance is negative)
     const variance = (await alerts()).filter(a => a.type === 'stock_variance');
     expect(variance.length).toBe(1);
@@ -895,8 +895,8 @@ describe('worker activities land on the owner side, mutate data & warn the owner
     await json(owner, '/api/sync', { records: [{ clientUuid: `ws2-${stamp}`, type: 'weight_sample', capturedAt: '2026-02-01T00:00:00Z', payload: { batchId, avgWeightKg: 1.5, sampleSize: 10 } }] });
     expect((await alerts()).some(a => a.type === 'weight_loss')).toBe(true);
     expect((await batchOf()).avgWeightKg).toBe(1.5);
-    const ba = await (await api(`/api/batch-activity?batchId=${batchId}`, owner)).json();
-    expect(ba.filter((r: { kind: string }) => r.kind === 'weight sample').length).toBe(2);
+    const ba = (await (await api(`/api/batch-activity?batchId=${batchId}`, owner)).json()) as { data: { kind: string }[] };
+    expect(ba.data.filter((r: { kind: string }) => r.kind === 'weight sample').length).toBe(2);
   });
 
   it('an abnormal morning-round observation surfaces and warns the owner (idempotent)', async () => {

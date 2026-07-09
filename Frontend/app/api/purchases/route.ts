@@ -26,7 +26,8 @@ export async function POST(req: Request) {
   const n = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
   const quantity = n(body.quantity);
   const unitCost = n(body.unitCost);
-  if (!quantity || !unitCost) return badRequest('quantity and unitCost required');
+  if (quantity <= 0) return badRequest('Quantity must be greater than zero');
+  if (unitCost < 0) return badRequest('Cost cannot be negative');
 
   // Resolve or create the inventory item. The picker sends '__new' (or nothing)
   // when the user is adding a brand-new item alongside this delivery.

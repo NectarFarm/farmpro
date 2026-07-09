@@ -37,9 +37,14 @@ export async function PUT(req: Request) {
   if (!clean.length) return badRequest('Add at least one stage.');
   clean[0].startDay = 0; // the lifecycle always starts at age 0
 
-  await db.delete(lifecycleStages).where(and(eq(lifecycleStages.tenantId, session.tenantId), eq(lifecycleStages.enterprise, enterprise)));
-  await db.insert(lifecycleStages).values(clean.map((s, i) => ({
-    id: crypto.randomUUID(), tenantId: session.tenantId, enterprise, ord: i, name: s.name, startDay: s.startDay,
-  })));
+  // Delete + re-insert must be one transaction — a failure between the two steps would
+  // otherwise leave the tenant with ZERO stages for this enterprise (not stale data,
+  // total loss), silently breaking "due to move" reminders.
+  await db.transaction(async (tx) => {
+    await tx.delete(lifecycleStages).where(and(eq(lifecycleStages.tenantId, session.tenantId), eq(lifecycleStages.enterprise, enterprise)));
+    await tx.insert(lifecycleStages).values(clean.map((s, i) => ({
+      id: crypto.randomUUID(), tenantId: session.tenantId, enterprise, ord: i, name: s.name, startDay: s.startDay,
+    })));
+  });
   return ok({ enterprise, count: clean.length });
 }

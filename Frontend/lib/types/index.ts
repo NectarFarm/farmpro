@@ -5,7 +5,7 @@ export type UnitStatus = 'ACTIVE' | 'EMPTY' | 'CLEANING' | 'QUARANTINE' | 'OUT_O
 export type BatchStage = 'CREATED'|'BROODING'|'GROWING'|'LAYING'|'FINISHING'|'FATTENING'|'HARVESTING'|'CLOSED';
 export type BatchSource = 'PURCHASED'|'HATCHED'|'BORN'|'TRANSFERRED'|'SPLIT'|'MERGED';
 export type ItemCategory = 'FEED_FINISHED'|'FEED_INGREDIENT'|'MEDICINE'|'VACCINE'|'SEED'|'FERTILIZER'|'PESTICIDE'|'EQUIPMENT'|'CONSUMABLE';
-export type TreatmentType = 'VACCINE'|'MEDICATION'|'SUPPLEMENT'|'DEWORM'|'OTHER';
+export type TreatmentType = 'VACCINE'|'MEDICATION'|'SUPPLEMENT'|'DEWORM'|'PRESCRIPTION'|'OTHER';
 export type TaskStatus = 'ASSIGNED'|'IN_PROGRESS'|'DONE'|'MISSED'|'SKIPPED';
 export type AlertSeverity = 'info'|'warning'|'critical';
 export type FieldPermission = 'hidden'|'readonly'|'editable';
@@ -130,7 +130,7 @@ export interface BatchCostSummary {
   healthCost: number; laborCost: number; salaryCost?: number; overheadCost: number;
   totalCost: number; totalRevenue: number; grossMargin: number;
   costPerUnit: number; outputUnit: string; breakEvenAge?: number;
-  fcr?: number; adg?: number; mortalityPct?: number;
+  fcr?: number; henDayPct?: number; henHousedPct?: number; adg?: number; mortalityPct?: number;
   currentQty: number; costPerBird?: number; breakEvenPricePerRemaining?: number; remainingQty?: number;
   // Headcount fates: survivors = initial − died; soldHead left the farm; deaths = died.
   survivors?: number; soldHead?: number; deaths?: number;

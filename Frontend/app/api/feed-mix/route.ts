@@ -73,22 +73,33 @@ export async function POST(req: Request) {
   let totalKg = 0;
   let totalCost = 0;
 
+  // Same FIFO-consumption shape as lib/server/inventory.ts's consumeFeedFIFO, locked
+  // per ingredient FOR UPDATE inside one transaction so a concurrent sync/purchase
+  // touching the same lot can't read the same qtyOnHand and lose this decrement.
   for (const c of components) {
     const kg = Number(c.kg);
-    const lots = await db.select().from(inventoryLots)
-      .where(and(eq(inventoryLots.tenantId, session.tenantId), eq(inventoryLots.itemId, c.itemId)));
-    lots.sort((a, b) => (a.receivedDate < b.receivedDate ? -1 : 1)); // FIFO
-    const available = lots.reduce((s, l) => s + l.qtyOnHand, 0);
-    if (available < kg) return badRequest(`insufficient stock for one ingredient (need ${kg}, have ${available})`);
+    const result = await db.transaction(async (tx) => {
+      const lots = (await tx.select().from(inventoryLots)
+        .where(and(eq(inventoryLots.tenantId, session.tenantId), eq(inventoryLots.itemId, c.itemId)))
+        .for('update'))
+        .sort((a, b) => (a.receivedDate < b.receivedDate ? -1 : 1)); // FIFO
+      const available = lots.reduce((s, l) => s + l.qtyOnHand, 0);
+      if (available < kg) return { ok: false as const, available };
 
-    let remaining = kg;
-    for (const lot of lots) {
-      if (remaining <= 0) break;
-      const take = Math.min(remaining, lot.qtyOnHand);
-      totalCost += take * lot.unitCost;
-      await db.update(inventoryLots).set({ qtyOnHand: lot.qtyOnHand - take }).where(eq(inventoryLots.id, lot.id));
-      remaining -= take;
-    }
+      let remaining = kg;
+      let cost = 0;
+      for (const lot of lots) {
+        if (remaining <= 0) break;
+        const take = Math.min(remaining, lot.qtyOnHand);
+        cost += take * lot.unitCost;
+        await tx.update(inventoryLots).set({ qtyOnHand: lot.qtyOnHand - take }).where(eq(inventoryLots.id, lot.id));
+        remaining -= take;
+      }
+      return { ok: true as const, cost };
+    });
+    if (!result.ok) return badRequest(`insufficient stock for one ingredient (need ${kg}, have ${result.available})`);
+
+    totalCost += result.cost;
     totalKg += kg;
   }
 

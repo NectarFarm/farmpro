@@ -17,6 +17,10 @@ describe('products', () => {
       ['Bag (50kg)', 'collect_bag_50kg'],
       ['Spent hen', 'collect_spent_hen'],
       ['Piglets', 'collect_piglets'],
+      ['Live goat', 'collect_live_goat'],
+      ['Milk', 'collect_milk'],
+      ['Honey', 'collect_honey'],
+      ['Rabbit meat', 'collect_rabbit_meat'],
     ])('converts "%s" → "%s"', (name, expected) => {
       expect(productFieldKey(name)).toBe(expected);
     });
@@ -31,7 +35,7 @@ describe('products', () => {
   });
 
   describe('defaultsForBatch', () => {
-    it('returns lay er templates for "layers" enterprise', () => {
+    it('returns layer templates for "layers" enterprise', () => {
       const defs = defaultsForBatch('chicken', 'layers');
       expect(defs.length).toBeGreaterThan(0);
       expect(defs.map((d) => d.name)).toContain('Spent hen');
@@ -42,16 +46,30 @@ describe('products', () => {
       expect(defs.map((d) => d.name)).toContain('Live bird');
     });
 
+    it('returns goat templates for "goats" enterprise', () => {
+      const defs = defaultsForBatch('goat', 'goats');
+      expect(defs.map((d) => d.name)).toContain('Live goat');
+    });
+
+    it('returns dairy templates for "dairy" enterprise', () => {
+      const defs = defaultsForBatch('dairy', 'dairy');
+      expect(defs.map((d) => d.name)).toContain('Milk');
+    });
+
     it('auto-detects enterprise from species when no enterprise given', () => {
       expect(defaultsForBatch('layer').map((d) => d.name)).toContain('Spent hen');
       expect(defaultsForBatch('broiler').map((d) => d.name)).toContain('Live bird');
       expect(defaultsForBatch('pig').map((d) => d.name)).toContain('Pork (live weight)');
       expect(defaultsForBatch('tilapia').map((d) => d.name)).toContain('Fish');
       expect(defaultsForBatch('maize').map((d) => d.name)).toContain('Maize grain');
+      expect(defaultsForBatch('goat').map((d) => d.name)).toContain('Live goat');
+      expect(defaultsForBatch('cow').map((d) => d.name)).toContain('Milk');
+      expect(defaultsForBatch('rabbit').map((d) => d.name)).toContain('Rabbit meat');
+      expect(defaultsForBatch('bee').map((d) => d.name)).toContain('Honey');
     });
 
     it('returns empty array for unknown species without enterprise', () => {
-      expect(defaultsForBatch('cattle')).toEqual([]);
+      expect(defaultsForBatch('camel')).toEqual([]);
       expect(defaultsForBatch('')).toEqual([]);
     });
 
@@ -75,16 +93,23 @@ describe('products', () => {
       expect(mainProductForBatch('pig', 'pig_fatten')?.name).toBe('Pork (live weight)');
       expect(mainProductForBatch('pig', 'pig_breed')?.name).toBe('Piglets');
       expect(mainProductForBatch('tilapia', 'tilapia')?.name).toBe('Fish');
+      expect(mainProductForBatch('goat', 'goats')?.name).toBe('Live goat');
+      expect(mainProductForBatch('cow', 'dairy')?.name).toBe('Mature cow');
+      expect(mainProductForBatch('duck', 'ducks')?.name).toBe('Live duck');
+      expect(mainProductForBatch('rabbit', 'rabbits')?.name).toBe('Rabbit meat');
+      expect(mainProductForBatch('bee', 'bees')?.name).toBe('Colony / nuc');
     });
 
     it('auto-detects enterprise from species', () => {
       expect(mainProductForBatch('layer')?.name).toBe('Spent hen');
       expect(mainProductForBatch('broiler')?.name).toBe('Live bird');
       expect(mainProductForBatch('tilapia')?.name).toBe('Fish');
+      expect(mainProductForBatch('goat')?.name).toBe('Live goat');
+      expect(mainProductForBatch('cow')?.name).toBe('Mature cow');
     });
 
     it('returns null for unknown species', () => {
-      expect(mainProductForBatch('cattle')).toBeNull();
+      expect(mainProductForBatch('camel')).toBeNull();
       expect(mainProductForBatch('')).toBeNull();
     });
   });
@@ -98,6 +123,8 @@ describe('products', () => {
       ['layers', 'Spent hen', true],
       ['broilers', 'Live bird', true],
       ['pig_breed', 'Piglets', true],
+      ['goats', 'Live goat', true],
+      ['ducks', 'Live duck', true],
     ])('%s main product "%s" is sold per head → isAnimalProduct=true', (ent, name, flag) => {
       const main = mainProductForBatch('', ent);
       expect(main?.name).toBe(name);
@@ -112,6 +139,7 @@ describe('products', () => {
       ['pig_fatten', 'Pork (live weight)'],
       ['tilapia', 'Fish'],
       ['catfish', 'Fish'],
+      ['rabbits', 'Rabbit meat'],
     ])('%s main product "%s" is a weight-sold ANIMAL (isAnimalProduct=true, baseUnit=kg)', (ent, name) => {
       const main = mainProductForBatch('', ent);
       expect(main?.name).toBe(name);

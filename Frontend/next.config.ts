@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 dotenv.config({ path: '.env', override: true });
 
 const nextConfig: NextConfig = {
-  reactStrictMode: false,
+  reactStrictMode: true,
   // Self-contained server bundle (.next/standalone) → lean Docker runtime image.
   output: 'standalone',
   turbopack: {},

@@ -3,12 +3,14 @@ import { products } from '@/db/schemas';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { createProductsForBatch } from '@/lib/server/products';
+import { hiddenFieldKeysFor, stripProductSaleUnitPrices } from '@/lib/server/fieldPermissions';
 import { ok, created, unauthorized, forbidden, badRequest } from '@/lib/server/http';
 import type { Role } from '@/lib/types';
 
 type SaleUnit = { name: string; perBase: number; price: number };
 
-// GET /api/products?batchId=...  — workers get prices stripped (they only collect).
+// GET /api/products?batchId=...  — price stripped for any role without financial
+// access (same default-deny rule as every other resource, via fieldPermissions.ts).
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return unauthorized();
@@ -19,13 +21,19 @@ export async function GET(req: Request) {
     : eq(products.tenantId, session.tenantId);
   const rows = await db.select().from(products).where(where);
 
-  if (session.role === 'worker') {
-    return ok(rows.map((p) => ({
-      ...p,
-      saleUnits: (p.saleUnits as SaleUnit[]).map((u) => ({ name: u.name, perBase: u.perBase })), // no price
-    })));
-  }
-  return ok(rows);
+  const hidden = await hiddenFieldKeysFor(session);
+  return ok(stripProductSaleUnitPrices(rows, hidden));
+}
+
+// DELETE /api/products?id=...  — delete a product (owner/manager).
+export async function DELETE(req: Request) {
+  const session = await getSession();
+  if (!session) return unauthorized();
+  if (!(['owner', 'manager'] as Role[]).includes(session.role)) return forbidden();
+  const id = new URL(req.url).searchParams.get('id');
+  if (!id) return badRequest('id required');
+  await db.delete(products).where(and(eq(products.tenantId, session.tenantId), eq(products.id, id)));
+  return ok({ id, deleted: true });
 }
 
 // POST /api/products — add a custom product to a batch (owner/manager).

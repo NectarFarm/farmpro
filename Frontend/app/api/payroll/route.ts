@@ -54,7 +54,7 @@ export async function POST(req: Request) {
   if (!session) return unauthorized();
   if (!ALLOWED.includes(session.role)) return forbidden();
   const tenantId = session.tenantId;
-  const body = (await req.json().catch(() => ({}))) as { action?: string; period?: string; employeeId?: string; type?: LedgerType; amount?: number; note?: string; ledgerId?: string };
+  const body = (await req.json().catch(() => ({}))) as { action?: string; period?: string; employeeId?: string; type?: LedgerType; amount?: number; note?: string; ledgerId?: string; clientUuid?: string };
   const now = new Date().toISOString();
   const { audit, actorLabel } = await import('@/lib/server/audit');
 
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
   }
 
   if (body.action === 'ledger') {
-    const { employeeId, type, note } = body;
+    const { employeeId, type, note, clientUuid } = body;
     const period = body.period;
     const amount = Number(body.amount);
     if (!employeeId || !type || !LEDGER_TYPES.includes(type)) return badRequest('employeeId and a valid type are required.');
@@ -102,13 +102,21 @@ export async function POST(req: Request) {
     // Can't change a month that's already been paid out.
     const slip = await slipFor(tenantId, employeeId, period!);
     if (slip?.status === 'paid') return badRequest('That month is already paid and locked. Use the next month.');
-    await db.insert(employeeLedger).values({ id: crypto.randomUUID(), tenantId, employeeId, type, amount, note: note ?? null, period: period!, date: now.slice(0, 10), createdAt: now });
+    const row = { id: crypto.randomUUID(), tenantId, employeeId, type, amount, note: note ?? null, period: period!, date: now.slice(0, 10), createdAt: now, clientUuid: clientUuid ?? null };
+    // A network retry or double-click resends the same clientUuid — dedupe on it so
+    // it resolves to one insert instead of a duplicate ledger entry corrupting net pay.
+    // Older clients that don't send one just get a plain insert.
+    const inserted = clientUuid
+      ? await db.insert(employeeLedger).values(row).onConflictDoNothing({ target: employeeLedger.clientUuid }).returning({ id: employeeLedger.id })
+      : await db.insert(employeeLedger).values(row).returning({ id: employeeLedger.id });
     // Keep the pending payslip (if generated) in step.
     if (slip) {
       const b = computePayslip(slip.gross, asEntries(await ledgerFor(tenantId, employeeId, period!)));
       await db.update(payslips).set({ advances: b.advances, fines: b.fines, bonuses: b.bonuses, net: b.net }).where(eq(payslips.id, slip.id));
     }
-    await audit({ tenantId, actor: actorLabel(session), action: `payroll.${type}`, entity: employeeId, meta: { period, amount } });
+    if (inserted.length) {
+      await audit({ tenantId, actor: actorLabel(session), action: `payroll.${type}`, entity: employeeId, meta: { period, amount } });
+    }
     return created({ ok: true });
   }
 

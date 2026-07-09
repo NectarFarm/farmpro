@@ -9,6 +9,7 @@ import { StatusChip } from '@/components/worker/StatusChip';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import Link from 'next/link';
 import { Egg, Sunrise, Skull, Wheat, Syringe, Scale, ListOrdered, PackageOpen, Plus } from 'lucide-react';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 
 const taskIcon = (type: string) => ({ morning_round:'🌅', vaccination:'💉', stock_count:'📦', feeding:'🌾', sampling:'⚖️', custom:'✅' }[type] ?? '📋');
 
@@ -16,6 +17,7 @@ export default function WorkerHomePage() {
   const { user } = useAuthStore();
   const { pendingCount } = useSyncStore();
   const { doneToday } = useTodayActivity();
+  const { t } = useTranslation();
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -37,7 +39,7 @@ export default function WorkerHomePage() {
   }, [user, router]);
 
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const greeting = hour < 12 ? t('goodMorning') : hour < 17 ? t('goodAfternoon') : t('goodEvening');
 
   const statusOf = (t: Task) => {
     if (t.overdue || t.status === 'MISSED') return 'critical';
@@ -46,24 +48,24 @@ export default function WorkerHomePage() {
     return 'info';
   };
 
-  const statusLabel = (t: Task) => {
-    if (t.status === 'DONE') return '✓ Done';
-    if (t.overdue || t.status === 'MISSED') return '⛔ Overdue';
-    return '▲ Due';
+  const statusLabel = (task: Task) => {
+    if (task.status === 'DONE') return `✓ ${t('done')}`;
+    if (task.overdue || task.status === 'MISSED') return `⛔ ${t('overdue')}`;
+    return `▲ ${t('due')}`;
   };
 
   const alertStatus = (a: Alert) => a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'info';
 
   const recordLinks = [
-    { href:'/worker/record/collect', Icon: Egg, label:'Collect Products', type:'production' },
-    { href:'/worker/record/morning-round', Icon: Sunrise, label:'Morning Round', type:'morning_round' },
-    { href:'/worker/record/mortality', Icon: Skull, label:'Mortality', type:'mortality' },
-    { href:'/worker/record/feeding', Icon: Wheat, label:'Feeding', type:'feeding' },
-    { href:'/worker/record/health', Icon: Syringe, label:'Health / Vaccine', type:'health' },
-    { href:'/worker/record/weight-sampling', Icon: Scale, label:'Weight Sample', type:'weight_sample' },
-    { href:'/worker/record/physical-count', Icon: ListOrdered, label:'Physical Count', type:'physical_count' },
-    { href:'/worker/record/closing-stock', Icon: PackageOpen, label:'Closing Stock', type:'closing_stock' },
-  ];
+    { href:'/worker/record/collect', Icon: Egg, labelKey:'collectProducts', type:'production' },
+    { href:'/worker/record/morning-round', Icon: Sunrise, labelKey:'morningRound', type:'morning_round' },
+    { href:'/worker/record/mortality', Icon: Skull, labelKey:'recordMortality', type:'mortality' },
+    { href:'/worker/record/feeding', Icon: Wheat, labelKey:'feedingLog', type:'feeding' },
+    { href:'/worker/record/health', Icon: Syringe, labelKey:'healthVaccination', type:'health' },
+    { href:'/worker/record/weight-sampling', Icon: Scale, labelKey:'weightSample', type:'weight_sample' },
+    { href:'/worker/record/physical-count', Icon: ListOrdered, labelKey:'physicalCount', type:'physical_count' },
+    { href:'/worker/record/closing-stock', Icon: PackageOpen, labelKey:'closingStock', type:'closing_stock' },
+  ] as const;
 
   return (
     <div className="p-4 flex flex-col gap-5">
@@ -75,7 +77,7 @@ export default function WorkerHomePage() {
         </div>
         {pendingCount > 0 && (
           <span className="bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-3 py-1 text-sm font-bold">
-            ↑ {pendingCount} pending
+            ↑ {pendingCount} {t('pending')}
           </span>
         )}
       </div>
@@ -83,7 +85,7 @@ export default function WorkerHomePage() {
       {/* Alerts */}
       {alerts.length > 0 && (
         <section>
-          <h2 className="text-base font-semibold text-gray-700 mb-2">⚠ Alerts</h2>
+          <h2 className="text-base font-semibold text-gray-700 mb-2">⚠ {t('alerts')}</h2>
           <div className="flex flex-col gap-2">
             {alerts.map(a => (
               <div key={a.id} className={`rounded-xl px-4 py-3 border flex items-start gap-3 ${a.severity === 'critical' ? 'bg-red-50 border-red-300' : a.severity === 'warning' ? 'bg-amber-50 border-amber-300' : 'bg-blue-50 border-blue-300'}`}>
@@ -100,12 +102,12 @@ export default function WorkerHomePage() {
 
       {/* Today's Tasks */}
       <section>
-        <h2 className="text-base font-semibold text-gray-700 mb-2">📋 Today&apos;s Tasks</h2>
+        <h2 className="text-base font-semibold text-gray-700 mb-2">📋 {t('myTasks')}</h2>
         {loading && <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-200 rounded-xl animate-pulse" />)}</div>}
         {!loading && tasks.length === 0 && (
           <div className="text-center py-10 px-4 bg-white rounded-xl border border-dashed border-gray-300">
             <div className="text-4xl mb-3">📋</div>
-            <p className="text-gray-500 text-sm">No tasks yet. Your manager will assign them.<br />Pull to refresh.</p>
+            <p className="text-gray-500 text-sm">{t('noTasksToday')}<br />{t('pullToRefresh')}</p>
           </div>
         )}
         <div className="flex flex-col gap-2">
@@ -116,16 +118,41 @@ export default function WorkerHomePage() {
               : t.type === 'stock_count' ? '/worker/record/physical-count'
               : '/worker/record/feeding';
             return (
-              <Link key={t.id} href={t.status === 'DONE' ? '#' : href}>
-                <div className={`rounded-xl px-4 py-3 border flex items-center gap-3 ${t.overdue || t.status === 'MISSED' ? 'bg-red-50 border-red-300' : t.status === 'DONE' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
-                  <span className="text-2xl">{taskIcon(t.type)}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900">{t.title}</p>
-                    <p className="text-xs text-gray-500">{new Date(t.dueAt).toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' })}</p>
-                  </div>
-                  <StatusChip status={statusOf(t)} size="sm" label={statusLabel(t)} />
+              <div key={t.id} className={`rounded-xl px-4 py-3 border flex items-center gap-3 ${t.overdue || t.status === 'MISSED' ? 'bg-red-50 border-red-300' : t.status === 'DONE' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                <span className="text-2xl">{taskIcon(t.type)}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-900">{t.title}</p>
+                  <p className="text-xs text-gray-500">{new Date(t.dueAt).toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' })}</p>
                 </div>
-              </Link>
+                <div className="flex items-center gap-2">
+                  <StatusChip status={statusOf(t)} size="sm" label={statusLabel(t)} />
+                  {t.status !== 'DONE' && (
+                    <button
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        try {
+                          await fetch(`/api/data/tasks?id=${encodeURIComponent(t.id)}`, {
+                            method: 'PATCH',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ status: 'DONE' }),
+                          });
+                          // Optimistic update: mark as done in the local state
+                          setTasks(prev => prev.map(tk => tk.id === t.id ? { ...tk, status: 'DONE' } : tk));
+                        } catch { /* silently fail — the next refresh will correct it */ }
+                      }}
+                      className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 active:bg-green-800"
+                    >
+                      {t('done')}
+                    </button>
+                  )}
+                  {t.status !== 'DONE' && (
+                    <Link href={href} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-200">
+                      {t('open')}
+                    </Link>
+                  )}
+                </div>
+              </div>
             );
           })}
         </div>
@@ -133,7 +160,7 @@ export default function WorkerHomePage() {
 
       {/* Quick Record Links */}
       <section>
-        <h2 className="text-base font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><Plus className="w-4 h-4" /> Record</h2>
+        <h2 className="text-base font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><Plus className="w-4 h-4" /> {t('record')}</h2>
         <div className="grid grid-cols-2 gap-2">
           {recordLinks.map(r => {
             const d = doneToday(r.type);
@@ -142,7 +169,7 @@ export default function WorkerHomePage() {
               <div className={`bg-white border rounded-xl px-4 py-3 flex items-center gap-3 active:bg-gray-50 min-h-[56px] ${d.count > 0 ? 'border-green-300' : 'border-gray-200'}`}>
                 <span className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center shrink-0"><r.Icon className="w-5 h-5" strokeWidth={2} /></span>
                 <div className="min-w-0">
-                  <span className="text-sm font-semibold text-gray-700 block">{r.label}</span>
+                  <span className="text-sm font-semibold text-gray-700 block">{t(r.labelKey)}</span>
                   {d.count > 0 && <span className="text-[11px] text-green-600 font-semibold">✓ {d.count} today · {timeLabel(d.lastAt)}</span>}
                 </div>
               </div>

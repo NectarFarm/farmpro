@@ -1,9 +1,9 @@
 import { db } from '@/db';
-import { sales, employees, tasks, workerProfiles, alerts, productionUnits, batches, products, inventoryItems, inventoryLots, users, lifecycleStages } from '@/db/schemas';
-import { sellableStock, liveWeightFor } from '@/lib/server/inventory';
+import { sales, employees, tasks, workerProfiles, alerts, productionUnits, batches, products, inventoryItems, inventoryLots, users, lifecycleStages, batchStageEvents, mortalityRecords, feedingRecords, healthRecords, productionRecords, laborLogs, physicalCounts, weightSamples, observations } from '@/db/schemas';
+import { sellableStock, liveWeightFor, checkWithdrawal } from '@/lib/server/inventory';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
-import { RESOURCES, tenantScope } from '@/lib/server/resources';
+import { RESOURCES, tenantScope, vetAssignedBatchIds } from '@/lib/server/resources';
 import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
 import { createProductsForBatch, defaultsForBatch } from '@/lib/server/products';
 import { defaultLiveWeightKg, enterpriseFromSpecies } from '@/lib/server/productTemplates';
@@ -11,6 +11,7 @@ import { defaultStages } from '@/lib/lifecycle';
 import { hashSecret } from '@/lib/server/crypto';
 import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
 import { ok, created, unauthorized, forbidden, notFound, badRequest } from '@/lib/server/http';
+import { audit, actorLabel } from '@/lib/server/audit';
 import type { Role, FieldConfig } from '@/lib/types';
 
 // A worker signs in with a 4–6 digit PIN; a manager/vet with an email + password.
@@ -29,8 +30,23 @@ const parseBatchIds = (v: unknown): string[] | null | undefined => {
   return undefined;
 };
 
+// No resource here has a column that is both universally present AND safely
+// sortable for true cursor pagination: `id` is a random UUID (not ordered),
+// and `createdAt` exists on only 3 of 11 resources (alerts/sales/purchases).
+// A per-resource sort key would mean per-resource special-casing, which this
+// single shared handler is meant to avoid. So pagination here is opt-in only:
+// `?limit=`/`?offset=` are honoured when a caller explicitly passes them, but
+// the default (no `?limit=`) is the full, unbounded result — same as before
+// this route ever had pagination. It must NOT apply a silent default cap:
+// several callers (e.g. app/owner/finance/page.tsx summing `sales`/`purchases`
+// for revenue/cost totals) need the complete list, and a hard cap with no
+// `ORDER BY` would silently and non-deterministically truncate those totals
+// for any tenant with more rows than the cap — wrong numbers, not an error.
+const MAX_LIMIT = 2000;
+
 // GET /api/data/<resource>  — tenant-scoped, role-gated, field-permission filtered.
-// Optional ?id=<id> returns a single row.
+// Optional ?id=<id> returns a single row. Optional ?limit=&?offset= page the
+// result — omitted entirely, the query is unbounded.
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ resource: string }> }
@@ -43,16 +59,59 @@ export async function GET(
   if (!def) return notFound();
   if (!def.roles.includes(session.role)) return forbidden();
 
-  const rows = await db.select().from(def.table).where(tenantScope(def, session));
+  const url = new URL(req.url);
+  const id = url.searchParams.get('id');
+  const limitParam = Number(url.searchParams.get('limit'));
+  // undefined (not applied) unless the caller explicitly asked for a page.
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(MAX_LIMIT, Math.floor(limitParam)) : undefined;
+  const offsetParam = Number(url.searchParams.get('offset'));
+  const offset = Number.isFinite(offsetParam) && offsetParam > 0 ? Math.floor(offsetParam) : 0;
+
+  // Server-side filtering for tasks by assigned user (replaces client-side filtering)
+  if (resource === 'tasks' && url.searchParams.has('assignedTo')) {
+    const assignedTo = url.searchParams.get('assignedTo')!;
+    const query = db.select().from(def.table)
+      .where(and(eq(def.table.tenantId, session.tenantId), eq(def.table.assignedTo, assignedTo)));
+    const rows = limit != null ? await query.limit(limit).offset(offset) : await query;
+    const hidden = await hiddenFieldKeysFor(session);
+    const filtered = stripForRead(resource, rows as Record<string, unknown>[], hidden);
+    return ok(filtered);
+  }
+
+  // FR-M5-5: a vet sees only their assigned batches. Resolved via
+  // employees.assignedBatchIds (same field workers use), joined to the vet's
+  // login row by phone — see vetAssignedBatchIds in lib/server/resources.ts.
+  // null = all batches (no assignment configured yet), matching the existing
+  // worker convention — this is a real filter, not a UI-only claim.
+  if (resource === 'batches' && session.role === 'vet') {
+    const assigned = await vetAssignedBatchIds(session);
+    const rows = await db.select().from(batches).where(eq(batches.tenantId, session.tenantId));
+    const scoped = assigned ? rows.filter((b) => assigned.includes(b.id)) : rows;
+    const hidden = await hiddenFieldKeysFor(session);
+    const filtered = stripForRead(resource, scoped as Record<string, unknown>[], hidden);
+    if (id) {
+      const one = filtered.find((r) => (r as { id?: string }).id === id);
+      return one ? ok(one) : notFound();
+    }
+    return ok(limit != null ? filtered.slice(offset, offset + limit) : filtered);
+  }
+
+  // A single-row lookup by id must not be starved by the page cap, so it skips
+  // limit/offset (the old behaviour: pull the tenant's rows and find the one).
+  if (id) {
+    const rows = await db.select().from(def.table).where(tenantScope(def, session));
+    const hidden = await hiddenFieldKeysFor(session);
+    const filtered = stripForRead(resource, rows as Record<string, unknown>[], hidden);
+    const one = filtered.find((r) => (r as { id?: string }).id === id);
+    return one ? ok(one) : notFound();
+  }
+
+  const baseQuery = db.select().from(def.table).where(tenantScope(def, session));
+  const rows = limit != null ? await baseQuery.limit(limit).offset(offset) : await baseQuery;
 
   const hidden = await hiddenFieldKeysFor(session);
   const filtered = stripForRead(resource, rows as Record<string, unknown>[], hidden);
 
-  const id = new URL(req.url).searchParams.get('id');
-  if (id) {
-    const one = filtered.find((r) => (r as { id?: string }).id === id);
-    return one ? ok(one) : notFound();
-  }
   return ok(filtered);
 }
 
@@ -128,6 +187,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
     const quantity = n(body.quantity), unitPrice = n(body.unitPrice);
     if (quantity <= 0) return badRequest('Enter a quantity greater than zero.');
 
+    // BR-WD: reject the sale outright if the batch is still inside a medicine
+    // withdrawal window — this is the actual enforcement, not just the UI banner
+    // on the batch page (which only warns; a direct API call bypassed it before
+    // this check existed). See lib/server/inventory.ts's checkWithdrawal().
+    const withdrawal = await checkWithdrawal(session.tenantId, batch.id);
+    if (!withdrawal.cleared) {
+      return badRequest(`This batch is still inside a medicine withdrawal period until ${withdrawal.until} (${withdrawal.daysLeft} day${withdrawal.daysLeft === 1 ? '' : 's'} left) — it cannot be sold yet.`);
+    }
+
     // Convert the sale to base units and refuse to sell more than is in stock.
     // Stock basis depends on the product: a live animal sold per head draws down
     // the batch headcount; a harvested output (eggs/pork/fish/maize…) draws down
@@ -171,7 +239,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
       productType: productName, quantity, baseQty, weightKg: body.weightKg ? n(body.weightKg) : null,
       unitPrice, totalAmount: quantity * unitPrice, buyer: s(body.buyer, 'Market'),
       paymentMethod: s(body.paymentMethod, 'cash'), status: 'PAID',
-      withdrawalCheck: s(body.withdrawalCheck, 'cleared'), createdAt: now,
+      withdrawalCheck: 'cleared', createdAt: now, // always true here — we already rejected above otherwise
     });
     // Selling the live animal itself physically removes head from the farm. For a
     // per-head sale, head = base qty; for a weight sale (fish/pork), convert the kg
@@ -223,19 +291,33 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
         if (dupEmail) return badRequest('That email already has a login.');
       }
     }
-    await db.insert(employees).values({
-      id, tenantId: session.tenantId, name: s(body.name), phone,
-      role, workerProfileId: profileId, pinSet: !!pinHash, active: true,
-      salary: Math.max(0, n(body.salary)),
-      payDay: parsePayDay(body.payDay),
-      paymentsFrom: /^\d{4}-(0[1-9]|1[0-2])$/.test(s(body.paymentsFrom)) ? s(body.paymentsFrom) : null,
-      assignedBatchIds: parseBatchIds(body.assignedBatchIds) ?? null, // null = all batches
-    });
-    if (makeLogin) {
-      await db.insert(users).values({
-        id: crypto.randomUUID(), tenantId: session.tenantId, name: s(body.name), phone, email,
-        role, workerProfileId: role === 'worker' ? profileId : null, language: 'en', pinHash, passwordHash,
+    // Atomic: an employee record with pinSet/passwordHash implied must never exist
+    // without its matching login row (and vice versa) — a crash between the two
+    // inserts would otherwise leave an onboarded worker unable to sign in.
+    // The pre-check above is a best-effort UX shortcut, not the real guard — two
+    // concurrent submissions can both pass it (TOCTOU), so users.phone/email carry
+    // a DB-level unique constraint (migration 0023) as the actual source of truth;
+    // a race that slips past the pre-check fails here instead of silently duplicating.
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(employees).values({
+          id, tenantId: session.tenantId, name: s(body.name), phone,
+          role, workerProfileId: profileId, pinSet: !!pinHash, active: true,
+          salary: Math.max(0, n(body.salary)),
+          payDay: parsePayDay(body.payDay),
+          paymentsFrom: /^\d{4}-(0[1-9]|1[0-2])$/.test(s(body.paymentsFrom)) ? s(body.paymentsFrom) : null,
+          assignedBatchIds: parseBatchIds(body.assignedBatchIds) ?? null, // null = all batches
+        });
+        if (makeLogin) {
+          await tx.insert(users).values({
+            id: crypto.randomUUID(), tenantId: session.tenantId, name: s(body.name), phone, email,
+            role, workerProfileId: role === 'worker' ? profileId : null, language: 'en', pinHash, passwordHash,
+          });
+        }
       });
+    } catch (e) {
+      if ((e as { code?: string }).code === '23505') return badRequest('That phone number or email already has a login.');
+      throw e;
     }
     return created({ id });
   }
@@ -334,10 +416,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ resource: str
       } else {
         const email = body.email ? s(body.email).trim().toLowerCase() : null;
         if (passwordHash && !email) return badRequest('Email is required for a manager/vet login.');
-        await db.insert(users).values({
-          id: crypto.randomUUID(), tenantId: tid, name: emp.name, phone: emp.phone, email,
-          role, workerProfileId: emp.workerProfileId ?? null, language: 'en', pinHash: pinHash ?? null, passwordHash: passwordHash ?? null,
-        });
+        try {
+          await db.insert(users).values({
+            id: crypto.randomUUID(), tenantId: tid, name: emp.name, phone: emp.phone, email,
+            role, workerProfileId: emp.workerProfileId ?? null, language: 'en', pinHash: pinHash ?? null, passwordHash: passwordHash ?? null,
+          });
+        } catch (e) {
+          if ((e as { code?: string }).code === '23505') return badRequest('That phone number or email already has a login.');
+          throw e;
+        }
       }
     }
 
@@ -377,5 +464,114 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ resource: str
     await db.update(inventoryLots).set(patch).where(and(eq(inventoryLots.tenantId, tid), eq(inventoryLots.id, id)));
     return ok({ id });
   }
+  if (resource === 'tasks') {
+    // Workers can mark their own tasks as done; owners/managers can update any task
+    const patch: Record<string, unknown> = {};
+    if (typeof body.status === 'string' && ['ASSIGNED', 'IN_PROGRESS', 'DONE', 'MISSED', 'SKIPPED'].includes(body.status)) {
+      if (session.role === 'worker' && body.status !== 'DONE') {
+        return badRequest('Workers can only mark tasks as done.');
+      }
+      patch.status = body.status;
+    }
+    if (Object.keys(patch).length === 0) return badRequest('Nothing to update.');
+    await db.update(tasks).set(patch).where(and(eq(tasks.tenantId, tid), eq(tasks.id, id)));
+    return ok({ id });
+  }
   return badRequest('resource not updatable');
+}
+
+// DELETE /api/data/<resource>?id=...&action=close — close/delete.
+//   units   — hard-delete a unit (only if empty: no active batches, currentQty=0).
+//   batches — action=close → soft-close (status='CLOSED'); no action → hard-delete if
+//             no related data, or returns error suggesting close instead.
+export async function DELETE(req: Request, ctx: { params: Promise<{ resource: string }> }) {
+  const session = await getSession();
+  if (!session) return unauthorized();
+  if (!(['owner', 'manager'] as Role[]).includes(session.role)) return forbidden();
+  const { resource } = await ctx.params;
+  const url = new URL(req.url);
+  const id = url.searchParams.get('id');
+  if (!id) return badRequest('id required');
+  const tid = session.tenantId;
+
+  if (resource === 'units') {
+    // Only allow deleting an empty unit — no active batches, currentQty === 0.
+    const [u] = await db.select({ id: productionUnits.id, currentQty: productionUnits.currentQty })
+      .from(productionUnits).where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, id))).limit(1);
+    if (!u) return notFound();
+    if ((u.currentQty ?? 0) > 0) return badRequest('Cannot delete a unit that still has animals. Remove or close all batches first.');
+    const activeBatches = await db.select({ id: batches.id }).from(batches)
+      .where(and(eq(batches.tenantId, tid), eq(batches.unitId, id), eq(batches.status, 'ACTIVE'))).limit(1);
+    if (activeBatches.length > 0) return badRequest('Cannot delete a unit with active batches. Close all batches first.');
+    await db.delete(productionUnits).where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, id)));
+    await audit({ tenantId: tid, actor: actorLabel(session), action: 'unit.delete', entity: id, before: { id }, after: null });
+    return ok({ id, deleted: true });
+  }
+
+  if (resource === 'batches') {
+    // Check if the batch belongs to this tenant.
+    const [b] = await db.select({ id: batches.id, status: batches.status, currentQty: batches.currentQty, unitId: batches.unitId, name: batches.name })
+      .from(batches).where(and(eq(batches.tenantId, tid), eq(batches.id, id))).limit(1);
+    if (!b) return notFound();
+
+    const isClose = url.searchParams.get('action') === 'close';
+
+    if (isClose) {
+      // Soft close: set status to CLOSED. Keep the data for history.
+      if (b.status === 'CLOSED') return badRequest('Batch is already closed.');
+      // Release the headcount from the unit.
+      if ((b.currentQty ?? 0) > 0 && b.unitId) {
+        const [u] = await db.select({ q: productionUnits.currentQty }).from(productionUnits)
+          .where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, b.unitId))).limit(1);
+        if (u) {
+          await db.update(productionUnits).set({ currentQty: Math.max(0, (u.q ?? 0) - b.currentQty) })
+            .where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, b.unitId)));
+        }
+      }
+      await db.update(batches).set({ status: 'CLOSED', stage: 'CLOSED' })
+        .where(and(eq(batches.tenantId, tid), eq(batches.id, id)));
+      await audit({ tenantId: tid, actor: actorLabel(session), action: 'batch.close', entity: id, before: { status: b.status }, after: { status: 'CLOSED' } });
+      return ok({ id, closed: true });
+    }
+
+    // Hard-delete path: check for related data first.
+    const [sale] = await db.select({ id: sales.id }).from(sales)
+      .where(and(eq(sales.tenantId, tid), eq(sales.batchId, id))).limit(1);
+    const [ev] = await db.select({ id: batchStageEvents.id }).from(batchStageEvents)
+      .where(and(eq(batchStageEvents.tenantId, tid), eq(batchStageEvents.batchId, id))).limit(1);
+    const [mort] = await db.select({ id: mortalityRecords.clientUuid }).from(mortalityRecords)
+      .where(and(eq(mortalityRecords.tenantId, tid), eq(mortalityRecords.batchId, id))).limit(1);
+    const [feed] = await db.select({ id: feedingRecords.clientUuid }).from(feedingRecords)
+      .where(and(eq(feedingRecords.tenantId, tid), eq(feedingRecords.batchId, id))).limit(1);
+    const [hlth] = await db.select({ id: healthRecords.clientUuid }).from(healthRecords)
+      .where(and(eq(healthRecords.tenantId, tid), eq(healthRecords.batchId, id))).limit(1);
+    const [prod] = await db.select({ id: productionRecords.clientUuid }).from(productionRecords)
+      .where(and(eq(productionRecords.tenantId, tid), eq(productionRecords.batchId, id))).limit(1);
+    const [lab] = await db.select({ id: laborLogs.clientUuid }).from(laborLogs)
+      .where(and(eq(laborLogs.tenantId, tid), eq(laborLogs.batchId, id))).limit(1);
+    const [pc] = await db.select({ id: physicalCounts.clientUuid }).from(physicalCounts)
+      .where(and(eq(physicalCounts.tenantId, tid), eq(physicalCounts.batchId, id))).limit(1);
+    const [ws] = await db.select({ id: weightSamples.clientUuid }).from(weightSamples)
+      .where(and(eq(weightSamples.tenantId, tid), eq(weightSamples.batchId, id))).limit(1);
+    const [obs] = await db.select({ id: observations.clientUuid }).from(observations)
+      .where(and(eq(observations.tenantId, tid), eq(observations.batchId, id))).limit(1);
+    // Also check tasks linked to this batch.
+    const [tsk] = await db.select({ id: tasks.id }).from(tasks)
+      .where(and(eq(tasks.tenantId, tid), eq(tasks.batchId, id))).limit(1);
+
+    const hasRelatedData = !!(sale || ev || mort || feed || hlth || prod || lab || pc || ws || obs || tsk);
+
+    if (hasRelatedData) {
+      return badRequest('Batch has sales or activity — close it instead of deleting.');
+    }
+
+    // No related data — hard delete.
+    await db.delete(products).where(and(eq(products.tenantId, tid), eq(products.batchId, id)));
+    await db.delete(batchStageEvents).where(and(eq(batchStageEvents.tenantId, tid), eq(batchStageEvents.batchId, id)));
+    await db.delete(batches).where(and(eq(batches.tenantId, tid), eq(batches.id, id)));
+    await audit({ tenantId: tid, actor: actorLabel(session), action: 'batch.delete', entity: id, before: { name: b.name }, after: null });
+    return ok({ id, deleted: true });
+  }
+
+  return badRequest('resource not deletable');
 }
