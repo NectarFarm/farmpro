@@ -82,8 +82,10 @@ export default function SetupWizardPage() {
     // early would let the save effect below fire with a blank tenantId key.
     if (!tenantId) return;
     const saved = loadProgress(tenantId);
+    let restoredFarmName = '';
     if (saved) {
-      setFarmName(saved.farmName ?? '');
+      restoredFarmName = saved.farmName ?? '';
+      setFarmName(restoredFarmName);
       setFarmLocation(saved.farmLocation ?? '');
       if (saved.units?.length) setUnits(saved.units);
       if (saved.batches?.length) setBatches(saved.batches);
@@ -93,6 +95,15 @@ export default function SetupWizardPage() {
       if (saved.lowStockKg) setLowStockKg(saved.lowStockKg);
       if (saved.mortalityThreshold) setMortalityThreshold(saved.mortalityThreshold);
       if (typeof saved.step === 'number') setStep(saved.step);
+    }
+    // A returning owner already has a named farm server-side — an abandoned/absent
+    // local draft must not make step 0 look blank as if nothing was ever set up.
+    // Only fills in when the draft itself has no name, so it never overwrites text
+    // the owner is actively mid-typing in this session.
+    if (!restoredFarmName) {
+      fetch('/api/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null)
+        .then((me: { farmName?: string } | null) => { if (me?.farmName) setFarmName(me.farmName); })
+        .catch(() => {});
     }
     hydrated.current = true;
   }, [tenantId]);
@@ -140,7 +151,18 @@ export default function SetupWizardPage() {
           mortalityRate, lowStockKg, mortalityPhotoThreshold: mortalityThreshold,
         }),
       });
-      if (!res.ok) throw new Error(res.status === 403 ? 'Only the owner can run setup' : res.status === 401 ? 'Please sign in again' : 'Setup failed — please retry');
+      if (!res.ok) {
+        // 400s carry a specific, actionable reason (e.g. "batch X could not be
+        // assigned to a production unit" or a bad numeric field) — surface it
+        // instead of a canned message, or the owner has no way to know what to
+        // fix and "Setup failed — please retry" just fails the same way again.
+        const body = await res.json().catch(() => ({}) as { error?: string });
+        throw new Error(
+          res.status === 403 ? 'Only the owner can run setup'
+            : res.status === 401 ? 'Please sign in again'
+            : body.error || 'Setup failed — please retry'
+        );
+      }
       try { if (tenantId) localStorage.removeItem(PROGRESS_KEY_PREFIX + tenantId); } catch { /* noop */ }
       router.replace('/owner/dashboard');
     } catch (e) { setFinishErr((e as Error).message); setFinishing(false); }

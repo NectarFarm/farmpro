@@ -13,6 +13,7 @@ export async function GET() {
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, session.tenantId)).limit(1);
   return ok({
     userId: session.userId, role: session.role, tenantId: session.tenantId, name: session.name,
+    farmName: tenant?.name ?? '',
     plan: tenant?.plan ?? 'pro',
     features: z.array(z.string()).catch(ALL_FEATURE_KEYS).parse(tenant?.features),
     exp: session.exp,

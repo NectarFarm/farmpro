@@ -204,6 +204,13 @@
       "when": 1783938200000,
       "tag": "0028_money_cents",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1783938300000,
+      "tag": "0029_ensure_users_unique_constraints",
+      "breakpoints": true
     }
   ]
 }
