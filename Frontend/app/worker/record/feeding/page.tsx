@@ -6,10 +6,11 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
-import { api } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { useToast } from '@/hooks/use-toast';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import type { Batch, InventoryItem, InventoryLot } from '@/lib/types';
 
 type Row = { itemId: string; qty: string };
@@ -31,12 +32,14 @@ export default function FeedingPage() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.getBatches(), api.getItems(), api.getLots()]).then(([b, i, l]) => {
-      setBatches(b.filter(b => b.status === 'ACTIVE'));
-      setItems(i.filter(i => i.category.startsWith('FEED')));
-      setLots(l);
+    Promise.all([cachedApi.getBatches(), cachedApi.getItems(), cachedApi.getLots()]).then(([b, i, l]) => {
+      setBatches(b.data.filter(b => b.status === 'ACTIVE'));
+      setItems(i.data.filter(i => i.category.startsWith('FEED')));
+      setLots(l.data);
+      setStaleAt(b.cachedAt ?? i.cachedAt ?? l.cachedAt);
     }).catch(() => setLoadError(t('loadFormDataFailed')));
   }, [t]);
 
@@ -93,6 +96,7 @@ export default function FeedingPage() {
       </div>
 
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
+      <StaleDataNotice cachedAt={staleAt} />
 
       {/* Progress this visit + finish */}
       {doneBatches.length > 0 && (

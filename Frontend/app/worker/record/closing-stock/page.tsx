@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
-import { api } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useToast } from '@/hooks/use-toast';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import type { InventoryItem, InventoryLot } from '@/lib/types';
 
 export default function ClosingStockPage() {
@@ -23,12 +24,14 @@ export default function ClosingStockPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.getItems(), api.getLots()]).then(([i,l]) => {
-      const feedItems = i.filter(it => it.category.startsWith('FEED'));
+    Promise.all([cachedApi.getItems(), cachedApi.getLots()]).then(([i,l]) => {
+      const feedItems = i.data.filter(it => it.category.startsWith('FEED'));
       setItems(feedItems);
-      setLots(l);
+      setLots(l.data);
+      setStaleAt(i.cachedAt ?? l.cachedAt);
     }).catch(() => setLoadError(t('loadFormDataFailed')));
   }, [t]);
 
@@ -73,6 +76,7 @@ export default function ClosingStockPage() {
       </div>
 
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
+      <StaleDataNotice cachedAt={staleAt} />
 
       {items.length === 0 && !loadError && (
         <div className="text-center py-10 text-gray-400">{t('loadingItems')}</div>

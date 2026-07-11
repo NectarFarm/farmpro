@@ -51,6 +51,9 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
     window.addEventListener('online', update);
     window.addEventListener('offline', update);
     update();
+    // Warm the offline read-cache once per app load so record-form dropdowns
+    // have data before the worker walks out of coverage.
+    if (navigator.onLine) void import('@/lib/offline/refCache').then(m => m.warmRefCache());
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
   }, [setOnline]);
 

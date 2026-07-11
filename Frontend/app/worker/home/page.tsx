@@ -4,8 +4,10 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { api } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import type { Task, Alert } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import Link from 'next/link';
 import {
@@ -29,14 +31,15 @@ export default function WorkerHomePage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) { router.replace('/worker/login'); return; }
     let cancelled = false;
     // Load tasks and alerts INDEPENDENTLY — a failure in one must never freeze the
     // whole page (the old Promise.all rejected wholesale and left it on skeletons).
-    api.getTasks(user.id)
-      .then(t => { if (!cancelled) setTasks(t); })
+    cachedApi.getTasks(user.id)
+      .then(t => { if (!cancelled) { setTasks(t.data); setStaleAt(t.cachedAt); } })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     api.getAlerts()
@@ -88,6 +91,8 @@ export default function WorkerHomePage() {
           </span>
         )}
       </div>
+
+      <StaleDataNotice cachedAt={staleAt} />
 
       {/* Alerts */}
       {alerts.length > 0 && (

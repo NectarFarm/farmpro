@@ -7,10 +7,11 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useWorkerProfileStore } from '@/lib/stores/workerProfile';
 import { useSyncStore } from '@/lib/stores/sync';
-import { api } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { CameraCapture, type CaptureResult } from '@/components/worker/CameraCapture';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import { useToast } from '@/hooks/use-toast';
 import type { ProductionUnit, Batch } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ export default function MortalityPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   const photoThreshold = profile?.mortalityPhotoThreshold ?? 1;
   const photoRequired = count > photoThreshold;
@@ -42,9 +44,10 @@ export default function MortalityPage() {
   const unit = units.find(u => u.id === unitId);
 
   useEffect(() => {
-    Promise.all([api.getUnits(), api.getBatches()]).then(([u,b]) => {
-      setUnits(u.filter(u => u.status === 'ACTIVE'));
-      setBatches(b.filter(b => b.status === 'ACTIVE'));
+    Promise.all([cachedApi.getUnits(), cachedApi.getBatches()]).then(([u,b]) => {
+      setUnits(u.data.filter(u => u.status === 'ACTIVE'));
+      setBatches(b.data.filter(b => b.status === 'ACTIVE'));
+      setStaleAt(u.cachedAt ?? b.cachedAt);
     }).catch(() => setLoadError(t('loadFormDataFailed')));
   }, [t]);
 
@@ -144,6 +147,7 @@ export default function MortalityPage() {
       {/* Error */}
       {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
+      <StaleDataNotice cachedAt={staleAt} />
 
       {/* Submit */}
       <button

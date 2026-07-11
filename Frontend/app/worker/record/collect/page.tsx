@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
-import { api, getProducts } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
 import { useToast } from '@/hooks/use-toast';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import type { Batch, Product } from '@/lib/types';
 
 const freqLabel = (f: string) => ({ daily: 'Collect daily', weekly: 'Collect weekly', monthly: 'Collect monthly', per_cycle: 'Collect at harvest' }[f] ?? f);
@@ -34,9 +35,10 @@ export default function CollectProductsPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getBatches().then(b => setBatches(b.filter(x => x.status === 'ACTIVE')))
+    cachedApi.getBatches().then(b => { setBatches(b.data.filter(x => x.status === 'ACTIVE')); setStaleAt(b.cachedAt); })
       .catch(() => setLoadError(t('loadFormDataFailed')));
   }, [t]);
   useEffect(() => {
@@ -44,7 +46,10 @@ export default function CollectProductsPage() {
     if (!batchId) { setProducts([]); return; }
     // Only show things a worker actually COLLECTS (eggs, manure, milk, crop harvest).
     // The live animal itself is sold from the batch, never "collected", so exclude it.
-    getProducts(batchId).then(ps => setProducts(ps.filter(p => !p.isAnimalProduct))).catch(err => console.error('Failed to load products', err));
+    cachedApi.getProducts(batchId).then(ps => {
+      setProducts(ps.data.filter(p => !p.isAnimalProduct));
+      if (ps.cachedAt) setStaleAt(s => s ?? ps.cachedAt);
+    }).catch(err => console.error('Failed to load products', err));
   }, [batchId]);
 
   const product = products.find(p => p.id === productId);
@@ -87,6 +92,9 @@ export default function CollectProductsPage() {
         <h1 className="text-2xl font-bold flex items-center gap-2"><Egg className="w-6 h-6 shrink-0" /><span>{t('collectProducts')}</span></h1>
         <p className="text-green-200 text-sm">Log what you gathered from each batch today.</p>
       </div>
+
+      {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
+      <StaleDataNotice cachedAt={staleAt} />
 
       {doneBatches.length > 0 && (
         <div className="bg-green-50 border border-green-300 rounded-xl px-4 py-3 flex items-center justify-between">

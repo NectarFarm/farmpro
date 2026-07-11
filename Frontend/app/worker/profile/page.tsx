@@ -5,8 +5,9 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { useWorkerProfileStore } from '@/lib/stores/workerProfile';
-import { api } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import { getPendingCount } from '@/lib/offline/db';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import type { Task } from '@/lib/types';
 import { Wifi, WifiOff, Loader2, Check, Globe, Sun } from 'lucide-react';
 
@@ -18,10 +19,11 @@ export default function WorkerProfilePage() {
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dbPending, setDbPending] = useState(0);
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) { router.replace('/worker/login'); return; }
-    api.getTasks(user.id).then(t => setTasks(t.filter(t => t.status === 'DONE')));
+    cachedApi.getTasks(user.id).then(t => { setTasks(t.data.filter(t => t.status === 'DONE')); setStaleAt(t.cachedAt); });
     getPendingCount().then(setDbPending).catch(() => {});
   }, [user, router]);
 
@@ -42,6 +44,8 @@ export default function WorkerProfilePage() {
           </div>
         </div>
       </div>
+
+      <StaleDataNotice cachedAt={staleAt} />
 
       {/* Sync status */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">

@@ -6,12 +6,13 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
-import { api } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { SegmentedToggle } from '@/components/worker/SegmentedToggle';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import type { ProductionUnit, Batch, InventoryItem, InventoryLot } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -44,14 +45,15 @@ export default function MorningRoundPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.getUnits(), api.getBatches(), api.getItems(), api.getLots()]).then(([us, bs, items, ls]) => {
-      const active = us.filter(u => u.status === 'ACTIVE');
-      const withBatch = active.map(u => ({ ...u, batch: bs.find(b => b.unitId === u.id && b.status === 'ACTIVE') }));
+    Promise.all([cachedApi.getUnits(), cachedApi.getBatches(), cachedApi.getItems(), cachedApi.getLots()]).then(([us, bs, items, ls]) => {
+      const active = us.data.filter(u => u.status === 'ACTIVE');
+      const withBatch = active.map(u => ({ ...u, batch: bs.data.find(b => b.unitId === u.id && b.status === 'ACTIVE') }));
       setUnits(withBatch.filter(u => u.batch));
-      setFeedItems(items.filter(i => String(i.category).startsWith('FEED')));
-      setLots(ls);
+      setFeedItems(items.data.filter(i => String(i.category).startsWith('FEED')));
+      setLots(ls.data);
       setEntries(withBatch.filter(u => u.batch).map(u => ({
         unitId: u.id, batchId: u.batch!.id, unitName: u.name, batchName: u.batch!.name,
         species: u.species ?? '', currentQty: u.batch!.currentQty,
@@ -59,6 +61,7 @@ export default function MorningRoundPage() {
         abnormal: null, abnormalNote: '',
         waterColour: null, tempC: '', doMgL: '', ph: '', ammonia: '',
       })));
+      setStaleAt(us.cachedAt ?? bs.cachedAt ?? items.cachedAt ?? ls.cachedAt);
     }).catch(() => setLoadError(t('loadFormDataFailed')));
   }, [t]);
 
@@ -108,6 +111,7 @@ export default function MorningRoundPage() {
           <p className="text-green-200 text-sm">{new Date().toLocaleString('en-KE')}</p>
         </div>
         {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
+        <StaleDataNotice cachedAt={staleAt} />
         {round.count > 0 && (
           <div className="bg-amber-50 border-2 border-amber-300 rounded-xl px-4 py-3">
             <p className="flex items-center gap-1.5 text-amber-900 font-bold text-sm"><Check className="w-4 h-4 shrink-0" /> Today&apos;s round was already done at {timeLabel(round.lastAt)}{round.count > 1 ? ` (${round.count} times)` : ''}.</p>

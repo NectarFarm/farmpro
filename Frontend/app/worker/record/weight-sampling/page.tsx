@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
-import { api } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
 import { useToast } from '@/hooks/use-toast';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import type { Batch } from '@/lib/types';
 
 export default function WeightSamplingPage() {
@@ -28,9 +29,10 @@ export default function WeightSamplingPage() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getBatches().then(b => setBatches(b.filter(b => b.status === 'ACTIVE')))
+    cachedApi.getBatches().then(b => { setBatches(b.data.filter(b => b.status === 'ACTIVE')); setStaleAt(b.cachedAt); })
       .catch(() => setLoadError(t('loadFormDataFailed')));
   }, [t]);
 
@@ -115,6 +117,7 @@ export default function WeightSamplingPage() {
 
       {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
+      <StaleDataNotice cachedAt={staleAt} />
 
       <button onClick={handleSubmit} disabled={!batchId || !avgWeight || submitting}
         className="w-full min-h-[56px] bg-purple-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">

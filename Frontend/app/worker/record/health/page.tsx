@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
-import { api } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { CameraCapture, type CaptureResult } from '@/components/worker/CameraCapture';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import { useToast } from '@/hooks/use-toast';
 import type { Batch, InventoryItem, InventoryLot } from '@/lib/types';
 
@@ -38,12 +39,14 @@ export default function HealthPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.getBatches(), api.getItems(), api.getLots()]).then(([b,i,l]) => {
-      setBatches(b.filter(b => b.status === 'ACTIVE'));
-      setItems(i.filter(i => i.category === 'MEDICINE' || i.category === 'VACCINE'));
-      setLots(l);
+    Promise.all([cachedApi.getBatches(), cachedApi.getItems(), cachedApi.getLots()]).then(([b,i,l]) => {
+      setBatches(b.data.filter(b => b.status === 'ACTIVE'));
+      setItems(i.data.filter(i => i.category === 'MEDICINE' || i.category === 'VACCINE'));
+      setLots(l.data);
+      setStaleAt(b.cachedAt ?? i.cachedAt ?? l.cachedAt);
     }).catch(() => setLoadError(t('loadFormDataFailed')));
   }, [t]);
 
@@ -166,6 +169,7 @@ export default function HealthPage() {
 
       {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
+      <StaleDataNotice cachedAt={staleAt} />
 
       <button onClick={() => { if (!batchId || !lotId || !dose || Number(dose) <= 0) { setError('Fill batch, product, and a valid dose'); return; } if (overDose) { setError('Dose exceeds what is left in the lot.'); return; } setShowConfirm(true); }}
         disabled={overDose}

@@ -98,6 +98,11 @@ export function useSync(intervalMs = 30_000) {
           setStatus('syncing');
           await flushPendingRecords();
           setSynced();
+          // Feeding/other syncs decrement server stock — cached ref data (lots,
+          // items…) can be stale immediately after a flush. Re-warm so the
+          // next offline stretch starts from fresh numbers. Dynamic import
+          // avoids a circular-import risk with db.ts.
+          void import('./refCache').then(m => m.warmRefCache()).catch(() => {});
         }
         setPendingCount(await getPendingCount());
         setRejectedCount(await getRejectedCount());

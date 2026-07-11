@@ -17,6 +17,7 @@ export interface PendingRecord {
   // so it's surfaced to the UI rather than silently retried forever.
   status: 'pending' | 'syncing' | 'synced' | 'conflict' | 'rejected';
   error?: string;
+  attempts?: number; // used by sync retry/backoff (Phase 2); not indexed
 }
 
 export interface CachedPinHash {
@@ -27,16 +28,16 @@ export interface CachedPinHash {
   cachedAt: string;
 }
 
-export interface CachedWorkerProfile {
-  id: string;
-  data: string; // JSON
-  cachedAt: string;
+export interface CachedRef {
+  key: string;        // 'batches' | 'units' | 'items' | 'lots' | `tasks:${userId}` | `products:${batchId}`
+  data: string;        // JSON.stringify'd payload
+  cachedAt: string;    // ISO timestamp
 }
 
 class IFMSDatabase extends Dexie {
   pending!: Table<PendingRecord>;
   pinCache!: Table<CachedPinHash>;
-  profileCache!: Table<CachedWorkerProfile>;
+  refCache!: Table<CachedRef>;
 
   constructor() {
     super('ifms_worker_db');
@@ -44,6 +45,12 @@ class IFMSDatabase extends Dexie {
       pending: '++id, clientUuid, type, status, capturedAt',
       pinCache: 'phone, userId',
       profileCache: 'id',
+    });
+    // v2: add refCache (offline read-cache for reference data); profileCache
+    // was dead — never written anywhere — so it's dropped here.
+    this.version(2).stores({
+      refCache: 'key',
+      profileCache: null,
     });
   }
 }

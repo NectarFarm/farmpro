@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
-import { api } from '@/lib/api';
+import { cachedApi } from '@/lib/offline/refCache';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
+import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import { useToast } from '@/hooks/use-toast';
 import type { Batch, ProductionUnit } from '@/lib/types';
 
@@ -34,11 +35,13 @@ export default function PhysicalCountPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [staleAt, setStaleAt] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.getBatches(), api.getUnits()]).then(([b,u]) => {
-      setBatches(b.filter(b => b.status === 'ACTIVE'));
-      setUnits(u);
+    Promise.all([cachedApi.getBatches(), cachedApi.getUnits()]).then(([b,u]) => {
+      setBatches(b.data.filter(b => b.status === 'ACTIVE'));
+      setUnits(u.data);
+      setStaleAt(b.cachedAt ?? u.cachedAt);
     }).catch(() => setLoadError(t('loadFormDataFailed')));
   }, [t]);
 
@@ -138,6 +141,7 @@ export default function PhysicalCountPage() {
 
       {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
+      <StaleDataNotice cachedAt={staleAt} />
 
       <button onClick={handleSubmit} disabled={!batchId || !counted}
         className="w-full min-h-[56px] bg-orange-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
