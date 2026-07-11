@@ -11,6 +11,25 @@ import { useEffect, useRef } from 'react';
 import { getDB, getPendingCount, getRejectedCount, type PendingRecord } from './db';
 import { useSyncStore } from '@/lib/stores/sync';
 
+// Exponential backoff (module scope — shared across every useSync() mount).
+// A dead/rate-limited server should not be hammered every 30s forever; back
+// off up to a 15-minute cap, with jitter so many devices don't retry in lockstep.
+let consecutiveFailures = 0;
+let nextAttemptAt = 0;
+const BASE_DELAY_MS = 30_000;
+const MAX_DELAY_MS = 15 * 60_000;
+function recordFlushFailure() {
+  consecutiveFailures++;
+  nextAttemptAt = Date.now() + Math.min(BASE_DELAY_MS * 2 ** (consecutiveFailures - 1), MAX_DELAY_MS) + Math.random() * 5_000;
+}
+function recordFlushSuccess() {
+  consecutiveFailures = 0;
+  nextAttemptAt = 0;
+}
+export function resetBackoff() {
+  recordFlushSuccess();
+}
+
 async function postSync(
   records: unknown[]
 ): Promise<{
@@ -23,12 +42,30 @@ async function postSync(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ records }),
   });
-  if (!r.ok) throw new Error('sync failed: ' + r.status);
+  if (!r.ok) {
+    // Status is attached (not just baked into the message) so the caller can
+    // classify 401 vs 400/422 vs everything-else without parsing strings.
+    const e = new Error('sync failed: ' + r.status) as Error & { status?: number };
+    e.status = r.status;
+    throw e;
+  }
   return r.json();
 }
 
 export async function flushPendingRecords(): Promise<{ synced: number; conflicts: number; rejected: number }> {
   const db = getDB();
+
+  // Recover records stuck in 'syncing': that status is only ever set right
+  // before the POST below, for the duration of this function. If the app was
+  // killed (tab closed, phone locked hard) between that mark and the response,
+  // those records are orphaned — no future flush would ever pick them up again
+  // because the query below only looks at 'pending'. The server is idempotent
+  // by clientUuid, so folding them back into 'pending' here is safe to retry.
+  const stuck = await db.pending.where('status').equals('syncing').toArray();
+  if (stuck.length > 0) {
+    await Promise.all(stuck.map((r) => db.pending.update(r.id!, { status: 'pending' })));
+  }
+
   const pending = await db.pending.where('status').equals('pending').toArray();
   if (pending.length === 0) return { synced: 0, conflicts: 0, rejected: 0 };
 
@@ -67,8 +104,33 @@ export async function flushPendingRecords(): Promise<{ synced: number; conflicts
 
     return { synced: pending.length - conflictUuids.size - rejectedByUuid.size, conflicts: conflictUuids.size, rejected: rejectedByUuid.size };
   } catch (err) {
-    // Revert to pending so the next trigger retries (idempotent on the server).
-    await Promise.all(pending.map((r) => db.pending.update(r.id!, { status: 'pending' })));
+    // Classify by HTTP status (postSync attaches it) so a session expiry, a
+    // malformed payload, and a flaky network don't get treated the same way.
+    const status = (err as Error & { status?: number })?.status;
+    if (status === 401) {
+      // Session expired — not a data problem. Revert without burning an
+      // attempt; this will sync on its own once the worker logs in again.
+      await Promise.all(pending.map((r) => db.pending.update(r.id!, { status: 'pending' })));
+    } else if (status === 400 || status === 422) {
+      // Whole-batch schema rejection: the payload itself is likely malformed,
+      // so blind retries probably won't succeed — but give it a few tries in
+      // case the 4xx was a transient server hiccup before giving up on it.
+      await Promise.all(
+        pending.map((r) => {
+          const attempts = (r.attempts ?? 0) + 1;
+          return attempts >= 3
+            ? db.pending.update(r.id!, { status: 'rejected', error: 'Server refused this data', attempts })
+            : db.pending.update(r.id!, { status: 'pending', attempts });
+        })
+      );
+    } else {
+      // Network error/timeout/429/5xx — transient. Revert to pending and keep
+      // retrying forever under the backoff cap; offline-first requires
+      // eventual delivery, so this class of error never gives up on its own.
+      await Promise.all(
+        pending.map((r) => db.pending.update(r.id!, { status: 'pending', attempts: (r.attempts ?? 0) + 1 }))
+      );
+    }
     throw err;
   }
 }
@@ -85,9 +147,16 @@ export function useSync(intervalMs = 30_000) {
   const running = useRef(false);
 
   useEffect(() => {
-    const run = async () => {
+    const run = async (opts?: { force?: boolean }) => {
       if (running.current) return;
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setPendingCount(await getPendingCount());
+        return;
+      }
+      // Backoff gate: skip the actual flush attempt while still under the
+      // cooldown from a recent failure, but still keep the badge's pending
+      // count fresh (e.g. new records enqueued while backing off).
+      if (!opts?.force && Date.now() < nextAttemptAt) {
         setPendingCount(await getPendingCount());
         return;
       }
@@ -97,6 +166,7 @@ export function useSync(intervalMs = 30_000) {
         if (before > 0) {
           setStatus('syncing');
           await flushPendingRecords();
+          recordFlushSuccess();
           setSynced();
           // Feeding/other syncs decrement server stock — cached ref data (lots,
           // items…) can be stale immediately after a flush. Re-warm so the
@@ -107,6 +177,7 @@ export function useSync(intervalMs = 30_000) {
         setPendingCount(await getPendingCount());
         setRejectedCount(await getRejectedCount());
       } catch {
+        recordFlushFailure();
         setStatus('error');
         setPendingCount(await getPendingCount());
       } finally {
@@ -115,12 +186,26 @@ export function useSync(intervalMs = 30_000) {
     };
 
     run();
-    const onOnline = () => run();
+    const onOnline = () => {
+      resetBackoff();
+      run({ force: true });
+    };
     window.addEventListener('online', onOnline);
     const id = window.setInterval(run, intervalMs);
+
+    // Background Sync (2.3): the SW can flush the outbox while this app is
+    // backgrounded/closed and posts this message afterwards so the badge
+    // reflects the result immediately instead of waiting for the next tick.
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'ifms-synced') run({ force: true });
+    };
+    const hasSW = typeof navigator !== 'undefined' && !!navigator.serviceWorker;
+    if (hasSW) navigator.serviceWorker.addEventListener('message', onMessage);
+
     return () => {
       window.removeEventListener('online', onOnline);
       window.clearInterval(id);
+      if (hasSW) navigator.serviceWorker.removeEventListener('message', onMessage);
     };
-  }, [intervalMs, setStatus, setPendingCount, setSynced]);
+  }, [intervalMs, setStatus, setPendingCount, setRejectedCount, setSynced]);
 }

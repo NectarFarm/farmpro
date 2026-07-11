@@ -74,6 +74,14 @@ export async function enqueuePendingRecord(type: string, payload: unknown, clien
     capturedAt: new Date().toISOString(),
     status: 'pending',
   });
+  // Progressive enhancement: ask the browser to flush the outbox even if the
+  // app gets closed/backgrounded before the in-app interval runs again.
+  // Unsupported on iOS/Firefox — silently no-ops there; the in-app interval
+  // (useSync) remains the primary delivery path either way.
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    await (reg as ServiceWorkerRegistration & { sync?: { register(tag: string): Promise<void> } }).sync?.register('ifms-flush');
+  } catch { /* unsupported or SW not ready */ }
 }
 
 export async function getPendingCount(): Promise<number> {
