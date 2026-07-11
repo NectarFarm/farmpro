@@ -131,6 +131,7 @@ export default function PayrollPage() {
           <span className="font-bold text-gray-800 text-sm">{periodLabel(period)}</span>
           <button onClick={payAll} disabled={busy !== ''} className="text-xs font-semibold text-green-700 hover:underline">{t('markPaid')}</button>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-gray-500 text-xs font-semibold border-b">
             <tr><th className="px-3 py-2 text-left">{t('name')}</th><th className="px-2 py-2 text-right">{t('gross')}</th><th className="px-2 py-2 text-right">{t('adv')}</th><th className="px-2 py-2 text-right">{t('fines')}</th><th className="px-2 py-2 text-right">{t('netProfit')}</th><th className="px-2 py-2 text-center">{t('status')}</th><th className="px-2 py-2"></th></tr>
@@ -187,6 +188,7 @@ export default function PayrollPage() {
             {rows.length === 0 && <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-400">No employees. Add staff with a salary on the People page.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
       <p className="text-xs text-gray-400">Tip: add advances/fines first, then “Run payroll”, check the nets, then “Pay”. A paid month is locked — changing a salary only affects future months.</p>
     </div>

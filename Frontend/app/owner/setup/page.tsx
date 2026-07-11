@@ -373,31 +373,33 @@ export default function SetupWizardPage() {
             <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Settings className="w-6 h-6 text-green-700" /> {t('configProfile')}</h2>
             <p className="text-gray-500 text-sm">{t('configProfileDesc')}</p>
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-gray-600 font-semibold">
-                  <tr><th className="px-4 py-2 text-left">{t('field')}</th><th className="px-3 py-2">{t('visible')}</th><th className="px-3 py-2">{t('required')}</th><th className="px-3 py-2">{t('editable')}</th></tr>
-                </thead>
-                <tbody>
-                  {[
-                    [t('feedUnitCostLabel'),'feed_unit_cost',false,false,false],
-                    [t('feedQtyLabel'),'feed_qty',true,true,true],
-                    [t('eggSalePriceLabel'),'egg_sale_price',false,false,false],
-                    [t('mortalityCauseLabel'),'mortality_cause',true,false,true],
-                    [t('batchProfitLossLabel'),'batch_pl',false,false,false],
-                    [t('waterLevel'),'water_level',true,true,true],
-                    [t('eggsCollected'),'eggs_collected',true,true,true],
-                  ].map(([label,,v,r,e]) => (
-                    <tr key={String(label)} className="border-t border-gray-100">
-                      <td className="px-4 py-2 font-medium text-gray-800">{String(label)}</td>
-                      {[v,r,e].map((checked, ci) => (
-                        <td key={ci} className="px-3 py-2 text-center">
-                          <input type="checkbox" defaultChecked={!!checked} className="w-4 h-4 accent-green-600" />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600 font-semibold">
+                    <tr><th className="px-4 py-2 text-left">{t('field')}</th><th className="px-3 py-2">{t('visible')}</th><th className="px-3 py-2">{t('required')}</th><th className="px-3 py-2">{t('editable')}</th></tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      [t('feedUnitCostLabel'),'feed_unit_cost',false,false,false],
+                      [t('feedQtyLabel'),'feed_qty',true,true,true],
+                      [t('eggSalePriceLabel'),'egg_sale_price',false,false,false],
+                      [t('mortalityCauseLabel'),'mortality_cause',true,false,true],
+                      [t('batchProfitLossLabel'),'batch_pl',false,false,false],
+                      [t('waterLevel'),'water_level',true,true,true],
+                      [t('eggsCollected'),'eggs_collected',true,true,true],
+                    ].map(([label,,v,r,e]) => (
+                      <tr key={String(label)} className="border-t border-gray-100">
+                        <td className="px-4 py-2 font-medium text-gray-800">{String(label)}</td>
+                        {[v,r,e].map((checked, ci) => (
+                          <td key={ci} className="px-3 py-2 text-center">
+                            <input type="checkbox" defaultChecked={!!checked} className="w-4 h-4 accent-green-600" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
               <span className="font-medium text-gray-700">{t('photoRequiredIfDeaths')}</span>

@@ -8,6 +8,7 @@ import type { Batch, BatchCostSummary, Sale, Product } from '@/lib/types';
 import dynamic from 'next/dynamic';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { headNoun, groupNoun } from '@/lib/species';
 import {
   Sprout, Settings, X, AlertTriangle, Check, Skull, Syringe, Wheat, Egg, type LucideIcon,
@@ -293,23 +294,26 @@ export default function BatchDetailPage() {
                   className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700">
                   {t('recordSale')}
                 </button>
-                <div className="relative group">
-                  <button className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-600 rounded-lg font-semibold text-sm hover:bg-gray-50">
-                    <Settings className="w-4 h-4" /> {t('manage')}
-                  </button>
-                  <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10 hidden group-hover:block min-w-[200px]">
-                    <button onClick={closeBatch} disabled={savingBatch}
-                      className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 font-semibold disabled:opacity-50">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-600 rounded-lg font-semibold text-sm hover:bg-gray-50">
+                      <Settings className="w-4 h-4" /> {t('manage')}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[200px] p-0">
+                    <DropdownMenuItem onClick={closeBatch} disabled={savingBatch}
+                      className="px-4 py-2.5 text-sm text-gray-700 font-semibold disabled:opacity-50 rounded-none flex-col items-start gap-0">
                       {t('closeBatch')}
                       <span className="block text-xs text-gray-400 font-normal">{t('closeBatchDesc')}</span>
-                    </button>
-                    <button onClick={() => { setDeleteBatchTyped(''); setShowDeleteBatch(true); }} disabled={savingBatch}
-                      className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 font-semibold disabled:opacity-50 border-t border-gray-100">
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setDeleteBatchTyped(''); setShowDeleteBatch(true); }} disabled={savingBatch}
+                      variant="destructive"
+                      className="px-4 py-2.5 text-sm font-semibold disabled:opacity-50 border-t border-gray-100 rounded-none flex-col items-start gap-0">
                       {t('deleteBatch')}
                       <span className="block text-xs text-gray-400 font-normal">{t('deleteBatchDesc')}</span>
-                    </button>
-                  </div>
-                </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </>
             )}
           </div>
@@ -673,23 +677,25 @@ export default function BatchDetailPage() {
         {sales.length === 0
           ? <p className="text-gray-400 text-sm">{t('noSales')}</p>
           : (
-            <table className="w-full text-sm">
-              <thead className="text-gray-500 text-xs font-semibold border-b">
-                <tr><th className="text-left pb-2">{t('date')}</th><th className="text-left">{t('product')}</th><th className="text-right">{t('qty')}</th><th className="text-right">{t('amount')}</th><th className="text-left">{t('buyer')}</th><th className="text-center">{t('status')}</th></tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {sales.map(s => (
-                  <tr key={s.id} className="py-2">
-                    <td className="py-2 text-gray-400">{new Date(s.createdAt).toLocaleDateString('en-KE')}</td>
-                    <td className="py-2 text-gray-700">{s.productType}</td>
-                    <td className="py-2 text-right">{s.quantity}</td>
-                    <td className="py-2 text-right font-semibold text-gray-900">{fmtKES(s.totalAmount)}</td>
-                    <td className="py-2 text-gray-600">{s.buyer}</td>
-                    <td className="py-2 text-center"><StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? t('clearedLabel') : t('blockedLabel')} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-500 text-xs font-semibold border-b">
+                  <tr><th className="text-left pb-2">{t('date')}</th><th className="text-left">{t('product')}</th><th className="text-right">{t('qty')}</th><th className="text-right">{t('amount')}</th><th className="text-left">{t('buyer')}</th><th className="text-center">{t('status')}</th></tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {sales.map(s => (
+                    <tr key={s.id} className="py-2">
+                      <td className="py-2 text-gray-400">{new Date(s.createdAt).toLocaleDateString('en-KE')}</td>
+                      <td className="py-2 text-gray-700">{s.productType}</td>
+                      <td className="py-2 text-right">{s.quantity}</td>
+                      <td className="py-2 text-right font-semibold text-gray-900">{fmtKES(s.totalAmount)}</td>
+                      <td className="py-2 text-gray-600">{s.buyer}</td>
+                      <td className="py-2 text-center"><StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? t('clearedLabel') : t('blockedLabel')} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )
         }
       </div>

@@ -250,27 +250,29 @@ export default function FinancePage() {
 
       {tab === 'sales' && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
-              <tr><th className="px-4 py-3 text-left">{t('date')}</th><th className="px-3 py-3 text-left">{t('product')}</th><th className="px-3 py-3 text-right">{t('qty')}</th><th className="px-3 py-3 text-right">{t('amount')}</th><th className="px-3 py-3 text-left hidden md:table-cell">{t('buyer')}</th>        <th className="px-3 py-3 text-center">{t('wdCheck')}</th><th className="px-3 py-3 text-center">{t('status')}</th></tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {pagedSales.map(s => (
-                <tr key={s.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-400 text-xs">{new Date(s.createdAt).toLocaleDateString('en-KE')}</td>
-                  <td className="px-3 py-3 font-medium text-gray-900">{s.productType}</td>
-                  <td className="px-3 py-3 text-right">{s.quantity}</td>
-                  <td className="px-3 py-3 text-right font-bold text-gray-900">{fmtKES(s.totalAmount)}</td>
-                  <td className="px-3 py-3 text-gray-600 hidden md:table-cell">{s.buyer}</td>
-                  <td className="px-3 py-3 text-center">
-                    <StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? 'Cleared' : 'Blocked'} />
-                  </td>
-                  <td className="px-3 py-3 text-center"><span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">{s.status}</span></td>
-                </tr>
-              ))}
-              {sales.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No sales recorded yet.</td></tr>}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
+                <tr><th className="px-4 py-3 text-left">{t('date')}</th><th className="px-3 py-3 text-left">{t('product')}</th><th className="px-3 py-3 text-right">{t('qty')}</th><th className="px-3 py-3 text-right">{t('amount')}</th><th className="px-3 py-3 text-left hidden md:table-cell">{t('buyer')}</th>        <th className="px-3 py-3 text-center">{t('wdCheck')}</th><th className="px-3 py-3 text-center">{t('status')}</th></tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {pagedSales.map(s => (
+                  <tr key={s.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-gray-400 text-xs">{new Date(s.createdAt).toLocaleDateString('en-KE')}</td>
+                    <td className="px-3 py-3 font-medium text-gray-900">{s.productType}</td>
+                    <td className="px-3 py-3 text-right">{s.quantity}</td>
+                    <td className="px-3 py-3 text-right font-bold text-gray-900">{fmtKES(s.totalAmount)}</td>
+                    <td className="px-3 py-3 text-gray-600 hidden md:table-cell">{s.buyer}</td>
+                    <td className="px-3 py-3 text-center">
+                      <StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? 'Cleared' : 'Blocked'} />
+                    </td>
+                    <td className="px-3 py-3 text-center"><span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">{s.status}</span></td>
+                  </tr>
+                ))}
+                {sales.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No sales recorded yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
           {salesTotalPages > 1 && (
             <div className="py-3 border-t border-gray-100">
               <Pager page={safeSalesPage} totalPages={salesTotalPages} onPageChange={setSalesPage} prevLabel={t('prev')} nextLabel={t('next')} />
@@ -281,24 +283,26 @@ export default function FinancePage() {
 
       {tab === 'purchases' && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
-              <tr><th className="px-4 py-3 text-left">{t('date')}</th><th className="px-3 py-3 text-left">{t('item')}</th><th className="px-3 py-3 text-left hidden md:table-cell">{t('supplier')}</th><th className="px-3 py-3 text-right">{t('qty')}</th><th className="px-3 py-3 text-right">{t('unitCost')}</th><th className="px-3 py-3 text-right">{t('total')}</th></tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {pagedPurchases.map(p => (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-400 text-xs">{new Date(p.createdAt).toLocaleDateString('en-KE')}</td>
-                  <td className="px-3 py-3 font-medium text-gray-900">{itemName(p.itemId)}</td>
-                  <td className="px-3 py-3 text-gray-600 hidden md:table-cell">{p.supplier}</td>
-                  <td className="px-3 py-3 text-right">{p.quantity}</td>
-                  <td className="px-3 py-3 text-right text-gray-600">{fmtKES(p.unitCost)}</td>
-                  <td className="px-3 py-3 text-right font-bold text-red-700">{fmtKES(p.totalCost)}</td>
-                </tr>
-              ))}
-              {purchases.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No purchases yet. Record one on the Inventory page (&quot;+ Record Purchase&quot;).</td></tr>}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
+                <tr><th className="px-4 py-3 text-left">{t('date')}</th><th className="px-3 py-3 text-left">{t('item')}</th><th className="px-3 py-3 text-left hidden md:table-cell">{t('supplier')}</th><th className="px-3 py-3 text-right">{t('qty')}</th><th className="px-3 py-3 text-right">{t('unitCost')}</th><th className="px-3 py-3 text-right">{t('total')}</th></tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {pagedPurchases.map(p => (
+                  <tr key={p.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-gray-400 text-xs">{new Date(p.createdAt).toLocaleDateString('en-KE')}</td>
+                    <td className="px-3 py-3 font-medium text-gray-900">{itemName(p.itemId)}</td>
+                    <td className="px-3 py-3 text-gray-600 hidden md:table-cell">{p.supplier}</td>
+                    <td className="px-3 py-3 text-right">{p.quantity}</td>
+                    <td className="px-3 py-3 text-right text-gray-600">{fmtKES(p.unitCost)}</td>
+                    <td className="px-3 py-3 text-right font-bold text-red-700">{fmtKES(p.totalCost)}</td>
+                  </tr>
+                ))}
+                {purchases.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No purchases yet. Record one on the Inventory page (&quot;+ Record Purchase&quot;).</td></tr>}
+              </tbody>
+            </table>
+          </div>
           {purchasesTotalPages > 1 && (
             <div className="py-3 border-t border-gray-100">
               <Pager page={safePurchasesPage} totalPages={purchasesTotalPages} onPageChange={setPurchasesPage} prevLabel={t('prev')} nextLabel={t('next')} />

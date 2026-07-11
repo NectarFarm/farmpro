@@ -110,7 +110,7 @@ export function AppShell({
       </aside>
 
       {/* Mobile nav */}
-      <div className={cn('md:hidden fixed bottom-0 left-0 right-0 text-white z-50 flex overflow-x-auto', theme.sidebarBg)}>
+      <div className={cn('md:hidden fixed bottom-0 left-0 right-0 text-white z-50 flex overflow-x-auto pb-[env(safe-area-inset-bottom)]', theme.sidebarBg)}>
         {(mobileNavItems ?? navItems).map((item) => {
           const active = pathname.startsWith(item.href);
           return (
@@ -124,9 +124,9 @@ export function AppShell({
 
       {/* Main column with top bar */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="sticky top-0 z-30 bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+        <header className="sticky top-0 z-30 bg-white border-b border-gray-200 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] flex items-center gap-3">
           <button onClick={() => router.back()} aria-label="Back"
-            className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 text-xl">‹</button>
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 text-xl">‹</button>
           {/* Breadcrumb — where you are */}
           <nav className="flex items-center gap-1.5 text-sm min-w-0">
             <Link href={homeHref} className="text-gray-400 hover:text-gray-600">{homeLabel}</Link>

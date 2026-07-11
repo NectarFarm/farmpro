@@ -95,29 +95,31 @@ export default function OwnerTasksPage() {
       )}
 
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
-            <tr>
-              <th className="px-4 py-3 text-left">{t('tasks')}</th>
-              <th className="px-3 py-3 text-left">{t('people')}</th>
-              <th className="px-3 py-3 text-left hidden md:table-cell">{t('batch')}</th>
-              <th className="px-3 py-3 text-center hidden md:table-cell">{t('due')}</th>
-              <th className="px-3 py-3 text-center">{t('status')}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {tasks.map(t => (
-              <tr key={t.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3"><span className="font-semibold text-gray-900">{t.title}</span><span className="block text-xs text-gray-400 capitalize">{t.type.replace(/_/g, ' ')}</span></td>
-                <td className="px-3 py-3 text-gray-700">{workerName(t.assignedTo)}</td>
-                <td className="px-3 py-3 text-gray-500 hidden md:table-cell">{batchName(t.batchId) ?? '—'}</td>
-                <td className="px-3 py-3 text-center text-gray-500 hidden md:table-cell">{t.dueAt ? new Date(t.dueAt).toLocaleDateString('en-KE') : '—'}</td>
-                <td className="px-3 py-3 text-center"><StatusChip status={statusOf(t.status)} size="sm" label={t.status} /></td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
+              <tr>
+                <th className="px-4 py-3 text-left">{t('tasks')}</th>
+                <th className="px-3 py-3 text-left">{t('people')}</th>
+                <th className="px-3 py-3 text-left hidden md:table-cell">{t('batch')}</th>
+                <th className="px-3 py-3 text-center hidden md:table-cell">{t('due')}</th>
+                <th className="px-3 py-3 text-center">{t('status')}</th>
               </tr>
-            ))}
-            {tasks.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">{t('noTasksYet')}</td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {tasks.map(t => (
+                <tr key={t.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3"><span className="font-semibold text-gray-900">{t.title}</span><span className="block text-xs text-gray-400 capitalize">{t.type.replace(/_/g, ' ')}</span></td>
+                  <td className="px-3 py-3 text-gray-700">{workerName(t.assignedTo)}</td>
+                  <td className="px-3 py-3 text-gray-500 hidden md:table-cell">{batchName(t.batchId) ?? '—'}</td>
+                  <td className="px-3 py-3 text-center text-gray-500 hidden md:table-cell">{t.dueAt ? new Date(t.dueAt).toLocaleDateString('en-KE') : '—'}</td>
+                  <td className="px-3 py-3 text-center"><StatusChip status={statusOf(t.status)} size="sm" label={t.status} /></td>
+                </tr>
+              ))}
+              {tasks.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">{t('noTasksYet')}</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

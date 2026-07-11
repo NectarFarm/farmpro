@@ -67,7 +67,7 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
   return (
     <div className="flex flex-col min-h-screen max-w-md mx-auto bg-gray-50">
       {/* Header: back · title · sync · logout */}
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 px-3 py-3 flex items-center gap-2">
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 px-3 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] flex items-center gap-2">
         {isHome ? (
           brand.logoUrl
             // eslint-disable-next-line @next/next/no-img-element
@@ -87,10 +87,10 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
         </button>
       </header>
 
-      <main className="flex-1 overflow-y-auto pb-20">{children}</main>
+      <main className="flex-1 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">{children}</main>
 
       {/* Bottom tab bar — DS-5: one-thumb reachable */}
-      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 z-40">
+      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 z-40 pb-[env(safe-area-inset-bottom)]">
         <div className="flex">
           {tabs.map((tab) => {
             const active = pathname.startsWith(tab.href.split('/').slice(0, 3).join('/'));

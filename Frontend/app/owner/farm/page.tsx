@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { ProductionUnit, Batch } from '@/lib/types';
@@ -42,6 +43,7 @@ const EMPTY_BATCH = { name: '', species: '', enterprise: '', unitId: '', qty: ''
 
 export default function FarmPage() {
   const { t } = useTranslation();
+  const router = useRouter();
   const [units, setUnits] = useState<ProductionUnit[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [filter, setFilter] = useState<'all'|'active'|'closed'>('active');
@@ -299,7 +301,7 @@ export default function FarmPage() {
                     const mortPct = (((b.initialQty - b.currentQty) / b.initialQty) * 100).toFixed(1);
                     const BIcon = speciesIcon(b.species);
                     return (
-                      <tr key={b.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => window.location.href=`/owner/farm/${b.id}`}>
+                      <tr key={b.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/owner/farm/${b.id}`)}>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <BIcon className="w-4 h-4 text-gray-500 shrink-0" />

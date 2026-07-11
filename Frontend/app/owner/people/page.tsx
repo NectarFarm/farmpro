@@ -223,6 +223,7 @@ export default function PeoplePage() {
       )}
 
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
             <tr>
@@ -308,6 +309,7 @@ export default function PeoplePage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

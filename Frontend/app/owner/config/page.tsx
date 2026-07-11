@@ -131,6 +131,7 @@ export default function WorkerConfigPage() {
               <h2 className="font-bold text-gray-800">{t('fieldPermissions')} — {selected.name}</h2>
               <p className="text-xs text-gray-400 mt-0.5">Editable, read-only, or hidden — per field, for this profile.</p>
             </div>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-gray-500 text-xs font-semibold border-b">
                 <tr>
@@ -167,6 +168,7 @@ export default function WorkerConfigPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Photo threshold */}
