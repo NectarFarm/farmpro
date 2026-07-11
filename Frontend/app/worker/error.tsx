@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 
 export default function WorkerError({
   error,
@@ -11,6 +12,8 @@ export default function WorkerError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const { t } = useTranslation();
+
   useEffect(() => {
     console.error('Worker page error:', error);
   }, [error]);
@@ -23,11 +26,8 @@ export default function WorkerError({
         </div>
         <h1 className="text-lg font-bold text-gray-900 mb-2">Something went wrong</h1>
         <p className="text-gray-500 text-sm mb-6">
-          This page couldn&apos;t load. Try again, or head back home.
+          {t('errorRecordsSafe')}
         </p>
-        {error.digest && (
-          <p className="text-xs text-gray-400 mb-4 font-mono">Error ID: {error.digest}</p>
-        )}
         <div className="flex flex-col gap-3">
           <button
             onClick={reset}
@@ -42,6 +42,9 @@ export default function WorkerError({
             Go to Home
           </Link>
         </div>
+        {error.digest && (
+          <p className="text-xs text-gray-400 mt-4 font-mono">Error ID: {error.digest}</p>
+        )}
       </div>
     </div>
   );
