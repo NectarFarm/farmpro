@@ -8,10 +8,17 @@ import type { Task, Alert } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import Link from 'next/link';
-import { Egg, Sunrise, Skull, Wheat, Syringe, Scale, ListOrdered, PackageOpen, Plus } from 'lucide-react';
+import {
+  Egg, Sunrise, Skull, Wheat, Syringe, Scale, ListOrdered, PackageOpen, Plus,
+  Package, CheckCircle2, ClipboardList, AlertTriangle, ArrowUp, Check, type LucideIcon,
+} from 'lucide-react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 
-const taskIcon = (type: string) => ({ morning_round:'🌅', vaccination:'💉', stock_count:'📦', feeding:'🌾', sampling:'⚖️', custom:'✅' }[type] ?? '📋');
+const TASK_ICON: Record<string, LucideIcon> = {
+  morning_round: Sunrise, vaccination: Syringe, stock_count: Package,
+  feeding: Wheat, sampling: Scale, custom: CheckCircle2,
+};
+const taskIcon = (type: string): LucideIcon => TASK_ICON[type] ?? ClipboardList;
 
 export default function WorkerHomePage() {
   const { user } = useAuthStore();
@@ -49,9 +56,9 @@ export default function WorkerHomePage() {
   };
 
   const statusLabel = (task: Task) => {
-    if (task.status === 'DONE') return `✓ ${t('done')}`;
-    if (task.overdue || task.status === 'MISSED') return `⛔ ${t('overdue')}`;
-    return `▲ ${t('due')}`;
+    if (task.status === 'DONE') return t('done');
+    if (task.overdue || task.status === 'MISSED') return t('overdue');
+    return t('due');
   };
 
   const alertStatus = (a: Alert) => a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'info';
@@ -76,8 +83,8 @@ export default function WorkerHomePage() {
           <p className="text-sm text-gray-500">{new Date().toLocaleDateString('en-KE', { weekday:'long', day:'numeric', month:'long' })}</p>
         </div>
         {pendingCount > 0 && (
-          <span className="bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-3 py-1 text-sm font-bold">
-            ↑ {pendingCount} {t('pending')}
+          <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-3 py-1 text-sm font-bold">
+            <ArrowUp className="w-3.5 h-3.5" /> {pendingCount} {t('pending')}
           </span>
         )}
       </div>
@@ -85,7 +92,7 @@ export default function WorkerHomePage() {
       {/* Alerts */}
       {alerts.length > 0 && (
         <section>
-          <h2 className="text-base font-semibold text-gray-700 mb-2">⚠ {t('alerts')}</h2>
+          <h2 className="text-base font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-amber-600" /> {t('alerts')}</h2>
           <div className="flex flex-col gap-2">
             {alerts.map(a => (
               <div key={a.id} className={`rounded-xl px-4 py-3 border flex items-start gap-3 ${a.severity === 'critical' ? 'bg-red-50 border-red-300' : a.severity === 'warning' ? 'bg-amber-50 border-amber-300' : 'bg-blue-50 border-blue-300'}`}>
@@ -102,11 +109,11 @@ export default function WorkerHomePage() {
 
       {/* Today's Tasks */}
       <section>
-        <h2 className="text-base font-semibold text-gray-700 mb-2">📋 {t('myTasks')}</h2>
+        <h2 className="text-base font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><ClipboardList className="w-4 h-4" /> {t('myTasks')}</h2>
         {loading && <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-200 rounded-xl animate-pulse" />)}</div>}
         {!loading && tasks.length === 0 && (
           <div className="text-center py-10 px-4 bg-white rounded-xl border border-dashed border-gray-300">
-            <div className="text-4xl mb-3">📋</div>
+            <ClipboardList className="w-10 h-10 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 text-sm">{t('noTasksToday')}<br />{t('pullToRefresh')}</p>
           </div>
         )}
@@ -117,9 +124,10 @@ export default function WorkerHomePage() {
               : task.type === 'sampling' ? '/worker/record/weight-sampling'
               : task.type === 'stock_count' ? '/worker/record/physical-count'
               : '/worker/record/feeding';
+            const TaskIcon = taskIcon(task.type);
             return (
               <div key={task.id} className={`rounded-xl px-4 py-3 border flex items-center gap-3 ${task.overdue || task.status === 'MISSED' ? 'bg-red-50 border-red-300' : task.status === 'DONE' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
-                <span className="text-2xl">{taskIcon(task.type)}</span>
+                <span className="shrink-0 w-9 h-9 rounded-lg bg-gray-50 flex items-center justify-center"><TaskIcon className="w-5 h-5 text-gray-600" /></span>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900">{task.title}</p>
                   <p className="text-xs text-gray-500">{new Date(task.dueAt).toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' })}</p>
@@ -170,7 +178,7 @@ export default function WorkerHomePage() {
                 <span className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center shrink-0"><r.Icon className="w-5 h-5" strokeWidth={2} /></span>
                 <div className="min-w-0">
                   <span className="text-sm font-semibold text-gray-700 block">{t(r.labelKey)}</span>
-                  {d.count > 0 && <span className="text-[11px] text-green-600 font-semibold">✓ {d.count} today · {timeLabel(d.lastAt)}</span>}
+                  {d.count > 0 && <span className="inline-flex items-center gap-0.5 text-[11px] text-green-600 font-semibold"><Check className="w-3 h-3" /> {d.count} today · {timeLabel(d.lastAt)}</span>}
                 </div>
               </div>
             </Link>

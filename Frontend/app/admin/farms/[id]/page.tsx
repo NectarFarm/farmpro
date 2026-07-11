@@ -3,12 +3,12 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Tractor, Users, Bird, Layers, TrendingUp, DollarSign,
-  Activity, ScrollText, CheckCircle2, XCircle, AlertTriangle,
-  ArrowLeft, BarChart3, Wallet, PieChart, Download
+  Users, Bird, Layers, TrendingUp, DollarSign,
+  Activity, AlertTriangle,
+  ArrowLeft, BarChart3, Wallet, PieChart,
 } from 'lucide-react';
-import { enterpriseIcon } from '@/lib/species';
 import { useTranslation } from '@/lib/i18n/useTranslation';
+import { enterpriseIcon as enterpriseIconFor } from '@/lib/species';
 
 const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
 const fmtKES = (n: number) => `KSh ${Math.abs(n).toLocaleString('en-KE')}`;
@@ -205,14 +205,17 @@ export default function AdminFarmDetailPage() {
             <p className="text-gray-400 text-sm text-center py-6">{t('noBatchesYet')}</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {Object.entries(enterpriseBreakdown).map(([ent, ed]) => (
-                <div key={ent} className="bg-gray-50 rounded-lg p-3 text-center">
-                  <span className="text-2xl block">{enterpriseIcon(ent)}</span>
-                  <p className="text-xs font-semibold text-gray-700 mt-1 capitalize">{ent.replace(/_/g, ' ')}</p>
-                  <p className="text-lg font-bold text-gray-900">{ed.animals}</p>
-                  <p className="text-[10px] text-gray-400">{ed.batches} {t('batches').toLowerCase()}</p>
-                </div>
-              ))}
+              {Object.entries(enterpriseBreakdown).map(([ent, ed]) => {
+                const EntIcon = enterpriseIconFor(ent);
+                return (
+                  <div key={ent} className="bg-gray-50 rounded-lg p-3 text-center">
+                    <EntIcon className="w-6 h-6 mx-auto text-gray-500" />
+                    <p className="text-xs font-semibold text-gray-700 mt-1 capitalize">{ent.replace(/_/g, ' ')}</p>
+                    <p className="text-lg font-bold text-gray-900">{ed.animals}</p>
+                    <p className="text-[10px] text-gray-400">{ed.batches} {t('batches').toLowerCase()}</p>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

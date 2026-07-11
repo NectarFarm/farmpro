@@ -2,9 +2,17 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { ConflictResolver, type Conflict } from '@/components/owner/ConflictResolver';
+import {
+  ClipboardList, AlertTriangle, Skull, Syringe, Wheat, Egg, Package, Hash,
+  Scale, Eye, MapPin, type LucideIcon,
+} from 'lucide-react';
 
 interface Row { kind: string; at: string; by: string; byId: string | null; batch: string; text: string; photoId: string | null; gpsLat: number | null; gpsLng: number | null }
-const icon = (k: string) => ({ mortality: '💀', health: '💉', feeding: '🌾', collection: '🥚', 'stock count': '📦', 'head count': '🔢', 'weight sample': '⚖️', observation: '👁️' }[k] ?? '📋');
+const KIND_ICON: Record<string, LucideIcon> = {
+  mortality: Skull, health: Syringe, feeding: Wheat, collection: Egg,
+  'stock count': Package, 'head count': Hash, 'weight sample': Scale, observation: Eye,
+};
+const iconFor = (k: string): LucideIcon => KIND_ICON[k] ?? ClipboardList;
 
 export default function ActivityPage() {
   const { t } = useTranslation();
@@ -40,14 +48,19 @@ export default function ActivityPage() {
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">📝 {t('workerActivity')}</h1>
-        <p className="text-gray-500 text-sm mt-1">{t('workerActivity')}</p>
+      <div className="flex items-center gap-3">
+        <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+          <ClipboardList className="w-6 h-6 text-green-700" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{t('workerActivity')}</h1>
+          <p className="text-gray-500 text-sm">Everything your workers have logged, newest first.</p>
+        </div>
       </div>
 
       {conflicts.length > 0 && (
         <div className="flex flex-col gap-2">
-          <h2 className="font-bold text-red-700 text-sm">⚠ Sync conflicts to review ({conflicts.length})</h2>
+          <h2 className="font-bold text-red-700 text-sm flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> Sync conflicts to review ({conflicts.length})</h2>
           <p className="text-xs text-gray-500 -mt-1">Two workers recorded the same day&apos;s figure for a batch. The later one was kept — accept that, or override.</p>
           {conflicts.map(c => <ConflictResolver key={c.id} conflict={c} onResolve={resolve} busy={cBusy === c.id} />)}
         </div>
@@ -73,21 +86,27 @@ export default function ActivityPage() {
           <div key={d}>
             <h2 className="font-bold text-gray-700 text-sm mb-2">{new Date(d).toLocaleDateString('en-KE', { weekday: 'long', day: 'numeric', month: 'long' })} <span className="text-gray-400 font-normal">· {byDate[d].length} records</span></h2>
             <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
-              {byDate[d].map((r, i) => (
-                <div key={i} className="flex items-center gap-3 px-4 py-3">
-                  <span className="text-xl">{icon(r.kind)}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-800"><span className="font-semibold capitalize">{r.kind}</span> · {r.text} <span className="text-gray-400">· {r.batch}</span></p>
-                    <p className="text-xs text-gray-400">{new Date(r.at).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })} · by {r.by}
-                      {r.gpsLat != null && r.gpsLng != null && <> · <a className="text-blue-600 underline" href={`https://maps.google.com/?q=${r.gpsLat},${r.gpsLng}`} target="_blank" rel="noreferrer">📍</a></>}
-                    </p>
+              {byDate[d].map((r, i) => {
+                const Icon = iconFor(r.kind);
+                return (
+                  <div key={i} className="flex items-center gap-3 px-4 py-3">
+                    <div className="shrink-0 w-9 h-9 rounded-lg bg-gray-50 flex items-center justify-center">
+                      <Icon className="w-4 h-4 text-gray-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-800"><span className="font-semibold capitalize">{r.kind}</span> · {r.text} <span className="text-gray-400">· {r.batch}</span></p>
+                      <p className="text-xs text-gray-400 flex items-center gap-1">{new Date(r.at).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })} · by {r.by}
+                        {r.gpsLat != null && r.gpsLng != null && (
+                          <> · <a className="text-blue-600 hover:text-blue-700 inline-flex" href={`https://maps.google.com/?q=${r.gpsLat},${r.gpsLng}`} target="_blank" rel="noreferrer" aria-label="View location on map"><MapPin className="w-3.5 h-3.5" /></a></>
+                        )}
+                      </p>
+                    </div>
+                    {r.photoId && (
+                      <a href={`/api/photos/${r.photoId}`} target="_blank" rel="noreferrer"><img src={`/api/photos/${r.photoId}`} alt="evidence" className="w-12 h-12 object-cover rounded-lg border border-gray-200" /></a>
+                    )}
                   </div>
-                  {r.photoId && (
-                     
-                    <a href={`/api/photos/${r.photoId}`} target="_blank" rel="noreferrer"><img src={`/api/photos/${r.photoId}`} alt="evidence" className="w-12 h-12 object-cover rounded-lg border border-gray-200" /></a>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))

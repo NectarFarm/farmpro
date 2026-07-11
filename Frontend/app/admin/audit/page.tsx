@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollText, RefreshCw, Filter } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/lib/i18n/useTranslation';
+import { Pager } from '@/components/Pager';
 
 interface Entry {
   id: string; tenantId: string; farm: string; actor: string; action: string;
@@ -75,42 +76,7 @@ export default function AdminAuditPage() {
   const safePage = Math.min(page, totalPages);
   const paginatedEntries = entries.slice((safePage - 1) * pageSize, safePage * pageSize);
 
-  const Pagination = () => totalPages > 1 ? (
-    <div className="flex items-center justify-center gap-2">
-      <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage <= 1}
-        className="px-3 py-1.5 text-xs font-semibold border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-50 transition-colors">
-        ← {t('prev')}
-      </button>
-      {(() => {
-        const total = totalPages;
-        const cur = safePage;
-        let pages: number[];
-        if (total <= 7) {
-          pages = Array.from({ length: total }, (_, j) => j + 1);
-        } else if (cur <= 4) {
-          pages = [1, 2, 3, 4, 5, -1, total];
-        } else if (cur >= total - 3) {
-          pages = [1, -1, total - 4, total - 3, total - 2, total - 1, total];
-        } else {
-          pages = [1, -1, cur - 1, cur, cur + 1, -1, total];
-        }
-        return pages.map((p, idx) =>
-          p === -1
-            ? <span key={`ellipsis-${idx}`} className="px-1 text-gray-300 text-xs">⋯</span>
-            : (
-              <button key={p} onClick={() => setPage(p)}
-                className={`min-w-[32px] h-[32px] text-xs font-semibold rounded-lg transition-colors ${p === cur ? 'bg-green-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 border border-gray-200'}`}>
-                {p}
-              </button>
-            )
-        );
-      })()}
-      <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
-        className="px-3 py-1.5 text-xs font-semibold border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-50 transition-colors">
-        {t('next')} →
-      </button>
-    </div>
-  ) : null;
+  const Pagination = () => <Pager page={safePage} totalPages={totalPages} onPageChange={setPage} prevLabel={t('prev')} nextLabel={t('next')} />;
 
   const entriesTable = (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
@@ -176,11 +142,14 @@ export default function AdminAuditPage() {
     <div className="p-6 flex flex-col gap-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <ScrollText className="w-6 h-6" /> {t('auditLog')}
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">{t('auditDesc')}</p>
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-indigo-50 flex items-center justify-center">
+            <ScrollText className="w-6 h-6 text-indigo-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('auditLog')}</h1>
+            <p className="text-gray-500 text-sm mt-1">{t('auditDesc')}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="text-xs text-gray-400">{entries.length} {t('entries')}</div>

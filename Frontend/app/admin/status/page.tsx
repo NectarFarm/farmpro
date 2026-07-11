@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import {
-  Database, HardDrive, Gauge, Shield,
+  Database, HardDrive, Gauge, Shield, Check, X,
   CheckCircle2, XCircle, AlertTriangle, RefreshCw, Server, Terminal,
   type LucideIcon,
 } from 'lucide-react';
@@ -119,11 +119,14 @@ export default function AdminStatusPage() {
     <div className="p-6 flex flex-col gap-6 max-w-5xl mx-auto">
       {/* Hero */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Gauge className="w-6 h-6" /> System Status
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">Platform health &mdash; database, storage, environment, and recent activity</p>
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center">
+            <Gauge className="w-6 h-6 text-blue-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">System Status</h1>
+            <p className="text-gray-500 text-sm mt-1">Platform health &mdash; database, storage, environment, and recent activity</p>
+          </div>
         </div>
         <button onClick={load} className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-200 transition-colors flex items-center gap-1">
           <RefreshCw className="w-3.5 h-3.5" /> {t('refresh')}
@@ -204,8 +207,8 @@ export default function AdminStatusPage() {
         </div>
         <div className="space-y-2 text-xs font-mono text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-4">
           <p className="text-gray-400"># System status &mdash; {new Date(data.ts).toISOString()}</p>
-          <p>DB: {data.database.ok ? '✓' : '✗'} {data.database.version || data.database.error}</p>
-          <p>Storage: {data.storage.configured ? `✓ ${data.storage.bucket}` : '✗ (base64 fallback)'}</p>
+          <p className="flex items-center gap-1.5">DB: {data.database.ok ? <Check className="w-3.5 h-3.5 text-green-600" /> : <X className="w-3.5 h-3.5 text-red-600" />} {data.database.version || data.database.error}</p>
+          <p className="flex items-center gap-1.5">Storage: {data.storage.configured ? <><Check className="w-3.5 h-3.5 text-green-600" /> {data.storage.bucket}</> : <><X className="w-3.5 h-3.5 text-red-600" /> (base64 fallback)</>}</p>
           <p>Migration: v{data.migrationVersion}</p>
           <p>Audit (7d): {data.recentActivity.auditEntries7d} entries, {data.recentActivity.errors7d} failures</p>
           <p>Uptime: {fmtUptime(data.environment.uptimeSeconds)}</p>

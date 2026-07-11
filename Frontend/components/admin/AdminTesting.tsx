@@ -4,6 +4,7 @@
 // the tester's screenshots, and download the report as PDF.
 import { useEffect, useState } from 'react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
+import { FlaskConical, Check, X, ArrowUp, ArrowDown, Camera, PartyPopper } from 'lucide-react';
 
 interface Failure { id: string; area: string; title: string; note: string; photoIds: string[] }
 interface ResultRow { area: string; title: string; status: string; note: string; photos: number }
@@ -118,7 +119,7 @@ export function AdminTesting() {
     try {
       const res = await fetch('/api/admin/testing', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-steps', steps }) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Save failed');
-      setStepsMsg('✓ Checklist saved'); setTimeout(() => setStepsMsg(''), 2000);
+      setStepsMsg('Checklist saved'); setTimeout(() => setStepsMsg(''), 2000);
     } catch (e) { setStepsMsg((e as Error).message); } finally { setSavingSteps(false); }
   };
 
@@ -127,16 +128,25 @@ export function AdminTesting() {
     if (!f.run) return <span className="text-xs font-semibold text-amber-600">Enabled · not started</span>;
     if (f.run.status === 'submitted') {
       const fail = f.run.report.failed;
-      return <span className={`text-xs font-semibold ${fail > 0 ? 'text-red-600' : 'text-green-600'}`}>Submitted · {f.run.report.passed}✓ {fail}✗</span>;
+      return (
+        <span className={`text-xs font-semibold flex items-center gap-1 ${fail > 0 ? 'text-red-600' : 'text-green-600'}`}>
+          Submitted · {f.run.report.passed}<Check className="w-3 h-3" /> {fail}<X className="w-3 h-3" />
+        </span>
+      );
     }
     return <span className="text-xs font-semibold text-amber-600">In progress · {f.run.progress.done}/{f.run.progress.total}</span>;
   };
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-3">
-      <div>
-        <h2 className="font-bold text-gray-800">🧪 Acceptance testing</h2>
-        <p className="text-xs text-gray-400">Enable a guided test for a farm, allow screenshots, request a re-test, and read their report.</p>
+      <div className="flex items-center gap-2.5">
+        <div className="shrink-0 w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+          <FlaskConical className="w-4 h-4 text-amber-700" />
+        </div>
+        <div>
+          <h2 className="font-bold text-gray-800">Acceptance testing</h2>
+          <p className="text-xs text-gray-400">Enable a guided test for a farm, allow screenshots, request a re-test, and read their report.</p>
+        </div>
       </div>
       {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs font-semibold">{err}</p>}
 
@@ -154,9 +164,9 @@ export function AdminTesting() {
                   <span className="text-xs text-gray-400 w-5">{i + 1}.</span>
                   <input value={s.area} onChange={e => setStep(i, 'area', e.target.value)} placeholder="Area" className="w-28 border border-gray-300 rounded px-2 py-1 text-xs" />
                   <input value={s.title} onChange={e => setStep(i, 'title', e.target.value)} placeholder="Short title" className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs" />
-                  <button onClick={() => move(i, -1)} className="text-gray-400 hover:text-gray-700 px-1" title="Move up">↑</button>
-                  <button onClick={() => move(i, 1)} className="text-gray-400 hover:text-gray-700 px-1" title="Move down">↓</button>
-                  <button onClick={() => removeStep(i)} className="text-red-400 hover:text-red-600 px-1" title="Remove">✕</button>
+                  <button onClick={() => move(i, -1)} className="text-gray-400 hover:text-gray-700 px-1" title="Move up"><ArrowUp className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => move(i, 1)} className="text-gray-400 hover:text-gray-700 px-1" title="Move down"><ArrowDown className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => removeStep(i)} className="text-red-400 hover:text-red-600 px-1" title="Remove"><X className="w-3.5 h-3.5" /></button>
                 </div>
                 <textarea value={s.instruction} onChange={e => setStep(i, 'instruction', e.target.value)} rows={2} placeholder="What should the farmer do and check?" className="border border-gray-300 rounded px-2 py-1 text-xs" />
               </div>
@@ -180,7 +190,7 @@ export function AdminTesting() {
                 {statusChip(f)}
               </div>
               <div className="flex gap-2 flex-wrap items-center">
-                <label className="text-xs text-gray-500 flex items-center gap-1">📷
+                <label className="text-xs text-gray-500 flex items-center gap-1"><Camera className="w-3.5 h-3.5 shrink-0" />
                   <select value={shotPref[f.tenantId] ?? 0} onChange={e => setShotPref(p => ({ ...p, [f.tenantId]: Number(e.target.value) }))}
                     className="border border-gray-300 rounded-lg px-2 py-1 text-xs" title="Screenshots a tester may attach per step">
                     {[0, 1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n === 0 ? 'no shots' : `${n}/step`}</option>)}
@@ -209,7 +219,7 @@ export function AdminTesting() {
                   Submitted {f.run.submittedAt ? new Date(f.run.submittedAt).toLocaleString('en-KE') : ''} · {f.run.report.passed} passed · {f.run.report.failed} failed.
                 </p>
                 {f.run.report.failures.length === 0
-                  ? <p className="text-green-700 font-semibold">No problems reported 🎉</p>
+                  ? <p className="text-green-700 font-semibold flex items-center gap-1.5"><PartyPopper className="w-4 h-4 shrink-0" /> No problems reported</p>
                   : (
                     <ul className="flex flex-col gap-2">
                       {f.run.report.failures.map(x => (
@@ -225,7 +235,7 @@ export function AdminTesting() {
                                     ? <button type="button" onClick={() => setLightbox(photoData[pid])} title="Click to enlarge"><img src={photoData[pid]} alt="screenshot" className="w-20 h-20 object-cover rounded border border-gray-200 cursor-zoom-in" /></button>
                                     : <div className="w-20 h-20 rounded bg-gray-100 animate-pulse" />}
                                   <button onClick={() => deletePhoto(pid)} disabled={busy === `photo:${pid}`}
-                                    className="absolute -top-2 -right-2 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold disabled:opacity-50" title="Delete screenshot">✕</button>
+                                    className="absolute -top-2 -right-2 w-5 h-5 bg-red-600 text-white rounded-full flex items-center justify-center disabled:opacity-50" title="Delete screenshot"><X className="w-3 h-3" /></button>
                                 </div>
                               ))}
                             </div>
@@ -246,7 +256,7 @@ export function AdminTesting() {
         <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-6" onClick={() => setLightbox(null)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={lightbox} alt="screenshot" className="max-w-full max-h-full rounded shadow-2xl" onClick={e => e.stopPropagation()} />
-          <button onClick={() => setLightbox(null)} aria-label="Close" className="absolute top-4 right-5 text-white/90 hover:text-white text-3xl leading-none">×</button>
+          <button onClick={() => setLightbox(null)} aria-label="Close" className="absolute top-4 right-5 text-white/90 hover:text-white"><X className="w-7 h-7" /></button>
         </div>
       )}
     </div>

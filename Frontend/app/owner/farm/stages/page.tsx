@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { STAGE_ENTERPRISES, defaultStages, type StageDef } from '@/lib/lifecycle';
+import { Sprout, AlertTriangle, X } from 'lucide-react';
 
 const LABELS: Record<string, string> = {
   layers: 'Layers (eggs)', broilers: 'Broilers (meat)', pig_fatten: 'Pig fattening',
@@ -69,7 +70,7 @@ export default function LifecycleStagesPage() {
     <div className="p-6 flex flex-col gap-5 max-w-3xl">
       <div>
         <div className="flex items-center gap-2 text-sm text-gray-500"><Link href="/owner/farm" className="hover:underline">← {t('farm')}</Link></div>
-        <h1 className="text-2xl font-bold text-gray-900 mt-1">🌱 {t('lifecycleStages')}</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mt-1 flex items-center gap-2"><Sprout className="w-6 h-6 text-green-700" /> {t('lifecycleStages')}</h1>
         <p className="text-gray-500 text-sm">Set the growth phases for each animal type and the AGE (days) each begins. The farm then shows when a batch is due to move to the next phase.</p>
       </div>
 
@@ -86,8 +87,9 @@ export default function LifecycleStagesPage() {
 
       {loadFailed && (
         <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-3 text-sm flex flex-col gap-2">
-          <p className="text-amber-800 font-semibold">
-            ⚠️ Couldn&apos;t load your saved stages — showing defaults; do NOT save until you&apos;ve confirmed this is intentional.
+          <p className="text-amber-800 font-semibold flex items-start gap-1.5">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            Couldn&apos;t load your saved stages — showing defaults; do NOT save until you&apos;ve confirmed this is intentional.
           </p>
           <label className="flex items-center gap-2 text-amber-800 font-medium">
             <input
@@ -111,7 +113,7 @@ export default function LifecycleStagesPage() {
               className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             <input type="number" min="0" value={String(r.startDay)} onChange={e => setRow(i, { startDay: Number(e.target.value) })}
               className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            <button onClick={() => removeRow(i)} aria-label="Remove" className="text-gray-400 hover:text-red-600">✕</button>
+            <button onClick={() => removeRow(i)} aria-label="Remove" className="text-gray-400 hover:text-red-600 flex items-center justify-center"><X className="w-4 h-4" /></button>
           </div>
         ))}
         <button onClick={addRow} className="self-start text-green-700 font-semibold text-sm">+ {t('addStage')}</button>

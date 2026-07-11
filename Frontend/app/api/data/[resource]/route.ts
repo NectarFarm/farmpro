@@ -215,7 +215,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ resource: str
       patch.unitCostCents = toCents(body.unitCost);
     }
     if (Object.keys(patch).length === 0) return badRequest('Nothing to update.');
-    await db.update(inventoryLots).set(patch).where(and(eq(inventoryLots.tenantId, tid), eq(inventoryLots.id, id)));
+    // Locked, matching the FIFO consumption convention (lib/server/inventory.ts's
+    // consumeFeedFIFO, app/api/feed-mix/route.ts) instead of this route's previous
+    // plain unlocked update — a concurrent feed-consumption write on this same lot
+    // must serialize against this edit rather than racing it. Note: this still
+    // sets qtyOnHand to an absolute value from the client's form rather than a
+    // delta, so locking prevents two concurrent PATCHes from interleaving but
+    // doesn't by itself stop a stale on-screen value from overwriting a
+    // just-consumed quantity — that would need a delta- or version-based contract,
+    // out of scope here.
+    await db.transaction(async (tx) => {
+      const [lot] = await tx.select({ id: inventoryLots.id }).from(inventoryLots)
+        .where(and(eq(inventoryLots.tenantId, tid), eq(inventoryLots.id, id))).for('update').limit(1);
+      if (!lot) return;
+      await tx.update(inventoryLots).set(patch).where(and(eq(inventoryLots.tenantId, tid), eq(inventoryLots.id, id)));
+    });
     return ok({ id });
   }
 

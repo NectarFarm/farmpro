@@ -3,7 +3,7 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { LayoutDashboard, Tractor, ScrollText, Settings, Gauge, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Tractor, ScrollText, Settings, Gauge, Shield, LogOut, type LucideIcon } from 'lucide-react';
 import { AppShell, type AppShellTheme } from '@/components/layout/AppShell';
 
 const ADMIN_NAV: { href: string; Icon: LucideIcon; label: string }[] = [
@@ -46,7 +46,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       showSectionIcon={false}
       brand={
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-xl">🛡️</span>
+          <Shield className="w-5 h-5 text-gray-300" />
           <span className="font-bold text-lg">IFMS Admin</span>
         </div>
       }
@@ -54,7 +54,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       sidebarFooter={
         <>
           <LanguageSwitcher compact />
-          <button onClick={handleLogout} className="text-sm text-gray-400 hover:text-white flex items-center gap-2">⏻ Logout</button>
+          <button onClick={handleLogout} className="text-sm text-gray-400 hover:text-white flex items-center gap-2"><LogOut className="w-4 h-4" /> Logout</button>
         </>
       }
       headerRight={<span className="hidden sm:inline text-xs text-gray-400">{user?.email}</span>}

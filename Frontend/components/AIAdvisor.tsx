@@ -3,7 +3,9 @@
 // conversation is multi-turn + persisted to localStorage, so reloading keeps the
 // thread (no lost context, no re-asking). Degrades gracefully with no API key.
 import { useState, useEffect, useRef } from 'react';
+import { Bot, X } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/auth';
+import { useDraggableFab } from './useDraggableFab';
 
 type Msg = { role: 'user' | 'assistant'; content: string; error?: boolean };
 
@@ -17,6 +19,7 @@ const SUGGESTIONS = [
 export function AIAdvisor() {
   const { user } = useAuthStore();
   const storageKey = `ifms_ai_chat_${user?.id ?? 'anon'}`;
+  const fab = useDraggableFab(`ifms_fab_pos_ai_advisor_${user?.id ?? 'anon'}`);
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -61,9 +64,16 @@ export function AIAdvisor() {
 
   return (
     <>
-      <button onClick={() => setOpen(true)} aria-label="AI advisor"
-        className="fixed bottom-5 left-5 z-40 flex items-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm">
-        <span className="text-lg">🤖</span><span className="hidden sm:inline">AI Advisor</span>
+      <button
+        ref={fab.ref}
+        style={fab.style}
+        onPointerDown={fab.onPointerDown}
+        onPointerMove={fab.onPointerMove}
+        onPointerUp={fab.onPointerUp}
+        onClick={() => { if (!fab.wasDragged()) setOpen(true); }}
+        aria-label="AI advisor"
+        className="fixed bottom-20 md:bottom-5 left-5 z-40 flex items-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
+        <Bot className="w-5 h-5" /><span className="hidden sm:inline">AI Advisor</span>
         {messages.length > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400" title="Saved conversation" />}
       </button>
 
@@ -72,13 +82,16 @@ export function AIAdvisor() {
           <div className="absolute inset-0 bg-black/30" onClick={() => setOpen(false)} />
           <div className="absolute left-0 bottom-0 sm:left-4 sm:bottom-4 w-full sm:max-w-md h-[82vh] sm:h-[72vh] bg-white sm:rounded-2xl shadow-2xl flex flex-col">
             <div className="bg-indigo-700 text-white px-5 py-4 sm:rounded-t-2xl flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-bold">🤖 AI Farm Advisor</h2>
-                <p className="text-indigo-200 text-xs">Uses your live data · remembers this chat</p>
+              <div className="flex items-center gap-2">
+                <Bot className="w-5 h-5" />
+                <div>
+                  <h2 className="text-lg font-bold leading-tight">AI Farm Advisor</h2>
+                  <p className="text-indigo-200 text-xs">Uses your live data · remembers this chat</p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {messages.length > 0 && <button onClick={clear} className="text-indigo-200 hover:text-white text-xs border border-indigo-400 rounded-lg px-2 py-1">Clear</button>}
-                <button onClick={() => setOpen(false)} className="text-white/80 hover:text-white text-2xl leading-none">×</button>
+                <button onClick={() => setOpen(false)} aria-label="Close" className="text-white/80 hover:text-white"><X className="w-6 h-6" /></button>
               </div>
             </div>
 

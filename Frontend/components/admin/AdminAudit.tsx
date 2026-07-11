@@ -2,6 +2,7 @@
 // System audit trail for the super-admin: who did what to which farm, filterable
 // by farm. Entries survive a farm's deletion, so there's always a forensic record.
 import { useEffect, useState } from 'react';
+import { ScrollText } from 'lucide-react';
 
 interface Entry {
   id: string; tenantId: string; farm: string; actor: string; action: string;
@@ -39,9 +40,14 @@ export function AdminAudit() {
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-3">
       <button onClick={() => setOpen(v => !v)} className="flex items-center justify-between text-left">
-        <div>
-          <h2 className="font-bold text-gray-800">🛡️ Audit log</h2>
-          <p className="text-xs text-gray-400">Who did what to each farm. Survives farm deletion.</p>
+        <div className="flex items-center gap-2.5">
+          <div className="shrink-0 w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+            <ScrollText className="w-4 h-4 text-indigo-700" />
+          </div>
+          <div>
+            <h2 className="font-bold text-gray-800">Audit log</h2>
+            <p className="text-xs text-gray-400">Who did what to each farm. Survives farm deletion.</p>
+          </div>
         </div>
         <span className="text-xs font-semibold text-gray-400">{open ? 'Hide' : 'Show'}</span>
       </button>

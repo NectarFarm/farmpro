@@ -12,7 +12,7 @@ import { SyncBadge } from '@/components/worker/SyncBadge';
 import { cn } from '@/lib/utils';
 import { useBranding } from '@/lib/useBranding';
 import { Toaster } from '@/components/ui/toaster';
-import { Home, ClipboardList, Wallet, User, type LucideIcon } from 'lucide-react';
+import { Home, ClipboardList, Wallet, User, Wheat, ChevronLeft, LogOut, type LucideIcon } from 'lucide-react';
 
 const tabs = [
   { href: '/worker/home', Icon: Home, labelKey: 'home' },
@@ -69,18 +69,18 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
           brand.logoUrl
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain pl-1" />
-            : <span className="text-2xl pl-1">🌾</span>
+            : <Wheat className="w-6 h-6 text-green-700 pl-1" />
         ) : (
           <button onClick={() => router.back()} aria-label="Back"
-            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 text-xl">
-            ‹
+            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100">
+            <ChevronLeft className="w-6 h-6" />
           </button>
         )}
         <span className="text-base font-bold text-green-800 truncate flex-1">{title}</span>
         <SyncBadge />
         <button onClick={handleLogout} aria-label="Log out"
-          className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 text-lg">
-          ⏻
+          className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600">
+          <LogOut className="w-5 h-5" />
         </button>
       </header>
 

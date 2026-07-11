@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Employee, Batch, WorkerProfile } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { Users, KeyRound, AlertTriangle, Check } from 'lucide-react';
 
 const roleColor = (r: string) => ({ owner:'bg-purple-100 text-purple-700', manager:'bg-blue-100 text-blue-700', worker:'bg-green-100 text-green-700', vet:'bg-teal-100 text-teal-700', auditor:'bg-gray-100 text-gray-600' })[r] ?? 'bg-gray-100 text-gray-600';
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
@@ -131,8 +132,8 @@ export default function PeoplePage() {
           <div className="flex flex-wrap gap-2">
             {activeBatches.map(b => (
               <button key={b.id} type="button" onClick={() => toggle(sel, setter, b.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 ${sel.has(b.id) ? 'bg-green-50 text-green-700 border-green-300' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
-                {sel.has(b.id) ? '✓ ' : ''}{b.name}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border-2 ${sel.has(b.id) ? 'bg-green-50 text-green-700 border-green-300' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                {sel.has(b.id) && <Check className="w-3 h-3" />}{b.name}
               </button>
             ))}
           </div>
@@ -145,8 +146,16 @@ export default function PeoplePage() {
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">👥 {t('people')}</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+            <Users className="w-6 h-6 text-green-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('people')}</h1>
+            <p className="text-gray-500 text-sm">Staff, roles, batch assignments, salary, and sign-in credentials.</p>
+          </div>
+        </div>
         <button onClick={openAdd} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ {t('addEmployee')}</button>
       </div>
 
@@ -162,9 +171,9 @@ export default function PeoplePage() {
             <input placeholder="Full name" required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 min-h-[48px] text-sm" />
             <input placeholder="Phone (e.g. +254 7XX XXX XXX)" required value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 min-h-[48px] text-sm" />
             <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 min-h-[48px] text-sm">
-              <option value="worker">👤 Worker</option>
-              <option value="manager">👔 Manager</option>
-              <option value="vet">💉 Vet</option>
+              <option value="worker">Worker</option>
+              <option value="manager">Manager</option>
+              <option value="vet">Vet</option>
             </select>
           </div>
 
@@ -237,8 +246,8 @@ export default function PeoplePage() {
                         <span className="font-semibold text-gray-900 block">{emp.name}</span>
                         <span className="font-mono text-gray-400 text-xs">{emp.phone}</span>
                         {emp.role === 'worker' && (
-                          <span className={`block text-[10px] font-semibold ${emp.pinSet ? 'text-green-600' : 'text-amber-600'}`}>
-                            {emp.pinSet ? `🔑 PIN set · ${profileName(emp.workerProfileId)}` : '⚠ No PIN — can’t sign in yet'}
+                          <span className={`flex items-center gap-1 text-[10px] font-semibold ${emp.pinSet ? 'text-green-600' : 'text-amber-600'}`}>
+                            {emp.pinSet ? <><KeyRound className="w-3 h-3" /> PIN set · {profileName(emp.workerProfileId)}</> : <><AlertTriangle className="w-3 h-3" /> No PIN — can&rsquo;t sign in yet</>}
                           </span>
                         )}
                       </div>

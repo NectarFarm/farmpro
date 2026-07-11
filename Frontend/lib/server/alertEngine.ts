@@ -68,10 +68,15 @@ export async function evaluateAlerts(tenantId: string): Promise<{ conditions: nu
     const lots = await db.select().from(inventoryLots).where(eq(inventoryLots.tenantId, tenantId));
     for (const it of items.filter((i) => i.category === 'FEED_FINISHED' || i.category === 'FEED_INGREDIENT')) {
       const stock = lots.filter((l) => l.itemId === it.id).reduce((s, l) => s + l.qtyOnHand, 0);
-      if (stock < fRule.threshold) {
+      // Prefer the item's OWN threshold when it's been customized away from the
+      // schema default (0) — otherwise this always alerted off the tenant-wide
+      // rule even after an owner explicitly raised one feed bag's own threshold
+      // from the Inventory page, which had no effect on when the real alert fired.
+      const threshold = it.lowStockThreshold > 0 ? it.lowStockThreshold : fRule.threshold;
+      if (stock < threshold) {
         toInsert.push({
           id: `auto:lowstock:${it.id}`, tenantId, severity: fRule.severity, type: 'low_stock',
-          title: 'Low feed stock', message: `${it.name}: ${stock}${it.unit} left (< ${fRule.threshold}${fRule.unit})`,
+          title: 'Low feed stock', message: `${it.name}: ${stock}${it.unit} left (< ${threshold}${it.unit})`,
           createdAt: now, acknowledged: false,
         });
       }

@@ -1,5 +1,5 @@
 'use client';
-import { ListOrdered } from 'lucide-react';
+import { ListOrdered, Check, AlertTriangle } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -70,7 +70,7 @@ export default function PhysicalCountPage() {
       return;
     }
     setPendingCount(pendingCount + 1);
-    toast({ description: '✓ Saved — will sync' }); setShowConfirm(false);
+    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> Saved — will sync</span> }); setShowConfirm(false);
     setTimeout(() => router.replace('/worker/home'), 1500);
   };
 
@@ -89,7 +89,7 @@ export default function PhysicalCountPage() {
           {batches.map(b => { const u = units.find(u => u.id === b.unitId); return <option key={b.id} value={b.id}>{b.name} · {u?.name} · {b.currentQty} (system)</option>; })}
         </select>
         {batchId && doneToday('physical_count', batchId).count > 0 && (
-          <p className="text-xs font-semibold text-amber-600">⚠ Already counted today at {timeLabel(doneToday('physical_count', batchId).lastAt)}.</p>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Already counted today at {timeLabel(doneToday('physical_count', batchId).lastAt)}.</p>
         )}
       </div>
 

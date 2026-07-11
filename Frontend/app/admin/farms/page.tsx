@@ -3,7 +3,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { FEATURES } from '@/lib/features';
 import { useTranslation } from '@/lib/i18n/useTranslation';
-import { Tractor, CheckCircle2, XCircle, Layers, Users, Bird, Search, Plus, Filter } from 'lucide-react';
+import { Tractor, Layers, Users, Bird, Search, Plus, Filter, Check } from 'lucide-react';
+import { Pager } from '@/components/Pager';
 
 interface Tenant { id: string; name: string; plan: string; features: string[]; active: boolean; users: number; workers: number; batches: number }
 interface Owner { name: string; email: string; phone: string }
@@ -70,7 +71,7 @@ export default function AdminFarmsPage() {
       const res = await fetch('/api/admin/tenants', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nf) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || t('couldNotCreateFarm'));
-      setCreateMsg(`✓ Created "${nf.farmName}". Owner login: ${nf.ownerEmail}`);
+      setCreateMsg(`Created "${nf.farmName}". Owner login: ${nf.ownerEmail}`);
       setNf({ farmName: '', ownerName: '', ownerEmail: '', ownerPhone: '', ownerPassword: '', plan: 'pro' });
       setShowNew(false); await load();
     } catch (e) { setErr((e as Error).message); } finally { setCreating(false); }
@@ -128,9 +129,14 @@ export default function AdminFarmsPage() {
     <div className="p-6 flex flex-col gap-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('farms')}</h1>
-          <p className="text-gray-500 text-sm mt-1">{t('farmListMeta', { total: tenants.length, active: stats.activeFarms, suspended: stats.suspendedFarms })}</p>
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+            <Tractor className="w-6 h-6 text-green-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('farms')}</h1>
+            <p className="text-gray-500 text-sm mt-1">{t('farmListMeta', { total: tenants.length, active: stats.activeFarms, suspended: stats.suspendedFarms })}</p>
+          </div>
         </div>
         <button onClick={() => { setShowNew(v => !v); setCreateMsg(''); setErr(''); }}
           className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm shrink-0 flex items-center gap-2 hover:bg-green-700">
@@ -138,7 +144,7 @@ export default function AdminFarmsPage() {
         </button>
       </div>
 
-      {createMsg && <p className="text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm font-semibold">{createMsg}</p>}
+      {createMsg && <p className="text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm font-semibold flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> {createMsg}</p>}
       {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 
       {/* New farm form */}
@@ -293,40 +299,7 @@ export default function AdminFarmsPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage <= 1}
-            className="px-3 py-1.5 text-xs font-semibold border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-50 transition-colors">
-            ← {t('prev')}
-          </button>
-          {(() => {
-            const total = totalPages;
-            const cur = safePage;
-            let pages: number[];
-            if (total <= 7) {
-              pages = Array.from({ length: total }, (_, j) => j + 1);
-            } else if (cur <= 4) {
-              pages = [1, 2, 3, 4, 5, -1, total];
-            } else if (cur >= total - 3) {
-              pages = [1, -1, total - 4, total - 3, total - 2, total - 1, total];
-            } else {
-              pages = [1, -1, cur - 1, cur, cur + 1, -1, total];
-            }
-            return pages.map((p, idx) =>
-              p === -1
-                ? <span key={`ellipsis-${idx}`} className="px-1 text-gray-300 text-xs">⋯</span>
-                : (
-                  <button key={p} onClick={() => setPage(p)}
-                    className={`min-w-[32px] h-[32px] text-xs font-semibold rounded-lg transition-colors ${p === cur ? 'bg-green-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 border border-gray-200'}`}>
-                    {p}
-                  </button>
-                )
-            );
-          })()}
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
-            className="px-3 py-1.5 text-xs font-semibold border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-50 transition-colors">
-            {t('next')} →
-          </button>
-        </div>
+        <Pager page={safePage} totalPages={totalPages} onPageChange={setPage} prevLabel={t('prev')} nextLabel={t('next')} />
       )}
 
       {/* Generic styled confirm dialog — replaces window.confirm for delete-farm */}

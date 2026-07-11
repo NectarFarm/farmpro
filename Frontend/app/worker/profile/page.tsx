@@ -8,6 +8,7 @@ import { useWorkerProfileStore } from '@/lib/stores/workerProfile';
 import { api } from '@/lib/api';
 import { getPendingCount } from '@/lib/offline/db';
 import type { Task } from '@/lib/types';
+import { Wifi, WifiOff, Loader2, Check, Globe, Sun } from 'lucide-react';
 
 export default function WorkerProfilePage() {
   const { t } = useTranslation();
@@ -47,7 +48,9 @@ export default function WorkerProfilePage() {
         <h2 className="font-bold text-gray-800 mb-3">{t('syncStatus')}</h2>
         <div className="flex items-center justify-between mb-2">
           <span className="text-gray-600">{t('connectionStatus')}</span>
-          <span className={`font-bold ${isOnline ? 'text-green-600' : 'text-gray-500'}`}>{isOnline ? `🟢 ${t('online')}` : `⤬ ${t('offline')}`}</span>
+          <span className={`inline-flex items-center gap-1 font-bold ${isOnline ? 'text-green-600' : 'text-gray-500'}`}>
+            {isOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />} {isOnline ? t('online') : t('offline')}
+          </span>
         </div>
         <div className="flex items-center justify-between mb-2">
           <span className="text-gray-600">{t('pendingRecords')}</span>
@@ -55,7 +58,10 @@ export default function WorkerProfilePage() {
         </div>
         <div className="flex items-center justify-between">
           <span className="text-gray-600">{t('status')}</span>
-          <span className="font-semibold text-gray-700">{status === 'syncing' ? `↻ ${t('syncingStatus')}…` : status === 'offline' ? `⤬ ${t('offline')}` : `✓ ${t('idle')}`}</span>
+          <span className="inline-flex items-center gap-1 font-semibold text-gray-700">
+            {status === 'syncing' ? <Loader2 className="w-4 h-4 animate-spin" /> : status === 'offline' ? <WifiOff className="w-4 h-4" /> : <Check className="w-4 h-4 text-green-600" />}
+            {status === 'syncing' ? `${t('syncingStatus')}…` : status === 'offline' ? t('offline') : t('idle')}
+          </span>
         </div>
       </div>
 
@@ -66,7 +72,7 @@ export default function WorkerProfilePage() {
           ? <p className="text-gray-400 text-sm">{t('noCompletedToday')}</p>
           : tasks.map(t => (
             <div key={t.id} className="flex items-center gap-2 py-1 border-b last:border-0">
-              <span className="text-green-500">✓</span>
+              <Check className="w-4 h-4 text-green-500 shrink-0" />
               <span className="text-sm text-gray-700">{t.title}</span>
             </div>
           ))
@@ -80,7 +86,7 @@ export default function WorkerProfilePage() {
         {/* Language toggle — NFR-L-2, offline capable */}
         <div className="flex items-center justify-between min-h-[48px]">
           <div>
-          <p className="font-semibold text-gray-700">🌐 {t('language')}</p>
+          <p className="font-semibold text-gray-700 flex items-center gap-1.5"><Globe className="w-4 h-4 text-gray-500" /> {t('language')}</p>
           <p className="text-xs text-gray-400">{t('offlineMode')}</p>
           </div>
           <button onClick={() => setLang(lang === 'en' ? 'sw' : 'en')}
@@ -92,7 +98,7 @@ export default function WorkerProfilePage() {
         {/* High contrast / sunlight mode — DS-1, A11Y-1 */}
         <div className="flex items-center justify-between min-h-[48px]">
           <div>
-          <p className="font-semibold text-gray-700">☀ {t('sunlightMode')}</p>
+          <p className="font-semibold text-gray-700 flex items-center gap-1.5"><Sun className="w-4 h-4 text-amber-500" /> {t('sunlightMode')}</p>
           <p className="text-xs text-gray-400">{t('highContrast')}</p>
           </div>
           <button onClick={toggleHighContrast}

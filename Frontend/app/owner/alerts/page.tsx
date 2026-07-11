@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import type { Alert } from '@/lib/types';
 import { alertDestination } from '@/lib/alerts';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { Bell, RefreshCw, PartyPopper, Check } from 'lucide-react';
 
 export default function AlertsPage() {
   const { t } = useTranslation();
@@ -66,11 +67,19 @@ export default function AlertsPage() {
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">🔔 {t('alerts')}</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+            <Bell className="w-6 h-6 text-green-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('alerts')}</h1>
+            <p className="text-gray-500 text-sm">Thresholds that fire automatically — mortality spikes, low stock, and more.</p>
+          </div>
+        </div>
         <button onClick={runChecks} disabled={checking}
-          className="px-4 py-2 bg-gray-800 text-white rounded-lg font-semibold text-sm disabled:opacity-50">
-          {checking ? `${t('loading')}` : `↻ ${t('runChecksNow')}`}
+          className="flex items-center gap-1.5 px-4 py-2 bg-gray-800 text-white rounded-lg font-semibold text-sm disabled:opacity-50">
+          <RefreshCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} /> {checking ? t('loading') : t('runChecksNow')}
         </button>
       </div>
 
@@ -79,7 +88,7 @@ export default function AlertsPage() {
       <section>
         <h2 className="font-semibold text-gray-700 mb-3">{t('active')} ({active.length})</h2>
         {active.length === 0
-          ? <div className="text-center py-8 bg-white border border-dashed rounded-xl text-gray-400">{t('noActiveAlerts')} 🎉</div>
+          ? <div className="flex items-center justify-center gap-2 py-8 bg-white border border-dashed rounded-xl text-gray-400"><PartyPopper className="w-4 h-4" /> {t('noActiveAlerts')}</div>
           : (
             <div className="flex flex-col gap-3">
               {active.map(a => (
@@ -119,7 +128,7 @@ export default function AlertsPage() {
       {/* Alert rules config */}
       <section className="bg-white border border-gray-200 rounded-xl p-5">
         <h2 className="font-bold text-gray-800 mb-3">{t('alertRules')}</h2>
-        <p className="text-gray-500 text-sm mb-3">{t('alertRules')}</p>
+        <p className="text-gray-500 text-sm mb-3">Set the threshold each rule fires at, and switch any rule off without deleting it.</p>
         {rulesErr && <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold mb-2">{rulesErr}</p>}
         <div className="flex flex-col gap-3">
           {rules.length === 0 && <p className="text-gray-400 text-sm">{t('noRulesConfigured')}</p>}
@@ -139,8 +148,8 @@ export default function AlertsPage() {
           ))}
         </div>
         <button onClick={saveRules} disabled={rules.length === 0}
-          className={`mt-3 px-4 py-2 rounded-lg font-semibold text-sm disabled:opacity-50 ${rulesSaved ? 'bg-green-100 text-green-700' : 'bg-green-600 text-white'}`}>
-          {rulesSaved ? `✓ ${t('saveRules')}` : t('saveRules')}
+          className={`mt-3 flex items-center gap-1.5 px-4 py-2 rounded-lg font-semibold text-sm disabled:opacity-50 ${rulesSaved ? 'bg-green-100 text-green-700' : 'bg-green-600 text-white'}`}>
+          {rulesSaved && <Check className="w-4 h-4" />} {t('saveRules')}
         </button>
       </section>
     </div>

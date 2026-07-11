@@ -2,6 +2,7 @@
 // DS-3: Large touch targets for field numeric entry
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { Delete } from 'lucide-react';
 
 interface Props {
   value: string;
@@ -45,7 +46,7 @@ export function NumericKeypad({ value, onChange, allowDecimal = false, unit, lab
           : <div />
         }
         <button type="button" className={btnCls} onClick={() => press('0')}>0</button>
-        <button type="button" className={cn(btnCls, 'bg-red-50 text-red-600')} onClick={() => press('⌫')}>⌫</button>
+        <button type="button" className={cn(btnCls, 'bg-red-50 text-red-600')} onClick={() => press('⌫')} aria-label="Backspace"><Delete className="w-5 h-5" /></button>
       </div>
     </div>
   );

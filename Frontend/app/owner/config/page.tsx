@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { WorkerProfile, FieldConfig, FieldPermission } from '@/lib/types';
+import { Settings, Check, Lock } from 'lucide-react';
 
 export default function WorkerConfigPage() {
   const { t } = useTranslation();
@@ -72,9 +73,14 @@ export default function WorkerConfigPage() {
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">⚙️ {t('config')}</h1>
-        <p className="text-gray-500 text-sm mt-1">{t('fieldPermissions')}</p>
+      <div className="flex items-center gap-3">
+        <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+          <Settings className="w-6 h-6 text-green-700" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{t('config')}</h1>
+          <p className="text-gray-500 text-sm">Control what each worker profile can see, edit, and must fill in.</p>
+        </div>
       </div>
 
       {/* Profile selector */}
@@ -123,7 +129,7 @@ export default function WorkerConfigPage() {
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
               <h2 className="font-bold text-gray-800">{t('fieldPermissions')} — {selected.name}</h2>
-              <p className="text-xs text-gray-400 mt-0.5">{t('fieldPermissions')}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Editable, read-only, or hidden — per field, for this profile.</p>
             </div>
             <table className="w-full text-sm">
               <thead className="text-gray-500 text-xs font-semibold border-b">
@@ -147,8 +153,8 @@ export default function WorkerConfigPage() {
                     {permissionOptions.map(opt => (
                       <td key={opt.value} className="px-2 py-3 text-center">
                         <button type="button" onClick={() => setFieldPerm(field.fieldKey, opt.value)}
-                          className={`w-8 h-8 rounded-full border-2 transition-all ${field.permission === opt.value ? opt.color + ' border-2' : 'bg-gray-50 border-gray-200'}`}>
-                          {field.permission === opt.value ? '✓' : ''}
+                          className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${field.permission === opt.value ? opt.color + ' border-2' : 'bg-gray-50 border-gray-200'}`}>
+                          {field.permission === opt.value && <Check className="w-4 h-4" />}
                         </button>
                       </td>
                     ))}
@@ -179,13 +185,13 @@ export default function WorkerConfigPage() {
           {/* Save */}
           {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
           <button onClick={handleSave} disabled={saving}
-            className={`w-full min-h-[52px] rounded-xl font-bold text-base disabled:opacity-50 ${saved ? 'bg-green-100 text-green-700' : 'bg-green-600 text-white hover:bg-green-700'}`}>
-            {saving ? t('saving') : saved ? `✓ ${t('changesSaved')}` : t('saveProfile')}
+            className={`w-full min-h-[52px] rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 ${saved ? 'bg-green-100 text-green-700' : 'bg-green-600 text-white hover:bg-green-700'}`}>
+            {saved && <Check className="w-5 h-5" />} {saving ? t('saving') : saved ? t('changesSaved') : t('saveProfile')}
           </button>
 
           {/* Security notice */}
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-            <p className="text-amber-800 font-semibold text-sm">🔒 How hiding is enforced</p>
+            <p className="text-amber-800 font-semibold text-sm flex items-center gap-1.5"><Lock className="w-4 h-4" /> How hiding is enforced</p>
             <p className="text-amber-700 text-xs mt-0.5">Hidden fields are stripped on the server (<span className="font-mono">lib/server/fieldPermissions</span>) before the response leaves the API, based on the worker&apos;s assigned profile — so they never reach the phone and can&apos;t be revealed by inspecting network traffic or editing the page. Covered by automated tests (<span className="font-mono">fieldPermissions</span>).</p>
           </div>
         </>

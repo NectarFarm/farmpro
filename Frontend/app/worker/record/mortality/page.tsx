@@ -1,5 +1,5 @@
 'use client';
-import { Skull } from 'lucide-react';
+import { Skull, Check, AlertTriangle } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -80,7 +80,7 @@ export default function MortalityPage() {
       return;
     }
     setPendingCount(pendingCount + 1);
-    toast({ description: '✓ Saved — will sync' }); setShowConfirm(false);
+    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> Saved — will sync</span> }); setShowConfirm(false);
     setTimeout(() => router.replace('/worker/home'), 1500);
   };
 
@@ -116,8 +116,8 @@ export default function MortalityPage() {
             className="w-14 h-14 rounded-xl bg-gray-100 text-3xl font-bold flex items-center justify-center active:bg-gray-200">+</button>
         </div>
         {rateAbove && (
-          <p className="text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-sm font-semibold">
-            ▲ Rate now {mortalityRate}% (threshold {threshold}%)
+          <p className="flex items-center gap-1.5 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-sm font-semibold">
+            <AlertTriangle className="w-4 h-4 shrink-0" /> Rate now {mortalityRate}% (threshold {threshold}%)
           </p>
         )}
       </div>

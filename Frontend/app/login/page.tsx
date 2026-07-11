@@ -8,6 +8,7 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import { cachePinHash, verifyPinOffline, hashPin } from '@/lib/offline/db';
 import { useBranding } from '@/lib/useBranding';
 import type { User, Role } from '@/lib/types';
+import { Wheat } from 'lucide-react';
 
 const HOME: Record<string, string> = {
   super_admin: '/admin/dashboard', owner: '/owner/dashboard', manager: '/owner/dashboard',
@@ -63,7 +64,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           {brand.logoUrl
             ?   <img src={brand.logoUrl} alt={brand.appName} className="w-16 h-16 object-contain mx-auto mb-3" />
-            : <div className="text-5xl mb-3">🌾</div>}
+            : <div className="w-16 h-16 rounded-2xl bg-green-900/60 flex items-center justify-center mx-auto mb-3"><Wheat className="w-8 h-8 text-green-200" /></div>}
           <h1 className="text-3xl font-bold text-white">{brand.appName}</h1>
           <p className="text-green-200/70 mt-1">{brand.tagline}</p>
         </div>

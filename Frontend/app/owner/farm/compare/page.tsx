@@ -6,6 +6,7 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Batch, BatchCostSummary } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { groupNoun } from '@/lib/species';
+import { BarChart3 } from 'lucide-react';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 
@@ -94,9 +95,14 @@ export default function BatchComparePage() {
   return (
     <div className="p-6 flex flex-col gap-6 max-w-7xl">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">📊 {t('batchComparison')}</h1>
-          <p className="text-gray-500 text-sm">{t('selectBatchesToCompare')}</p>
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+            <BarChart3 className="w-6 h-6 text-green-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('batchComparison')}</h1>
+            <p className="text-gray-500 text-sm">{t('selectBatchesToCompare')}</p>
+          </div>
         </div>
         <Link href="/owner/farm" className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm hover:bg-gray-200">
           ← {t('backToFarm')}

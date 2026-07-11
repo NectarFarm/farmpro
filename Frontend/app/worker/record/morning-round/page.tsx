@@ -1,5 +1,5 @@
 'use client';
-import { Sunrise, CheckCircle2 } from 'lucide-react';
+import { Sunrise, CheckCircle2, Check, AlertTriangle, Bird, PawPrint, Fish, Leaf, type LucideIcon } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -110,22 +110,25 @@ export default function MorningRoundPage() {
         {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
         {round.count > 0 && (
           <div className="bg-amber-50 border-2 border-amber-300 rounded-xl px-4 py-3">
-            <p className="text-amber-900 font-bold text-sm">✓ Today&apos;s round was already done at {timeLabel(round.lastAt)}{round.count > 1 ? ` (${round.count} times)` : ''}.</p>
+            <p className="flex items-center gap-1.5 text-amber-900 font-bold text-sm"><Check className="w-4 h-4 shrink-0" /> Today&apos;s round was already done at {timeLabel(round.lastAt)}{round.count > 1 ? ` (${round.count} times)` : ''}.</p>
             <p className="text-amber-800 text-xs mt-0.5">Only start again if you&apos;re doing a separate round (e.g. an evening check).</p>
           </div>
         )}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-gray-600 mb-3">You will visit <strong>{units.length} unit{units.length !== 1 ? 's' : ''}</strong>:</p>
-          {units.map(u => (
-            <div key={u.id} className="flex items-center gap-3 py-2 border-b last:border-0">
-              <span className="text-xl">{u.species?.includes('poultry') ? '🐔' : u.species?.includes('pig') ? '🐖' : u.species?.includes('tilapia') || u.species?.includes('catfish') ? '🐟' : '🌿'}</span>
-              <div><p className="font-semibold text-gray-900">{u.name}</p><p className="text-xs text-gray-500">{u.batch?.name} · {u.batch?.currentQty} animals</p></div>
-            </div>
-          ))}
+          {units.map(u => {
+            const SpeciesIcon: LucideIcon = u.species?.includes('poultry') ? Bird : u.species?.includes('pig') ? PawPrint : u.species?.includes('tilapia') || u.species?.includes('catfish') ? Fish : Leaf;
+            return (
+              <div key={u.id} className="flex items-center gap-3 py-2 border-b last:border-0">
+                <span className="shrink-0 w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center"><SpeciesIcon className="w-4 h-4 text-green-700" /></span>
+                <div><p className="font-semibold text-gray-900">{u.name}</p><p className="text-xs text-gray-500">{u.batch?.name} · {u.batch?.currentQty} animals</p></div>
+              </div>
+            );
+          })}
         </div>
         <button onClick={() => setStep(0)} disabled={units.length === 0}
-          className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold active:bg-green-700 disabled:opacity-40">
-          🌅 {round.count > 0 ? t('startAnotherRound') : t('startRound')}
+          className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold active:bg-green-700 disabled:opacity-40 flex items-center justify-center gap-2">
+          <Sunrise className="w-5 h-5" /> {round.count > 0 ? t('startAnotherRound') : t('startRound')}
         </button>
         {units.length === 0 && (
           <p className="text-center text-sm text-gray-500">No active units with a batch yet — ask the owner to add one before doing the round.</p>
@@ -179,7 +182,11 @@ export default function MorningRoundPage() {
       {/* Water Level */}
       <SegmentedToggle
         label={t('waterLevel')}
-        options={[{value:'LOW',label:t('waterLevelLow'),icon:'⚠'},{value:'OK',label:t('waterLevelOK'),icon:''},{value:'FULL',label:t('waterLevelFull'),icon:''}]}
+        options={[
+          { value: 'LOW', label: t('waterLevelLow'), icon: <AlertTriangle className="w-4 h-4" /> },
+          { value: 'OK', label: t('waterLevelOK') },
+          { value: 'FULL', label: t('waterLevelFull') },
+        ]}
         value={entry.waterLevel}
         onChange={v => updateEntry(idx, { waterLevel: v })}
         error={entry.waterLevel === null ? 'Required' : undefined}
@@ -206,7 +213,7 @@ export default function MorningRoundPage() {
             <span className={cn('text-xl font-bold', entry.feedUsed ? 'text-gray-900' : 'text-gray-400')}>{entry.feedUsed || '—'} <span className="text-base text-gray-500">kg</span></span>
           </button>
         )}
-        {feedError(entry) && <p className="text-xs font-semibold text-red-600">⚠ {feedError(entry)}</p>}
+        {feedError(entry) && <p className="flex items-center gap-1.5 text-xs font-semibold text-red-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {feedError(entry)}</p>}
       </div>
 
       {/* Poultry fields */}
@@ -232,7 +239,7 @@ export default function MorningRoundPage() {
       {isFish && (
         <>
           <SegmentedToggle label={t('waterColour')}
-            options={[{value:'CLEAR',label:'Clear'},{value:'GREEN',label:'Green ✓'},{value:'MURKY',label:'Murky'}]}
+            options={[{value:'CLEAR',label:'Clear'},{value:'GREEN',label:'Green (good)'},{value:'MURKY',label:'Murky'}]}
             value={entry.waterColour} onChange={v => updateEntry(idx, { waterColour: v })} />
           {activeField === 'water_params' ? (
             <div className="bg-white rounded-xl border border-gray-200 p-4 grid grid-cols-2 gap-3">
@@ -254,7 +261,7 @@ export default function MorningRoundPage() {
 
       {/* Abnormal — no default, DS-2 */}
       <div>
-        <p className="text-sm font-medium text-gray-700 mb-1">▲ {t('abnormalQuestion')} <span className="text-red-500 text-xs">— required, no default</span></p>
+        <p className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1"><AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" /> {t('abnormalQuestion')} <span className="text-red-500 text-xs">— required, no default</span></p>
         <div className="flex gap-3">
           {[{v:false,l:t('no')},{v:true,l:t('yes')}].map(({v,l}) => (
             <button key={l} type="button" onClick={() => updateEntry(idx, { abnormal: v })}
@@ -285,7 +292,7 @@ export default function MorningRoundPage() {
         open={showConfirm}
         title="Finish Morning Round?"
         summary={`${entries.length} units recorded. Submit to queue?`}
-        confirmLabel="✓ Finish & Queue"
+        confirmLabel="Finish & Queue"
         onConfirm={handleFinish}
         onCancel={() => setShowConfirm(false)}
       />

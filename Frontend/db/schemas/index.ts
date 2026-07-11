@@ -176,6 +176,13 @@ export const batches = pgTable('batches', {
   // Date the batch entered its CURRENT lifecycle stage (see lifecycleStages) — used
   // to show "days in stage". `stage` holds the current stage name.
   stageEnteredAt: text('stage_entered_at'),
+  // Set when this batch was created as one of several siblings from a single
+  // delivery split across multiple units (e.g. 3600 fries, 1200 into each of
+  // 3 tanks) — traceable via WHERE delivery_group_id = X. Distinct from
+  // parentBatchIds (a merge — several PAST batches combining into one), this
+  // is the opposite direction: one delivery event fanning out into several
+  // sibling batches, each still a normal single-unit batch in every other respect.
+  deliveryGroupId: text('delivery_group_id'),
 });
 
 // Per-tenant lifecycle stage SET for an enterprise (broilers, layers, pig_fatten…).
@@ -289,7 +296,20 @@ export const purchases = pgTable('purchases', {
   unitCostCents: integer('unit_cost_cents').notNull().default(0),
   totalCost: doublePrecision('total_cost').notNull(),
   totalCostCents: integer('total_cost_cents').notNull().default(0),
-  createdAt: text('created_at').notNull(),
+  createdAt: text('created_at').notNull(), // insert timestamp — not the transaction date, see receivedAt
+  // The date the delivery actually happened (farmer-supplied, defaults to
+  // today) — distinct from createdAt, which is just when the row was saved.
+  // Lets a backlog of paper records be entered without every purchase
+  // silently landing on "today."
+  receivedAt: text('received_at').notNull(),
+  // null = not yet paid in full. Most purchases are cash-on-delivery and are
+  // paid in full immediately (amountPaid defaults to totalCost, paidAt to
+  // receivedAt) — these fields only diverge for a credit/deferred-payment
+  // purchase (e.g. paid via M-Pesa weeks after the goods were received).
+  paidAt: text('paid_at'),
+  paymentMethod: text('payment_method'), // 'cash' | 'mpesa' | 'credit' | ...
+  amountPaid: doublePrecision('amount_paid').notNull().default(0),
+  amountPaidCents: integer('amount_paid_cents').notNull().default(0),
 });
 
 // Generic landing table for synced field events (mortality/feeding/health/…).
@@ -385,6 +405,9 @@ export const healthRecords = pgTable('health_records', {
   // withdrawal status.
   withdrawalDays: integer('withdrawal_days'),
   notes: text('notes'), // free-text: product/treatment name, route, vet's advisory note
+  // Delivery method (e.g. 'Drinking water', 'Injection', 'Wing stab') — the worker
+  // form has always collected this; it had nowhere to land until this column.
+  route: text('route'),
 });
 
 export const laborLogs = pgTable('labor_logs', {
@@ -517,6 +540,24 @@ export const feedFormulas = pgTable('feed_formulas', {
   unitCost: doublePrecision('unit_cost').notNull(),
   unitCostCents: integer('unit_cost_cents').notNull().default(0),
   createdAt: text('created_at').notNull(),
+});
+
+// Milling/processing events: one raw item converts into a different, already-
+// existing item at less than 1:1 (e.g. 74kg whole maize -> 73kg flour). Distinct
+// from feedFormulas above, which COMBINES several ingredients into one recipe
+// at 1:1 input — this is a single ingredient shrinking into a different product.
+export const processingEvents = pgTable('processing_events', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  inputItemId: text('input_item_id').notNull(),
+  inputQty: doublePrecision('input_qty').notNull(),
+  outputItemId: text('output_item_id').notNull(),
+  outputQty: doublePrecision('output_qty').notNull(),
+  fee: doublePrecision('fee').notNull().default(0), // e.g. a milling/grinding charge
+  feeCents: integer('fee_cents').notNull().default(0),
+  note: text('note'),
+  recordedBy: text('recorded_by').notNull(),
+  capturedAt: text('captured_at').notNull(),
 });
 
 // Owner-issued auditor access links. Token is HMAC-signed; we store a hash so

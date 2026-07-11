@@ -2,6 +2,7 @@
 import React from 'react';
 import { useSyncStore } from '@/lib/stores/sync';
 import { cn } from '@/lib/utils';
+import { AlertTriangle, WifiOff, Loader2, ArrowUp, Check } from 'lucide-react';
 
 export function SyncBadge({ className }: { className?: string }) {
   const { isOnline, status, pendingCount, rejectedCount } = useSyncStore();
@@ -11,7 +12,7 @@ export function SyncBadge({ className }: { className?: string }) {
   if (rejectedCount > 0) {
     return (
       <span className={cn('inline-flex items-center gap-1 bg-red-100 text-red-700 border border-red-300 rounded-full px-3 py-1 text-sm font-bold', className)}>
-        <span>⚠</span> {rejectedCount} failed to save
+        <AlertTriangle className="w-3.5 h-3.5" /> {rejectedCount} failed to save
       </span>
     );
   }
@@ -19,27 +20,27 @@ export function SyncBadge({ className }: { className?: string }) {
   if (!isOnline || status === 'offline') {
     return (
       <span className={cn('inline-flex items-center gap-1 bg-gray-200 text-gray-700 border border-gray-400 rounded-full px-3 py-1 text-sm font-bold', className)}>
-        <span>⤬</span> OFFLINE {pendingCount > 0 && `· ${pendingCount} queued`}
+        <WifiOff className="w-3.5 h-3.5" /> OFFLINE {pendingCount > 0 && `· ${pendingCount} queued`}
       </span>
     );
   }
   if (status === 'syncing') {
     return (
       <span className={cn('inline-flex items-center gap-1 bg-blue-100 text-blue-700 border border-blue-300 rounded-full px-3 py-1 text-sm font-semibold animate-pulse', className)}>
-        <span>↻</span> Syncing {pendingCount > 0 && `${pendingCount}…`}
+        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Syncing {pendingCount > 0 && `${pendingCount}…`}
       </span>
     );
   }
   if (pendingCount > 0) {
     return (
       <span className={cn('inline-flex items-center gap-1 bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-3 py-1 text-sm font-semibold', className)}>
-        <span>↑</span> {pendingCount} pending
+        <ArrowUp className="w-3.5 h-3.5" /> {pendingCount} pending
       </span>
     );
   }
   return (
     <span className={cn('inline-flex items-center gap-1 bg-green-100 text-green-700 border border-green-300 rounded-full px-3 py-1 text-sm font-semibold', className)}>
-      <span>✓</span> Online
+      <Check className="w-3.5 h-3.5" /> Online
     </span>
   );
 }

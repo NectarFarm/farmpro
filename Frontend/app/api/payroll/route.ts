@@ -133,7 +133,12 @@ export async function POST(req: Request) {
       : await db.insert(employeeLedger).values(row).returning({ id: employeeLedger.id });
     if (slip) {
       const b = computePayslip(slip.gross, asEntries(await ledgerFor(tenantId, employeeId, period)));
-      await db.update(payslips).set({ advances: b.advances, fines: b.fines, bonuses: b.bonuses, net: b.net }).where(eq(payslips.id, slip.id));
+      await db.update(payslips).set({
+        advances: b.advances, advancesCents: toCents(b.advances),
+        fines: b.fines, finesCents: toCents(b.fines),
+        bonuses: b.bonuses, bonusesCents: toCents(b.bonuses),
+        net: b.net, netCents: toCents(b.net),
+      }).where(eq(payslips.id, slip.id));
     }
     if (inserted.length) {
       await audit({ tenantId, actor: actorLabel(session), action: `payroll.${type}`, entity: employeeId, meta: { period, amount } });
@@ -151,7 +156,12 @@ export async function POST(req: Request) {
     await db.delete(employeeLedger).where(eq(employeeLedger.id, entry.id));
     if (slip) {
       const b = computePayslip(slip.gross, asEntries(await ledgerFor(tenantId, entry.employeeId, entry.period)));
-      await db.update(payslips).set({ advances: b.advances, fines: b.fines, bonuses: b.bonuses, net: b.net }).where(eq(payslips.id, slip.id));
+      await db.update(payslips).set({
+        advances: b.advances, advancesCents: toCents(b.advances),
+        fines: b.fines, finesCents: toCents(b.fines),
+        bonuses: b.bonuses, bonusesCents: toCents(b.bonuses),
+        net: b.net, netCents: toCents(b.net),
+      }).where(eq(payslips.id, slip.id));
     }
     return ok({ ok: true });
   }

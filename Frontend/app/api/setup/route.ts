@@ -1,14 +1,17 @@
 import { db } from '@/db';
 import {
   tenants, productionUnits, batches, inventoryItems, inventoryLots, employees, users, workerProfiles, alertRules,
+  lifecycleStages,
 } from '@/db/schemas';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
 import { created, unauthorized, forbidden, badRequest, serverError } from '@/lib/server/http';
 import { parseBody, setupSchema } from '@/lib/server/validate';
 import { toCents } from '@/lib/server/money';
 import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
+import { defaultStages, STAGE_ENTERPRISES } from '@/lib/lifecycle';
+import { enterpriseFromSpecies } from '@/lib/server/productTemplates';
 
 // Thrown for bad/ambiguous input so the outer handler can turn it into a 400
 // instead of the request silently dropping data or crashing with a 500.
@@ -50,10 +53,28 @@ export async function POST(req: Request) {
     return num;
   };
   const today = new Date().toISOString().slice(0, 10);
+  // A blank date acquired defaults to today (brand-new stock); a *present* but
+  // unparseable one throws rather than silently mis-dating the batch — that
+  // date feeds ageDays()/lifecycle-due math, so garbage here means wrong stage
+  // badges for the life of the batch.
+  const dt = (v: unknown, field: string) => {
+    if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) return today;
+    const t = new Date(String(v)).getTime();
+    if (Number.isNaN(t)) throw new SetupValidationError(`"${field}" must be a valid date (got "${v}").`);
+    return String(v).trim();
+  };
+  // Same lenient-null-on-bad-input behaviour as zPayDay (lib/server/validate.ts):
+  // an absent/out-of-range pay day just means "not scheduled yet" rather than
+  // failing the whole setup submission over one optional field.
+  const payDayOf = (v: unknown): number | null => {
+    if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) return null;
+    const num = Number(v);
+    return Number.isInteger(num) && num >= 1 && num <= 31 ? num : null;
+  };
 
   try {
     const summary = await db.transaction(async (tx) => {
-      const summary = { units: 0, batches: 0, items: 0, employees: 0, logins: 0 };
+      const summary = { units: 0, batches: 0, items: 0, employees: 0, logins: 0, stages: 0 };
 
       if (s(b.farmName)) await tx.update(tenants).set({ name: s(b.farmName) }).where(eq(tenants.id, tid));
 
@@ -75,10 +96,46 @@ export async function POST(req: Request) {
       }
       const firstUnit = [...unitIdByName.values()][0];
 
+      // Lifecycle stages for each "Quick Start Template" enterprise picked on step 0
+      // — idempotent by tenantId+enterprise: an enterprise that already has a stage
+      // set (e.g. seeded at tenant creation, or edited since) is left untouched
+      // rather than overwritten with defaults. Runs BEFORE the batches loop below
+      // because a batch's initial `stage` is looked up from these rows — a batch
+      // inserted first would get a stage name that matches nothing.
+      const existingStageEnterprises = new Set(
+        (await tx.select({ enterprise: lifecycleStages.enterprise }).from(lifecycleStages)
+          .where(eq(lifecycleStages.tenantId, tid))).map(r => r.enterprise)
+      );
+      for (const key of b.templates ?? []) {
+        if (!STAGE_ENTERPRISES.includes(key) || existingStageEnterprises.has(key)) continue;
+        const stages = defaultStages(key);
+        if (!stages.length) continue;
+        await tx.insert(lifecycleStages).values(
+          stages.map((st, i) => ({ id: crypto.randomUUID(), tenantId: tid, enterprise: key, ord: i, name: st.name, startDay: st.startDay }))
+        );
+        existingStageEnterprises.add(key);
+        summary.stages++;
+      }
+
+      // First configured stage name per enterprise, for the batches loop below —
+      // mirrors app/api/data/batches/route.ts's initial-stage lookup so a batch
+      // created here starts on a REAL stage name instead of a placeholder that
+      // matches no configured stage (which would permanently hide it from
+      // lifecycle-due tracking; dueToAdvance() can never find its current stage
+      // in the configured set).
+      const allStageRows = await tx.select({ enterprise: lifecycleStages.enterprise, name: lifecycleStages.name })
+        .from(lifecycleStages).where(eq(lifecycleStages.tenantId, tid)).orderBy(lifecycleStages.ord);
+      const firstStageByEnterprise = new Map<string, string>();
+      for (const r of allStageRows) if (!firstStageByEnterprise.has(r.enterprise)) firstStageByEnterprise.set(r.enterprise, r.name);
+
       // Batches (assigned to a unit) — idempotent by tenantId+name.
       const existingBatches = await tx.select({ name: batches.name })
         .from(batches).where(eq(batches.tenantId, tid));
       const batchNames = new Set(existingBatches.map(x => norm(x.name)));
+      // Accumulated per-unit headcount deltas from batches actually created below —
+      // applied once per unit after the loop (locked) rather than once per batch,
+      // so a unit targeted by several batches in one submission is only locked once.
+      const unitQtyDelta = new Map<string, number>();
       for (const ba of b.batches ?? []) {
         if (!s(ba.name)) continue;
         const key = norm(s(ba.name));
@@ -92,15 +149,36 @@ export async function POST(req: Request) {
           );
         }
         const qty = n(ba.qty, `batch "${ba.name}" quantity`);
+        const cost = n(ba.cost, `batch "${ba.name}" acquisition cost`);
+        const species = s(ba.species, 'unknown');
+        const enterprise = enterpriseFromSpecies(species);
+        const stage = (enterprise && firstStageByEnterprise.get(enterprise)) || defaultStages(enterprise)[0]?.name || 'GROWING';
         await tx.insert(batches).values({
-          id: crypto.randomUUID(), tenantId: tid, unitId, name: s(ba.name), species: s(ba.species, 'unknown'),
-          source: 'PURCHASED', acquiredDate: today, ageAtAcquire: n(ba.ageAtAcquire, `batch "${ba.name}" age`),
+          id: crypto.randomUUID(), tenantId: tid, unitId, name: s(ba.name), species,
+          source: 'PURCHASED', acquiredDate: dt(ba.acquiredDate, `batch "${ba.name}" date acquired`),
+          ageAtAcquire: n(ba.ageAtAcquire, `batch "${ba.name}" age`),
           initialQty: qty, currentQty: qty,
-          stage: 'GROWING', acquisitionCost: n(ba.cost, `batch "${ba.name}" acquisition cost`),
-          acquisitionCostCents: toCents(n(ba.cost, `batch "${ba.name}" acquisition cost`)), status: 'ACTIVE',
+          stage, acquisitionCost: cost, acquisitionCostCents: toCents(cost), status: 'ACTIVE',
         });
         batchNames.add(key);
         summary.batches++;
+        if (qty > 0) unitQtyDelta.set(unitId, (unitQtyDelta.get(unitId) ?? 0) + qty);
+      }
+
+      // Apply accumulated headcount into each touched unit's cached currentQty —
+      // every OTHER path that changes a batch's qty (advance, physical-count,
+      // close, sale) correctly adjusts this running total; batch creation was the
+      // one path that left it untouched, so a fresh unit stayed stuck at 0 while
+      // the Farm page's own live recompute (summing batch quantities) showed the
+      // real number — two derivations of "how many animals are in this unit"
+      // silently disagreeing. Locked since concurrent requests could also be
+      // adjusting the same unit's currentQty right now.
+      for (const [unitId, delta] of unitQtyDelta) {
+        if (delta <= 0) continue;
+        const [u] = await tx.select({ q: productionUnits.currentQty }).from(productionUnits)
+          .where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, unitId))).for('update').limit(1);
+        if (u) await tx.update(productionUnits).set({ currentQty: Math.max(0, (u.q ?? 0) + delta) })
+          .where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, unitId)));
       }
 
       // Inventory items + opening lots — idempotent by tenantId+name (item).
@@ -118,9 +196,10 @@ export async function POST(req: Request) {
           unit: s(it.unit, 'kg'), lowStockThreshold: n(b.lowStockKg, 'low stock threshold'),
         });
         if (qty > 0) {
+          const unitCost = n(it.unitCost, `item "${it.name}" unit cost`);
           await tx.insert(inventoryLots).values({
             id: crypto.randomUUID(), tenantId: tid, itemId, lotNo: `OPEN-${today}`, qtyOnHand: qty,
-            unit: s(it.unit, 'kg'), unitCost: n(it.unitCost, `item "${it.name}" unit cost`), receivedDate: today,
+            unit: s(it.unit, 'kg'), unitCost, unitCostCents: toCents(unitCost), receivedDate: today,
           });
         }
         itemNames.add(key);
@@ -149,9 +228,11 @@ export async function POST(req: Request) {
         const phoneKey = norm(s(e.phone));
         if (employeePhones.has(phoneKey)) continue; // already exists — skip, don't duplicate
         const role = s(e.role, 'worker');
+        const salary = n(e.salary, `employee "${e.name}" salary`);
         await tx.insert(employees).values({
           id: crypto.randomUUID(), tenantId: tid, name: s(e.name), phone: s(e.phone), role,
           workerProfileId: role === 'worker' ? profileId : null, pinSet: role === 'worker' && !!s(e.pin), active: true,
+          salary, salaryCents: toCents(salary), payDay: payDayOf(e.payDay),
         });
         employeePhones.add(phoneKey);
         summary.employees++;

@@ -28,6 +28,7 @@ export interface Batch {
   acquiredDate: string; ageAtAcquire: number; initialQty: number; currentQty: number;
   stage: BatchStage; acquisitionCost: number; status: 'ACTIVE'|'CLOSED'|'ARCHIVED';
   parentBatchIds?: string[];
+  deliveryGroupId?: string | null;
 }
 
 export interface InventoryItem {
@@ -105,7 +106,8 @@ export interface Sale {
 export interface Purchase {
   id: string; tenantId: string; itemId: string; lotId: string;
   supplier: string; quantity: number; unitCost: number; totalCost: number;
-  createdAt: string;
+  createdAt: string; receivedAt: string;
+  paidAt: string | null; paymentMethod: string | null; amountPaid: number;
 }
 
 export interface FieldConfig {

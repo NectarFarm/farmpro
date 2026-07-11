@@ -11,7 +11,7 @@ import { AIAdvisor } from '@/components/AIAdvisor';
 import { ALL_FEATURE_KEYS } from '@/lib/features';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useBranding } from '@/lib/useBranding';
-import { LayoutDashboard, Tractor, Boxes, Wallet, Users, ClipboardList, Settings, BarChart3, Bell, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Tractor, Boxes, Wallet, Users, ClipboardList, Settings, BarChart3, Bell, Wheat, type LucideIcon } from 'lucide-react';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { AppShell, type AppShellTheme } from '@/components/layout/AppShell';
 
@@ -77,8 +77,8 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
       brand={
         <div className="flex items-center gap-2 mb-1">
           {brand.logoUrl
-            ?   <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain" />
-            : <span className="text-2xl">🌾</span>}
+            ? <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain" />
+            : <Wheat className="w-6 h-6 text-green-300" />}
           <span className="font-bold text-lg">{brand.appName}</span>
         </div>
       }

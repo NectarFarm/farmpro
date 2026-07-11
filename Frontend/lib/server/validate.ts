@@ -29,6 +29,13 @@ export async function parseBody<T extends ZodTypeAny>(
 export const zNonEmpty = z.string().trim().min(1);
 export const zPositiveNumber = z.number().finite().positive();
 export const zNonNegNumber = z.number().finite().min(0);
+// Coerced variants for fields fed by controlled number <input>s, whose React
+// state (and therefore the JSON payload) is a string — plain z.number() rejects
+// those outright with "Expected number, received string" instead of validating
+// the actual value, which frontend forms then show as a misleading generic
+// "field required" error.
+export const zPositiveNumberCoerced = z.coerce.number().finite().positive();
+export const zNonNegNumberCoerced = z.coerce.number().finite().min(0);
 export const zUuidLike = z.string().min(8).max(64);
 export const zDateString = z.string().regex(/^\d{4}-\d{2}-\d{2}(T|$)/, 'Expected ISO date string (YYYY-MM-DD or ISO)');
 export const zYearMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Expected YYYY-MM format');
@@ -74,34 +81,54 @@ export const syncBodySchema = z.object({
 export const createUnitSchema = z.object({
   name: zNonEmpty,
   type: z.string().optional().default('HOUSE'),
-  capacity: zPositiveNumber.optional().default(0),
+  capacity: zPositiveNumberCoerced.optional().default(0),
   species: z.string().optional().nullable(),
 });
 
 export const createBatchSchema = z.object({
   name: zNonEmpty,
   unitId: zNonEmpty,
-  qty: zNonNegNumber.optional(),
-  quantity: zNonNegNumber.optional(),
+  qty: zNonNegNumberCoerced.optional(),
+  quantity: zNonNegNumberCoerced.optional(),
   acquiredDate: z.string().optional(),
   species: z.string().optional().default('unknown'),
   enterprise: z.string().optional().nullable(),
   breed: z.string().optional().nullable(),
   source: z.string().optional().default('PURCHASED'),
-  cost: zNonNegNumber.optional(),
-  acquisitionCost: zNonNegNumber.optional(),
-  ageAtAcquire: zNonNegNumber.optional().default(0),
+  cost: zNonNegNumberCoerced.optional(),
+  acquisitionCost: zNonNegNumberCoerced.optional(),
+  ageAtAcquire: zNonNegNumberCoerced.optional().default(0),
   stage: z.string().optional(),
 });
 
+// POST /api/batches/split-delivery — one delivery (e.g. 3600 fries), received
+// as a single lot but stocked across several units in one action (e.g. 1200
+// into each of 3 tanks). Creates one normal single-unit batch per allocation,
+// tagged with a shared deliveryGroupId, with totalCost split proportionally.
+export const splitDeliverySchema = z.object({
+  name: zNonEmpty,
+  species: z.string().optional().default('unknown'),
+  enterprise: z.string().optional().nullable(),
+  breed: z.string().optional().nullable(),
+  source: z.string().optional().default('PURCHASED'),
+  acquiredDate: z.string().optional(),
+  ageAtAcquire: zNonNegNumberCoerced.optional().default(0),
+  totalQty: zPositiveNumberCoerced,
+  totalCost: zNonNegNumberCoerced.optional().default(0),
+  allocations: z.array(z.object({ unitId: zNonEmpty, qty: zPositiveNumberCoerced })).min(2, 'Split a delivery across at least 2 units — for one unit, use the regular Add Batch form.'),
+}).refine(
+  (b) => b.allocations.reduce((s, a) => s + a.qty, 0) === b.totalQty,
+  { message: 'The unit allocations must add up to the total quantity.', path: ['allocations'] },
+);
+
 export const createSaleSchema = z.object({
   batchId: zNonEmpty,
-  quantity: zNonNegNumber,
-  unitPrice: zNonNegNumber,
+  quantity: zNonNegNumberCoerced,
+  unitPrice: zNonNegNumberCoerced,
   productId: z.string().optional(),
   productType: z.string().optional(),
   unitName: z.string().optional(),
-  weightKg: z.number().nullable().optional(),
+  weightKg: z.coerce.number().nullable().optional(),
   buyer: z.string().optional(),
   paymentMethod: z.string().optional(),
 });
@@ -184,11 +211,47 @@ export const purchaseSchema = z.object({
   itemName: z.string().optional(),
   unit: z.string().optional().default('kg'),
   category: z.string().optional().default('CONSUMABLE'),
-  quantity: zPositiveNumber,
-  unitCost: zNonNegNumber,
+  quantity: zPositiveNumberCoerced,
+  unitCost: zNonNegNumberCoerced,
   supplier: z.string().optional().default('Supplier'),
   withdrawalDays: zPositiveNumber.optional().nullable(),
+  // Blank/absent → today (a same-day purchase); a present-but-unparseable value
+  // is rejected rather than silently mis-dating the delivery, same convention
+  // as app/api/setup/route.ts's dt() helper.
+  receivedAt: z.string().optional(),
+  // Defaults to "paid in full today" (the common cash-purchase case) — only
+  // set explicitly for a credit/deferred-payment delivery.
+  paymentMethod: z.enum(['cash', 'mpesa', 'credit', 'bank', 'other']).optional(),
+  amountPaid: zNonNegNumberCoerced.optional(),
+  paidAt: z.string().optional().nullable(),
 });
+
+// PATCH /api/purchases?id= — record a later/partial payment against an
+// already-recorded purchase (e.g. settling a credit delivery via M-Pesa weeks
+// after receipt).
+export const purchasePaymentSchema = z.object({
+  amountPaid: zNonNegNumberCoerced,
+  paymentMethod: z.enum(['cash', 'mpesa', 'credit', 'bank', 'other']).optional(),
+  paidAt: z.string().optional(),
+});
+
+// POST /api/inventory/process — mill/convert one item into a different item at
+// less than 1:1 (e.g. whole maize -> flour). outputQty must not exceed
+// inputQty (this is always a shrinkage, never a multiplication).
+export const processSchema = z.object({
+  inputItemId: zNonEmpty,
+  inputQty: zPositiveNumberCoerced,
+  // '__new' (matching purchaseSchema's item picker) lets the first-ever milling
+  // of a given output — e.g. the very first time "Maize flour" is produced —
+  // create that item on the spot instead of requiring a separate step first.
+  outputItemId: zNonEmpty,
+  outputItemName: z.string().optional(),
+  outputUnit: z.string().optional().default('kg'),
+  outputCategory: z.string().optional().default('FEED_FINISHED'),
+  outputQty: zPositiveNumberCoerced,
+  fee: zNonNegNumberCoerced.optional().default(0),
+  note: z.string().optional().nullable(),
+}).refine((b) => b.outputQty <= b.inputQty, { message: 'Output quantity cannot exceed input quantity — processing only loses material, never creates it.', path: ['outputQty'] });
 
 export const feedMixCreateSchema = z.object({
   name: zNonEmpty,
@@ -238,7 +301,7 @@ export const prescriptionSchema = z.object({
   dose: z.number().min(0).optional().default(0),
   route: z.string().optional().default(''),
   notes: z.string().optional().default(''),
-  withdrawal: z.number().int().min(0).nullable().optional(),
+  withdrawal: z.coerce.number().int().min(0).nullable().optional(),
   productLotId: z.string().optional().nullable(),
 });
 
@@ -302,6 +365,10 @@ export const healthPayloadSchema = z.object({
   lotId: z.string().optional().nullable(),
   quantity: zCoercedNum().finite().min(0).optional().default(1),
   dose: zCoercedNum().finite().min(0).optional().default(1),
+  // The worker form already collects and sends both of these (app/worker/record/health/page.tsx)
+  // — they were previously silently stripped here (unknown keys) and never reached the DB.
+  route: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
 });
 
 export const closingStockPayloadSchema = z.object({
@@ -389,26 +456,39 @@ export const auditorLinkSchema = z.object({
 export const setupSchema = z.object({
   farmName: z.string().optional(),
   farmLocation: z.string().optional(),
+  // Enterprise keys picked on the "Quick Start Templates" step (e.g. 'layers',
+  // 'broilers') — used to seed that enterprise's default lifecycle stage set.
+  templates: z.array(z.string()).optional(),
+  // Every array below allows a blank/absent `name` (and, for employees, blank
+  // `phone`) at the schema level even though the route treats those as
+  // required-in-spirit — the wizard always seeds one empty row per section by
+  // default, and skipping a section entirely (e.g. no inventory yet) is a
+  // completely normal path. app/api/setup/route.ts already skips any row
+  // whose name/phone is blank rather than inserting it; rejecting the whole
+  // submission here over one untouched placeholder row would defeat that and
+  // surface a raw Zod message ("String must contain at least 1 character(s)")
+  // for an entirely valid submission.
   units: z
     .array(z.object({
-      name: zNonEmpty,
+      name: z.string().optional().default(''),
       type: z.string().optional().default('HOUSE'),
       capacity: z.string().optional(),
     }))
     .optional(),
   batches: z
     .array(z.object({
-      name: zNonEmpty,
+      name: z.string().optional().default(''),
       species: z.string().optional().default('unknown'),
       qty: z.string().optional(),
       ageAtAcquire: z.string().optional(),
       cost: z.string().optional(),
       unitName: z.string().optional(),
+      acquiredDate: z.string().optional(),
     }))
     .optional(),
   inventory: z
     .array(z.object({
-      name: zNonEmpty,
+      name: z.string().optional().default(''),
       category: z.string().optional().default('CONSUMABLE'),
       unit: z.string().optional().default('kg'),
       qty: z.string().optional(),
@@ -417,10 +497,12 @@ export const setupSchema = z.object({
     .optional(),
   employees: z
     .array(z.object({
-      name: zNonEmpty,
-      phone: zPhone,
+      name: z.string().optional().default(''),
+      phone: z.string().optional().default(''),
       role: z.string().optional().default('worker'),
       pin: z.string().optional(),
+      salary: z.string().optional(),
+      payDay: z.string().optional(),
     }))
     .optional(),
   mortalityRate: z.string().optional(),

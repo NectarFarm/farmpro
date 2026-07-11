@@ -1,5 +1,5 @@
 'use client';
-import { PackageOpen } from 'lucide-react';
+import { PackageOpen, Check, AlertTriangle, Plus } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -60,7 +60,7 @@ export default function ClosingStockPage() {
       return;
     }
     setPendingCount(pendingCount + Object.keys(counts).length);
-    toast({ description: '✓ Saved — will sync' });
+    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> Saved — will sync</span> });
     setLoading(false);
     setTimeout(() => router.replace('/worker/home'), 1500);
   };
@@ -69,7 +69,7 @@ export default function ClosingStockPage() {
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-teal-700 text-white rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold flex items-center gap-2"><PackageOpen className="w-6 h-6 shrink-0" /><span>{t('closingStockCount')}</span></h1>
-        <p className="text-teal-200 text-sm">{t('closingStockCount')}</p>
+        <p className="text-teal-200 text-sm">Count what&apos;s left in store and compare to system stock.</p>
       </div>
 
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
@@ -90,7 +90,7 @@ export default function ClosingStockPage() {
                 <p className="text-xs text-gray-500">{t('system')}: {onHand} {item.unit} {t('onHand')}</p>
               </div>
               {onHand <= item.lowStockThreshold && (
-                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">▲ LOW</span>
+                <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold"><AlertTriangle className="w-3 h-3" /> LOW</span>
               )}
             </div>
             <div className="flex items-center gap-3">
@@ -104,8 +104,9 @@ export default function ClosingStockPage() {
               />
             </div>
             {hasVariance && variance !== null && (
-              <p className={`text-sm font-semibold rounded-lg px-3 py-1 ${variance < 0 ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'}`}>
-                {variance < 0 ? '⚠ Shortage' : '+ Surplus'} {Math.abs(variance).toFixed(1)} {item.unit} — variance will be flagged (BR-11)
+              <p className={`flex items-center gap-1.5 text-sm font-semibold rounded-lg px-3 py-1 ${variance < 0 ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'}`}>
+                {variance < 0 ? <AlertTriangle className="w-4 h-4 shrink-0" /> : <Plus className="w-4 h-4 shrink-0" />}
+                {variance < 0 ? 'Shortage' : 'Surplus'} {Math.abs(variance).toFixed(1)} {item.unit} — variance will be flagged (BR-11)
               </p>
             )}
           </div>

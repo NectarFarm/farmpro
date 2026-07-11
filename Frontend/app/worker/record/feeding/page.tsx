@@ -1,5 +1,5 @@
 'use client';
-import { Wheat, Plus, X } from 'lucide-react';
+import { Wheat, Plus, X, Check, AlertTriangle } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -80,7 +80,7 @@ export default function FeedingPage() {
     }
     setPendingCount(pendingCount + validRows.length);
     setDoneBatches(d => d.includes(batchId) ? d : [...d, batchId]);
-    toast({ description: `✓ ${batchName(batchId)} fed — pick the next batch or finish` });
+    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> {batchName(batchId)} fed — pick the next batch or finish</span> });
     // Stay in the flow for the next batch instead of leaving the page.
     setBatchId(''); setRows([{ itemId: '', qty: '' }]); setLoading(false); refresh();
   };
@@ -89,7 +89,7 @@ export default function FeedingPage() {
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-green-700 text-white rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Wheat className="w-6 h-6 shrink-0" /><span>{t('feedingLog')}</span></h1>
-        <p className="text-green-200 text-sm">{t('feedingLog')}</p>
+        <p className="text-green-200 text-sm">Log the feed given to each batch.</p>
       </div>
 
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
@@ -97,7 +97,7 @@ export default function FeedingPage() {
       {/* Progress this visit + finish */}
       {doneBatches.length > 0 && (
         <div className="bg-green-50 border border-green-300 rounded-xl px-4 py-3 flex items-center justify-between">
-          <p className="text-green-800 text-sm font-semibold">✓ Fed {doneBatches.length} batch{doneBatches.length > 1 ? 'es' : ''} this round</p>
+          <p className="flex items-center gap-1.5 text-green-800 text-sm font-semibold"><Check className="w-4 h-4 shrink-0" /> Fed {doneBatches.length} batch{doneBatches.length > 1 ? 'es' : ''} this round</p>
           <button onClick={() => router.replace('/worker/home')} className="px-3 py-1.5 bg-green-700 text-white rounded-lg text-xs font-semibold">Finish</button>
         </div>
       )}
@@ -108,10 +108,10 @@ export default function FeedingPage() {
         <select value={batchId} onChange={e => setBatchId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
           <option value="">{t('selectBatch')}</option>
-          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty} animals{doneBatches.includes(b.id) ? ' ✓ fed' : ''}</option>)}
+          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty} animals{doneBatches.includes(b.id) ? ' (fed)' : ''}</option>)}
         </select>
         {batchId && (fedThisVisit || fedToday.count > 0) && (
-          <p className="text-xs font-semibold text-amber-600">⚠ {batchName(batchId)} was already fed today{fedToday.lastAt ? ` at ${timeLabel(fedToday.lastAt)}` : ''}. Only record again if this is a separate feeding.</p>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {batchName(batchId)} was already fed today{fedToday.lastAt ? ` at ${timeLabel(fedToday.lastAt)}` : ''}. Only record again if this is a separate feeding.</p>
         )}
       </div>
 
@@ -128,7 +128,7 @@ export default function FeedingPage() {
                 <select value={r.itemId} onChange={e => setRow(i, { itemId: e.target.value, qty: '' })}
                   className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[44px] bg-white">
                   <option value="">{t('selectFeed')}</option>
-                  {items.map(fi => { const s = onHand(fi.id); return <option key={fi.id} value={fi.id}>{fi.name} — {s} {fi.unit} left{s < fi.lowStockThreshold ? ' ⚠ LOW' : ''}</option>; })}
+                  {items.map(fi => { const s = onHand(fi.id); return <option key={fi.id} value={fi.id}>{fi.name} — {s} {fi.unit} left{s < fi.lowStockThreshold ? ' (LOW)' : ''}</option>; })}
                 </select>
                 {rows.length > 1 && <button type="button" onClick={() => removeRow(i)} aria-label="Remove" className="text-gray-400 hover:text-red-600 p-2"><X className="w-5 h-5" /></button>}
               </div>

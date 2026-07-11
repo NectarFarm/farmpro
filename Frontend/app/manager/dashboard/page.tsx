@@ -7,6 +7,10 @@ import type { Task, Alert } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import Link from 'next/link';
+import {
+  Layers, Bird, TrendingDown, CheckCircle2, EyeOff, Tractor, Boxes, BarChart3,
+  type LucideIcon,
+} from 'lucide-react';
 
 export default function ManagerDashboardPage() {
   const { t } = useTranslation();
@@ -66,21 +70,26 @@ export default function ManagerDashboardPage() {
       {/* KPIs — no financials */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: t('activeBatches'), value: kpis.activeBatches, icon:'🐄' },
-          { label: t('totalAnimals'), value: kpis.totalBirds, icon:'📊' },
-          { label: t('mortalityPct'), value: `${kpis.mortalityPct}%`, icon:'📉', bad: kpis.mortalityPct > 5 },
-          { label: t('taskCompletion'), value: `${kpis.taskCompletionPct}%`, icon:'✅' },
-        ].map(k => (
-          <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-4">
-            <span className="text-xl">{k.icon}</span>
-            <p className="text-xs text-gray-500 mt-1">{k.label}</p>
-            <p className={`text-2xl font-bold ${(k as {bad?: boolean}).bad ? 'text-red-600' : 'text-gray-900'}`}>{k.value}</p>
-          </div>
-        ))}
+          { label: t('activeBatches'), value: kpis.activeBatches, icon: Layers, tint: 'text-emerald-600 bg-emerald-50' },
+          { label: t('totalAnimals'), value: kpis.totalBirds, icon: Bird, tint: 'text-sky-600 bg-sky-50' },
+          { label: t('mortalityPct'), value: `${kpis.mortalityPct}%`, icon: TrendingDown, tint: 'text-rose-600 bg-rose-50', bad: kpis.mortalityPct > 5 },
+          { label: t('taskCompletion'), value: `${kpis.taskCompletionPct}%`, icon: CheckCircle2, tint: 'text-violet-600 bg-violet-50' },
+        ].map(k => {
+          const Icon = k.icon as LucideIcon;
+          return (
+            <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-4">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${k.tint}`}>
+                <Icon className="w-[18px] h-[18px]" />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">{k.label}</p>
+              <p className={`text-2xl font-bold ${(k as {bad?: boolean}).bad ? 'text-red-600' : 'text-gray-900'}`}>{k.value}</p>
+            </div>
+          );
+        })}
       </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-        <p className="text-amber-800 text-sm font-semibold">💰 {t('financeHiddenNotice')}</p>
+        <p className="text-amber-800 text-sm font-semibold flex items-center gap-1.5"><EyeOff className="w-4 h-4 shrink-0" /> {t('financeHiddenNotice')}</p>
         <p className="text-amber-700 text-xs">{t('financeHiddenDesc')}</p>
       </div>
 
@@ -142,13 +151,13 @@ export default function ManagerDashboardPage() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {[
-          { href:'/owner/farm', icon:'🐄', label: t('farmAndBatches') },
-          { href:'/owner/inventory', icon:'📦', label: t('inventory') },
-          { href:'/owner/reports', icon:'📈', label: t('reports') },
+          { href:'/owner/farm', icon: Tractor, label: t('farmAndBatches') },
+          { href:'/owner/inventory', icon: Boxes, label: t('inventory') },
+          { href:'/owner/reports', icon: BarChart3, label: t('reports') },
         ].map(item => (
           <Link key={item.href} href={item.href}
             className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 hover:shadow-sm">
-            <span className="text-2xl">{item.icon}</span>
+            <item.icon className="w-5 h-5 text-gray-500 shrink-0" />
             <span className="font-semibold text-gray-800 text-sm">{item.label}</span>
           </Link>
         ))}

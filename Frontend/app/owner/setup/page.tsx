@@ -1,9 +1,13 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslation } from '@/lib/i18n/useTranslation';
+import { useTranslation, type TranslationKey } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { cn } from '@/lib/utils';
+import {
+  Sprout, House, Building2, PawPrint, Package, Users, Settings, Bell,
+  Egg, Drumstick, Fish, Wheat, Check, type LucideIcon,
+} from 'lucide-react';
 
 // Namespaced by tenant (not a bare shared key) so that on a shared/kiosk device,
 // one owner's abandoned setup — including employee names/phone numbers — can
@@ -15,10 +19,11 @@ const PROGRESS_KEY_PREFIX = 'ifms_setup_progress_';
 interface SetupProgress {
   tenantId: string;
   farmName: string; farmLocation: string;
+  templates: string[];
   units: { name: string; type: string; capacity: string }[];
-  batches: { name: string; species: string; unitName: string; qty: string; ageAtAcquire: string; cost: string }[];
+  batches: { name: string; species: string; unitName: string; qty: string; ageAtAcquire: string; cost: string; acquiredDate: string }[];
   inventory: { name: string; category: string; unit: string; qty: string; unitCost: string }[];
-  employees: { name: string; phone: string; role: string; pin: string }[];
+  employees: { name: string; phone: string; role: string; pin: string; salary: string; payDay: string }[];
   mortalityRate: string; lowStockKg: string; mortalityThreshold: string;
   step: number;
 }
@@ -32,25 +37,25 @@ function loadProgress(tenantId: string): SetupProgress | null {
   } catch { return null; }
 }
 
-const TEMPLATES = [
-  { id:'layers', icon:'🐔', labelKey:'layers', descKey:'layersDesc' },
-  { id:'broilers', icon:'🐔', labelKey:'broilers', descKey:'broilersDesc' },
-  { id:'pig_fatten', icon:'🐖', labelKey:'pigFatten', descKey:'pigFattenDesc' },
-  { id:'pig_breed', icon:'🐖', labelKey:'pigBreed', descKey:'pigBreedDesc' },
-  { id:'tilapia', icon:'🐟', labelKey:'tilapia', descKey:'tilapiaDesc' },
-  { id:'catfish', icon:'🐟', labelKey:'catfish', descKey:'catfishDesc' },
-  { id:'maize', icon:'🌽', labelKey:'maize', descKey:'maizeDesc' },
-] as const;
+const TEMPLATES: { id: string; Icon: LucideIcon; labelKey: TranslationKey; descKey: TranslationKey }[] = [
+  { id:'layers', Icon: Egg, labelKey:'layers', descKey:'layersDesc' },
+  { id:'broilers', Icon: Drumstick, labelKey:'broilers', descKey:'broilersDesc' },
+  { id:'pig_fatten', Icon: PawPrint, labelKey:'pigFatten', descKey:'pigFattenDesc' },
+  { id:'pig_breed', Icon: PawPrint, labelKey:'pigBreed', descKey:'pigBreedDesc' },
+  { id:'tilapia', Icon: Fish, labelKey:'tilapia', descKey:'tilapiaDesc' },
+  { id:'catfish', Icon: Fish, labelKey:'catfish', descKey:'catfishDesc' },
+  { id:'maize', Icon: Wheat, labelKey:'maize', descKey:'maizeDesc' },
+];
 
-const STEPS = [
-  { labelKey: 'farm', icon: '🏡' },
-  { labelKey: 'units', icon: '🏗' },
-  { labelKey: 'batches', icon: '🐄' },
-  { labelKey: 'inventory', icon: '📦' },
-  { labelKey: 'employees', icon: '👥' },
-  { labelKey: 'workerProfile', icon: '⚙️' },
-  { labelKey: 'thresholds', icon: '🔔' },
-] as const;
+const STEPS: { labelKey: TranslationKey; Icon: LucideIcon }[] = [
+  { labelKey: 'farm', Icon: House },
+  { labelKey: 'units', Icon: Building2 },
+  { labelKey: 'batches', Icon: PawPrint },
+  { labelKey: 'inventory', Icon: Package },
+  { labelKey: 'employees', Icon: Users },
+  { labelKey: 'workerProfile', Icon: Settings },
+  { labelKey: 'thresholds', Icon: Bell },
+];
 
 export default function SetupWizardPage() {
   const { t } = useTranslation();
@@ -63,9 +68,9 @@ export default function SetupWizardPage() {
   const [currency] = useState('KSh');
   const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
   const [units, setUnits] = useState([{ name: '', type: 'HOUSE', capacity: '' }]);
-  const [batches, setBatches] = useState([{ name: '', species: '', unitName: '', qty: '', ageAtAcquire: '', cost: '' }]);
+  const [batches, setBatches] = useState([{ name: '', species: '', unitName: '', qty: '', ageAtAcquire: '', cost: '', acquiredDate: '' }]);
   const [inventory, setInventory] = useState([{ name: '', category: 'FEED_FINISHED', unit: 'kg', qty: '', unitCost: '' }]);
-  const [employees, setEmployees] = useState([{ name: '', phone: '', role: 'worker', pin: '' }]);
+  const [employees, setEmployees] = useState([{ name: '', phone: '', role: 'worker', pin: '', salary: '', payDay: '' }]);
   const [mortalityThreshold, setMortalityThreshold] = useState('1');
   const [lowStockKg, setLowStockKg] = useState('50');
   const [mortalityRate, setMortalityRate] = useState('2.0');
@@ -87,6 +92,7 @@ export default function SetupWizardPage() {
       restoredFarmName = saved.farmName ?? '';
       setFarmName(restoredFarmName);
       setFarmLocation(saved.farmLocation ?? '');
+      if (saved.templates?.length) setSelectedTemplates(saved.templates);
       if (saved.units?.length) setUnits(saved.units);
       if (saved.batches?.length) setBatches(saved.batches);
       if (saved.inventory?.length) setInventory(saved.inventory);
@@ -118,13 +124,13 @@ export default function SetupWizardPage() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       const progress: SetupProgress = {
-        tenantId, farmName, farmLocation, units, batches, inventory, employees,
+        tenantId, farmName, farmLocation, templates: selectedTemplates, units, batches, inventory, employees,
         mortalityRate, lowStockKg, mortalityThreshold, step,
       };
       try { localStorage.setItem(PROGRESS_KEY_PREFIX + tenantId, JSON.stringify(progress)); } catch { /* noop */ }
     }, 400);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [tenantId, farmName, farmLocation, units, batches, inventory, employees, mortalityRate, lowStockKg, mortalityThreshold, step]);
+  }, [tenantId, farmName, farmLocation, selectedTemplates, units, batches, inventory, employees, mortalityRate, lowStockKg, mortalityThreshold, step]);
 
   const canNext = () => {
     if (step === 0) return farmName.trim().length > 0;
@@ -146,7 +152,7 @@ export default function SetupWizardPage() {
       const res = await fetch('/api/setup', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          farmName, farmLocation,
+          farmName, farmLocation, templates: selectedTemplates,
           units, batches, inventory, employees,
           mortalityRate, lowStockKg, mortalityPhotoThreshold: mortalityThreshold,
         }),
@@ -168,13 +174,15 @@ export default function SetupWizardPage() {
     } catch (e) { setFinishErr((e as Error).message); setFinishing(false); }
   };
 
+  const StepIcon = STEPS[step].Icon;
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
       <div className="bg-green-700 text-white px-6 py-5">
         <div className="flex items-center gap-3 mb-4">
-          <span className="text-3xl">🌾</span>
-          <div><h1 className="text-xl font-bold">{t('setupWizard')}</h1><p className="text-green-200 text-sm">{t('setupWizard')}</p></div>
+          <Sprout className="w-8 h-8 shrink-0" />
+          <div><h1 className="text-xl font-bold">{t('setupWizard')}</h1><p className="text-green-200 text-sm">Get your farm ready to run in a few short steps.</p></div>
         </div>
         <div className="flex gap-1.5">
           {STEPS.map((s, i) => (
@@ -185,7 +193,7 @@ export default function SetupWizardPage() {
           ))}
         </div>
         <div className="flex justify-between mt-1">
-          <span className="text-green-200 text-xs">{STEPS[step].icon} {t('step')} {step+1}: {t(STEPS[step].labelKey)}</span>
+          <span className="text-green-200 text-xs flex items-center gap-1"><StepIcon className="w-3.5 h-3.5" /> {t('step')} {step+1}: {t(STEPS[step].labelKey)}</span>
           <span className="text-green-300 text-xs">{step+1}/{STEPS.length}</span>
         </div>
       </div>
@@ -195,7 +203,7 @@ export default function SetupWizardPage() {
         {/* Step 0: Farm */}
         {step === 0 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900">🏡 {t('yourFarm')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><House className="w-6 h-6 text-green-700" /> {t('yourFarm')}</h2>
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-gray-700">{t('farmName')} *</label>
               <input value={farmName} onChange={e => setFarmName(e.target.value)} placeholder="e.g. Okello Family Farm"
@@ -214,7 +222,7 @@ export default function SetupWizardPage() {
                   <button key={tmpl.id} type="button" onClick={() => setSelectedTemplates(ts => ts.includes(tmpl.id) ? ts.filter(x=>x!==tmpl.id) : [...ts,tmpl.id])}
                     className={cn('flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-sm font-semibold transition-colors',
                       selectedTemplates.includes(tmpl.id) ? 'bg-green-100 border-green-500 text-green-800' : 'bg-white border-gray-200 text-gray-700')}>
-                    <span>{tmpl.icon}</span><div className="text-left"><div>{t(tmpl.labelKey)}</div><div className="text-xs text-gray-400 font-normal">{t(tmpl.descKey)}</div></div>
+                    <tmpl.Icon className="w-5 h-5 shrink-0" /><div className="text-left"><div>{t(tmpl.labelKey)}</div><div className="text-xs text-gray-400 font-normal">{t(tmpl.descKey)}</div></div>
                   </button>
                 ))}
               </div>
@@ -225,7 +233,7 @@ export default function SetupWizardPage() {
         {/* Step 1: Units */}
         {step === 1 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900">🏗 {t('productionUnits')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Building2 className="w-6 h-6 text-green-700" /> {t('productionUnits')}</h2>
             {units.map((u, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
                 <div className="flex gap-3">
@@ -250,7 +258,7 @@ export default function SetupWizardPage() {
         {/* Step 2: Batches */}
         {step === 2 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900">🐄 {t('currentBatches')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><PawPrint className="w-6 h-6 text-green-700" /> {t('currentBatches')}</h2>
             <p className="text-gray-500 text-sm">{t('batchesDesc')}</p>
             {batches.map((b, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
@@ -273,9 +281,18 @@ export default function SetupWizardPage() {
                   <input type="number" value={b.cost} onChange={e => setBatches(bs => bs.map((x,j)=>j===i?{...x,cost:e.target.value}:x))}
                     placeholder={t('costKSh')} className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
                 </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-gray-500">{t('dateAcquired')}</label>
+                  {/* Feeds ageDays()/lifecycle-stage math — leaving this at "today" for a
+                      batch that's actually been on the farm for a while (the whole point
+                      of this step) understates its true current age. */}
+                  <input type="date" value={b.acquiredDate || new Date().toISOString().slice(0, 10)}
+                    onChange={e => setBatches(bs => bs.map((x,j)=>j===i?{...x,acquiredDate:e.target.value}:x))}
+                    className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
+                </div>
               </div>
             ))}
-            <button type="button" onClick={() => setBatches(b => [...b, {name:'',species:'',unitName:'',qty:'',ageAtAcquire:'',cost:''}])}
+            <button type="button" onClick={() => setBatches(b => [...b, {name:'',species:'',unitName:'',qty:'',ageAtAcquire:'',cost:'',acquiredDate:''}])}
               className="w-full border-2 border-dashed border-green-400 text-green-700 rounded-xl py-3 font-semibold">
               + {t('addBatch')}
             </button>
@@ -285,7 +302,7 @@ export default function SetupWizardPage() {
         {/* Step 3: Inventory */}
         {step === 3 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900">📦 {t('openingInventory')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Package className="w-6 h-6 text-green-700" /> {t('openingInventory')}</h2>
             {inventory.map((item, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
                 <input value={item.name} onChange={e => setInventory(inv => inv.map((x,j)=>j===i?{...x,name:e.target.value}:x))}
@@ -316,7 +333,7 @@ export default function SetupWizardPage() {
         {/* Step 4: Employees */}
         {step === 4 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900">👥 {t('employeesAndPINs')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Users className="w-6 h-6 text-green-700" /> {t('employeesAndPINs')}</h2>
             <p className="text-gray-500 text-sm">{t('employeesPINDesc')}</p>
             {employees.map((emp, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
@@ -335,9 +352,15 @@ export default function SetupWizardPage() {
                   <input type="password" value={emp.pin} onChange={e => setEmployees(es => es.map((x,j)=>j===i?{...x,pin:e.target.value}:x))}
                     placeholder={t('pinPlaceholder')} maxLength={6} className="border-2 border-gray-300 rounded-xl px-3 py-2.5 font-mono tracking-widest" />
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="number" min="0" value={emp.salary} onChange={e => setEmployees(es => es.map((x,j)=>j===i?{...x,salary:e.target.value}:x))}
+                    placeholder={`${t('salary')} (${currency})`} className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
+                  <input type="number" min="1" max="31" value={emp.payDay} onChange={e => setEmployees(es => es.map((x,j)=>j===i?{...x,payDay:e.target.value}:x))}
+                    placeholder={`${t('payDay')} (1–31)`} className="border-2 border-gray-300 rounded-xl px-3 py-2.5" />
+                </div>
               </div>
             ))}
-            <button type="button" onClick={() => setEmployees(e => [...e, {name:'',phone:'',role:'worker',pin:''}])}
+            <button type="button" onClick={() => setEmployees(e => [...e, {name:'',phone:'',role:'worker',pin:'',salary:'',payDay:''}])}
               className="w-full border-2 border-dashed border-green-400 text-green-700 rounded-xl py-3 font-semibold">
               + {t('addEmployee')}
             </button>
@@ -347,7 +370,7 @@ export default function SetupWizardPage() {
         {/* Step 5: Worker Profile Config */}
         {step === 5 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900">⚙️ {t('configProfile')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Settings className="w-6 h-6 text-green-700" /> {t('configProfile')}</h2>
             <p className="text-gray-500 text-sm">{t('configProfileDesc')}</p>
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
               <table className="w-full text-sm">
@@ -387,7 +410,7 @@ export default function SetupWizardPage() {
         {/* Step 6: Thresholds */}
         {step === 6 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900">🔔 {t('alertThresholds')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Bell className="w-6 h-6 text-green-700" /> {t('alertThresholds')}</h2>
             <div className="flex flex-col gap-4">
               <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 flex items-center justify-between">
                 <div><p className="font-semibold text-gray-800">{t('mortalitySpikeAlert')}</p><p className="text-xs text-gray-400">{t('mortalitySpikeDesc')}</p></div>
@@ -426,8 +449,8 @@ export default function SetupWizardPage() {
           </button>
         ) : (
           <button onClick={handleFinish} disabled={finishing}
-            className="flex-1 min-h-[52px] bg-green-700 text-white rounded-xl font-bold text-lg disabled:opacity-50">
-            {finishing ? t('saving') : `✓ ${t('finishSetup')}`}
+            className="flex-1 min-h-[52px] bg-green-700 text-white rounded-xl font-bold text-lg disabled:opacity-50 flex items-center justify-center gap-2">
+            {!finishing && <Check className="w-5 h-5" />} {finishing ? t('saving') : t('finishSetup')}
           </button>
         )}
         {step < STEPS.length - 1 && (

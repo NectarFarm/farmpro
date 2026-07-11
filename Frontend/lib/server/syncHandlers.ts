@@ -198,6 +198,7 @@ export async function handleHealth(
   const inserted = await tx.insert(healthRecords).values({
     ...base, batchId: p.batchId, type: p.type,
     productLotId: lotId ?? null, quantity: qty, withdrawalDays: lot?.withdrawalDays ?? null,
+    route: p.route ?? null, notes: p.notes ?? null,
   }).onConflictDoNothing({ target: healthRecords.clientUuid }).returning({ id: healthRecords.clientUuid });
   if (inserted.length && lot && qty > 0) {
     await tx.update(inventoryLots).set({ qtyOnHand: Math.max(0, Math.round((lot.q - qty) * 1000) / 1000) })

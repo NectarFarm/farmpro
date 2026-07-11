@@ -13,6 +13,12 @@ import { audit, actorLabel } from '@/lib/server/audit';
 import { vetAssignedBatchIds } from '@/lib/server/resources';
 import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
 
+// Thrown inside a transaction below and translated back to the matching HTTP
+// response outside it.
+class UnknownUnitError extends Error {}
+class BatchGoneError extends Error {}
+class AlreadyClosedError extends Error {}
+
 // GET /api/data/batches[?id=]  — this is a static route, so it shadows
 // app/api/data/[resource]/route.ts's GET for this exact path (Next.js prefers
 // a static segment match over a dynamic one) — that catch-all's GET (including
@@ -75,33 +81,53 @@ export async function POST(req: Request) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
 
-  const [unit] = await db.select({ id: productionUnits.id }).from(productionUnits)
-    .where(and(eq(productionUnits.tenantId, session.tenantId), eq(productionUnits.id, body.unitId))).limit(1);
-  if (!unit) return badRequest('unknown unit');
-
   const qty = body.qty ?? body.quantity ?? 0;
   const acquiredDate = body.acquiredDate || now.slice(0, 10);
   const enterprise = body.enterprise || enterpriseFromSpecies(body.species) || null;
-
-  let initialStage = body.stage;
-  if (!initialStage) {
-    const first = enterprise
-      ? (await db.select({ name: lifecycleStages.name }).from(lifecycleStages)
-          .where(and(eq(lifecycleStages.tenantId, session.tenantId), eq(lifecycleStages.enterprise, enterprise)))
-          .orderBy(lifecycleStages.ord).limit(1))[0]?.name
-      : undefined;
-    initialStage = first || defaultStages(enterprise)[0]?.name || 'GROWING';
-  }
-
   const acquisitionCost = body.cost ?? body.acquisitionCost ?? 0;
-  await db.insert(batches).values({
-    id, tenantId: session.tenantId, unitId: body.unitId, name: body.name,
-    species: body.species, breed: body.breed ?? null, source: body.source,
-    acquiredDate, ageAtAcquire: body.ageAtAcquire ?? 0,
-    initialQty: qty, currentQty: qty, stage: initialStage, stageEnteredAt: acquiredDate,
-    acquisitionCost, acquisitionCostCents: toCents(acquisitionCost),
-    status: 'ACTIVE', avgWeightKg: defaultLiveWeightKg(body.species),
-  });
+
+  try {
+    await db.transaction(async (tx) => {
+      // Locked — the new batch's headcount is folded into this unit's cached
+      // currentQty below, in the same transaction, so a concurrent request
+      // touching the same unit (another batch creation, a sale, an advance)
+      // serializes against this instead of racing it. Every OTHER path that
+      // changes a batch's qty already keeps productionUnits.currentQty in step;
+      // creation was the one path that left it untouched, so a fresh unit
+      // stayed at 0 while the Farm page's own live recompute (summing batch
+      // quantities) showed the real number.
+      const [unit] = await tx.select({ id: productionUnits.id, currentQty: productionUnits.currentQty }).from(productionUnits)
+        .where(and(eq(productionUnits.tenantId, session.tenantId), eq(productionUnits.id, body.unitId))).for('update').limit(1);
+      if (!unit) throw new UnknownUnitError();
+
+      let initialStage = body.stage;
+      if (!initialStage) {
+        const first = enterprise
+          ? (await tx.select({ name: lifecycleStages.name }).from(lifecycleStages)
+              .where(and(eq(lifecycleStages.tenantId, session.tenantId), eq(lifecycleStages.enterprise, enterprise)))
+              .orderBy(lifecycleStages.ord).limit(1))[0]?.name
+          : undefined;
+        initialStage = first || defaultStages(enterprise)[0]?.name || 'GROWING';
+      }
+
+      await tx.insert(batches).values({
+        id, tenantId: session.tenantId, unitId: body.unitId, name: body.name,
+        species: body.species, breed: body.breed ?? null, source: body.source,
+        acquiredDate, ageAtAcquire: body.ageAtAcquire ?? 0,
+        initialQty: qty, currentQty: qty, stage: initialStage, stageEnteredAt: acquiredDate,
+        acquisitionCost, acquisitionCostCents: toCents(acquisitionCost),
+        status: 'ACTIVE', avgWeightKg: defaultLiveWeightKg(body.species),
+      });
+
+      if (qty > 0) {
+        await tx.update(productionUnits).set({ currentQty: Math.max(0, (unit.currentQty ?? 0) + qty) })
+          .where(and(eq(productionUnits.tenantId, session.tenantId), eq(productionUnits.id, body.unitId)));
+      }
+    });
+  } catch (err) {
+    if (err instanceof UnknownUnitError) return badRequest('unknown unit');
+    throw err;
+  }
 
   const defs = defaultsForBatch(body.species, body.enterprise || undefined);
   const prod = defs.length ? await createProductsForBatch(session.tenantId, id, defs) : [];
@@ -127,18 +153,37 @@ export async function DELETE(req: Request) {
   const isClose = new URL(req.url).searchParams.get('action') === 'close';
 
   if (isClose) {
-    if (b.status === 'CLOSED') return badRequest('Batch is already closed.');
-    if ((b.currentQty ?? 0) > 0 && b.unitId) {
-      const [u] = await db.select({ q: productionUnits.currentQty }).from(productionUnits)
-        .where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, b.unitId))).limit(1);
-      if (u) {
-        await db.update(productionUnits).set({ currentQty: Math.max(0, (u.q ?? 0) - b.currentQty) })
-          .where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, b.unitId)));
-      }
+    let closedFromStatus: string;
+    try {
+      closedFromStatus = await db.transaction(async (tx) => {
+        // Re-select with a lock inside the transaction — the earlier unlocked
+        // `[b]` read above is shared with the hard-delete branch below and is
+        // fine for that branch's own multi-table existence checks, but closing
+        // also adjusts the unit's currentQty and must serialize against a
+        // concurrent sale/advance/count touching the same batch or unit.
+        const [locked] = await tx.select({ id: batches.id, status: batches.status, currentQty: batches.currentQty, unitId: batches.unitId })
+          .from(batches).where(and(eq(batches.tenantId, tid), eq(batches.id, id))).for('update').limit(1);
+        if (!locked) throw new BatchGoneError();
+        if (locked.status === 'CLOSED') throw new AlreadyClosedError();
+
+        if ((locked.currentQty ?? 0) > 0 && locked.unitId) {
+          const [u] = await tx.select({ q: productionUnits.currentQty }).from(productionUnits)
+            .where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, locked.unitId))).for('update').limit(1);
+          if (u) {
+            await tx.update(productionUnits).set({ currentQty: Math.max(0, (u.q ?? 0) - locked.currentQty) })
+              .where(and(eq(productionUnits.tenantId, tid), eq(productionUnits.id, locked.unitId)));
+          }
+        }
+        await tx.update(batches).set({ status: 'CLOSED', stage: 'CLOSED', stageEnteredAt: new Date().toISOString().slice(0, 10) })
+          .where(and(eq(batches.tenantId, tid), eq(batches.id, id)));
+        return locked.status;
+      });
+    } catch (err) {
+      if (err instanceof BatchGoneError) return notFound();
+      if (err instanceof AlreadyClosedError) return badRequest('Batch is already closed.');
+      throw err;
     }
-    await db.update(batches).set({ status: 'CLOSED', stage: 'CLOSED' })
-      .where(and(eq(batches.tenantId, tid), eq(batches.id, id)));
-    await audit({ tenantId: tid, actor: actorLabel(session), action: 'batch.close', entity: id, before: { status: b.status }, after: { status: 'CLOSED' } });
+    await audit({ tenantId: tid, actor: actorLabel(session), action: 'batch.close', entity: id, before: { status: closedFromStatus }, after: { status: 'CLOSED' } });
     return ok({ id, closed: true });
   }
 

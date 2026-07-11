@@ -1,5 +1,5 @@
 'use client';
-import { Syringe } from 'lucide-react';
+import { Syringe, Check, AlertTriangle } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -79,7 +79,7 @@ export default function HealthPage() {
       return;
     }
     setPendingCount(pendingCount + 1);
-    toast({ description: '✓ Saved — will sync' }); setShowConfirm(false);
+    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> Saved — will sync</span> }); setShowConfirm(false);
     setTimeout(() => router.replace('/worker/home'), 1800);
   };
 
@@ -102,7 +102,7 @@ export default function HealthPage() {
           {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         {batchId && doneToday('health', batchId).count > 0 && (
-          <p className="text-xs font-semibold text-amber-600">⚠ This batch already had a health record today at {timeLabel(doneToday('health', batchId).lastAt)}. Only record again if it&apos;s a separate treatment.</p>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> This batch already had a health record today at {timeLabel(doneToday('health', batchId).lastAt)}. Only record again if it&apos;s a separate treatment.</p>
         )}
       </div>
 
@@ -125,9 +125,10 @@ export default function HealthPage() {
           })}
         </select>
         {selectedLot && (
-          <p className={`text-xs font-semibold ${overDose ? 'text-red-600' : 'text-gray-500'}`}>
+          <p className={`flex items-center gap-1.5 text-xs font-semibold ${overDose ? 'text-red-600' : 'text-gray-500'}`}>
+            {overDose && <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
             {overDose
-              ? `⚠ Only ${available} ${selectedLot.unit} left in this lot — you entered ${doseNum}. Record a purchase or reduce the dose.`
+              ? `Only ${available} ${selectedLot.unit} left in this lot — you entered ${doseNum}. Record a purchase or reduce the dose.`
               : `${available} ${selectedLot.unit} in this lot${doseNum > 0 ? ` · ${Math.round((available - doseNum) * 1000) / 1000} left after` : ''}`}
           </p>
         )}
@@ -152,7 +153,7 @@ export default function HealthPage() {
       {/* Withdrawal info — BR-WD food safety */}
       {withdrawalUntil && (
         <div className="bg-amber-50 border-2 border-amber-400 rounded-xl px-4 py-3">
-          <p className="text-amber-800 font-bold text-sm">⚠ Withdrawal until {withdrawalUntil}</p>
+          <p className="flex items-center gap-1.5 text-amber-800 font-bold text-sm"><AlertTriangle className="w-4 h-4 shrink-0" /> Withdrawal until {withdrawalUntil}</p>
           <p className="text-amber-700 text-xs mt-0.5">No sale of product from this batch before {withdrawalUntil}.</p>
           <p className="text-amber-700 text-xs">Next due: {nextDue}</p>
         </div>

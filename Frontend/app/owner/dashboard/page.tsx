@@ -6,8 +6,11 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useTranslation, type TranslationKey } from '@/lib/i18n/useTranslation';
 import { getDashboardKPIs, getProductionChartData } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Layers, Bird, Wheat, HeartPulse, Wallet, TrendingUp, CheckCircle2, BellRing } from 'lucide-react';
-import { enterpriseIcon, ENTERPRISE_OPTIONS } from '@/lib/species';
+import {
+  Layers, Bird, Wheat, HeartPulse, Wallet, TrendingUp, CheckCircle2, BellRing,
+  LayoutDashboard,
+} from 'lucide-react';
+import { ENTERPRISE_OPTIONS, enterpriseIcon as enterpriseIconFor } from '@/lib/species';
 
 const fmt = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n);
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
@@ -70,9 +73,14 @@ export default function OwnerDashboardPage() {
     <div className="p-6 flex flex-col gap-6 max-w-7xl">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('farmDashboard')}</h1>
-          <p className="text-gray-500 text-sm">{new Date().toLocaleDateString('en-KE', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</p>
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+            <LayoutDashboard className="w-6 h-6 text-green-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('farmDashboard')}</h1>
+            <p className="text-gray-500 text-sm">{new Date().toLocaleDateString('en-KE', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</p>
+          </div>
         </div>
         <div className="flex gap-2">
           <a href="/owner/setup" className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700">+ {t('setupWizard')}</a>
@@ -145,9 +153,10 @@ export default function OwnerDashboardPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {Object.entries(kpis.enterpriseBreaks).map(([ent, data]) => {
               const opt = ENTERPRISE_OPTIONS.find(e => e.key === ent);
+              const EntIcon = enterpriseIconFor(ent);
               return (
                 <div key={ent} className="bg-white border border-gray-200/80 rounded-xl p-3 text-center shadow-sm">
-                  <span className="text-2xl block">{opt?.icon ?? enterpriseIcon(ent)}</span>
+                  <EntIcon className="w-6 h-6 mx-auto text-gray-600" />
                   <p className="text-xs font-semibold text-gray-700 mt-1">{opt?.label ?? ent}</p>
                   <p className="text-lg font-bold text-gray-900">{data.animals}</p>
                   <p className="text-[10px] text-gray-400">{t('batchMeta', { batches: data.batches, mortality: data.mortalityPct })}</p>

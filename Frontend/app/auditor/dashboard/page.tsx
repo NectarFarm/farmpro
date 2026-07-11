@@ -3,6 +3,10 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { getDashboardKPIs, getProductionChartData } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  Lock, Layers, Bird, TrendingDown, Wheat, Wallet, TrendingUp, CheckCircle2,
+  type LucideIcon,
+} from 'lucide-react';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 
@@ -71,7 +75,7 @@ export default function AuditorDashboardPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Read-only banner — SEC-1, FR-M15-6 */}
       <div className="bg-amber-500 text-white px-6 py-3 flex items-center gap-3">
-        <span className="text-xl">🔒</span>
+        <Lock className="w-5 h-5 shrink-0" />
         <div>
           <p className="font-bold">
             {daysLeft >= 1
@@ -91,27 +95,32 @@ export default function AuditorDashboardPage() {
         {/* KPIs — read only, grouped to match the owner dashboard */}
         {[
           { heading: t('livestockHealth'), cards: [
-            { label: t('activeBatches'), value: String(kpis.activeBatches), icon:'🐔' },
-            { label: t('totalAnimals'), value: String(kpis.totalBirds), icon:'🐄' },
-            { label: t('mortality'), value: `${kpis.mortalityPct}%`, icon:'❤️‍🩹' },
-            { label: t('avgFcr'), value: String(kpis.avgFCR), icon:'🌾' },
+            { label: t('activeBatches'), value: String(kpis.activeBatches), icon: Layers, tint: 'text-emerald-600 bg-emerald-50' },
+            { label: t('totalAnimals'), value: String(kpis.totalBirds), icon: Bird, tint: 'text-sky-600 bg-sky-50' },
+            { label: t('mortality'), value: `${kpis.mortalityPct}%`, icon: TrendingDown, tint: 'text-rose-600 bg-rose-50' },
+            { label: t('avgFcr'), value: String(kpis.avgFCR), icon: Wheat, tint: 'text-amber-600 bg-amber-50' },
           ] },
           { heading: t('finance'), cards: [
-            { label: t('grossMargin'), value: fmtKES(kpis.grossMargin), icon:'💰' },
-            { label: `${t('revenue')} (${t('month')})`, value: fmtKES(kpis.revenueThisMonth), icon:'📈' },
-            { label: t('taskCompletion'), value: `${kpis.taskCompletionPct}%`, icon:'✅' },
+            { label: t('grossMargin'), value: fmtKES(kpis.grossMargin), icon: Wallet, tint: 'text-emerald-600 bg-emerald-50' },
+            { label: `${t('revenue')} (${t('month')})`, value: fmtKES(kpis.revenueThisMonth), icon: TrendingUp, tint: 'text-green-600 bg-green-50' },
+            { label: t('taskCompletion'), value: `${kpis.taskCompletionPct}%`, icon: CheckCircle2, tint: 'text-violet-600 bg-violet-50' },
           ] },
         ].map(group => (
           <div key={group.heading} className="flex flex-col gap-2">
             <h2 className="text-xs font-bold uppercase tracking-wide text-gray-400">{group.heading}</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {group.cards.map(k => (
-                <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-4 pointer-events-none select-none">
-                  <span className="text-xl">{k.icon}</span>
-                  <p className="text-xs text-gray-500 mt-1">{k.label}</p>
-                  <p className="text-2xl font-bold text-gray-900">{k.value}</p>
-                </div>
-              ))}
+              {group.cards.map(k => {
+                const Icon = k.icon as LucideIcon;
+                return (
+                  <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-4 pointer-events-none select-none">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${k.tint}`}>
+                      <Icon className="w-[18px] h-[18px]" />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{k.label}</p>
+                    <p className="text-2xl font-bold text-gray-900">{k.value}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}

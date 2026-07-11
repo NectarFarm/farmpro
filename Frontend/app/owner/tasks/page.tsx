@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Task, Batch } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { ClipboardList } from 'lucide-react';
 
 const statusOf = (s: string) => (s === 'DONE' ? 'ok' : s === 'OVERDUE' ? 'critical' : 'info') as 'ok' | 'critical' | 'info';
 
@@ -53,10 +54,15 @@ export default function OwnerTasksPage() {
 
   return (
     <div className="p-6 flex flex-col gap-5 max-w-4xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">📋 {t('tasks')}</h1>
-          <p className="text-gray-500 text-sm">{t('tasks')}</p>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+            <ClipboardList className="w-6 h-6 text-green-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('tasks')}</h1>
+            <p className="text-gray-500 text-sm">Assign work to staff and track what&apos;s done, due, or overdue.</p>
+          </div>
         </div>
         <button onClick={() => { setErr(''); setShow(s => !s); }} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{show ? t('close') : `+ ${t('assignTask')}`}</button>
       </div>

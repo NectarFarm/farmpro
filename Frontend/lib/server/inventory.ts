@@ -126,7 +126,7 @@ export async function feedOnHand(tenantId: string, itemId: string) {
 // both read the same qtyOnHand and both write back a decrement from that stale
 // value, silently losing one of the two consumptions.
 export async function consumeFeedFIFO(tenantId: string, itemId: string, qty: number, client: DbClient = db) {
-  if (!itemId || qty <= 0) return { consumed: 0, shortfall: Math.max(0, qty) };
+  if (!itemId || qty <= 0) return { consumed: 0, shortfall: Math.max(0, qty), costConsumed: 0 };
   return client.transaction(async (tx) => {
     const lots = (await tx.select().from(inventoryLots)
       .where(and(eq(inventoryLots.tenantId, tenantId), eq(inventoryLots.itemId, itemId)))
@@ -134,12 +134,14 @@ export async function consumeFeedFIFO(tenantId: string, itemId: string, qty: num
       .filter((l) => l.qtyOnHand > 0)
       .sort((a, b) => (a.receivedDate < b.receivedDate ? -1 : 1));
     let remaining = qty;
+    let costConsumed = 0;
     for (const lot of lots) {
       if (remaining <= 0) break;
       const take = Math.min(lot.qtyOnHand, remaining);
       await tx.update(inventoryLots).set({ qtyOnHand: Math.round((lot.qtyOnHand - take) * 1000) / 1000 }).where(eq(inventoryLots.id, lot.id));
+      costConsumed += take * lot.unitCost;
       remaining -= take;
     }
-    return { consumed: qty - remaining, shortfall: Math.max(0, remaining) };
+    return { consumed: qty - remaining, shortfall: Math.max(0, remaining), costConsumed };
   });
 }

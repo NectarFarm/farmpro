@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { api } from '@/lib/api';
 import type { Batch, HealthRecord } from '@/lib/types';
+import { Stethoscope, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 export default function VetUnitsPage() {
   const { user } = useAuthStore();
@@ -53,9 +54,14 @@ export default function VetUnitsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6 flex flex-col gap-5 max-w-3xl mx-auto">
-      <div className="bg-teal-700 text-white rounded-2xl px-6 py-5">
-        <h1 className="text-2xl font-bold">🩺 Vet / Agronomist Portal</h1>
-        <p className="text-teal-200 text-sm">Dr. {user?.name} — Assigned units only (FR-M5-5)</p>
+      <div className="bg-teal-700 text-white rounded-2xl px-6 py-5 flex items-center gap-3">
+        <div className="shrink-0 w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center">
+          <Stethoscope className="w-6 h-6 text-white" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">Vet / Agronomist Portal</h1>
+          <p className="text-teal-200 text-sm">Dr. {user?.name} — Assigned units only (FR-M5-5)</p>
+        </div>
       </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
@@ -102,7 +108,7 @@ export default function VetUnitsPage() {
                     <div className="pb-3">
                       <p className="font-semibold text-gray-900 text-sm">{h.type} — {new Date(h.appliedAt).toLocaleDateString('en-KE')}</p>
                       <p className="text-xs text-gray-500">Dose: {h.dose} · Route: {h.route || '—'}</p>
-                      {h.withdrawalUntil && <p className="text-xs text-amber-600">⚠ Withdrawal until {new Date(h.withdrawalUntil).toLocaleDateString('en-KE')}</p>}
+                      {h.withdrawalUntil && <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Withdrawal until {new Date(h.withdrawalUntil).toLocaleDateString('en-KE')}</p>}
                       {h.nextDueAt && <p className="text-xs text-blue-500">Next due: {new Date(h.nextDueAt).toLocaleDateString('en-KE')}</p>}
                     </div>
                   </div>
@@ -121,7 +127,7 @@ export default function VetUnitsPage() {
               </div>
               <input value={prescription.withdrawal} onChange={e => setPrescription(p=>({...p,withdrawal:e.target.value}))} placeholder="Withdrawal period (days)" type="number" className="border-2 border-gray-300 rounded-xl px-4 py-2 text-sm" />
               <textarea value={prescription.notes} onChange={e => setPrescription(p=>({...p,notes:e.target.value}))} placeholder="Advisory notes…" rows={2} className="border border-gray-300 rounded-xl px-3 py-2 text-sm" />
-              {prescribeError && <p className="text-red-600 text-sm font-semibold">⚠ {prescribeError}</p>}
+              {prescribeError && <p className="text-red-600 text-sm font-semibold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0" /> {prescribeError}</p>}
               <div className="flex gap-2">
                 <button onClick={handlePrescribe} disabled={saving}
                   className="flex-1 bg-teal-600 text-white rounded-xl py-2.5 font-semibold disabled:opacity-60">
@@ -134,7 +140,7 @@ export default function VetUnitsPage() {
               </div>
             </div>
           )}
-          {saved && <p className="text-green-600 font-semibold text-sm mt-2">✓ Prescription submitted — owner/worker notified</p>}
+          {saved && <p className="text-green-600 font-semibold text-sm mt-2 flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 shrink-0" /> Prescription submitted — owner/worker notified</p>}
         </div>
       )}
     </div>

@@ -9,6 +9,12 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAx
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { headNoun, groupNoun } from '@/lib/species';
+import {
+  Sprout, Settings, X, AlertTriangle, Check, Skull, Syringe, Wheat, Egg, type LucideIcon,
+} from 'lucide-react';
+
+const ACTIVITY_ICON: Record<string, LucideIcon> = { mortality: Skull, health: Syringe, feeding: Wheat };
+const activityIcon = (kind: string): LucideIcon => ACTIVITY_ICON[kind] ?? Egg;
 
 const fmtKES = (n: number) => `KSh ${Math.abs(n).toLocaleString('en-KE')}`;
 
@@ -23,6 +29,8 @@ export default function BatchDetailPage() {
   const [salePrice, setSalePrice] = useState('');
   const [saleBuyer, setSaleBuyer] = useState('');
   const [toast, setToast] = useState('');
+  const [toastWarn, setToastWarn] = useState(false);
+  const showToast = (msg: string, warn = false) => { setToast(msg); setToastWarn(warn); };
   const [chartData, setChartData] = useState<{ day: number; cost: number; revenue: number }[]>([]);
   const [, setSaving] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -98,9 +106,9 @@ export default function BatchDetailPage() {
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to update count');
       reload();
-      setToast(action === 'apply' ? t('headCountApplied') : t('countDismissed'));
+      showToast(action === 'apply' ? t('headCountApplied') : t('countDismissed'));
     } catch (e) {
-      setToast('⚠ ' + (e as Error).message);
+      showToast((e as Error).message, true);
     }
     setTimeout(() => setToast(''), 3500);
   };
@@ -115,9 +123,9 @@ export default function BatchDetailPage() {
       const saleUnits = ep.units.filter(u => u.name).map(u => ({ name: u.name, perBase: Number(u.perBase) || 1, price: Number(u.price) || 0 }));
       await updateProduct(editId, { name: ep.name, collectFrequency: ep.collectFrequency, saleUnits, isAnimalProduct: ep.isAnimalProduct });
       setEditId(null); getProducts(batchId).then(setProducts).catch(err => console.error('Failed to reload products', err));
-      setToast(t('changesSaved'));
+      showToast(t('changesSaved'));
     } catch (e) {
-      setToast('⚠ ' + (e as Error).message);
+      showToast((e as Error).message, true);
     }
     setTimeout(() => setToast(''), 3500);
   };
@@ -127,8 +135,8 @@ export default function BatchDetailPage() {
       const res = await fetch(`/api/products?id=${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Delete failed');
       getProducts(batchId).then(setProducts).catch(err => console.error('Failed to reload products', err));
-      setToast(t('productDeleted'));
-    } catch (e) { setToast('⚠ ' + (e as Error).message); }
+      showToast(t('productDeleted'));
+    } catch (e) { showToast((e as Error).message, true); }
     setTimeout(() => setToast(''), 3500);
   };
   const deleteProduct = (id: string, name: string) => {
@@ -147,9 +155,9 @@ export default function BatchDetailPage() {
       const res = await fetch(`/api/data/batches?id=${encodeURIComponent(batch.id)}&action=close`, { method: 'DELETE', credentials: 'include' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Close failed');
-      setToast(t('batchClosed'));
+      showToast(t('batchClosed'));
       reload();
-    } catch (e) { setToast('⚠ ' + (e as Error).message); }
+    } catch (e) { showToast((e as Error).message, true); }
     finally { setSavingBatch(false); setTimeout(() => setToast(''), 3500); }
   };
   const closeBatch = () => {
@@ -170,16 +178,16 @@ export default function BatchDetailPage() {
       const data = await res.json();
       if (!res.ok) {
         if (data.error && data.error.includes('Close')) {
-          setToast(t('cannotDeleteBatchHasData'));
+          showToast(t('cannotDeleteBatchHasData'));
         } else {
           throw new Error(data.error || 'Delete failed');
         }
       } else {
-        setToast(data.closed ? t('batchClosed') : t('batchDeleted'));
+        showToast(data.closed ? t('batchClosed') : t('batchDeleted'));
         window.location.href = '/owner/farm';
         return;
       }
-    } catch (e) { setToast('⚠ ' + (e as Error).message); }
+    } catch (e) { showToast((e as Error).message, true); }
     finally { setSavingBatch(false); setTimeout(() => setToast(''), 3500); }
   };
 
@@ -243,16 +251,16 @@ export default function BatchDetailPage() {
     if (!batch) return;
     const qtyNum = Number(saleQty);
     const priceNum = Number(salePrice);
-    if (!saleQty || Number.isNaN(qtyNum) || qtyNum <= 0) { setToast('⚠ Enter a valid quantity'); setTimeout(() => setToast(''), 2500); return; }
-    if (!salePrice || Number.isNaN(priceNum) || priceNum < 0) { setToast('⚠ Enter a valid price'); setTimeout(() => setToast(''), 2500); return; }
-    if (overSell) { setToast(`⚠ Only ${avail?.available ?? 0} available — reduce quantity`); setTimeout(() => setToast(''), 2500); return; }
-    if (wdCheck && !wdCheck.cleared) { setToast('⚠ ' + t('saleUnsafe')); setTimeout(() => setToast(''), 2500); return; }
+    if (!saleQty || Number.isNaN(qtyNum) || qtyNum <= 0) { showToast('Enter a valid quantity', true); setTimeout(() => setToast(''), 2500); return; }
+    if (!salePrice || Number.isNaN(priceNum) || priceNum < 0) { showToast('Enter a valid price', true); setTimeout(() => setToast(''), 2500); return; }
+    if (overSell) { showToast(`Only ${avail?.available ?? 0} available — reduce quantity`, true); setTimeout(() => setToast(''), 2500); return; }
+    if (wdCheck && !wdCheck.cleared) { showToast(t('saleUnsafe'), true); setTimeout(() => setToast(''), 2500); return; }
     setSaving(true);
     try {
-      await api.recordSale({ batchId, productId: saleProductId, productType: saleProductType(), unitName: saleUnitName, quantity: saleQty, unitPrice: salePrice, buyer: saleBuyer });
+      await api.recordSale({ batchId, productId: saleProductId, productType: saleProductType(), unitName: saleUnitName, quantity: qtyNum, unitPrice: priceNum, buyer: saleBuyer });
       setShowSaleModal(false); setSaleQty(''); setSalePrice(''); setSaleBuyer(''); setAvail(null);
-      setToast(t('saleRecorded')); reload();
-    } catch (e) { setToast('⚠ ' + (e as Error).message); }
+      showToast(t('saleRecorded')); reload();
+    } catch (e) { showToast((e as Error).message, true); }
     finally { setSaving(false); setTimeout(() => setToast(''), 2500); }
   };
 
@@ -282,8 +290,8 @@ export default function BatchDetailPage() {
                   {t('recordSale')}
                 </button>
                 <div className="relative group">
-                  <button className="px-3 py-2 border border-gray-300 text-gray-600 rounded-lg font-semibold text-sm hover:bg-gray-50">
-                    ⚙ {t('manage')}
+                  <button className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-600 rounded-lg font-semibold text-sm hover:bg-gray-50">
+                    <Settings className="w-4 h-4" /> {t('manage')}
                   </button>
                   <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10 hidden group-hover:block min-w-[200px]">
                     <button onClick={closeBatch} disabled={savingBatch}
@@ -308,7 +316,7 @@ export default function BatchDetailPage() {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4 pt-4 border-t border-gray-100">
             {[
               { label: t('currentQty'), value: String(batch.currentQty) },
-              { label: t('fcr'), value: cost.fcr ? `${cost.fcr} ✓` : '—', good: cost.fcr ? cost.fcr <= 2.8 : null },
+              { label: t('fcr'), value: cost.fcr ? `${cost.fcr}` : '—', good: cost.fcr ? cost.fcr <= 2.8 : null },
               { label: t('mortalityRate'), value: cost.mortalityPct ? `${cost.mortalityPct}%` : '—', bad: cost.mortalityPct ? cost.mortalityPct > 5 : false },
               { label: cost.outputUnit === 'eggs' ? t('costPerUnit') : t('costPerUnit'), value: cost.costPerUnit ? fmtKES(cost.costPerUnit) : '—' },
               { label: t('grossMargin'), value: fmtKES(cost.grossMargin), good: cost.grossMargin > 0, bad: cost.grossMargin < 0 },
@@ -472,7 +480,7 @@ export default function BatchDetailPage() {
                 <input placeholder={t('unitPlaceholder')} value={u.name} onChange={e => setPForm(f => ({ ...f, units: f.units.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))} className="flex-1 border rounded-lg px-3 py-2 text-sm" />
                 <input type="number" min="1" placeholder={`${pForm.baseUnit}/unit`} value={u.perBase} onChange={e => setPForm(f => ({ ...f, units: f.units.map((x, j) => j === i ? { ...x, perBase: e.target.value } : x) }))} className="w-24 border rounded-lg px-3 py-2 text-sm" title={`How many ${pForm.baseUnit} in one ${u.name || 'unit'}`} />
                 <input type="number" min="0" placeholder="Price KES" value={u.price} onChange={e => setPForm(f => ({ ...f, units: f.units.map((x, j) => j === i ? { ...x, price: e.target.value } : x) }))} className="w-28 border rounded-lg px-3 py-2 text-sm" />
-                {pForm.units.length > 1 && <button type="button" onClick={() => setPForm(f => ({ ...f, units: f.units.filter((_, j) => j !== i) }))} className="px-2 text-gray-400 hover:text-red-600">✕</button>}
+                {pForm.units.length > 1 && <button type="button" onClick={() => setPForm(f => ({ ...f, units: f.units.filter((_, j) => j !== i) }))} className="px-2 text-gray-400 hover:text-red-600"><X className="w-4 h-4" /></button>}
               </div>
             ))}
             <button type="button" onClick={() => setPForm(f => ({ ...f, units: [...f.units, { name: '', perBase: '1', price: '' }] }))} className="text-xs text-green-600 font-semibold self-start">{t('addSaleUnit')}</button>
@@ -505,7 +513,7 @@ export default function BatchDetailPage() {
                       <input value={u.name} onChange={e => setEp(s => ({ ...s, units: s.units.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))} className="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder={t('unitPlaceholder')} />
                       <input type="number" value={u.perBase} onChange={e => setEp(s => ({ ...s, units: s.units.map((x, j) => j === i ? { ...x, perBase: e.target.value } : x) }))} className="w-20 border rounded-lg px-3 py-2 text-sm" />
                       <input type="number" value={u.price} onChange={e => setEp(s => ({ ...s, units: s.units.map((x, j) => j === i ? { ...x, price: e.target.value } : x) }))} className="w-28 border rounded-lg px-3 py-2 text-sm" placeholder={t('price')} />
-                      {ep.units.length > 1 && <button type="button" onClick={() => setEp(s => ({ ...s, units: s.units.filter((_, j) => j !== i) }))} className="px-2 text-gray-400 hover:text-red-600">✕</button>}
+                      {ep.units.length > 1 && <button type="button" onClick={() => setEp(s => ({ ...s, units: s.units.filter((_, j) => j !== i) }))} className="px-2 text-gray-400 hover:text-red-600"><X className="w-4 h-4" /></button>}
                     </div>
                   ))}
                   <button type="button" onClick={() => setEp(s => ({ ...s, units: [...s.units, { name: '', perBase: '1', price: '' }] }))} className="text-xs text-indigo-600 font-semibold self-start">{t('addSaleUnit')}</button>
@@ -523,7 +531,7 @@ export default function BatchDetailPage() {
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded capitalize">{p.flow}</span>
                     <button onClick={() => startEdit(p)} className="text-xs text-indigo-600 font-semibold hover:underline">{t('edit')}</button>
-                    <button onClick={() => deleteProduct(p.id, p.name)} className="text-xs text-red-500 hover:text-red-700 hover:underline px-1">✕</button>
+                    <button onClick={() => deleteProduct(p.id, p.name)} className="text-xs text-red-500 hover:text-red-700 hover:underline px-1"><X className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>
               ))}
@@ -536,7 +544,7 @@ export default function BatchDetailPage() {
       {life && life.stages.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <h2 className="font-bold text-gray-800">🌱 {t('lifecycle')}</h2>
+            <h2 className="font-bold text-gray-800 flex items-center gap-1.5"><Sprout className="w-4 h-4 text-green-700" /> {t('lifecycle')}</h2>
             <div className="flex items-center gap-2 text-sm">
               <span className="text-gray-500">Age <span className="font-bold text-gray-800">{life.age}d</span></span>
               <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-semibold">{life.stage}</span>
@@ -544,7 +552,7 @@ export default function BatchDetailPage() {
           </div>
 
           {life.due.nextStage && (life.due.due
-            ? <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 text-amber-800 text-sm font-semibold">⚠ Due to move to {life.due.nextStage}{life.due.overdueDays > 0 ? ` — ${life.due.overdueDays} day${life.due.overdueDays > 1 ? 's' : ''} overdue` : ' now'}.</div>
+            ? <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 text-amber-800 text-sm font-semibold"><AlertTriangle className="w-4 h-4 shrink-0" /> Due to move to {life.due.nextStage}{life.due.overdueDays > 0 ? ` — ${life.due.overdueDays} day${life.due.overdueDays > 1 ? 's' : ''} overdue` : ' now'}.</div>
             : <p className="text-sm text-gray-500">Next: <span className="font-semibold text-gray-700">{life.due.nextStage}</span> in {life.due.daysRemaining} day{life.due.daysRemaining !== 1 ? 's' : ''}.</p>)}
 
           <div className="flex flex-wrap gap-1">
@@ -643,10 +651,12 @@ export default function BatchDetailPage() {
           : (
             <div className="flex flex-col gap-2">
               {activity.map((a, i) => {
-                const icon = a.kind === 'mortality' ? '💀' : a.kind === 'health' ? '💉' : a.kind === 'feeding' ? '🌾' : '🥚';
+                const Icon = activityIcon(a.kind);
                 return (
                   <div key={i} className="flex items-start gap-3 border border-gray-100 rounded-lg p-3">
-                    <span className="text-xl">{icon}</span>
+                    <div className="shrink-0 w-9 h-9 rounded-lg bg-gray-50 flex items-center justify-center">
+                      <Icon className="w-4 h-4 text-gray-500" />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-800 capitalize">{a.kind} · {a.text}</p>
                       <p className="text-xs text-gray-400">{new Date(a.at).toLocaleString('en-KE')} · by {a.by}
@@ -696,7 +706,11 @@ export default function BatchDetailPage() {
         }
       </div>
 
-      {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-700 text-white px-5 py-3 rounded-xl font-semibold shadow-lg">{toast}</div>}
+      {toast && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 text-white px-5 py-3 rounded-xl font-semibold shadow-lg ${toastWarn ? 'bg-amber-600' : 'bg-green-700'}`}>
+          {toastWarn ? <AlertTriangle className="w-4 h-4 shrink-0" /> : <Check className="w-4 h-4 shrink-0" />} {toast}
+        </div>
+      )}
 
       {/* Sale modal — BR-WD withdrawal check */}
       <ConfirmSheet
@@ -710,7 +724,7 @@ export default function BatchDetailPage() {
         <div className="flex flex-col gap-3">
           {wdError ? (
             <div className="rounded-xl px-4 py-3 border-2 bg-amber-50 border-amber-400 flex items-center justify-between gap-2">
-              <p className="text-amber-800 text-sm font-semibold">⚠ {wdError}</p>
+              <p className="text-amber-800 text-sm font-semibold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0" /> {wdError}</p>
               <button type="button" onClick={loadWithdrawal} className="text-amber-800 text-xs font-bold underline shrink-0">{t('retry')}</button>
             </div>
           ) : wdCheck == null ? (
@@ -720,8 +734,8 @@ export default function BatchDetailPage() {
           ) : (
             <div className={`rounded-xl px-4 py-3 border-2 ${wdCheck.cleared ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-500'}`}>
               {wdCheck.cleared
-                ? <p className="text-green-800 font-semibold text-sm">{t('clearedForSale')}</p>
-                : <><p className="text-red-800 font-bold">{t('blockedWithdrawal', { date: wdCheck.until ?? '', days: wdCheck.daysLeft })}</p><p className="text-red-700 text-xs">{t('saleUnsafe')}</p></>
+                ? <p className="text-green-800 font-semibold text-sm flex items-center gap-1.5"><Check className="w-4 h-4 shrink-0" /> {t('clearedForSale')}</p>
+                : <><p className="text-red-800 font-bold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0" /> {t('blockedWithdrawal', { date: wdCheck.until ?? '', days: wdCheck.daysLeft })}</p><p className="text-red-700 text-xs">{t('saleUnsafe')}</p></>
               }
             </div>
           )}
@@ -738,7 +752,7 @@ export default function BatchDetailPage() {
           {avail && (
             <p className={`text-sm rounded-lg px-3 py-2 ${overSell ? 'bg-red-50 text-red-700 font-semibold' : 'bg-gray-50 text-gray-600'}`}>
               {overSell
-                ? `⚠ Only ${avail.available} available — you're trying to sell ${sellingBase}.`
+                ? `Only ${avail.available} available — you're trying to sell ${sellingBase}.`
                 : `${avail.available} available to sell${sellingBase > 0 ? ` · this sale = ${sellingBase}` : ''}`}
             </p>
           )}

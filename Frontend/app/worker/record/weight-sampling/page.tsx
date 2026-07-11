@@ -1,5 +1,5 @@
 'use client';
-import { Scale } from 'lucide-react';
+import { Scale, Check, AlertTriangle } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -55,7 +55,7 @@ export default function WeightSamplingPage() {
       return;
     }
     setPendingCount(pendingCount + 1);
-    toast({ description: '✓ Saved — will sync' });
+    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> Saved — will sync</span> });
     setTimeout(() => router.replace('/worker/home'), 1500);
   };
 
@@ -73,7 +73,7 @@ export default function WeightSamplingPage() {
           {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         {batchId && doneToday('weight_sample', batchId).count > 0 && (
-          <p className="text-xs font-semibold text-amber-600">⚠ Already sampled today at {timeLabel(doneToday('weight_sample', batchId).lastAt)}.</p>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Already sampled today at {timeLabel(doneToday('weight_sample', batchId).lastAt)}.</p>
         )}
       </div>
 

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
+import { AlertTriangle } from 'lucide-react';
 
 export default function WorkerError({
   error,
@@ -17,7 +18,9 @@ export default function WorkerError({
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 max-w-md mx-auto">
       <div className="w-full bg-white rounded-2xl border border-red-200 shadow-sm p-6 text-center">
-        <div className="text-5xl mb-4">😔</div>
+        <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
+          <AlertTriangle className="w-7 h-7 text-red-600" />
+        </div>
         <h1 className="text-lg font-bold text-gray-900 mb-2">Something went wrong</h1>
         <p className="text-gray-500 text-sm mb-6">
           This page couldn&apos;t load. Try again, or head back home.

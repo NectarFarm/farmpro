@@ -1,28 +1,39 @@
 'use client';
 import React, { useState } from 'react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
+import {
+  LineChart, ShoppingCart, BarChart3, TrendingDown, Syringe, Package, Users,
+  Wallet, Bird, Wheat, FileText, FileSpreadsheet, Table, ShieldCheck, Check,
+  Copy, Link2, Loader2, type LucideIcon,
+} from 'lucide-react';
 
 type Scope = 'range' | 'lifecycle';
-interface Report { id: string; icon: string; title: string; desc: string; cat: 'finance' | 'ops' | 'health' | 'performance'; scope: Scope; }
+type Cat = 'finance' | 'ops' | 'health' | 'performance';
+interface Report { id: string; Icon: LucideIcon; title: string; desc: string; cat: Cat; scope: Scope; }
 
 const REPORTS: Report[] = [
   // Date-filtered transaction logs + period financials.
-  { id: 'baseline', icon: '📈', title: 'Period Financial Summary', desc: 'Revenue − expenses for the chosen dates — the headline P&L for funders.', cat: 'finance', scope: 'range' },
-  { id: 'sales', icon: '🛒', title: 'Sales & Receivables', desc: 'Every sale in the period: product, qty, price, buyer.', cat: 'finance', scope: 'range' },
-  { id: 'production', icon: '📊', title: 'Production Summary', desc: 'Eggs, meat, fish, crop collected per day.', cat: 'ops', scope: 'range' },
-  { id: 'mortality', icon: '📉', title: 'Mortality Report', desc: 'Deaths and recorded causes, by date.', cat: 'health', scope: 'range' },
-  { id: 'vax', icon: '💉', title: 'Vaccination & Treatment Log', desc: 'Treatments applied — food-safety / withdrawal audit.', cat: 'health', scope: 'range' },
-  { id: 'feed_var', icon: '📦', title: 'Feed Consumption', desc: 'Feed drawn down per batch over the period.', cat: 'ops', scope: 'range' },
-  { id: 'labor', icon: '👥', title: 'Labour & Task Cost', desc: 'Logged worker hours and their cost.', cat: 'ops', scope: 'range' },
+  { id: 'baseline', Icon: LineChart, title: 'Period Financial Summary', desc: 'Revenue − expenses for the chosen dates — the headline P&L for funders.', cat: 'finance', scope: 'range' },
+  { id: 'sales', Icon: ShoppingCart, title: 'Sales & Receivables', desc: 'Every sale in the period: product, qty, price, buyer.', cat: 'finance', scope: 'range' },
+  { id: 'production', Icon: BarChart3, title: 'Production Summary', desc: 'Eggs, meat, fish, crop collected per day.', cat: 'ops', scope: 'range' },
+  { id: 'mortality', Icon: TrendingDown, title: 'Mortality Report', desc: 'Deaths and recorded causes, by date.', cat: 'health', scope: 'range' },
+  { id: 'vax', Icon: Syringe, title: 'Vaccination & Treatment Log', desc: 'Treatments applied — food-safety / withdrawal audit.', cat: 'health', scope: 'range' },
+  { id: 'feed_var', Icon: Package, title: 'Feed Consumption', desc: 'Feed drawn down per batch over the period.', cat: 'ops', scope: 'range' },
+  { id: 'labor', Icon: Users, title: 'Labour & Task Cost', desc: 'Logged worker hours and their cost.', cat: 'ops', scope: 'range' },
   // Full-lifecycle batch economics (all-time; not date-filtered).
-  { id: 'pl', icon: '💰', title: 'Profit & Loss by Batch', desc: 'Feed, health, labour, salaries, overhead vs revenue — with a bottom-line total.', cat: 'finance', scope: 'lifecycle' },
-  { id: 'batch_card', icon: '🐔', title: 'Batch Performance Card', desc: 'FCR, mortality, survived/sold/on-farm, cost & margin per batch.', cat: 'performance', scope: 'lifecycle' },
-  { id: 'fcr', icon: '🌾', title: 'FCR & Efficiency', desc: 'Feed conversion per batch, species-aware (per dozen / per kg).', cat: 'performance', scope: 'lifecycle' },
+  { id: 'pl', Icon: Wallet, title: 'Profit & Loss by Batch', desc: 'Feed, health, labour, salaries, overhead vs revenue — with a bottom-line total.', cat: 'finance', scope: 'lifecycle' },
+  { id: 'batch_card', Icon: Bird, title: 'Batch Performance Card', desc: 'FCR, mortality, survived/sold/on-farm, cost & margin per batch.', cat: 'performance', scope: 'lifecycle' },
+  { id: 'fcr', Icon: Wheat, title: 'FCR & Efficiency', desc: 'Feed conversion per batch, species-aware (per dozen / per kg).', cat: 'performance', scope: 'lifecycle' },
 ];
 
-const CAT_ACCENT: Record<Report['cat'], string> = {
-  finance: 'border-l-emerald-500', ops: 'border-l-sky-500', health: 'border-l-rose-500', performance: 'border-l-violet-500',
+const CAT_STYLE: Record<Cat, { border: string; iconBg: string; iconText: string; badge: string }> = {
+  finance:     { border: 'border-l-emerald-500', iconBg: 'bg-emerald-50', iconText: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700' },
+  ops:         { border: 'border-l-sky-500',     iconBg: 'bg-sky-50',     iconText: 'text-sky-600',     badge: 'bg-sky-50 text-sky-700' },
+  health:      { border: 'border-l-rose-500',    iconBg: 'bg-rose-50',    iconText: 'text-rose-600',    badge: 'bg-rose-50 text-rose-700' },
+  performance: { border: 'border-l-violet-500',  iconBg: 'bg-violet-50',  iconText: 'text-violet-600',  badge: 'bg-violet-50 text-violet-700' },
 };
+
+const FORMAT_ICON: Record<'PDF' | 'Excel' | 'CSV', LucideIcon> = { PDF: FileText, Excel: FileSpreadsheet, CSV: Table };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -81,46 +92,63 @@ export default function ReportsPage() {
     } finally { setBusy(null); }
   };
 
-  const Card = ({ r }: { r: Report }) => (
-    <div className={`bg-white border border-gray-200 border-l-4 ${CAT_ACCENT[r.cat]} rounded-xl p-4 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow`}>
-      <div className="flex items-start gap-3">
-        <span className="text-2xl leading-none">{r.icon}</span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-bold text-gray-900">{r.title}</h3>
-            <span className="text-[10px] uppercase tracking-wide font-bold text-gray-400">{r.cat}</span>
+  const Card = ({ r }: { r: Report }) => {
+    const style = CAT_STYLE[r.cat];
+    return (
+      <div className={`bg-white border border-gray-200 border-l-4 ${style.border} rounded-2xl p-5 flex flex-col gap-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all`}>
+        <div className="flex items-start gap-3">
+          <div className={`shrink-0 w-11 h-11 rounded-xl flex items-center justify-center ${style.iconBg}`}>
+            <r.Icon className={`w-5 h-5 ${style.iconText}`} />
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">{r.desc}</p>
+          <div className="flex-1 min-w-0 pt-0.5">
+            <h3 className="font-semibold text-gray-900 leading-snug">{r.title}</h3>
+            <span className={`inline-block mt-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${style.badge}`}>{r.cat}</span>
+          </div>
+        </div>
+        <p className="text-sm text-gray-500 leading-relaxed">{r.desc}</p>
+
+        {generated === r.id && (
+          <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 text-green-700 text-xs font-semibold">
+            <Check className="w-3.5 h-3.5 shrink-0" /> Generated — downloading…
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-auto">
+          {(['PDF', 'Excel', 'CSV'] as const).map((fmt) => {
+            const FmtIcon = FORMAT_ICON[fmt];
+            const isBusy = busy === `${r.id}:${fmt}`;
+            return (
+              <button key={fmt} disabled={busy !== null} onClick={() => runExport(r.id, fmt)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-50 hover:bg-green-50 hover:text-green-700 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 disabled:opacity-40 transition-colors">
+                {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FmtIcon className="w-3.5 h-3.5" />}
+                {fmt}
+              </button>
+            );
+          })}
         </div>
       </div>
-      {generated === r.id && (
-        <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 text-green-700 text-xs font-semibold">✓ Generated — downloading…</div>
-      )}
-      <div className="flex gap-2">
-        {(['PDF', 'Excel', 'CSV'] as const).map(fmt => (
-          <button key={fmt} disabled={busy !== null} onClick={() => runExport(r.id, fmt)}
-            className="flex-1 py-2 bg-gray-50 hover:bg-green-50 hover:text-green-700 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 disabled:opacity-40 transition-colors">
-            {busy === `${r.id}:${fmt}` ? '…' : (fmt === 'PDF' ? '📄' : fmt === 'Excel' ? '📊' : '📋')} {fmt}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+    );
+  };
 
   const rangeReports = REPORTS.filter(r => r.scope === 'range');
   const lifecycleReports = REPORTS.filter(r => r.scope === 'lifecycle');
 
   return (
-    <div className="p-6 flex flex-col gap-7 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">📈 {t('reports')}</h1>
-        <p className="text-gray-500 text-sm mt-1">{t('reports')}</p>
+    <div className="p-6 flex flex-col gap-8 max-w-5xl">
+      <div className="flex items-center gap-3">
+        <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+          <LineChart className="w-6 h-6 text-green-700" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{t('reports')}</h1>
+          <p className="text-gray-500 text-sm">Export activity logs and batch economics for your records, a lender, or an investor.</p>
+        </div>
       </div>
 
       {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 
       {/* ── Section 1: date-filtered ───────────────────────────────── */}
-      <section className="flex flex-col gap-3">
+      <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 className="font-bold text-gray-800">Activity & period financials</h2>
@@ -138,7 +166,7 @@ export default function ReportsPage() {
       </section>
 
       {/* ── Section 2: lifecycle ───────────────────────────────────── */}
-      <section className="flex flex-col gap-3">
+      <section className="flex flex-col gap-4">
         <div>
           <h2 className="font-bold text-gray-800">Batch economics <span className="text-xs font-semibold text-gray-400">· full lifecycle</span></h2>
           <p className="text-xs text-gray-400">Each batch&apos;s all-time numbers — not affected by the date range. Matches the figures on the batch page.</p>
@@ -149,21 +177,30 @@ export default function ReportsPage() {
       </section>
 
       {/* ── Auditor / investor links ───────────────────────────────── */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-        <h2 className="font-bold text-blue-800 mb-1">🔒 Investor / Auditor read-only links</h2>
+      <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <ShieldCheck className="w-5 h-5 text-blue-700 shrink-0" />
+          <h2 className="font-bold text-blue-800">Investor / Auditor read-only links</h2>
+        </div>
         <p className="text-blue-600 text-sm mb-3">Generate an expiring, read-only link so an investor or auditor can review without an account.</p>
         <div className="flex gap-3 flex-wrap">
           <input value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="Auditor email (optional)" className="flex-1 min-w-[180px] border border-blue-300 rounded-xl px-4 py-2 text-sm" />
           <select value={linkDays} onChange={e => setLinkDays(Number(e.target.value))} className="border border-blue-300 rounded-xl px-3 py-2 text-sm bg-white">
             <option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option>
           </select>
-          <button onClick={generateLink} disabled={linkBusy} className="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-50">{linkBusy ? 'Generating…' : 'Generate link'}</button>
+          <button onClick={generateLink} disabled={linkBusy} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-50">
+            {linkBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+            {linkBusy ? 'Generating…' : 'Generate link'}
+          </button>
         </div>
         {link && (
           <div className="mt-3 bg-white border border-blue-200 rounded-xl p-3 flex items-center gap-2">
             <input readOnly value={link} className="flex-1 text-xs text-gray-600 bg-transparent outline-none" onFocus={e => e.target.select()} />
             <button onClick={() => navigator.clipboard?.writeText(link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
-              className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold">{copied ? '✓ Copied' : 'Copy'}</button>
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold">
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
           </div>
         )}
       </div>

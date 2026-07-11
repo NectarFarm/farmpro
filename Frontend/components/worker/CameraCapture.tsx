@@ -2,6 +2,7 @@
 // DS-6: Camera + GPS from device API (never EXIF). Photo + GPS stored as separate fields.
 import React, { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { MapPin, Check, X, Camera, Loader2, AlertTriangle } from 'lucide-react';
 
 export interface CaptureResult {
   dataUrl: string; // compressed ~300KB
@@ -83,13 +84,13 @@ export function CameraCapture({ onCapture, onRemove, captured, required, label, 
           { }
           <img src={captured.dataUrl} alt="Captured" className="w-full max-h-48 object-cover" />
           <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-3 py-1 flex items-center gap-2">
-            <span>📍</span>
+            <MapPin className="w-3.5 h-3.5 shrink-0" />
             {captured.gpsLat
-              ? <span>GPS ✓ {new Date(captured.gpsTimestamp!).toLocaleTimeString()}</span>
+              ? <span className="inline-flex items-center gap-1">GPS <Check className="w-3 h-3" /> {new Date(captured.gpsTimestamp!).toLocaleTimeString()}</span>
               : <span>geo: unavailable</span>
             }
             {onRemove && (
-              <button type="button" onClick={onRemove} className="ml-auto text-red-300 hover:text-red-100">✕ Remove</button>
+              <button type="button" onClick={onRemove} className="ml-auto inline-flex items-center gap-1 text-red-300 hover:text-red-100"><X className="w-3.5 h-3.5" /> Remove</button>
             )}
           </div>
         </div>
@@ -102,15 +103,15 @@ export function CameraCapture({ onCapture, onRemove, captured, required, label, 
             required ? 'border-red-400 text-red-600 animate-pulse bg-red-50' : 'border-gray-300 text-gray-600 bg-gray-50 hover:bg-gray-100'
           )}
         >
-          <span>📷</span>
+          <Camera className="w-5 h-5" />
           {required ? 'TAKE PHOTO (Required)' : 'Take Photo (Optional)'}
         </button>
       )}
       {gpsStatus === 'capturing' && (
-        <p className="text-xs text-blue-600 flex items-center gap-1"><span className="animate-spin">↻</span> Capturing GPS…</p>
+        <p className="text-xs text-blue-600 flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Capturing GPS…</p>
       )}
       {gpsStatus === 'unavailable' && (
-        <p className="text-xs text-amber-600">⚠ GPS unavailable — record tagged geo: unavailable</p>
+        <p className="flex items-center gap-1.5 text-xs text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> GPS unavailable — record tagged geo: unavailable</p>
       )}
       <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile} />
     </div>

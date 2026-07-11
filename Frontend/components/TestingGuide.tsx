@@ -4,11 +4,14 @@
 // moving on; submitting sends a report to the admin. State machine lives in
 // lib/testing.ts (pure + unit-tested); this is just the UI around it.
 import { useEffect, useState } from 'react';
+import { FlaskConical, Check, X, Camera, CheckCircle2, XCircle, Circle, PartyPopper, Paperclip } from 'lucide-react';
 import { progress, canSubmit, summarize, type TestStep, type StepStatus } from '@/lib/testing';
+import { useDraggableFab } from './useDraggableFab';
 
 interface Run { status: 'in_progress' | 'submitted'; steps: TestStep[] }
 
 export function TestingGuide() {
+  const fab = useDraggableFab('ifms_fab_pos_testing_guide');
   const [enabled, setEnabled] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
   const [open, setOpen] = useState(false);
@@ -92,8 +95,6 @@ export function TestingGuide() {
     finally { setUploading(false); }
   };
 
-  if (!enabled) return null;
-
   const steps = run?.steps ?? [];
   const p = steps.length ? progress(steps) : null;
   const attachStep = attachingFor ? steps.find(s => s.id === attachingFor) ?? null : null;
@@ -102,17 +103,32 @@ export function TestingGuide() {
   const pct = p ? Math.round((p.done / p.total) * 100) : 0;
   const checks = current?.checks ?? [];
   const allTicked = checks.length === 0 || checks.every((_, i) => ticked.has(i));
+  // Must run on every render, including while `enabled` is still false (before the
+  // early return below) — a hook that only sometimes runs changes the hook count
+  // between renders and crashes React with "Rendered more hooks than during the
+  // previous render" the moment `enabled` flips true after the /api/testing fetch.
   useEffect(() => { setTicked(new Set()); }, [current?.id]); // reset ticks on each new step
   const report = steps.length ? summarize(steps) : null;
 
+  if (!enabled) return null;
+
   return (
     <>
-      <button onClick={() => setOpen(true)} aria-label="Open acceptance testing"
-        className="fixed bottom-5 left-5 z-40 flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm">
-        <span className="text-lg">🧪</span>
+      <button
+        ref={fab.ref}
+        style={fab.style}
+        onPointerDown={fab.onPointerDown}
+        onPointerMove={fab.onPointerMove}
+        onPointerUp={fab.onPointerUp}
+        onClick={() => { if (!fab.wasDragged()) setOpen(true); }}
+        aria-label="Open acceptance testing"
+        // Stacked above the AI Advisor button's default corner (same left side) so
+        // the two don't sit on top of each other when both are visible at once.
+        className="fixed bottom-36 md:bottom-20 left-5 z-40 flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
+        <FlaskConical className="w-5 h-5" />
         <span className="hidden sm:inline">Testing</span>
         {p && run?.status === 'in_progress' && <span className="bg-white/25 rounded-full px-2 py-0.5 text-xs">{p.done}/{p.total}</span>}
-        {run?.status === 'submitted' && <span className="bg-white/25 rounded-full px-2 py-0.5 text-xs">✓ sent</span>}
+        {run?.status === 'submitted' && <span className="bg-white/25 rounded-full px-2 py-0.5 text-xs flex items-center gap-1"><Check className="w-3 h-3" /> sent</span>}
       </button>
 
       {open && (
@@ -121,14 +137,16 @@ export function TestingGuide() {
           <div className="absolute left-0 top-0 h-full w-full max-w-md bg-gray-50 shadow-2xl overflow-y-auto">
             <div className="sticky top-0 bg-amber-500 text-white px-5 py-4 z-10">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold">🧪 App testing</h2>
-                <button onClick={() => setOpen(false)} aria-label="Close" className="text-white/80 hover:text-white text-2xl leading-none">×</button>
+                <h2 className="text-lg font-bold flex items-center gap-2"><FlaskConical className="w-5 h-5" /> App testing</h2>
+                <button onClick={() => setOpen(false)} aria-label="Close" className="text-white/80 hover:text-white"><X className="w-6 h-6" /></button>
               </div>
               <p className="text-amber-100 text-xs mt-1">Your admin asked you to check the app. Go one step at a time.</p>
               {p && (
                 <>
                   <div className="mt-3 bg-amber-700/40 rounded-full h-2 overflow-hidden"><div className="bg-white h-full transition-all" style={{ width: `${pct}%` }} /></div>
-                  <p className="text-amber-100 text-xs mt-1">{p.done} of {p.total} done · {p.passed} ✓ · {p.failed} ✗</p>
+                  <p className="text-amber-100 text-xs mt-1 flex items-center gap-1">
+                    {p.done} of {p.total} done · {p.passed} <Check className="w-3 h-3" /> · {p.failed} <X className="w-3 h-3" />
+                  </p>
                 </>
               )}
             </div>
@@ -161,7 +179,7 @@ export function TestingGuide() {
                   )}
                   {(attachStep.photoIds?.length ?? 0) < maxShots ? (
                     <label className="inline-flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg text-sm font-semibold text-gray-700 cursor-pointer w-fit">
-                      {uploading ? 'Uploading…' : `📷 Add screenshot (${attachStep.photoIds?.length ?? 0}/${maxShots})`}
+                      {uploading ? 'Uploading…' : <><Camera className="w-4 h-4" /> {`Add screenshot (${attachStep.photoIds?.length ?? 0}/${maxShots})`}</>}
                       <input type="file" accept="image/*" className="hidden" disabled={uploading}
                         onChange={e => { onPickPhoto(attachStep.id, e.target.files?.[0]); e.target.value = ''; }} />
                     </label>
@@ -201,8 +219,8 @@ export function TestingGuide() {
                   ) : (
                     <div className="flex flex-col gap-1">
                       <div className="flex gap-2">
-                        <button onClick={() => pass(current.id)} disabled={busy || !allTicked} className="flex-1 py-2.5 bg-green-600 text-white rounded-lg font-bold text-sm disabled:opacity-50">✓ It works</button>
-                        <button onClick={() => openFail(current.id)} disabled={busy} className="flex-1 py-2.5 bg-red-50 text-red-700 border-2 border-red-200 rounded-lg font-bold text-sm disabled:opacity-50">✗ It failed</button>
+                        <button onClick={() => pass(current.id)} disabled={busy || !allTicked} className="flex-1 py-2.5 bg-green-600 text-white rounded-lg font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5"><Check className="w-4 h-4" /> It works</button>
+                        <button onClick={() => openFail(current.id)} disabled={busy} className="flex-1 py-2.5 bg-red-50 text-red-700 border-2 border-red-200 rounded-lg font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5"><X className="w-4 h-4" /> It failed</button>
                       </div>
                       {!allTicked && <p className="text-[11px] text-gray-400 text-center">Tick every check above to confirm it works — or tap "It failed" if any part is broken.</p>}
                     </div>
@@ -213,7 +231,7 @@ export function TestingGuide() {
               {/* All steps answered → submit */}
               {run?.status === 'in_progress' && p?.complete && (
                 <div className="bg-white border border-gray-200 rounded-xl p-5 text-center">
-                  <p className="font-semibold text-gray-800">All {p.total} steps answered 🎉</p>
+                  <p className="font-semibold text-gray-800 flex items-center justify-center gap-1.5">All {p.total} steps answered <PartyPopper className="w-4 h-4" /></p>
                   <p className="text-gray-500 text-sm mt-1 mb-3">{p.passed} worked · {p.failed} had problems. Submit to send the report to your admin.</p>
                   <button onClick={submit} disabled={busy || !canSubmit(steps)} className="px-5 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm disabled:opacity-50">{busy ? 'Submitting…' : 'Submit report to admin'}</button>
                 </div>
@@ -222,7 +240,7 @@ export function TestingGuide() {
               {/* Submitted */}
               {run?.status === 'submitted' && report && (
                 <div className="bg-green-50 border border-green-200 rounded-xl p-5 text-center">
-                  <p className="font-bold text-green-800">✓ Report sent to your admin</p>
+                  <p className="font-bold text-green-800 flex items-center justify-center gap-1.5"><CheckCircle2 className="w-4 h-4" /> Report sent to your admin</p>
                   <p className="text-green-700 text-sm mt-1">{report.passed} worked · {report.failed} had problems, out of {report.total}.</p>
                   <button onClick={start} disabled={busy} className="mt-3 px-4 py-2 bg-white border border-green-300 text-green-700 rounded-lg font-semibold text-sm">Test again</button>
                 </div>
@@ -238,13 +256,15 @@ export function TestingGuide() {
                   <ul className="flex flex-col divide-y divide-gray-50">
                     {steps.map(s => (
                       <li key={s.id} className="py-2 flex items-start gap-2 text-sm">
-                        <span className={`mt-0.5 ${s.status === 'pass' ? 'text-green-600' : s.status === 'fail' ? 'text-red-600' : 'text-gray-300'}`}>
-                          {s.status === 'pass' ? '✓' : s.status === 'fail' ? '✗' : '○'}
+                        <span className={`mt-0.5 shrink-0 ${s.status === 'pass' ? 'text-green-600' : s.status === 'fail' ? 'text-red-600' : 'text-gray-300'}`}>
+                          {s.status === 'pass' ? <CheckCircle2 className="w-4 h-4" /> : s.status === 'fail' ? <XCircle className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
                         </span>
                         <span className="flex-1">
                           <span className={`font-medium ${s.status === 'pending' ? 'text-gray-700' : 'text-gray-500'}`}>{s.title}</span>
                           <span className="text-xs text-gray-400"> · {s.area}</span>
-                          {s.status === 'fail' && (s.photoIds?.length ?? 0) > 0 && <span className="text-xs text-gray-400"> · 📎 {s.photoIds!.length}</span>}
+                          {s.status === 'fail' && (s.photoIds?.length ?? 0) > 0 && (
+                            <span className="text-xs text-gray-400 inline-flex items-center gap-0.5"> · <Paperclip className="w-3 h-3" /> {s.photoIds!.length}</span>
+                          )}
                           {s.status === 'fail' && s.note && <span className="block text-xs text-red-500">“{s.note}”</span>}
                         </span>
                       </li>

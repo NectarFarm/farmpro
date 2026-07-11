@@ -3,7 +3,7 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 
-interface Option<T> { value: T; label: string; icon?: string; }
+interface Option<T> { value: T; label: string; icon?: React.ReactNode; }
 
 interface Props<T extends string> {
   options: Option<T>[];
@@ -32,7 +32,7 @@ export function SegmentedToggle<T extends string>({ options, value, onChange, la
                 : 'bg-white text-gray-700 active:bg-gray-100'
             )}
           >
-            {opt.icon && <span>{opt.icon}</span>}
+            {opt.icon}
             {opt.label}
           </button>
         ))}

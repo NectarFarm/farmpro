@@ -6,27 +6,32 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { ProductionUnit, Batch } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { cn } from '@/lib/utils';
-import { ENTERPRISE_OPTIONS, enterpriseIcon } from '@/lib/species';
+import { ENTERPRISE_OPTIONS } from '@/lib/species';
+import {
+  Tractor, Sprout, BarChart3, Fish, Bird, Rabbit, Wheat, Milk, Bug, Leaf, House,
+  PawPrint, Layers, type LucideIcon,
+} from 'lucide-react';
 
-const speciesIcon = (s?: string) => {
+const SPECIES_ICON_RULES: { test: RegExp; Icon: LucideIcon }[] = [
+  { test: /pig|pork|sow|boar|hog|piglet/, Icon: PawPrint },
+  { test: /fish|tilapia|catfish|fingerling/, Icon: Fish },
+  { test: /chick|poultry|hen|layer|broiler|bird|duck|turkey|quail/, Icon: Bird },
+  { test: /goat|kid/, Icon: PawPrint },
+  { test: /cattle|cow|dairy|calf|bull|heifer/, Icon: Milk },
+  { test: /rabbit|bunny/, Icon: Rabbit },
+  { test: /bee|honey|hive/, Icon: Bug },
+  { test: /maize|crop|bean|cereal|grain|veg|kale|tomato/, Icon: Wheat },
+];
+const speciesIcon = (s?: string): LucideIcon => {
   const t = (s ?? '').toLowerCase();
-  if (/pig|pork|sow|boar|hog|piglet/.test(t)) return '🐖';
-  if (/fish|tilapia|catfish|fingerling/.test(t)) return '🐟';
-  if (/chick|poultry|hen|layer|broiler|bird|duck|turkey|quail/.test(t)) return '🐔';
-  if (/goat|kid/.test(t)) return '🐐';
-  if (/cattle|cow|dairy|calf|bull|heifer/.test(t)) return '🐄';
-  if (/duck|muscovy/.test(t)) return '🦆';
-  if (/rabbit|bunny/.test(t)) return '🐇';
-  if (/bee|honey|hive/.test(t)) return '🐝';
-  if (/maize|crop|bean|cereal|grain|veg|kale|tomato/.test(t)) return '🌽';
-  return '🌿';
+  return SPECIES_ICON_RULES.find(r => r.test.test(t))?.Icon ?? Leaf;
 };
 // Unit icon: prefer the batch species in it, else infer from the unit type.
-const unitIcon = (type: string, species?: string) => {
+const UNIT_TYPE_ICON: Record<string, LucideIcon> = { POND: Fish, TANK: Fish, PEN: PawPrint, CAGE: Bird, HOUSE: Bird, PLOT: Wheat, HIVE: Bug };
+const unitIcon = (type: string, species?: string): LucideIcon => {
   if (species) return speciesIcon(species);
-  return ({ POND: '🐟', TANK: '🐟', PEN: '🐖', CAGE: '🐔', HOUSE: '🐔', PLOT: '🌽', HIVE: '🐝'} as Record<string, string>)[type] ?? '🏠';
+  return UNIT_TYPE_ICON[type] ?? House;
 };
-
 const unitStatusVariant = (s: string) => {
   if (s === 'ACTIVE') return 'ok'; if (s === 'QUARANTINE') return 'critical';
   if (s === 'CLEANING') return 'warning'; return 'offline';
@@ -100,13 +105,22 @@ export default function FarmPage() {
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-7xl">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold text-gray-900">🐄 {t('farm')}</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+            <Tractor className="w-6 h-6 text-green-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('farm')}</h1>
+            <p className="text-gray-500 text-sm">Production units and batches — capacity, growth stage, and status.</p>
+          </div>
+        </div>
         <div className="flex gap-2">
-          <Link href="/owner/farm/stages" className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">🌱 {t('lifecycleStages')}</Link>
-          <Link href="/owner/farm/compare" className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg font-semibold text-sm hover:bg-indigo-200">📊 {t('compareBatches')}</Link>
+          <Link href="/owner/farm/stages" className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm"><Sprout className="w-4 h-4" /> {t('lifecycleStages')}</Link>
+          <Link href="/owner/farm/compare" className="flex items-center gap-1.5 px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg font-semibold text-sm hover:bg-indigo-200"><BarChart3 className="w-4 h-4" /> {t('compareBatches')}</Link>
           <button onClick={() => setShow(show === 'unit' ? '' : 'unit')} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">+ {t('addUnit')}</button>
           <button onClick={() => setShow(show === 'batch' ? '' : 'batch')} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ {t('addBatch')}</button>
+          <Link href="/owner/farm/split-delivery" className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">+ Split delivery</Link>
         </div>
       </div>
 
@@ -140,6 +154,7 @@ export default function FarmPage() {
               {ENTERPRISE_OPTIONS.map(opt => {
                 const selected = batchForm.enterprise === opt.key ||
                   (!batchForm.enterprise && opt.key === 'layers' && !batchForm.species);
+                const OptIcon = opt.Icon;
                 return (
                   <button
                     key={opt.key}
@@ -157,7 +172,7 @@ export default function FarmPage() {
                         : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                     }`}
                   >
-                    <span className="text-2xl">{opt.icon}</span>
+                    <OptIcon className={`w-6 h-6 ${selected ? 'text-green-700' : 'text-gray-500'}`} />
                     <span className={`text-xs font-semibold ${selected ? 'text-green-700' : 'text-gray-600'}`}>{opt.label}</span>
                   </button>
                 );
@@ -170,7 +185,7 @@ export default function FarmPage() {
             <input required placeholder={t('batchNamePlaceholderForm')} value={batchForm.name} onChange={e => setBatchForm({ ...batchForm, name: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             <select required value={batchForm.unitId} onChange={e => setBatchForm({ ...batchForm, unitId: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
               <option value="">{t('whichUnit')}</option>
-              {units.map(u => <option key={u.id} value={u.id}>{u.name} {u.species ? `(${speciesIcon(u.species)} ${u.species})` : ''}</option>)}
+              {units.map(u => <option key={u.id} value={u.id}>{u.name} {u.species ? `(${u.species})` : ''}</option>)}
             </select>
             <input type="number" min="0" required placeholder={t('qtyPlaceholderForm')} value={batchForm.qty} onChange={e => setBatchForm({ ...batchForm, qty: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             <input type="date" placeholder="Date acquired" value={batchForm.acquiredDate || new Date().toISOString().slice(0, 10)} onChange={e => setBatchForm({ ...batchForm, acquiredDate: e.target.value })}
@@ -202,10 +217,11 @@ export default function FarmPage() {
             const ub = unitBatches(u);
             const dens = parseInt(density(u));
             const heatColor = dens > 90 ? 'bg-red-100 border-red-300' : dens > 70 ? 'bg-amber-100 border-amber-300' : dens > 0 ? 'bg-green-100 border-green-300' : 'bg-gray-100 border-gray-200';
+            const UnitIcon = unitIcon(u.type, ub[0]?.species ?? u.species);
             return (
               <div key={u.id} className={cn('rounded-xl border p-4', heatColor)}>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xl">{unitIcon(u.type, ub[0]?.species ?? u.species)}</span>
+                  <UnitIcon className="w-5 h-5 text-gray-600 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-gray-900 text-sm truncate">{u.name}</p>
                     <p className="text-xs text-gray-500">{u.code} · {u.type}</p>
@@ -281,12 +297,19 @@ export default function FarmPage() {
                     const u = units.find(u => u.id === b.unitId);
                     const days = Math.floor((Date.now() - new Date(b.acquiredDate).getTime()) / 86400000);
                     const mortPct = (((b.initialQty - b.currentQty) / b.initialQty) * 100).toFixed(1);
+                    const BIcon = speciesIcon(b.species);
                     return (
                       <tr key={b.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => window.location.href=`/owner/farm/${b.id}`}>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span>{speciesIcon(b.species)}</span>
-                            <div><p className="font-semibold text-gray-900">{b.name}</p><p className="text-xs text-gray-400">{b.species}</p></div>
+                            <BIcon className="w-4 h-4 text-gray-500 shrink-0" />
+                            <div>
+                              <p className="font-semibold text-gray-900 flex items-center gap-1">
+                                {b.name}
+                                {b.deliveryGroupId && <Layers className="w-3 h-3 text-gray-400" aria-label="Part of a split delivery" />}
+                              </p>
+                              <p className="text-xs text-gray-400">{b.species}</p>
+                            </div>
                           </div>
                         </td>
                         <td className="px-3 py-3 text-gray-600 hidden md:table-cell">{u?.name ?? '—'}</td>

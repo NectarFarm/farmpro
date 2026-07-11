@@ -1,5 +1,5 @@
 'use client';
-import { Egg } from 'lucide-react';
+import { Egg, Check, Info } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -76,7 +76,7 @@ export default function CollectProductsPage() {
     }
     setPendingCount(pendingCount + 1);
     setDoneBatches(d => d.includes(batchId) ? d : [...d, batchId]);
-    toast({ description: `✓ ${qtyNum} ${unitName} of ${product.name} saved — pick the next batch or finish` });
+    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> {qtyNum} {unitName} of {product.name} saved — pick the next batch or finish</span> });
     // Stay in the flow for the next batch/product.
     setBatchId(''); setProductId(''); setQty(''); setLoading(false); refresh();
   };
@@ -85,12 +85,12 @@ export default function CollectProductsPage() {
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-green-700 text-white rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Egg className="w-6 h-6 shrink-0" /><span>{t('collectProducts')}</span></h1>
-        <p className="text-green-200 text-sm">{t('collectProducts')}</p>
+        <p className="text-green-200 text-sm">Log what you gathered from each batch today.</p>
       </div>
 
       {doneBatches.length > 0 && (
         <div className="bg-green-50 border border-green-300 rounded-xl px-4 py-3 flex items-center justify-between">
-          <p className="text-green-800 text-sm font-semibold">✓ Collected from {doneBatches.length} batch{doneBatches.length > 1 ? 'es' : ''} this round</p>
+          <p className="flex items-center gap-1.5 text-green-800 text-sm font-semibold"><Check className="w-4 h-4 shrink-0" /> Collected from {doneBatches.length} batch{doneBatches.length > 1 ? 'es' : ''} this round</p>
           <button onClick={() => router.replace('/worker/home')} className="px-3 py-1.5 bg-green-700 text-white rounded-lg text-xs font-semibold">Finish</button>
         </div>
       )}
@@ -101,10 +101,10 @@ export default function CollectProductsPage() {
         <select value={batchId} onChange={e => setBatchId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
           <option value="">{t('selectBatch')}</option>
-          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty}{doneBatches.includes(b.id) ? ' ✓' : ''}</option>)}
+          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty}{doneBatches.includes(b.id) ? ' (done)' : ''}</option>)}
         </select>
         {batchId && doneToday('production', batchId).count > 0 && (
-          <p className="text-xs font-semibold text-amber-600">ℹ You already recorded a collection from this batch today at {timeLabel(doneToday('production', batchId).lastAt)}.</p>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><Info className="w-3.5 h-3.5 shrink-0" /> You already recorded a collection from this batch today at {timeLabel(doneToday('production', batchId).lastAt)}.</p>
         )}
       </div>
 

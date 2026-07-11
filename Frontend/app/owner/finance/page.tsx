@@ -1,14 +1,17 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, getProducts } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Sale, Purchase, Batch, Product, BatchCostSummary, InventoryItem, Employee } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { totalMonthlyWageBill, daysUntilPayDay } from '@/lib/payroll';
+import { Wallet, AlertTriangle, Bell } from 'lucide-react';
+import { Pager } from '@/components/Pager';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const EMPTY = { batchId: '', productId: '', unitName: '', quantity: '', unitPrice: '', buyer: '' };
+const PAGE_SIZE = 20;
 
 export default function FinancePage() {
   const { t } = useTranslation();
@@ -17,6 +20,8 @@ export default function FinancePage() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [tab, setTab] = useState<'sales'|'purchases'|'batchpl'>('sales');
+  const [salesPage, setSalesPage] = useState(1);
+  const [purchasesPage, setPurchasesPage] = useState(1);
   const [showSale, setShowSale] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -87,6 +92,21 @@ export default function FinancePage() {
   const totalRevenue = sales.reduce((s,sl) => s + sl.totalAmount, 0);
   const totalCost = purchases.reduce((s,p) => s + p.totalCost, 0);
 
+  // Rows come back id-ordered (not chronological — id is a random UUID), so sort
+  // newest-first for display; paginate client-side to keep long histories usable.
+  // getSales/getPurchases fetch with limit=0 (unbounded), so a farm with years of
+  // history can mean a genuinely large array — memoize instead of re-sorting on
+  // every unrelated re-render (typing in the sale form above, tab switches, etc).
+  const sortedSales = useMemo(() => [...sales].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [sales]);
+  const salesTotalPages = Math.max(1, Math.ceil(sortedSales.length / PAGE_SIZE));
+  const safeSalesPage = Math.min(salesPage, salesTotalPages);
+  const pagedSales = sortedSales.slice((safeSalesPage - 1) * PAGE_SIZE, safeSalesPage * PAGE_SIZE);
+
+  const sortedPurchases = useMemo(() => [...purchases].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [purchases]);
+  const purchasesTotalPages = Math.max(1, Math.ceil(sortedPurchases.length / PAGE_SIZE));
+  const safePurchasesPage = Math.min(purchasesPage, purchasesTotalPages);
+  const pagedPurchases = sortedPurchases.slice((safePurchasesPage - 1) * PAGE_SIZE, safePurchasesPage * PAGE_SIZE);
+
   // This-month budget: revenue in vs expenses out, for the current month.
   // Expenses = stock purchases this month + the monthly wage bill (salaries accrue
   // every month regardless of which day they're paid).
@@ -112,8 +132,16 @@ export default function FinancePage() {
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-5xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">💰 {t('finance')}</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+            <Wallet className="w-6 h-6 text-green-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('finance')}</h1>
+            <p className="text-gray-500 text-sm">Sales, purchases, monthly budget, and profit &amp; loss per batch.</p>
+          </div>
+        </div>
         <div className="flex gap-2">
           <button onClick={() => setShowSale(v => !v)} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ {t('recordSale')}</button>
         </div>
@@ -141,18 +169,21 @@ export default function FinancePage() {
             <input placeholder={t('buyer')} value={form.buyer} onChange={e => setForm({ ...form, buyer: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           {avail && product && (
-            <p className={`text-sm rounded-lg px-3 py-2 ${overSell ? 'bg-red-50 text-red-700 font-semibold' : 'bg-gray-50 text-gray-600'}`}>
-              {avail.basis === 'headcount'
-                ? (overSell
-                    ? `⚠ Only ${avail.available} ${product.baseUnit} left in this batch — you're trying to sell ${sellingBase}. Record mortalities or check the live count.`
-                    : `${avail.available} live ${product.baseUnit} in this batch${sellingBase > 0 ? ` · this sale removes ${sellingBase}, leaving ${avail.available - sellingBase}` : ''}`)
-                : avail.basis === 'biomass'
-                ? (overSell
-                    ? `⚠ Only about ${avail.available} ${product.baseUnit} of live ${product.name} here (≈ live count × ${avail.avgWeightKg} ${product.baseUnit}) — you're trying to sell ${sellingBase}.`
-                    : `≈ ${avail.available} ${product.baseUnit} of live ${product.name} sellable (live animals × ${avail.avgWeightKg} ${product.baseUnit} avg). Record a weight sample to refine it.`)
-                : (overSell
-                    ? `⚠ Only ${avail.available} ${product.baseUnit} available — you're trying to sell ${sellingBase}. Record the collection first.`
-                    : `${avail.available} ${product.baseUnit} available to sell (collected ${avail.produced}, sold ${avail.sold})${sellingBase > 0 ? ` · this sale = ${sellingBase} ${product.baseUnit}` : ''}`)}
+            <p className={`flex items-start gap-1.5 text-sm rounded-lg px-3 py-2 ${overSell ? 'bg-red-50 text-red-700 font-semibold' : 'bg-gray-50 text-gray-600'}`}>
+              {overSell && <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />}
+              <span>
+                {avail.basis === 'headcount'
+                  ? (overSell
+                      ? `Only ${avail.available} ${product.baseUnit} left in this batch — you're trying to sell ${sellingBase}. Record mortalities or check the live count.`
+                      : `${avail.available} live ${product.baseUnit} in this batch${sellingBase > 0 ? ` · this sale removes ${sellingBase}, leaving ${avail.available - sellingBase}` : ''}`)
+                  : avail.basis === 'biomass'
+                  ? (overSell
+                      ? `Only about ${avail.available} ${product.baseUnit} of live ${product.name} here (≈ live count × ${avail.avgWeightKg} ${product.baseUnit}) — you're trying to sell ${sellingBase}.`
+                      : `≈ ${avail.available} ${product.baseUnit} of live ${product.name} sellable (live animals × ${avail.avgWeightKg} ${product.baseUnit} avg). Record a weight sample to refine it.`)
+                  : (overSell
+                      ? `Only ${avail.available} ${product.baseUnit} available — you're trying to sell ${sellingBase}. Record the collection first.`
+                      : `${avail.available} ${product.baseUnit} available to sell (collected ${avail.produced}, sold ${avail.sold})${sellingBase > 0 ? ` · this sale = ${sellingBase} ${product.baseUnit}` : ''}`)}
+              </span>
             </p>
           )}
           {total > 0 && <p className="text-sm text-gray-600">Total: <span className="font-bold text-green-700">{fmtKES(total)}</span></p>}
@@ -171,7 +202,7 @@ export default function FinancePage() {
             {monthNet >= 0 ? t('surplus') : t('deficit')} {fmtKES(monthNet)}
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="text-center">
             <p className="text-xs text-gray-500">{t('revenueIn')}</p>
             <p className="text-xl font-bold text-green-700">{fmtKES(monthRevenue)}</p>
@@ -188,12 +219,12 @@ export default function FinancePage() {
           </div>
         </div>
         {payReminder && (
-          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 text-xs font-semibold">🔔 {payReminder}</div>
+          <div className="mt-3 flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 text-xs font-semibold"><Bell className="w-3.5 h-3.5 shrink-0" /> {payReminder}</div>
         )}
       </div>
 
       {/* All-time summary */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
           <p className="text-xs text-gray-500">Total Revenue</p>
           <p className="text-2xl font-bold text-green-700">{fmtKES(totalRevenue)}</p>
@@ -224,7 +255,7 @@ export default function FinancePage() {
               <tr><th className="px-4 py-3 text-left">{t('date')}</th><th className="px-3 py-3 text-left">{t('product')}</th><th className="px-3 py-3 text-right">{t('qty')}</th><th className="px-3 py-3 text-right">{t('amount')}</th><th className="px-3 py-3 text-left hidden md:table-cell">{t('buyer')}</th>        <th className="px-3 py-3 text-center">{t('wdCheck')}</th><th className="px-3 py-3 text-center">{t('status')}</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {sales.map(s => (
+              {pagedSales.map(s => (
                 <tr key={s.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-gray-400 text-xs">{new Date(s.createdAt).toLocaleDateString('en-KE')}</td>
                   <td className="px-3 py-3 font-medium text-gray-900">{s.productType}</td>
@@ -232,7 +263,7 @@ export default function FinancePage() {
                   <td className="px-3 py-3 text-right font-bold text-gray-900">{fmtKES(s.totalAmount)}</td>
                   <td className="px-3 py-3 text-gray-600 hidden md:table-cell">{s.buyer}</td>
                   <td className="px-3 py-3 text-center">
-                    <StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? '✓ Cleared' : '⛔ Blocked'} />
+                    <StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? 'Cleared' : 'Blocked'} />
                   </td>
                   <td className="px-3 py-3 text-center"><span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">{s.status}</span></td>
                 </tr>
@@ -240,6 +271,11 @@ export default function FinancePage() {
               {sales.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No sales recorded yet.</td></tr>}
             </tbody>
           </table>
+          {salesTotalPages > 1 && (
+            <div className="py-3 border-t border-gray-100">
+              <Pager page={safeSalesPage} totalPages={salesTotalPages} onPageChange={setSalesPage} prevLabel={t('prev')} nextLabel={t('next')} />
+            </div>
+          )}
         </div>
       )}
 
@@ -250,7 +286,7 @@ export default function FinancePage() {
               <tr><th className="px-4 py-3 text-left">{t('date')}</th><th className="px-3 py-3 text-left">{t('item')}</th><th className="px-3 py-3 text-left hidden md:table-cell">{t('supplier')}</th><th className="px-3 py-3 text-right">{t('qty')}</th><th className="px-3 py-3 text-right">{t('unitCost')}</th><th className="px-3 py-3 text-right">{t('total')}</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {purchases.map(p => (
+              {pagedPurchases.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-gray-400 text-xs">{new Date(p.createdAt).toLocaleDateString('en-KE')}</td>
                   <td className="px-3 py-3 font-medium text-gray-900">{itemName(p.itemId)}</td>
@@ -263,6 +299,11 @@ export default function FinancePage() {
               {purchases.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No purchases yet. Record one on the Inventory page (&quot;+ Record Purchase&quot;).</td></tr>}
             </tbody>
           </table>
+          {purchasesTotalPages > 1 && (
+            <div className="py-3 border-t border-gray-100">
+              <Pager page={safePurchasesPage} totalPages={purchasesTotalPages} onPageChange={setPurchasesPage} prevLabel={t('prev')} nextLabel={t('next')} />
+            </div>
+          )}
         </div>
       )}
 

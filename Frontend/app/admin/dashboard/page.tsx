@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import {
   Tractor, ScrollText, Settings, Layers, Bird, Users,
-  CheckCircle2, XCircle, ArrowRight, Activity
+  CheckCircle2, XCircle, ArrowRight, Activity, Shield, BarChart3
 } from 'lucide-react';
 
 const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
@@ -57,9 +57,14 @@ export default function AdminDashboardPage() {
   return (
     <div className="p-6 flex flex-col gap-8 max-w-5xl mx-auto">
       {/* Hero */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">🛡️ {t('platformConsole')}</h1>
-        <p className="text-gray-500 text-sm mt-1">{t('platformSettings')}</p>
+      <div className="flex items-center gap-3">
+        <div className="shrink-0 w-11 h-11 rounded-xl bg-gray-900 flex items-center justify-center">
+          <Shield className="w-6 h-6 text-white" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{t('platformConsole')}</h1>
+          <p className="text-gray-500 text-sm mt-1">Farms, users, and activity across every tenant on the platform.</p>
+        </div>
       </div>
 
       {loading ? (
@@ -142,9 +147,9 @@ export default function AdminDashboardPage() {
             </div>
             <div className="mt-4 pt-4 border-t border-gray-100">
               <div className="flex items-center gap-4 text-xs text-gray-400">
-                <span>🟢 {stats.activeFarms} {t('active').toLowerCase()}</span>
-                <span>🔴 {stats.suspendedFarms} {t('inactive').toLowerCase()}</span>
-                <span>📊 {t('averageFCR')} {(stats.totalBatchesAll / Math.max(stats.totalFarms, 1)).toFixed(1)} {t('batches').toLowerCase()}/{t('farm').toLowerCase()}</span>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500 shrink-0" /> {stats.activeFarms} {t('active').toLowerCase()}</span>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 shrink-0" /> {stats.suspendedFarms} {t('inactive').toLowerCase()}</span>
+                <span className="flex items-center gap-1.5"><BarChart3 className="w-3.5 h-3.5 shrink-0" /> {t('averageFCR')} {(stats.totalBatchesAll / Math.max(stats.totalFarms, 1)).toFixed(1)} {t('batches').toLowerCase()}/{t('farm').toLowerCase()}</span>
               </div>
             </div>
           </div>
