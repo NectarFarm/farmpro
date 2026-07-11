@@ -5,13 +5,17 @@ import { useParams } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { api, getCumulativeChartData, getProducts, createProduct, updateProduct } from '@/lib/api';
 import type { Batch, BatchCostSummary, Sale, Product } from '@/lib/types';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Legend } from 'recharts';
+import dynamic from 'next/dynamic';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { headNoun, groupNoun } from '@/lib/species';
 import {
   Sprout, Settings, X, AlertTriangle, Check, Skull, Syringe, Wheat, Egg, type LucideIcon,
 } from 'lucide-react';
+
+const chartLoading = () => <div className="h-64 rounded-xl bg-gray-100 animate-pulse" />;
+const CostDonut = dynamic(() => import('./BatchCharts').then(m => m.CostDonut), { ssr: false, loading: chartLoading });
+const CumulativeChart = dynamic(() => import('./BatchCharts').then(m => m.CumulativeChart), { ssr: false, loading: chartLoading });
 
 const ACTIVITY_ICON: Record<string, LucideIcon> = { mortality: Skull, health: Syringe, feeding: Wheat };
 const activityIcon = (kind: string): LucideIcon => ACTIVITY_ICON[kind] ?? Egg;
@@ -337,14 +341,7 @@ export default function BatchDetailPage() {
           <div className="bg-white border border-gray-200 rounded-xl p-5">
             <h2 className="font-bold text-gray-800 mb-2">{t('costBreakdown')}</h2>
             <p className="text-xs text-gray-400 mb-3">{t('totalCost')}: {fmtKES(cost.totalCost)}</p>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={costBreakdown} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false}>
-                  {costBreakdown.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                </Pie>
-                <Tooltip formatter={(v: number) => fmtKES(v)} />
-              </PieChart>
-            </ResponsiveContainer>
+            <CostDonut data={costBreakdown} />
             <div className="flex flex-wrap gap-2 mt-2">
               {costBreakdown.map(d => (
                 <span key={d.name} className="flex items-center gap-1 text-xs text-gray-600">
@@ -360,16 +357,7 @@ export default function BatchDetailPage() {
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <h2 className="font-bold text-gray-800 mb-1">{t('cumulativeCostVsRevenue')}</h2>
           <p className="text-xs text-gray-400 mb-3">{t('breakEven')}</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={chartData} margin={{ top:5, right:10, bottom:0, left:0 }}>
-              <XAxis dataKey="day" tick={{ fontSize:10 }} label={{ value:'Day', position:'insideBottom', offset:-2 }} />
-              <YAxis tick={{ fontSize:10 }} tickFormatter={v=>`${(v/1000).toFixed(0)}K`} />
-              <Tooltip formatter={(v: number, n) => [fmtKES(v), n === 'cost' ? t('cost') : t('revenue')]} />
-              <Legend />
-              <Area type="monotone" dataKey="cost" stroke="#ef4444" fill="#fee2e2" name={t('cost')} strokeWidth={2} />
-              <Area type="monotone" dataKey="revenue" stroke="#16a34a" fill="#dcfce7" name={t('revenue')} strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <CumulativeChart data={chartData} />
         </div>
       </div>
 

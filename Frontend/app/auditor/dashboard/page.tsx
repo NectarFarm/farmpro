@@ -2,11 +2,16 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { getDashboardKPIs, getProductionChartData } from '@/lib/api';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import dynamic from 'next/dynamic';
 import {
   Lock, Layers, Bird, TrendingDown, Wheat, Wallet, TrendingUp, CheckCircle2,
   type LucideIcon,
 } from 'lucide-react';
+
+const DashboardChart = dynamic(() => import('./DashboardChart'), {
+  ssr: false,
+  loading: () => <div className="h-64 rounded-xl bg-gray-100 animate-pulse" />,
+});
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 
@@ -69,7 +74,6 @@ export default function AuditorDashboardPage() {
     fetch('/api/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null)
       .then(d => { if (typeof d?.exp === 'number') setExpiresAt(d.exp); }).catch(() => {});
   }, []);
-  const PCOLORS = ['#10b981', '#6366f1', '#06b6d4', '#ec4899', '#8b5cf6', '#f97316'];
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -128,14 +132,7 @@ export default function AuditorDashboardPage() {
         {/* Production chart */}
         <div className="bg-white border border-gray-200 rounded-xl p-5 pointer-events-none select-none">
           <h2 className="font-bold text-gray-800 mb-4">{t('weeklyProduction')}</h2>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={chart.data}>
-              <XAxis dataKey="date" tick={{ fontSize:11 }} />
-              <YAxis tick={{ fontSize:11 }} allowDecimals={false} />
-              <Tooltip formatter={(v, n) => n === 'revenue' ? [`KSh ${Number(v).toLocaleString()}`, t('revenue')] : [`${v}`, String(n)]} />
-              {chart.products.map((p, i) => <Bar key={p} dataKey={p} stackId="prod" fill={PCOLORS[i % PCOLORS.length]} radius={[4,4,0,0]} />)}
-            </BarChart>
-          </ResponsiveContainer>
+          <DashboardChart data={chart.data} products={chart.products} />
         </div>
 
         {/* Export only */}
