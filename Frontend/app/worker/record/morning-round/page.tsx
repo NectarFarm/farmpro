@@ -74,8 +74,8 @@ export default function MorningRoundPage() {
   const feedError = (e: UnitEntry): string | null => {
     const used = parseFloat(e.feedUsed) || 0;
     if (used <= 0) return null;                 // feed is optional
-    if (!e.feedItemId) return 'Pick which feed you used.';
-    if (used > onHand(e.feedItemId) + 1e-6) return `Only ${onHand(e.feedItemId)} kg of that feed in stock — you entered ${used}.`;
+    if (!e.feedItemId) return t('pickFeedUsed');
+    if (used > onHand(e.feedItemId) + 1e-6) return t('feedStockExceededKg', { stock: onHand(e.feedItemId), entered: used });
     return null;
   };
 
@@ -114,18 +114,18 @@ export default function MorningRoundPage() {
         <StaleDataNotice cachedAt={staleAt} />
         {round.count > 0 && (
           <div className="bg-amber-50 border-2 border-amber-300 rounded-xl px-4 py-3">
-            <p className="flex items-center gap-1.5 text-amber-900 font-bold text-sm"><Check className="w-4 h-4 shrink-0" /> Today&apos;s round was already done at {timeLabel(round.lastAt)}{round.count > 1 ? ` (${round.count} times)` : ''}.</p>
-            <p className="text-amber-800 text-xs mt-0.5">Only start again if you&apos;re doing a separate round (e.g. an evening check).</p>
+            <p className="flex items-center gap-1.5 text-amber-900 font-bold text-sm"><Check className="w-4 h-4 shrink-0" /> {round.count > 1 ? t('roundAlreadyDoneAtTimes', { time: timeLabel(round.lastAt), count: round.count }) : t('roundAlreadyDoneAt', { time: timeLabel(round.lastAt) })}</p>
+            <p className="text-amber-800 text-xs mt-0.5">{t('onlyStartAgainNote')}</p>
           </div>
         )}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-gray-600 mb-3">You will visit <strong>{units.length} unit{units.length !== 1 ? 's' : ''}</strong>:</p>
+          <p className="text-gray-600 mb-3">{t('unitsIntro', { count: units.length })}</p>
           {units.map(u => {
             const SpeciesIcon: LucideIcon = u.species?.includes('poultry') ? Bird : u.species?.includes('pig') ? PawPrint : u.species?.includes('tilapia') || u.species?.includes('catfish') ? Fish : Leaf;
             return (
               <div key={u.id} className="flex items-center gap-3 py-2 border-b last:border-0">
                 <span className="shrink-0 w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center"><SpeciesIcon className="w-4 h-4 text-green-700" /></span>
-                <div><p className="font-semibold text-gray-900">{u.name}</p><p className="text-xs text-gray-500">{u.batch?.name} · {u.batch?.currentQty} animals</p></div>
+                <div><p className="font-semibold text-gray-900">{u.name}</p><p className="text-xs text-gray-500">{u.batch?.name} · {u.batch?.currentQty} {t('animals')}</p></div>
               </div>
             );
           })}
@@ -135,7 +135,7 @@ export default function MorningRoundPage() {
           <Sunrise className="w-5 h-5" /> {round.count > 0 ? t('startAnotherRound') : t('startRound')}
         </button>
         {units.length === 0 && (
-          <p className="text-center text-sm text-gray-500">No active units with a batch yet — ask the owner to add one before doing the round.</p>
+          <p className="text-center text-sm text-gray-500">{t('noActiveUnitsNote')}</p>
         )}
       </div>
     );
@@ -193,7 +193,7 @@ export default function MorningRoundPage() {
         ]}
         value={entry.waterLevel}
         onChange={v => updateEntry(idx, { waterLevel: v })}
-        error={entry.waterLevel === null ? 'Required' : undefined}
+        error={entry.waterLevel === null ? t('required') : undefined}
       />
 
       {/* Feed USED today — deducted from stock. (We capture what was used, not what's
@@ -202,13 +202,13 @@ export default function MorningRoundPage() {
         <label className="text-sm font-medium text-gray-700">{t('feedUsed')} <span className="text-gray-400 font-normal">— {t('comesOffStock')}</span></label>
         <select value={entry.feedItemId} onChange={e => updateEntry(idx, { feedItemId: e.target.value })}
           className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-h-[48px]">
-          <option value="">— Which feed? —</option>
-          {feedItems.map(fi => <option key={fi.id} value={fi.id}>{fi.name} — {onHand(fi.id)} {fi.unit} left</option>)}
+          <option value="">{t('selectFeedWhich')}</option>
+          {feedItems.map(fi => <option key={fi.id} value={fi.id}>{fi.name} — {onHand(fi.id)} {fi.unit} {t('onHand')}</option>)}
         </select>
         {activeField === 'feed' ? (
           <>
-            <NumericKeypad label="Feed used (kg)" value={entry.feedUsed} onChange={v => updateEntry(idx, { feedUsed: v })} allowDecimal unit="kg" />
-            <button type="button" onClick={() => setActiveField(null)} className="mt-1 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
+            <NumericKeypad label={t('feedUsedKg')} value={entry.feedUsed} onChange={v => updateEntry(idx, { feedUsed: v })} allowDecimal unit="kg" />
+            <button type="button" onClick={() => setActiveField(null)} className="mt-1 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">{t('done')}</button>
           </>
         ) : (
           <button type="button" onClick={() => setActiveField('feed')}
@@ -227,12 +227,12 @@ export default function MorningRoundPage() {
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <NumericKeypad large label={t('eggsCollected')} value={entry.eggsCollected} onChange={v => updateEntry(idx, { eggsCollected: v })} unit={t('eggs')} />
               <NumericKeypad label={t('cracked')} value={entry.eggsCracked} onChange={v => updateEntry(idx, { eggsCracked: v })} className="mt-3" />
-              <button type="button" onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
+              <button type="button" onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">{t('done')}</button>
             </div>
           ) : (
             <button type="button" onClick={() => setActiveField('eggs')}
               className="w-full flex justify-between items-center bg-white border border-gray-200 rounded-xl px-4 py-3 min-h-[56px]">
-              <span className="font-medium text-gray-700">Eggs</span>
+              <span className="font-medium text-gray-700">{t('eggsLabel')}</span>
               <span className={cn('text-xl font-bold', entry.eggsCollected ? 'text-gray-900' : 'text-gray-400')}>{entry.eggsCollected || '—'}</span>
             </button>
           )}
@@ -243,7 +243,7 @@ export default function MorningRoundPage() {
       {isFish && (
         <>
           <SegmentedToggle label={t('waterColour')}
-            options={[{value:'CLEAR',label:'Clear'},{value:'GREEN',label:'Green (good)'},{value:'MURKY',label:'Murky'}]}
+            options={[{value:'CLEAR',label:t('waterClear')},{value:'GREEN',label:t('waterGreenGood')},{value:'MURKY',label:t('waterMurky')}]}
             value={entry.waterColour} onChange={v => updateEntry(idx, { waterColour: v })} />
           {activeField === 'water_params' ? (
             <div className="bg-white rounded-xl border border-gray-200 p-4 grid grid-cols-2 gap-3">
@@ -251,13 +251,13 @@ export default function MorningRoundPage() {
               <NumericKeypad label={`DO ${t('mgPerL')}`} value={entry.doMgL} onChange={v => updateEntry(idx, { doMgL: v })} allowDecimal unit="mg/L" />
               <NumericKeypad label="pH" value={entry.ph} onChange={v => updateEntry(idx, { ph: v })} allowDecimal unit="pH" />
               <NumericKeypad label={t('ammonia')} value={entry.ammonia} onChange={v => updateEntry(idx, { ammonia: v })} allowDecimal unit="mg/L" />
-              <button type="button" onClick={() => setActiveField(null)} className="col-span-2 bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
+              <button type="button" onClick={() => setActiveField(null)} className="col-span-2 bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">{t('done')}</button>
             </div>
           ) : (
             <button type="button" onClick={() => setActiveField('water_params')}
               className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-left min-h-[56px]">
               <span className="font-medium text-gray-700">{t('waterParameters')}</span>
-              <span className="ml-2 text-gray-400 text-sm">{entry.ph ? `pH ${entry.ph} · DO ${entry.doMgL}` : 'Tap to enter'}</span>
+              <span className="ml-2 text-gray-400 text-sm">{entry.ph ? `pH ${entry.ph} · DO ${entry.doMgL}` : t('tapToEnter')}</span>
             </button>
           )}
         </>
@@ -265,7 +265,7 @@ export default function MorningRoundPage() {
 
       {/* Abnormal — no default, DS-2 */}
       <div>
-        <p className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1"><AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" /> {t('abnormalQuestion')} <span className="text-red-500 text-xs">— required, no default</span></p>
+        <p className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1"><AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" /> {t('abnormalQuestion')} <span className="text-red-500 text-xs">{t('requiredNoDefault')}</span></p>
         <div className="flex gap-3">
           {[{v:false,l:t('no')},{v:true,l:t('yes')}].map(({v,l}) => (
             <button key={l} type="button" onClick={() => updateEntry(idx, { abnormal: v })}
@@ -277,7 +277,7 @@ export default function MorningRoundPage() {
         </div>
         {entry.abnormal && (
           <textarea value={entry.abnormalNote} onChange={e => updateEntry(idx, { abnormalNote: e.target.value })}
-            placeholder="Describe the abnormality…" rows={2}
+            placeholder={t('describeAbnormality')} rows={2}
             className="mt-2 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" />
         )}
       </div>
@@ -294,9 +294,9 @@ export default function MorningRoundPage() {
 
       <ConfirmSheet
         open={showConfirm}
-        title="Finish Morning Round?"
-        summary={`${entries.length} units recorded. Submit to queue?`}
-        confirmLabel="Finish & Queue"
+        title={t('finishMorningRoundTitle')}
+        summary={t('unitsRecordedSummary', { count: entries.length })}
+        confirmLabel={t('finishAndQueue')}
         onConfirm={handleFinish}
         onCancel={() => setShowConfirm(false)}
       />

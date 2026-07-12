@@ -1,5 +1,5 @@
 'use client';
-import { Scale, Check, AlertTriangle } from 'lucide-react';
+import { Scale, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -10,8 +10,8 @@ import { cachedApi } from '@/lib/offline/refCache';
 import { enqueuePendingRecord } from '@/lib/offline/db';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { NumericKeypad } from '@/components/worker/NumericKeypad';
-import { useToast } from '@/hooks/use-toast';
 import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
+import { isBroilerSpecies } from '@/lib/species';
 import type { Batch } from '@/lib/types';
 
 export default function WeightSamplingPage() {
@@ -20,7 +20,6 @@ export default function WeightSamplingPage() {
   const { setPendingCount, pendingCount } = useSyncStore();
   const { doneToday } = useTodayActivity();
   const router = useRouter();
-  const { toast } = useToast();
   const [batches, setBatches] = useState<Batch[]>([]);
   const [batchId, setBatchId] = useState('');
   const [sampleSize, setSampleSize] = useState('10');
@@ -30,6 +29,7 @@ export default function WeightSamplingPage() {
   const [loadError, setLoadError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [staleAt, setStaleAt] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     cachedApi.getBatches().then(b => { setBatches(b.data.filter(b => b.status === 'ACTIVE')); setStaleAt(b.cachedAt); })
@@ -40,10 +40,16 @@ export default function WeightSamplingPage() {
   const batch = batches.find(b => b.id === batchId);
   const acquiredDate = batch ? new Date(batch.acquiredDate) : null;
   const daysOnFarm = acquiredDate ? Math.floor((now - acquiredDate.getTime()) / 86400000) : 0;
-  const startWeight = 0.04; // 40g day-old chick approx
+  // ADG/target-weight projection only makes sense for broilers (meat birds sold
+  // at a target live weight). Layers, pigs, fish, etc. don't follow this curve,
+  // so the whole block is hidden for them (item 5) rather than showing a
+  // meaningless number.
+  const isBroiler = isBroilerSpecies(batch?.species);
+  const BROILER_START_WEIGHT_KG = 0.04; // 40g day-old chick approx
+  const BROILER_TARGET_WEIGHT_KG = 2.5;
   const avgKg = parseFloat(avgWeight) || 0;
-  const adg = daysOnFarm > 0 && avgKg > 0 ? (((avgKg - startWeight) / daysOnFarm) * 1000).toFixed(0) : null;
-  const projectedDays = adg && avgKg ? Math.round((2.5 - avgKg) / (parseFloat(adg)/1000)) : null;
+  const adg = isBroiler && daysOnFarm > 0 && avgKg > 0 ? (((avgKg - BROILER_START_WEIGHT_KG) / daysOnFarm) * 1000).toFixed(0) : null;
+  const projectedDays = adg && avgKg ? Math.round((BROILER_TARGET_WEIGHT_KG - avgKg) / (parseFloat(adg)/1000)) : null;
 
   const handleSubmit = async () => {
     if (!batchId || !avgWeight || submitting) return;
@@ -57,9 +63,25 @@ export default function WeightSamplingPage() {
       return;
     }
     setPendingCount(pendingCount + 1);
-    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> Saved — will sync</span> });
-    setTimeout(() => router.replace('/worker/home'), 1500);
+    setSubmitting(false);
+    // No timed redirect — explicit success state + Done button (item 8).
+    setSaved(true);
   };
+
+  if (saved) {
+    return (
+      <div className="p-4 flex flex-col gap-5">
+        <div className="bg-green-50 border border-green-300 rounded-2xl p-6 text-center">
+          <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
+          <h1 className="text-xl font-bold text-green-800">{t('savedWillSync')}</h1>
+        </div>
+        <button onClick={() => router.replace('/worker/home')}
+          className="w-full min-h-[56px] bg-purple-600 text-white rounded-xl text-xl font-bold">
+          {t('backToHome')}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 flex flex-col gap-5">
@@ -75,14 +97,14 @@ export default function WeightSamplingPage() {
           {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         {batchId && doneToday('weight_sample', batchId).count > 0 && (
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Already sampled today at {timeLabel(doneToday('weight_sample', batchId).lastAt)}.</p>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {t('alreadySampledTodayAt', { time: timeLabel(doneToday('weight_sample', batchId).lastAt) })}</p>
         )}
       </div>
 
       {activeField === 'size' ? (
         <div className="bg-white rounded-xl border p-4">
           <NumericKeypad label={t('sampleSize')} value={sampleSize} onChange={setSampleSize} />
-          <button onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
+          <button onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">{t('done')}</button>
         </div>
       ) : (
         <button type="button" onClick={() => setActiveField('size')}
@@ -95,7 +117,7 @@ export default function WeightSamplingPage() {
       {activeField === 'weight' ? (
         <div className="bg-white rounded-xl border p-4">
           <NumericKeypad large label={t('averageWeight')} value={avgWeight} onChange={setAvgWeight} allowDecimal unit="kg" />
-          <button onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">Done</button>
+          <button onClick={() => setActiveField(null)} className="mt-3 w-full bg-green-600 text-white rounded-xl min-h-[44px] font-semibold">{t('done')}</button>
         </div>
       ) : (
         <button type="button" onClick={() => setActiveField('weight')}
@@ -105,12 +127,13 @@ export default function WeightSamplingPage() {
         </button>
       )}
 
-      {/* ADG projection */}
-      {adg && batchId && (
+      {/* ADG projection — broilers only (item 5): the 40g start / 2.5kg target
+          curve doesn't apply to layers, pigs, fish, etc. */}
+      {isBroiler && adg && batchId && (
         <div className="bg-blue-50 border border-blue-300 rounded-xl px-4 py-3">
-          <p className="text-blue-800 font-bold">ADG {adg} g/day</p>
+          <p className="text-blue-800 font-bold">{t('adgPerDay', { adg })}</p>
           {projectedDays && projectedDays > 0 && (
-            <p className="text-blue-600 text-sm">Projected 2.5 kg in ~{projectedDays} days (day {daysOnFarm + projectedDays} of cycle)</p>
+            <p className="text-blue-600 text-sm">{t('projectedWeightDays', { target: BROILER_TARGET_WEIGHT_KG, days: projectedDays, day: daysOnFarm + projectedDays })}</p>
           )}
         </div>
       )}
@@ -121,7 +144,7 @@ export default function WeightSamplingPage() {
 
       <button onClick={handleSubmit} disabled={!batchId || !avgWeight || submitting}
         className="w-full min-h-[56px] bg-purple-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
-        {submitting ? t('saving') : 'SAVE'}
+        {submitting ? t('saving') : t('submit')}
       </button>
     </div>
   );

@@ -1,15 +1,31 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslation } from '@/lib/i18n/useTranslation';
+import { useTranslation, type TranslationKey } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { useWorkerProfileStore } from '@/lib/stores/workerProfile';
 import { cachedApi } from '@/lib/offline/refCache';
-import { getPendingCount } from '@/lib/offline/db';
+import { getPendingCount, getTodayRecords, type TodayRecordSummary } from '@/lib/offline/db';
 import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
+import { StatusChip } from '@/components/worker/StatusChip';
+import { timeLabel } from '@/lib/hooks/useTodayActivity';
 import type { Task } from '@/lib/types';
 import { Wifi, WifiOff, Loader2, Check, Globe, Sun } from 'lucide-react';
+
+// Record type → translated label + status → StatusChip mapping (item 7).
+const RECORD_TYPE_LABEL: Record<string, TranslationKey> = {
+  feeding: 'feedingLog', production: 'collectProducts', morning_round: 'morningRound',
+  mortality: 'recordMortality', health: 'healthVaccination', weight_sample: 'weightSample',
+  physical_count: 'physicalCount', closing_stock: 'closingStock',
+};
+const RECORD_STATUS_CHIP: Record<TodayRecordSummary['status'], { status: 'ok' | 'warning' | 'critical' | 'info'; labelKey: TranslationKey }> = {
+  pending: { status: 'info', labelKey: 'pending' },
+  syncing: { status: 'info', labelKey: 'syncingStatus' },
+  synced: { status: 'ok', labelKey: 'synced' },
+  conflict: { status: 'warning', labelKey: 'conflict' },
+  rejected: { status: 'critical', labelKey: 'rejected' },
+};
 
 export default function WorkerProfilePage() {
   const { t } = useTranslation();
@@ -20,11 +36,13 @@ export default function WorkerProfilePage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dbPending, setDbPending] = useState(0);
   const [staleAt, setStaleAt] = useState<string | null>(null);
+  const [todayRecords, setTodayRecords] = useState<TodayRecordSummary[]>([]);
 
   useEffect(() => {
     if (!user) { router.replace('/worker/login'); return; }
     cachedApi.getTasks(user.id).then(t => { setTasks(t.data.filter(t => t.status === 'DONE')); setStaleAt(t.cachedAt); });
     getPendingCount().then(setDbPending).catch(() => {});
+    getTodayRecords().then(setTodayRecords).catch(() => {});
   }, [user, router]);
 
   const handleLogout = () => { logout(); router.replace('/worker/login'); };
@@ -74,12 +92,34 @@ export default function WorkerProfilePage() {
         <h2 className="font-bold text-gray-800 mb-3">{t('completedTasks')}</h2>
         {tasks.length === 0
           ? <p className="text-gray-400 text-sm">{t('noCompletedToday')}</p>
-          : tasks.map(t => (
-            <div key={t.id} className="flex items-center gap-2 py-1 border-b last:border-0">
+          : tasks.map(task => (
+            <div key={task.id} className="flex items-center gap-2 py-1 border-b last:border-0">
               <Check className="w-4 h-4 text-green-500 shrink-0" />
-              <span className="text-sm text-gray-700">{t.title}</span>
+              <span className="text-sm text-gray-700">{task.title}</span>
             </div>
           ))
+        }
+      </div>
+
+      {/* Today's records — read-only review of everything captured on this
+          device today, any status. No edit/delete (item 7); correction flows
+          exist via physical-count / closing-stock re-entries. */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
+        <h2 className="font-bold text-gray-800 mb-3">{t('todaysRecords')}</h2>
+        {todayRecords.length === 0
+          ? <p className="text-gray-400 text-sm">{t('noRecordsToday')}</p>
+          : todayRecords.map(r => {
+            const chip = RECORD_STATUS_CHIP[r.status];
+            return (
+              <div key={r.clientUuid} className="flex items-center justify-between gap-2 py-2 border-b last:border-0">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate">{t(RECORD_TYPE_LABEL[r.type] ?? 'record')}</p>
+                  <p className="text-xs text-gray-400">{timeLabel(r.capturedAt)}</p>
+                </div>
+                <StatusChip status={chip.status} size="sm" label={t(chip.labelKey)} />
+              </div>
+            );
+          })
         }
       </div>
 

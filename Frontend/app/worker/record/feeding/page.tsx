@@ -60,11 +60,11 @@ export default function FeedingPage() {
   const batchName = (id: string) => batches.find(b => b.id === id)?.name ?? id;
 
   const handleSubmit = async () => {
-    if (!batchId) { setError('Select a batch'); return; }
-    if (!validRows.length) { setError('Add at least one feed with a quantity'); return; }
-    if (anyOver) { setError('One feed is more than what is in stock'); return; }
+    if (!batchId) { setError(t('selectBatchError')); return; }
+    if (!validRows.length) { setError(t('addAtLeastOneFeed')); return; }
+    if (anyOver) { setError(t('feedOverStock')); return; }
     const ids = validRows.map(r => r.itemId);
-    if (new Set(ids).size !== ids.length) { setError('The same feed is listed twice — combine them into one'); return; }
+    if (new Set(ids).size !== ids.length) { setError(t('feedListedTwice')); return; }
     setLoading(true); setError('');
     const at = new Date().toISOString();
     try {
@@ -83,7 +83,7 @@ export default function FeedingPage() {
     }
     setPendingCount(pendingCount + validRows.length);
     setDoneBatches(d => d.includes(batchId) ? d : [...d, batchId]);
-    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> {batchName(batchId)} fed — pick the next batch or finish</span> });
+    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> {t('batchFedPickNext', { batch: batchName(batchId) })}</span> });
     // Stay in the flow for the next batch instead of leaving the page.
     setBatchId(''); setRows([{ itemId: '', qty: '' }]); setLoading(false); refresh();
   };
@@ -92,7 +92,7 @@ export default function FeedingPage() {
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-green-700 text-white rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Wheat className="w-6 h-6 shrink-0" /><span>{t('feedingLog')}</span></h1>
-        <p className="text-green-200 text-sm">Log the feed given to each batch.</p>
+        <p className="text-green-200 text-sm">{t('feedingLogSubtitle')}</p>
       </div>
 
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
@@ -101,8 +101,8 @@ export default function FeedingPage() {
       {/* Progress this visit + finish */}
       {doneBatches.length > 0 && (
         <div className="bg-green-50 border border-green-300 rounded-xl px-4 py-3 flex items-center justify-between">
-          <p className="flex items-center gap-1.5 text-green-800 text-sm font-semibold"><Check className="w-4 h-4 shrink-0" /> Fed {doneBatches.length} batch{doneBatches.length > 1 ? 'es' : ''} this round</p>
-          <button onClick={() => router.replace('/worker/home')} className="px-3 py-1.5 bg-green-700 text-white rounded-lg text-xs font-semibold">Finish</button>
+          <p className="flex items-center gap-1.5 text-green-800 text-sm font-semibold"><Check className="w-4 h-4 shrink-0" /> {t('fedBatchesRound', { count: doneBatches.length })}</p>
+          <button onClick={() => router.replace('/worker/home')} className="px-3 py-1.5 bg-green-700 text-white rounded-lg text-xs font-semibold">{t('finish')}</button>
         </div>
       )}
 
@@ -112,10 +112,10 @@ export default function FeedingPage() {
         <select value={batchId} onChange={e => setBatchId(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
           <option value="">{t('selectBatch')}</option>
-          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty} animals{doneBatches.includes(b.id) ? ' (fed)' : ''}</option>)}
+          {batches.map(b => <option key={b.id} value={b.id}>{b.name} · {b.currentQty} {t('animals')}{doneBatches.includes(b.id) ? ` (${t('fedStatus')})` : ''}</option>)}
         </select>
         {batchId && (fedThisVisit || fedToday.count > 0) && (
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {batchName(batchId)} was already fed today{fedToday.lastAt ? ` at ${timeLabel(fedToday.lastAt)}` : ''}. Only record again if this is a separate feeding.</p>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {fedToday.lastAt ? t('alreadyFedTodayAt', { batch: batchName(batchId), time: timeLabel(fedToday.lastAt) }) : t('alreadyFedToday', { batch: batchName(batchId) })}</p>
         )}
       </div>
 
@@ -132,21 +132,21 @@ export default function FeedingPage() {
                 <select value={r.itemId} onChange={e => setRow(i, { itemId: e.target.value, qty: '' })}
                   className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[44px] bg-white">
                   <option value="">{t('selectFeed')}</option>
-                  {items.map(fi => { const s = onHand(fi.id); return <option key={fi.id} value={fi.id}>{fi.name} — {s} {fi.unit} left{s < fi.lowStockThreshold ? ' (LOW)' : ''}</option>; })}
+                  {items.map(fi => { const s = onHand(fi.id); return <option key={fi.id} value={fi.id}>{fi.name} — {s} {fi.unit} {t('onHand')}{s < fi.lowStockThreshold ? ` (${t('lowStock')})` : ''}</option>; })}
                 </select>
-                {rows.length > 1 && <button type="button" onClick={() => removeRow(i)} aria-label="Remove" className="text-gray-400 hover:text-red-600 p-2"><X className="w-5 h-5" /></button>}
+                {rows.length > 1 && <button type="button" onClick={() => removeRow(i)} aria-label={t('removeLabel')} className="text-gray-400 hover:text-red-600 p-2"><X className="w-5 h-5" /></button>}
               </div>
               {r.itemId && (
                 <>
                   <input type="number" min="0" inputMode="decimal" value={r.qty} onChange={e => setRow(i, { qty: e.target.value })}
-                    placeholder={`Used (${it?.unit ?? 'kg'})`} className={`w-full border-2 rounded-lg px-3 py-2 text-base min-h-[48px] ${over ? 'border-red-400 text-red-600' : 'border-gray-300'}`} />
-                  <p className={`text-xs ${over ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>{over ? `Only ${stock} ${it?.unit} in stock` : `${stock} ${it?.unit} in stock`}</p>
+                    placeholder={t('usedUnitPlaceholder', { unit: it?.unit ?? 'kg' })} className={`w-full border-2 rounded-lg px-3 py-2 text-base min-h-[48px] ${over ? 'border-red-400 text-red-600' : 'border-gray-300'}`} />
+                  <p className={`text-xs ${over ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>{over ? t('onlyStockLeft', { stock, unit: it?.unit ?? '' }) : t('stockInStock', { stock, unit: it?.unit ?? '' })}</p>
                 </>
               )}
             </div>
           );
         })}
-        <button type="button" onClick={addRow} className="self-start flex items-center gap-1 text-green-700 font-semibold text-sm"><Plus className="w-4 h-4" /> Add another feed</button>
+        <button type="button" onClick={addRow} className="self-start flex items-center gap-1 text-green-700 font-semibold text-sm"><Plus className="w-4 h-4" /> {t('addAnotherFeed')}</button>
       </div>
 
       {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}

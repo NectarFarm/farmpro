@@ -46,7 +46,7 @@ export default function ClosingStockPage() {
     setError('');
     const enteredEntries = items.filter(item => counts[item.id] !== undefined && counts[item.id] !== '');
     const negative = enteredEntries.find(item => parseFloat(counts[item.id]) < 0);
-    if (negative) { setError('Count cannot be negative'); return; }
+    if (negative) { setError(t('countCannotBeNegative')); return; }
     setLoading(true);
     const capturedAt = new Date().toISOString();
     try {
@@ -63,7 +63,7 @@ export default function ClosingStockPage() {
       return;
     }
     setPendingCount(pendingCount + Object.keys(counts).length);
-    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> Saved — will sync</span> });
+    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> {t('savedWillSync')}</span> });
     setLoading(false);
     setTimeout(() => router.replace('/worker/home'), 1500);
   };
@@ -72,7 +72,7 @@ export default function ClosingStockPage() {
     <div className="p-4 flex flex-col gap-5">
       <div className="bg-teal-700 text-white rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold flex items-center gap-2"><PackageOpen className="w-6 h-6 shrink-0" /><span>{t('closingStockCount')}</span></h1>
-        <p className="text-teal-200 text-sm">Count what&apos;s left in store and compare to system stock.</p>
+        <p className="text-teal-200 text-sm">{t('closingStockSubtitle')}</p>
       </div>
 
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
@@ -94,7 +94,7 @@ export default function ClosingStockPage() {
                 <p className="text-xs text-gray-500">{t('system')}: {onHand} {item.unit} {t('onHand')}</p>
               </div>
               {onHand <= item.lowStockThreshold && (
-                <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold"><AlertTriangle className="w-3 h-3" /> LOW</span>
+                <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold"><AlertTriangle className="w-3 h-3" /> {t('lowStock')}</span>
               )}
             </div>
             <div className="flex items-center gap-3">
@@ -103,14 +103,15 @@ export default function ClosingStockPage() {
                 type="number" step="0.1" min="0"
                 value={counts[item.id] ?? ''}
                 onChange={e => setCounts(c => ({ ...c, [item.id]: e.target.value }))}
-                placeholder={`e.g. ${onHand}`}
+                placeholder={t('egPlaceholder', { value: onHand })}
                 className="flex-1 border-2 border-gray-300 rounded-xl px-4 py-2 text-xl font-bold text-center min-h-[52px]"
               />
             </div>
+            {/* Variance always gets flagged for owner review — BR-11 */}
             {hasVariance && variance !== null && (
               <p className={`flex items-center gap-1.5 text-sm font-semibold rounded-lg px-3 py-1 ${variance < 0 ? 'text-red-700 bg-red-50' : 'text-amber-700 bg-amber-50'}`}>
                 {variance < 0 ? <AlertTriangle className="w-4 h-4 shrink-0" /> : <Plus className="w-4 h-4 shrink-0" />}
-                {variance < 0 ? 'Shortage' : 'Surplus'} {Math.abs(variance).toFixed(1)} {item.unit} — variance will be flagged (BR-11)
+                {variance < 0 ? t('shortage') : t('surplus')} {Math.abs(variance).toFixed(1)} {item.unit} — {t('varianceWillBeFlagged')}
               </p>
             )}
           </div>

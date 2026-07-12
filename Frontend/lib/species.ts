@@ -58,3 +58,13 @@ export const ENTERPRISE_OPTIONS: EnterpriseOption[] = [
 export function enterpriseIcon(key: string): LucideIcon {
   return ENTERPRISE_OPTIONS.find(e => e.key === key)?.Icon ?? Leaf;
 }
+
+// Client-safe broiler check (mirrors lib/server/productTemplates.ts'
+// enterpriseFromSpecies, which is server-only and can't be imported from a
+// 'use client' page). Used to gate meat-bird-specific UI like the ADG/weight
+// projection on the weight-sampling page — that projection assumes a ~40g
+// day-old-chick start weight and a ~2.5kg sale target, neither of which holds
+// for layers, pigs, fish, or other enterprises.
+export function isBroilerSpecies(species: string | undefined): boolean {
+  return /broiler/.test((species ?? '').toLowerCase());
+}

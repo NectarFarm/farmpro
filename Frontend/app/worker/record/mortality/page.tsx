@@ -1,9 +1,9 @@
 'use client';
-import { Skull, Check, AlertTriangle } from 'lucide-react';
+import { Skull, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslation } from '@/lib/i18n/useTranslation';
+import { useTranslation, type TranslationKey } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useWorkerProfileStore } from '@/lib/stores/workerProfile';
 import { useSyncStore } from '@/lib/stores/sync';
@@ -12,11 +12,20 @@ import { enqueuePendingRecord } from '@/lib/offline/db';
 import { CameraCapture, type CaptureResult } from '@/components/worker/CameraCapture';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
 import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
-import { useToast } from '@/hooks/use-toast';
 import type { ProductionUnit, Batch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-const CAUSES = ['Sudden death','Disease','Injury','Unknown','Heat stress','Respiratory','Other'];
+// value = canonical English string stored on the record (audit/reporting contract
+// unchanged by language); labelKey = what the worker actually sees, translated.
+const CAUSES: { value: string; labelKey: TranslationKey }[] = [
+  { value: 'Sudden death', labelKey: 'causeSuddenDeath' },
+  { value: 'Disease', labelKey: 'causeDisease' },
+  { value: 'Injury', labelKey: 'causeInjury' },
+  { value: 'Unknown', labelKey: 'causeUnknown' },
+  { value: 'Heat stress', labelKey: 'causeHeatStress' },
+  { value: 'Respiratory', labelKey: 'causeRespiratory' },
+  { value: 'Other', labelKey: 'otherOption' },
+];
 
 export default function MortalityPage() {
   const { t } = useTranslation();
@@ -24,7 +33,6 @@ export default function MortalityPage() {
   const { profile } = useWorkerProfileStore();
   const { setPendingCount, pendingCount } = useSyncStore();
   const router = useRouter();
-  const { toast } = useToast();
 
   const [units, setUnits] = useState<ProductionUnit[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -36,6 +44,7 @@ export default function MortalityPage() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [staleAt, setStaleAt] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   const photoThreshold = profile?.mortalityPhotoThreshold ?? 1;
   const photoRequired = count > photoThreshold;
@@ -56,10 +65,10 @@ export default function MortalityPage() {
   const rateAbove = mortalityRate && parseFloat(mortalityRate) > threshold;
 
   const validate = () => {
-    if (!unitId) { setError('Select a unit'); return false; }
-    if (count < 1) { setError('Enter number of deaths (minimum 1)'); return false; }
-    if (batch && count > batch.currentQty) { setError(`Batch has ${batch.currentQty} animals; cannot record ${count} deaths`); return false; }
-    if (photoRequired && !capture) { setError(`Photo mandatory above ${photoThreshold} death${photoThreshold !== 1 ? 's' : ''}`); return false; }
+    if (!unitId) { setError(t('selectUnitError')); return false; }
+    if (count < 1) { setError(t('enterDeathsMin')); return false; }
+    if (batch && count > batch.currentQty) { setError(t('batchHasAnimalsCannotRecord', { qty: batch.currentQty, count })); return false; }
+    if (photoRequired && !capture) { setError(t('photoMandatoryAbove', { threshold: photoThreshold })); return false; }
     return true;
   };
 
@@ -83,9 +92,26 @@ export default function MortalityPage() {
       return;
     }
     setPendingCount(pendingCount + 1);
-    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> Saved — will sync</span> }); setShowConfirm(false);
-    setTimeout(() => router.replace('/worker/home'), 1500);
+    setShowConfirm(false);
+    // No timed redirect — slow readers miss a toast-then-vanish. Show an
+    // explicit success state with a Done button instead (item 8).
+    setSaved(true);
   };
+
+  if (saved) {
+    return (
+      <div className="p-4 flex flex-col gap-5">
+        <div className="bg-green-50 border border-green-300 rounded-2xl p-6 text-center">
+          <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
+          <h1 className="text-xl font-bold text-green-800">{t('savedWillSync')}</h1>
+        </div>
+        <button onClick={() => router.replace('/worker/home')}
+          className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold">
+          {t('backToHome')}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 flex flex-col gap-5">
@@ -102,10 +128,10 @@ export default function MortalityPage() {
           <option value="">{t('selectUnit')}</option>
           {units.map(u => {
             const b = batches.find(b => b.unitId === u.id && b.status === 'ACTIVE');
-            return <option key={u.id} value={u.id}>{u.name}{b ? ` · ${b.currentQty} animals` : ''}</option>;
+            return <option key={u.id} value={u.id}>{u.name}{b ? ` · ${b.currentQty} ${t('animals')}` : ''}</option>;
           })}
         </select>
-        {batch && <p className="text-sm font-semibold text-gray-700">{batch.name} — <span className="text-green-700">{batch.currentQty} animals left</span>{count > 0 ? ` → ${batch.currentQty - count} after` : ''}</p>}
+        {batch && <p className="text-sm font-semibold text-gray-700">{batch.name} — <span className="text-green-700">{batch.currentQty} {t('animals')}</span>{count > 0 ? ` → ${batch.currentQty - count}` : ''}</p>}
       </div>
 
       {/* Death stepper — DS-2: small count */}
@@ -120,7 +146,7 @@ export default function MortalityPage() {
         </div>
         {rateAbove && (
           <p className="flex items-center gap-1.5 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-sm font-semibold">
-            <AlertTriangle className="w-4 h-4 shrink-0" /> Rate now {mortalityRate}% (threshold {threshold}%)
+            <AlertTriangle className="w-4 h-4 shrink-0" /> {t('rateNowThreshold', { rate: mortalityRate, threshold })}
           </p>
         )}
       </div>
@@ -131,13 +157,13 @@ export default function MortalityPage() {
         <select value={cause} onChange={e => setCause(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base bg-white min-h-[52px]">
           <option value="">{t('selectCause')}</option>
-          {CAUSES.map(c => <option key={c}>{c}</option>)}
+          {CAUSES.map(c => <option key={c.value} value={c.value}>{t(c.labelKey)}</option>)}
         </select>
       </div>
 
       {/* Camera — DS-6/7 */}
       <CameraCapture
-        label="Evidence Photo"
+        label={t('evidencePhoto')}
         required={photoRequired}
         captured={capture}
         onCapture={setCapture}

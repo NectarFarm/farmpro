@@ -1,9 +1,9 @@
 'use client';
-import { Syringe, Check, AlertTriangle } from 'lucide-react';
+import { Syringe, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslation } from '@/lib/i18n/useTranslation';
+import { useTranslation, type TranslationKey } from '@/lib/i18n/useTranslation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useSyncStore } from '@/lib/stores/sync';
 import { cachedApi } from '@/lib/offline/refCache';
@@ -12,11 +12,23 @@ import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
 import { CameraCapture, type CaptureResult } from '@/components/worker/CameraCapture';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
 import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
-import { useToast } from '@/hooks/use-toast';
 import type { Batch, InventoryItem, InventoryLot } from '@/lib/types';
 
-const ROUTES = ['Drinking water','Injection','Oral','Spray','Feed mix'];
-const TYPES = ['VACCINE','MEDICATION','SUPPLEMENT','DEWORM','OTHER'];
+// value = canonical string stored on the record; labelKey = translated display text.
+const ROUTES: { value: string; labelKey: TranslationKey }[] = [
+  { value: 'Drinking water', labelKey: 'routeDrinkingWater' },
+  { value: 'Injection', labelKey: 'routeInjection' },
+  { value: 'Oral', labelKey: 'routeOral' },
+  { value: 'Spray', labelKey: 'routeSpray' },
+  { value: 'Feed mix', labelKey: 'routeFeedMix' },
+];
+const TYPES: { value: string; labelKey: TranslationKey }[] = [
+  { value: 'VACCINE', labelKey: 'treatmentVaccine' },
+  { value: 'MEDICATION', labelKey: 'treatmentMedication' },
+  { value: 'SUPPLEMENT', labelKey: 'treatmentSupplement' },
+  { value: 'DEWORM', labelKey: 'treatmentDeworm' },
+  { value: 'OTHER', labelKey: 'otherOption' },
+];
 
 export default function HealthPage() {
   const { t } = useTranslation();
@@ -24,7 +36,6 @@ export default function HealthPage() {
   const { setPendingCount, pendingCount } = useSyncStore();
   const { doneToday } = useTodayActivity();
   const router = useRouter();
-  const { toast } = useToast();
 
   const [batches, setBatches] = useState<Batch[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -40,6 +51,7 @@ export default function HealthPage() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [staleAt, setStaleAt] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     Promise.all([cachedApi.getBatches(), cachedApi.getItems(), cachedApi.getLots()]).then(([b,i,l]) => {
@@ -62,9 +74,9 @@ export default function HealthPage() {
   const nextDue = new Date(appliedAt.getTime() + 30 * 86400000).toLocaleDateString('en-KE');
 
   const handleConfirm = async () => {
-    if (!batchId || !lotId || !dose || Number(dose) <= 0) { setError('Fill all required fields with a valid dose'); setShowConfirm(false); return; }
+    if (!batchId || !lotId || !dose || Number(dose) <= 0) { setError(t('fillRequiredValidDose')); setShowConfirm(false); return; }
     if (selectedLot && doseNum > selectedLot.qtyOnHand + 1e-6) {
-      setError(`Only ${selectedLot.qtyOnHand} ${selectedLot.unit} left in this lot — you entered ${doseNum}.`); setShowConfirm(false); return;
+      setError(t('onlyLeftInLot', { qty: selectedLot.qtyOnHand, unit: selectedLot.unit, entered: doseNum })); setShowConfirm(false); return;
     }
     const clientUuid = uuid();
     const payload = {
@@ -82,14 +94,30 @@ export default function HealthPage() {
       return;
     }
     setPendingCount(pendingCount + 1);
-    toast({ description: <span className="flex items-center gap-1.5"><Check className="w-4 h-4" /> Saved — will sync</span> }); setShowConfirm(false);
-    setTimeout(() => router.replace('/worker/home'), 1800);
+    setShowConfirm(false);
+    // No timed redirect — explicit success state + Done button (item 8).
+    setSaved(true);
   };
 
   const medicineLots = lots.filter(l => {
     const item = items.find(i => i.id === l.itemId);
     return item && (item.category === 'MEDICINE' || item.category === 'VACCINE') && l.qtyOnHand > 0;
   });
+
+  if (saved) {
+    return (
+      <div className="p-4 flex flex-col gap-5">
+        <div className="bg-green-50 border border-green-300 rounded-2xl p-6 text-center">
+          <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
+          <h1 className="text-xl font-bold text-green-800">{t('savedWillSync')}</h1>
+        </div>
+        <button onClick={() => router.replace('/worker/home')}
+          className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold">
+          {t('backToHome')}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 flex flex-col gap-5">
@@ -105,7 +133,7 @@ export default function HealthPage() {
           {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         {batchId && doneToday('health', batchId).count > 0 && (
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> This batch already had a health record today at {timeLabel(doneToday('health', batchId).lastAt)}. Only record again if it&apos;s a separate treatment.</p>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-600"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {t('alreadyHealthRecordToday', { time: timeLabel(doneToday('health', batchId).lastAt) })}</p>
         )}
       </div>
 
@@ -113,7 +141,7 @@ export default function HealthPage() {
         <label className="text-sm font-medium text-gray-700">{t('treatmentType')} *</label>
         <select value={type} onChange={e => setType(e.target.value)}
           className="border-2 border-gray-300 rounded-xl px-4 py-3 bg-white min-h-[52px]">
-          {TYPES.map(t => <option key={t}>{t}</option>)}
+          {TYPES.map(ty => <option key={ty.value} value={ty.value}>{t(ty.labelKey)}</option>)}
         </select>
       </div>
 
@@ -131,8 +159,8 @@ export default function HealthPage() {
           <p className={`flex items-center gap-1.5 text-xs font-semibold ${overDose ? 'text-red-600' : 'text-gray-500'}`}>
             {overDose && <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
             {overDose
-              ? `Only ${available} ${selectedLot.unit} left in this lot — you entered ${doseNum}. Record a purchase or reduce the dose.`
-              : `${available} ${selectedLot.unit} in this lot${doseNum > 0 ? ` · ${Math.round((available - doseNum) * 1000) / 1000} left after` : ''}`}
+              ? t('onlyLeftInLot', { qty: available, unit: selectedLot.unit, entered: doseNum })
+              : `${available} ${selectedLot.unit} ${t('onHand')}${doseNum > 0 ? ` · ${Math.round((available - doseNum) * 1000) / 1000} ${t('onHand')}` : ''}`}
           </p>
         )}
       </div>
@@ -148,30 +176,30 @@ export default function HealthPage() {
           <select value={route} onChange={e => setRoute(e.target.value)}
             className="border-2 border-gray-300 rounded-xl px-4 py-3 bg-white min-h-[52px]">
             <option value="">{t('route')}</option>
-            {ROUTES.map(r => <option key={r}>{r}</option>)}
+            {ROUTES.map(r => <option key={r.value} value={r.value}>{t(r.labelKey)}</option>)}
           </select>
         </div>
       </div>
 
-      {/* Withdrawal info — BR-WD food safety */}
+      {/* Withdrawal info — food-safety hold period on the treated batch */}
       {withdrawalUntil && (
         <div className="bg-amber-50 border-2 border-amber-400 rounded-xl px-4 py-3">
-          <p className="flex items-center gap-1.5 text-amber-800 font-bold text-sm"><AlertTriangle className="w-4 h-4 shrink-0" /> Withdrawal until {withdrawalUntil}</p>
-          <p className="text-amber-700 text-xs mt-0.5">No sale of product from this batch before {withdrawalUntil}.</p>
-          <p className="text-amber-700 text-xs">Next due: {nextDue}</p>
+          <p className="flex items-center gap-1.5 text-amber-800 font-bold text-sm"><AlertTriangle className="w-4 h-4 shrink-0" /> {t('withdrawalUntilDate', { date: withdrawalUntil })}</p>
+          <p className="text-amber-700 text-xs mt-0.5">{t('noSaleBeforeDate', { date: withdrawalUntil })}</p>
+          <p className="text-amber-700 text-xs">{t('nextDueDate', { date: nextDue })}</p>
         </div>
       )}
 
-      <CameraCapture label="Evidence Photo" captured={capture} onCapture={setCapture} onRemove={() => setCapture(null)} />
+      <CameraCapture label={t('evidencePhoto')} captured={capture} onCapture={setCapture} onRemove={() => setCapture(null)} />
 
-      <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)…" rows={2}
+      <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder={t('notesOptionalPlaceholder')} rows={2}
         className="border border-gray-300 rounded-xl px-3 py-2 text-sm" />
 
       {error && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{error}</p>}
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
       <StaleDataNotice cachedAt={staleAt} />
 
-      <button onClick={() => { if (!batchId || !lotId || !dose || Number(dose) <= 0) { setError('Fill batch, product, and a valid dose'); return; } if (overDose) { setError('Dose exceeds what is left in the lot.'); return; } setShowConfirm(true); }}
+      <button onClick={() => { if (!batchId || !lotId || !dose || Number(dose) <= 0) { setError(t('fillBatchProductDose')); return; } if (overDose) { setError(t('doseExceedsLot')); return; } setShowConfirm(true); }}
         disabled={overDose}
         className="w-full min-h-[56px] bg-blue-600 text-white rounded-xl text-xl font-bold disabled:opacity-40">
         {t('submit')}

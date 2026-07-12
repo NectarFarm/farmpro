@@ -2,6 +2,7 @@
 // DS-4: Confirmation for irreversible actions
 import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 
 interface Props {
   open: boolean;
@@ -15,7 +16,8 @@ interface Props {
   children?: React.ReactNode;
 }
 
-export function ConfirmSheet({ open, title, summary, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm, onCancel, danger, children }: Props) {
+export function ConfirmSheet({ open, title, summary, confirmLabel, cancelLabel, onConfirm, onCancel, danger, children }: Props) {
+  const { t } = useTranslation();
   // Guards against a laggy double-tap firing the async onConfirm (an offline
   // enqueue) twice and creating duplicate records.
   const [busy, setBusy] = useState(false);
@@ -45,7 +47,7 @@ export function ConfirmSheet({ open, title, summary, confirmLabel = 'Confirm', c
             disabled={busy}
             className={cn('w-full min-h-[56px] rounded-xl text-lg font-bold text-white disabled:opacity-60', danger ? 'bg-red-600 active:bg-red-700' : 'bg-green-600 active:bg-green-700')}
           >
-            {busy ? '…' : confirmLabel}
+            {busy ? '…' : confirmLabel ?? t('confirm')}
           </button>
           <button
             type="button"
@@ -53,7 +55,7 @@ export function ConfirmSheet({ open, title, summary, confirmLabel = 'Confirm', c
             disabled={busy}
             className="w-full min-h-[56px] rounded-xl text-lg font-semibold text-gray-700 bg-gray-100 active:bg-gray-200 disabled:opacity-60"
           >
-            {cancelLabel}
+            {cancelLabel ?? t('cancel')}
           </button>
         </div>
       </div>

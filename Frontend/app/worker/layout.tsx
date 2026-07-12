@@ -16,7 +16,7 @@ import { Home, ClipboardList, Wallet, User, Wheat, ChevronLeft, LogOut, type Luc
 
 const tabs = [
   { href: '/worker/home', Icon: Home, labelKey: 'home' },
-  { href: '/worker/record/morning-round', Icon: ClipboardList, labelKey: 'record' },
+  { href: '/worker/record', Icon: ClipboardList, labelKey: 'record' },
   { href: '/worker/pay', Icon: Wallet, labelKey: 'myPay' },
   { href: '/worker/profile', Icon: User, labelKey: 'profile' },
 ] as const;
@@ -25,6 +25,7 @@ const TITLE_KEYS: Record<string, TranslationKey> = {
   '/worker/home': 'home',
   '/worker/pay': 'myPay',
   '/worker/profile': 'profile',
+  '/worker/record': 'record',
   '/worker/record/collect': 'collectProducts',
   '/worker/record/morning-round': 'morningRound',
   '/worker/record/mortality': 'recordMortality',

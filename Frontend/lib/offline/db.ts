@@ -98,6 +98,30 @@ export async function getRejectedCount(): Promise<number> {
   } catch { return 0; }
 }
 
+export interface TodayRecordSummary {
+  id: number;
+  clientUuid: string;
+  type: string;
+  capturedAt: string;
+  status: PendingRecord['status'];
+}
+
+// Everything captured on THIS device today, any status (pending/synced/rejected/
+// conflict) — read-only review for the worker (Phase 6 item 7), not an edit/undo
+// surface. Newest first.
+export async function getTodayRecords(): Promise<TodayRecordSummary[]> {
+  try {
+    const db = getDB();
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const rows = await db.pending.where('capturedAt').aboveOrEqual(startOfDay.toISOString()).toArray();
+    return rows
+      .filter((r): r is PendingRecord & { id: number } => r.id !== undefined)
+      .map((r) => ({ id: r.id, clientUuid: r.clientUuid, type: r.type, capturedAt: r.capturedAt, status: r.status }))
+      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+  } catch { return []; }
+}
+
 // PBKDF2 (100k) over the PIN, salted by phone — so a stolen device's IndexedDB
 // can't reveal the PIN. (Real login is server-side PBKDF2; this is offline unlock.)
 export async function hashPin(phone: string, pin: string): Promise<string> {
