@@ -6,7 +6,7 @@ import Link from 'next/link';
 import {
   BookOpen, PartyPopper, Check, X, Home, Bird, Egg, Sprout, Package, Users,
   Settings, Bell, ClipboardList, Smartphone, Wallet, Banknote, BarChart3,
-  TrendingUp, LineChart, type LucideIcon,
+  TrendingUp, LineChart, Zap, type LucideIcon,
 } from 'lucide-react';
 import { useDraggableFab } from './useDraggableFab';
 
@@ -23,6 +23,14 @@ const PHASES: { phase: string; subtitle: string; steps: Step[] }[] = [
     phase: '1 · Set up your farm',
     subtitle: 'Do this once, in order. ~20 minutes.',
     steps: [
+      {
+        id: 'wizard', Icon: Zap, title: 'Or take the fast path — the Setup Wizard', href: '/owner/setup',
+        how: [
+          'One guided flow that captures your farm, units, batches, opening inventory, employees and alert thresholds in about 10 minutes.',
+          'Good for getting running fast. You can still fine-tune anything afterwards using the steps below — worker permissions, lifecycle stages, product prices.',
+          'Prefer to go step by step instead? Skip this and work through the checklist below.',
+        ],
+      },
       {
         id: 'units', Icon: Home, title: 'Add your production units', href: '/owner/farm',
         how: [

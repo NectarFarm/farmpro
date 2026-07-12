@@ -4,11 +4,11 @@
 // Each role keeps its own colors, brand block, and header/footer contents by
 // passing them in as props/nodes — this component only owns the structural
 // skeleton and the active-link / breadcrumb computation shared by all of them.
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import type { LucideIcon } from 'lucide-react';
+import { WifiOff, type LucideIcon } from 'lucide-react';
 
 export interface AppShellNavItem {
   href: string;
@@ -58,6 +58,39 @@ export interface AppShellProps {
   children: React.ReactNode;
   /** Extra floating widgets rendered after main content (e.g. onboarding guide, AI advisor). */
   floatingContent?: React.ReactNode;
+}
+
+// Compact connectivity indicator for the owner/admin shell. Owners on farms have
+// the same spotty connectivity as workers, but there's no Dexie outbox to drain
+// here (that's a worker-only offline-first flow via useSync()/SyncBadge) — so
+// this only ever needs to say ONLINE vs OFFLINE, driven by the browser's own
+// online/offline events. Deliberately no sync machinery.
+function ConnectivityIndicator() {
+  // Starts `true` so server-rendered/pre-hydration markup never flashes an
+  // "Offline" pill for a page that's actually online — navigator.onLine is
+  // read client-side only, in the effect below.
+  const [online, setOnline] = useState(true);
+
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  if (online) {
+    return <span className="hidden sm:inline-block w-2 h-2 rounded-full bg-green-500" aria-hidden="true" title="Online" />;
+  }
+  return (
+    <span className="inline-flex items-center gap-1 bg-gray-200 text-gray-700 border border-gray-300 rounded-full px-2.5 py-1 text-xs font-bold">
+      <WifiOff className="w-3.5 h-3.5" /> Offline
+    </span>
+  );
 }
 
 export function AppShell({
@@ -141,6 +174,7 @@ export function AppShell({
             {isDetail && (<><span className="text-gray-300">/</span><span className="text-gray-900 font-semibold">{detailLabel}</span></>)}
           </nav>
           <div className="flex-1" />
+          <ConnectivityIndicator />
           {headerRight}
         </header>
 

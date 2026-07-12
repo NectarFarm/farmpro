@@ -372,34 +372,15 @@ export default function SetupWizardPage() {
           <div className="flex flex-col gap-5">
             <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Settings className="w-6 h-6 text-green-700" /> {t('configProfile')}</h2>
             <p className="text-gray-500 text-sm">{t('configProfileDesc')}</p>
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-gray-600 font-semibold">
-                    <tr><th className="px-4 py-2 text-left">{t('field')}</th><th className="px-3 py-2">{t('visible')}</th><th className="px-3 py-2">{t('required')}</th><th className="px-3 py-2">{t('editable')}</th></tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      [t('feedUnitCostLabel'),'feed_unit_cost',false,false,false],
-                      [t('feedQtyLabel'),'feed_qty',true,true,true],
-                      [t('eggSalePriceLabel'),'egg_sale_price',false,false,false],
-                      [t('mortalityCauseLabel'),'mortality_cause',true,false,true],
-                      [t('batchProfitLossLabel'),'batch_pl',false,false,false],
-                      [t('waterLevel'),'water_level',true,true,true],
-                      [t('eggsCollected'),'eggs_collected',true,true,true],
-                    ].map(([label,,v,r,e]) => (
-                      <tr key={String(label)} className="border-t border-gray-100">
-                        <td className="px-4 py-2 font-medium text-gray-800">{String(label)}</td>
-                        {[v,r,e].map((checked, ci) => (
-                          <td key={ci} className="px-3 py-2 text-center">
-                            <input type="checkbox" defaultChecked={!!checked} className="w-4 h-4 accent-green-600" />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {/* Per-field visibility/required/editable is a real per-worker-profile setting
+                (workerProfiles.fields, edited in app/owner/config/page.tsx and enforced
+                server-side in lib/server/fieldPermissions.ts) — but /api/setup has no field
+                for it, so a matrix here would silently discard every choice. Point at the
+                page that actually saves it instead of showing controls that do nothing. */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <p className="text-blue-800 text-sm">
+                What each worker can see, edit, or must fill in — per field — is set up after setup, in <strong>Settings → Config</strong>, once your worker profiles exist.
+              </p>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
               <span className="font-medium text-gray-700">{t('photoRequiredIfDeaths')}</span>
@@ -427,6 +408,11 @@ export default function SetupWizardPage() {
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                 <p className="text-green-800 font-bold">{t('setupComplete')}</p>
                 <p className="text-green-600 text-sm mt-1">{t('currency')}: {currency} · {t('farmName')}: {farmName || '(unnamed)'} · {units.filter(u=>u.name).length} {t('units')} · {batches.filter(b=>b.name).length} {t('batches')}</p>
+                {/* Connects the two onboarding systems (Phase 6 item 9): the wizard only
+                    covers first-time data entry — the Setup Guide (floating button on the
+                    dashboard) covers day-to-day running: worker permissions, alert rules,
+                    tasks, sales, payroll. */}
+                <p className="text-green-700 text-xs mt-2">Next: after you finish, open the green &quot;Setup Guide&quot; button on your dashboard for what to do day to day — worker permissions, alert rules, tasks, sales and payroll.</p>
               </div>
             </div>
           </div>

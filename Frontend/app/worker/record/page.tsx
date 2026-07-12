@@ -42,7 +42,7 @@ export default function RecordMenuPage() {
                 <span className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center shrink-0"><r.Icon className="w-5 h-5" strokeWidth={2} /></span>
                 <div className="min-w-0">
                   <span className="text-sm font-semibold text-gray-700 block">{t(r.labelKey)}</span>
-                  {d.count > 0 && <span className="inline-flex items-center gap-0.5 text-[11px] text-green-600 font-semibold"><Check className="w-3 h-3" /> {d.count} today · {timeLabel(d.lastAt)}</span>}
+                  {d.count > 0 && <span className="inline-flex items-center gap-0.5 text-[11px] text-green-600 font-semibold"><Check className="w-3 h-3" /> {d.count} {t('today')} · {timeLabel(d.lastAt)}</span>}
                 </div>
               </div>
             </Link>

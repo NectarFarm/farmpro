@@ -175,7 +175,8 @@ export default function WorkerConfigPage() {
           <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center justify-between">
             <div>
               <p className="font-semibold text-gray-800">Photo required if deaths &gt;</p>
-              <p className="text-xs text-gray-400">Drives FR-M9-2 · Current: {photoThreshold} death{photoThreshold !== 1 ? 's' : ''}</p>
+              {/* Drives FR-M9-2 */}
+              <p className="text-xs text-gray-400">Current: {photoThreshold} death{photoThreshold !== 1 ? 's' : ''}</p>
             </div>
             <div className="flex items-center gap-3">
               <button onClick={() => setPhotoThreshold(t => Math.max(0, t-1))} className="w-10 h-10 rounded-xl bg-gray-100 text-xl font-bold flex items-center justify-center">−</button>

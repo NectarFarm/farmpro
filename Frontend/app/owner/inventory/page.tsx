@@ -491,7 +491,8 @@ export default function InventoryPage() {
 
       {tab === 'variance' && (
         <div className="bg-white border border-gray-200 rounded-xl p-5">
-          <h2 className="font-bold text-gray-800 mb-3">Closing-Stock Variance Flags (FR-M4-4)</h2>
+          {/* Closing-stock variance flags — FR-M4-4 */}
+          <h2 className="font-bold text-gray-800 mb-3">Closing-Stock Variance Flags</h2>
           <p className="text-gray-500 text-sm mb-4">Discrepancies between counted stock and logged consumption. Review before correcting.</p>
           {variances.length === 0
             ? (
@@ -509,7 +510,8 @@ export default function InventoryPage() {
                     </div>
                     <div className="text-right">
                       <p className="text-amber-700 font-bold">{v.variance > 0 ? '+' : ''}{v.variance} {v.unit}</p>
-                      <p className="text-xs text-amber-600">▲ Variance flag (BR-11)</p>
+                      {/* Variance always gets flagged for owner review — BR-11 */}
+                      <p className="text-xs text-amber-600">▲ Variance flag</p>
                     </div>
                   </div>
                 ))}
