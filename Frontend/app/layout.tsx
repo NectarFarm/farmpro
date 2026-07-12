@@ -26,6 +26,7 @@ export async function generateMetadata(): Promise<Metadata> {
     description: tagline,
     manifest: '/manifest.json',
     appleWebApp: { capable: true, title: appName, statusBarStyle: 'default' },
+    icons: { apple: '/apple-touch-icon.png' },
   };
 }
 
