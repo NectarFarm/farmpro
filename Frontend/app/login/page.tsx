@@ -70,8 +70,7 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white rounded-2xl p-8 shadow-xl">
-          <h2 className="text-xl font-bold text-gray-900 mb-1">{t('signIn')}</h2>
-          <p className="text-sm text-gray-500 mb-5">{t('signInDescription')}</p>
+          <h2 className="text-xl font-bold text-gray-900 mb-5">{t('signIn')}</h2>
 
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
@@ -102,9 +101,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="text-xs text-gray-400 text-center mt-5">
-            {t('noAccount')}
-          </p>
         </div>
 
         <p className="text-center text-green-200/50 text-xs mt-6">© {year} {brand.appName} · {t('secureSignIn')}</p>
