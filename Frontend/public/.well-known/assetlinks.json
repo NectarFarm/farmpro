@@ -1,5 +1,5 @@
 [{
   "relation": ["delegate_permission/common.handle_all_urls"],
   "target": { "namespace": "android_app", "package_name": "com.ifms.app",
-              "sha256_cert_fingerprints": ["REPLACE_AFTER_BUBBLEWRAP_BUILD"] }
+              "sha256_cert_fingerprints": ["C3:FF:27:3D:D8:32:69:5E:30:77:44:8A:BE:27:03:EF:FA:BA:66:A3:E1:E3:0F:CD:83:39:71:7E:B4:EF:E5:23"] }
 }]
