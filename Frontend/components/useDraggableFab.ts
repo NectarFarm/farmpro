@@ -19,13 +19,6 @@ export function useDraggableFab(storageKey: string) {
   const [pos, setPos] = useState<DragPos | null>(null);
   const drag = useRef<{ startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) setPos(JSON.parse(raw));
-    } catch { /* ignore */ }
-  }, [storageKey]);
-
   const clampToViewport = useCallback((x: number, y: number) => {
     const el = ref.current;
     const w = el?.offsetWidth ?? 0;
@@ -34,6 +27,19 @@ export function useDraggableFab(storageKey: string) {
     const maxY = Math.max(EDGE_MARGIN, window.innerHeight - h - EDGE_MARGIN);
     return { x: Math.min(Math.max(EDGE_MARGIN, x), maxX), y: Math.min(Math.max(EDGE_MARGIN, y), maxY) };
   }, []);
+
+  // A position saved on one device/orientation can land off-screen or on top
+  // of another fixed element on a narrower phone — clamp it to THIS viewport
+  // the moment it's loaded, not only on a later resize/rotation (which may
+  // never fire during an ordinary visit).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as DragPos;
+      setPos(clampToViewport(saved.x, saved.y));
+    } catch { /* ignore */ }
+  }, [storageKey, clampToViewport]);
 
   // Keep a previously-dragged position on-screen across resizes/rotation.
   useEffect(() => {
