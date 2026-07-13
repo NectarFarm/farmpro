@@ -409,6 +409,22 @@ describe('dashboard + reports data integrity', () => {
     expect(map['Stock acquired']).toBe(50000);        // batch acquired today, in range
     expect(map['Net for period']).toBe(map['Revenue'] - map['Total expenses']);
   });
+
+  it('baseline salaries use REAL payroll where it was run, and only estimate a genuine gap; fines count as revenue', async () => {
+    const currentPeriod = today.slice(0, 7); // 'YYYY-MM'
+    const [y, m] = currentPeriod.split('-').map(Number);
+    const nextMonthFirstDay = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10); // m is 1-indexed → Date.UTC's 0-indexed next month
+
+    const empId = (await (await json(owner, '/api/data/employees', { name: 'Payroll Test', phone: `+254797${String(Date.now()).slice(-6)}`, role: 'worker', salary: 20000 })).json()).id;
+    expect((await json(owner, '/api/payroll', { action: 'run', period: currentPeriod })).status).toBe(200);
+    expect((await json(owner, '/api/payroll', { action: 'ledger', employeeId: empId, type: 'fine', period: currentPeriod, amount: 500 })).status).toBe(201);
+
+    // Range spans this month (has a real, RUN payslip) and next month (no payslip at all).
+    const wide = await report('baseline', `${currentPeriod}-01`, nextMonthFirstDay);
+    const map = Object.fromEntries(wide.rows as [string, number][]);
+    expect(map['Salaries']).toBe(40000);              // 20,000 real gross (this month) + 20,000 estimate (next month gap)
+    expect(map['Revenue']).toBe(18000 + 500);          // the sale + this month's staff fine, counted as income
+  });
 });
 
 describe('guided acceptance testing (UAT)', () => {

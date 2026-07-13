@@ -28,7 +28,7 @@ export function AdminAudit() {
       .then(d => { setEntries(d.entries ?? []); if (d.farms) setFarms(d.farms); })
       .catch(() => {}).finally(() => setLoading(false));
   };
-  useEffect(() => { if (open) load(farm); }, [open, farm]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) load(farm); }, [open, farm]);  
 
   const detail = (e: Entry) => {
     const m = e.meta as Record<string, unknown> | null;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  computePayslip, validPeriod, currentPeriod, periodLabel, monthsBetween, yearStatement,
+  computePayslip, validPeriod, currentPeriod, periodLabel, monthsBetween, yearStatement, periodsInRange,
   type LedgerEntry,
 } from '@/lib/payslip';
 
@@ -73,6 +73,21 @@ describe('monthsBetween (months paid since start)', () => {
   it('is 0 when reversed or invalid', () => {
     expect(monthsBetween('2026-06', '2026-01')).toBe(0);
     expect(monthsBetween('bad', '2026-01')).toBe(0);
+  });
+});
+
+describe('periodsInRange', () => {
+  it('a range within a single month yields that one period', () => {
+    expect(periodsInRange('2026-06-05', '2026-06-20')).toEqual(['2026-06']);
+  });
+  it('a range spanning several months yields every period in between', () => {
+    expect(periodsInRange('2026-06-01', '2026-09-13')).toEqual(['2026-06', '2026-07', '2026-08', '2026-09']);
+  });
+  it('truncates a mid-month start/end to their calendar months', () => {
+    expect(periodsInRange('2026-06-17', '2026-07-13')).toEqual(['2026-06', '2026-07']);
+  });
+  it('a same-day from=to range yields that single period', () => {
+    expect(periodsInRange('2026-06-15', '2026-06-15')).toEqual(['2026-06']);
   });
 });
 

@@ -96,7 +96,9 @@ export function AdminTesting() {
       }
       const { exportReport } = await import('@/lib/export');
       await exportReport({
-        title: `${t('acceptanceTesting')} — ${f.name}`,
+        title: t('acceptanceTesting'),
+        subtitle: f.name,
+        farmName: f.name,
         columns: [t('step'), t('area'), t('result'), t('notes'), t('shots')],
         rows: f.run.results.map(r => [r.title, r.area, r.status.toUpperCase(), r.note, r.photos]),
         meta: {
@@ -252,7 +254,7 @@ export function AdminTesting() {
                               {x.photoIds.map(pid => (
                                 <div key={pid} className="relative">
                                   {photoData[pid]
-                                    // eslint-disable-next-line @next/next/no-img-element
+                                     
                                     ? <button type="button" onClick={() => setLightbox(photoData[pid])} title="Click to enlarge"><img src={photoData[pid]} alt="screenshot" className="w-20 h-20 object-cover rounded border border-gray-200 cursor-zoom-in" /></button>
                                     : <div className="w-20 h-20 rounded bg-gray-100 animate-pulse" />}
                                   <button onClick={() => deletePhoto(pid)} disabled={busy === `photo:${pid}`}
@@ -275,7 +277,7 @@ export function AdminTesting() {
       {/* Full-size screenshot preview (inline — data: URLs can't be opened in a tab). */}
       {lightbox && (
         <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-6" onClick={() => setLightbox(null)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          { }
           <img src={lightbox} alt="screenshot" className="max-w-full max-h-full rounded shadow-2xl" onClick={e => e.stopPropagation()} />
           <button onClick={() => setLightbox(null)} aria-label="Close" className="absolute top-4 right-5 text-white/90 hover:text-white"><X className="w-7 h-7" /></button>
         </div>

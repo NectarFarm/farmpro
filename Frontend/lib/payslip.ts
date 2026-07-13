@@ -41,6 +41,24 @@ export function periodLabel(p: string): string {
   return `${names[Number(m) - 1] ?? m} ${y}`;
 }
 
+// The 'YYYY-MM' period strings a date range [from, to] overlaps, inclusive, in
+// order. Dates are truncated to their calendar month, so a mid-month start/end
+// still yields that whole month's period (payroll periods are monthly, not
+// day-granular). E.g. periodsInRange('2026-06-01', '2026-07-13') →
+// ['2026-06', '2026-07']. Empty array for an unparseable or reversed-month range.
+export function periodsInRange(from: string, to: string): string[] {
+  const start = new Date(`${from.slice(0, 7)}-01T00:00:00Z`);
+  const end = new Date(`${to.slice(0, 7)}-01T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
+  const out: string[] = [];
+  const d = new Date(start);
+  while (d <= end) {
+    out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+    d.setUTCMonth(d.getUTCMonth() + 1);
+  }
+  return out;
+}
+
 // Inclusive month count from `from` to `to` (e.g. 'months paid' since start). 0 if invalid or reversed.
 export function monthsBetween(from: string, to: string): number {
   if (!validPeriod(from) || !validPeriod(to)) return 0;

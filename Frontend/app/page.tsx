@@ -51,7 +51,7 @@ export default function RootPage() {
     <div className="min-h-screen flex items-center justify-center bg-green-50">
       <div className="text-center">
         {brand.logoUrl
-          // eslint-disable-next-line @next/next/no-img-element
+           
           ? <img src={brand.logoUrl} alt={brand.appName} className="w-16 h-16 object-contain mx-auto mb-4" />
           : <div className="w-16 h-16 rounded-2xl bg-green-100 flex items-center justify-center mx-auto mb-4"><Wheat className="w-8 h-8 text-green-700" /></div>}
         <h1 className="text-2xl font-bold text-green-800">{brand.appName}</h1>

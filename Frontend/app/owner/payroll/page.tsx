@@ -70,7 +70,8 @@ export default function PayrollPage() {
     const b = row.payslip ?? row.preview;
     const { exportReport } = await import('@/lib/export');
     await exportReport({
-      title: `${t('payslip')} — ${row.name}`,
+      title: t('payslip'),
+      subtitle: row.name,
       columns: [t('line'), `${t('amount')} (KSh)`],
       rows: [
         [t('grossSalary'), b.gross], [t('advances'), -b.advances], [t('fines'), -b.fines], [t('bonuses'), b.bonuses],
@@ -89,13 +90,15 @@ export default function PayrollPage() {
       const d = await r.json();
       const { exportReport } = await import('@/lib/export');
       await exportReport({
-        title: `${year} ${t('payStatement')} — ${row.name}`,
+        title: `${year} ${t('payStatement')}`,
+        subtitle: row.name,
         columns: [t('month'), t('gross'), t('advances'), t('fines'), t('bonuses'), t('net'), t('status')],
         rows: [
           ...d.payslips.map((p: { period: string; gross: number; advances: number; fines: number; bonuses: number; net: number; status: string }) =>
             [periodLabel(p.period), p.gross, p.advances, p.fines, p.bonuses, p.net, p.status.toUpperCase()]),
           [t('total'), d.totals.gross, d.totals.advances, d.totals.fines, d.totals.bonuses, d.totals.net, `${d.totals.paidMonths} ${t('paid')}`],
         ],
+        hasTotalsRow: true,
         meta: { [t('employee')]: row.name, [t('year')]: year, [t('paidMonths')]: d.totals.paidMonths },
       }, 'PDF');
     } catch { setErr(t('couldNotBuildStatement')); } finally { setBusy(''); }

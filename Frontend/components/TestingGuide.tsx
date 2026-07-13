@@ -172,7 +172,7 @@ export function TestingGuide() {
                   {(previews[attachStep.id]?.length ?? 0) > 0 && (
                     <div className="flex gap-2 flex-wrap">
                       {(previews[attachStep.id] ?? []).map((src, i) => (
-                        // eslint-disable-next-line @next/next/no-img-element
+                         
                         <img key={i} src={src} alt={`screenshot ${i + 1}`} className="w-16 h-16 object-cover rounded border border-gray-200" />
                       ))}
                     </div>

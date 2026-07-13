@@ -71,7 +71,7 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200 px-3 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] flex items-center gap-2">
         {isHome ? (
           brand.logoUrl
-            // eslint-disable-next-line @next/next/no-img-element
+             
             ? <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain pl-1" />
             : <Wheat className="w-6 h-6 text-green-700 pl-1" />
         ) : (

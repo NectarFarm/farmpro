@@ -30,7 +30,7 @@ export const EN = {
   hide: 'Hide',
   emailPlaceholder: 'you@farm.com  \u00b7  +2547\u2026',
   signInDescription: 'Owners, workers and admins all sign in here \u2014 we\'ll take you to the right place.',
-  noAccount: "No account\u003F Ask your farm owner or administrator to add you.",
+  noAccount: 'No account\u003F Ask your farm owner or administrator to add you.',
   secureSignIn: 'Secure sign-in',
   loginFailed: 'Login failed',
   offlineUnlockError: 'You are offline and this PIN is not saved yet. Connect to the internet once to sign in.',

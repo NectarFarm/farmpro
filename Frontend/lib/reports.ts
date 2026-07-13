@@ -16,6 +16,9 @@ export interface ReportData {
   rows: (string | number)[][];
   meta: Record<string, string | number>;
   scope: ReportScope;
+  // True when the last row of `rows` is a TOTAL/summary row — consumed by the
+  // PDF exporter (lib/export) to render it as a distinct footer row.
+  hasTotalsRow?: boolean;
 }
 
 // A row is in range when its date (day precision) is within [from, to] inclusive.
@@ -52,8 +55,9 @@ export function plTotalsRow(costs: readonly BatchCostSummary[]): (string | numbe
 
 export function profitAndLoss(items: readonly { name: string; cost: BatchCostSummary }[], meta: ReportData['meta']): ReportData {
   const rows = items.map((i) => plRow(i.name, i.cost));
-  if (rows.length > 0) rows.push(plTotalsRow(items.map((i) => i.cost)));
-  return { title: 'Profit & Loss by Batch (KSh)', columns: PL_COLUMNS, rows, meta, scope: 'lifecycle' };
+  const hasTotalsRow = rows.length > 0;
+  if (hasTotalsRow) rows.push(plTotalsRow(items.map((i) => i.cost)));
+  return { title: 'Profit & Loss by Batch (KSh)', columns: PL_COLUMNS, rows, meta, scope: 'lifecycle', hasTotalsRow };
 }
 
 export function fcrReport(items: readonly { name: string; species: string; cost: BatchCostSummary }[], meta: ReportData['meta']): ReportData {

@@ -103,7 +103,7 @@ describe('screenshots on failed steps', () => {
   });
 
   it('refuses more than the max per step', () => {
-    let run = addPhotoToStep(failed(), 'login', 'p1', 1);
+    const run = addPhotoToStep(failed(), 'login', 'p1', 1);
     expect(() => addPhotoToStep(run, 'login', 'p2', 1)).toThrow(/Up to 1 screenshot/i);
     void run;
   });

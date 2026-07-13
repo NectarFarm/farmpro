@@ -4,14 +4,15 @@ import 'server-only';
 import { db } from '@/db';
 import {
   batches, productionRecords, mortalityRecords, sales, healthRecords, laborLogs, feedingRecords,
-  inventoryLots, employees,
+  inventoryLots, employees, payslips,
 } from '@/db/schemas';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { computeAllBatchCosts } from './costing';
 import { totalMonthlyWageBill } from '@/lib/payroll';
+import { periodsInRange } from '@/lib/payslip';
 import {
   type ReportData, filterRange, dateInRange, profitAndLoss, fcrReport, batchCard,
-  periodSummary, monthsOverlapping,
+  periodSummary,
 } from '@/lib/reports';
 
 export type { ReportData };
@@ -92,13 +93,28 @@ export async function buildReport(tenantId: string, type: string, from: string, 
       const salesRows = filterRange(await db.select().from(sales).where(eq(sales.tenantId, tenantId)), (r) => r.createdAt, from, to);
       const emps = await db.select().from(employees).where(eq(employees.tenantId, tenantId));
 
-      const revenue = salesRows.reduce((s, x) => s + x.totalAmount, 0);
+      // Real payroll for the periods this range overlaps — RUN payroll (any
+      // status), not just paid, matching the payroll API's own convention.
+      // A period with no payslips at all is a genuine data gap, filled with the
+      // current-staff wage-bill estimate for just that one month.
+      const periods = periodsInRange(from, to);
+      const periodSlips = periods.length
+        ? await db.select().from(payslips).where(and(eq(payslips.tenantId, tenantId), inArray(payslips.period, periods)))
+        : [];
+      const grossByPeriod = new Map<string, number>();
+      for (const p of periodSlips) grossByPeriod.set(p.period, (grossByPeriod.get(p.period) ?? 0) + p.gross);
+      const finesTotal = periodSlips.reduce((s, p) => s + p.fines, 0);
+      const missingPeriods = periods.filter((p) => !grossByPeriod.has(p));
+      const realSalary = [...grossByPeriod.values()].reduce((s, g) => s + g, 0);
+      const estimateSalary = missingPeriods.length ? totalMonthlyWageBill(emps) * missingPeriods.length : 0;
+      const salaryCost = realSalary + estimateSalary;
+
+      // Staff fines are farm income too (see app/owner/finance/page.tsx's monthFines).
+      const revenue = salesRows.reduce((s, x) => s + x.totalAmount, 0) + finesTotal;
       const feedCost = feed.reduce((s, f) => s + f.quantityKg * (lotCost.get(f.lotId ?? '') ?? 0), 0);
       const healthCost = health.reduce((s, h) => s + h.quantity * (lotCost.get(h.productLotId ?? '') ?? 0), 0);
       const labourCost = labor.reduce((s, l) => s + l.hours * l.ratePerHour, 0);
       const acquisitionCost = bs.filter((b) => dateInRange(b.acquiredDate, from, to)).reduce((s, b) => s + b.acquisitionCost, 0);
-      // Wage bill applied to the elapsed portion of the range (current staff).
-      const salaryCost = totalMonthlyWageBill(emps) * monthsOverlapping(from, to, from, today);
 
       return periodSummary({ revenue, feedCost, healthCost, labourCost, salaryCost, acquisitionCost }, rangeMeta);
     }
