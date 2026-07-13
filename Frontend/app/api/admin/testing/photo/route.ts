@@ -4,9 +4,12 @@ import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, badRequest, unauthorized, forbidden, notFound } from '@/lib/server/http';
 import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
+import { isStorageConfigured, getPhotoUrl } from '@/lib/server/storage';
 import type { TestStep } from '@/lib/testing';
 
 // GET /api/admin/testing/photo?id=… — the screenshot's data URL (super-admin only).
+// When R2 is configured, resolves a signed URL for storage-backed photos; otherwise
+// falls back to the base64 data URL stored in Postgres.
 export async function GET(req: Request) {
   const limited = readRateLimited(req);
   if (limited) return limited;
@@ -15,8 +18,12 @@ export async function GET(req: Request) {
   if (session.role !== 'super_admin') return forbidden();
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return badRequest('id required');
-  const [p] = await db.select({ data: testPhotos.data }).from(testPhotos).where(eq(testPhotos.id, id)).limit(1);
+  const [p] = await db.select({ data: testPhotos.data, storageKey: testPhotos.storageKey }).from(testPhotos).where(eq(testPhotos.id, id)).limit(1);
   if (!p) return notFound();
+  if (isStorageConfigured() && p.storageKey) {
+    const url = await getPhotoUrl(p.storageKey, 3600);
+    if (url) return ok({ data: url });
+  }
   return ok({ data: p.data });
 }
 
