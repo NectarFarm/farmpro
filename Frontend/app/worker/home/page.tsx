@@ -23,7 +23,7 @@ const TASK_ICON: Record<string, LucideIcon> = {
 const taskIcon = (type: string): LucideIcon => TASK_ICON[type] ?? ClipboardList;
 
 export default function WorkerHomePage() {
-  const { user } = useAuthStore();
+  const { user, hasHydrated } = useAuthStore();
   const { pendingCount } = useSyncStore();
   const { doneToday } = useTodayActivity();
   const { t } = useTranslation();
@@ -32,8 +32,17 @@ export default function WorkerHomePage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [staleAt, setStaleAt] = useState<string | null>(null);
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setGaveUp(true), 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
+    // The persisted session hasn't been read from localStorage yet on this
+    // very first pass — deciding before hydration finishes would bounce an
+    // already-signed-in worker to login on every hard refresh/deep link.
+    if (!hasHydrated && !gaveUp) return;
     if (!user) { router.replace('/worker/login'); return; }
     let cancelled = false;
     // Load tasks and alerts INDEPENDENTLY — a failure in one must never freeze the
@@ -46,7 +55,7 @@ export default function WorkerHomePage() {
       .then(a => { if (!cancelled) setAlerts(a.filter(al => !al.acknowledged)); })
       .catch(() => { if (!cancelled) setAlerts([]); });
     return () => { cancelled = true; };
-  }, [user, router]);
+  }, [user, hasHydrated, gaveUp, router]);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? t('goodMorning') : hour < 17 ? t('goodAfternoon') : t('goodEvening');
@@ -66,19 +75,26 @@ export default function WorkerHomePage() {
 
   const alertStatus = (a: Alert) => a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'info';
 
-  const recordLinks = [
-    { href:'/worker/record/collect', Icon: Egg, labelKey:'collectProducts', type:'production' },
-    { href:'/worker/record/morning-round', Icon: Sunrise, labelKey:'morningRound', type:'morning_round' },
-    { href:'/worker/record/mortality', Icon: Skull, labelKey:'recordMortality', type:'mortality' },
-    { href:'/worker/record/feeding', Icon: Wheat, labelKey:'feedingLog', type:'feeding' },
-    { href:'/worker/record/health', Icon: Syringe, labelKey:'healthVaccination', type:'health' },
-    { href:'/worker/record/weight-sampling', Icon: Scale, labelKey:'weightSample', type:'weight_sample' },
-    { href:'/worker/record/physical-count', Icon: ListOrdered, labelKey:'physicalCount', type:'physical_count' },
-    { href:'/worker/record/closing-stock', Icon: PackageOpen, labelKey:'closingStock', type:'closing_stock' },
+  // Grouped by operational cadence, same grouping as /worker/record.
+  const recordGroups = [
+    { headingKey: 'recordGroupEveryDay', links: [
+      { href:'/worker/record/morning-round', Icon: Sunrise, labelKey:'morningRound', type:'morning_round' },
+      { href:'/worker/record/feeding', Icon: Wheat, labelKey:'feedingLog', type:'feeding' },
+      { href:'/worker/record/collect', Icon: Egg, labelKey:'collectProducts', type:'production' },
+    ] },
+    { headingKey: 'recordGroupAsNeeded', links: [
+      { href:'/worker/record/mortality', Icon: Skull, labelKey:'recordMortality', type:'mortality' },
+      { href:'/worker/record/health', Icon: Syringe, labelKey:'healthVaccination', type:'health' },
+    ] },
+    { headingKey: 'recordGroupStockCounts', links: [
+      { href:'/worker/record/weight-sampling', Icon: Scale, labelKey:'weightSample', type:'weight_sample' },
+      { href:'/worker/record/physical-count', Icon: ListOrdered, labelKey:'physicalCount', type:'physical_count' },
+      { href:'/worker/record/closing-stock', Icon: PackageOpen, labelKey:'closingStock', type:'closing_stock' },
+    ] },
   ] as const;
 
   return (
-    <div className="p-4 flex flex-col gap-5">
+    <div className="p-4 flex flex-col gap-5 md:max-w-2xl md:mx-auto">
       {/* Greeting */}
       <div className="flex items-center justify-between">
         <div>
@@ -172,23 +188,28 @@ export default function WorkerHomePage() {
       </section>
 
       {/* Quick Record Links */}
-      <section>
-        <h2 className="text-base font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><Plus className="w-4 h-4" /> {t('record')}</h2>
-        <div className="grid grid-cols-2 gap-2">
-          {recordLinks.map(r => {
-            const d = doneToday(r.type);
-            return (
-            <Link key={r.href} href={r.href}>
-              <div className={`bg-white border rounded-xl px-4 py-3 flex items-center gap-3 active:bg-gray-50 min-h-[56px] ${d.count > 0 ? 'border-green-300' : 'border-gray-200'}`}>
-                <span className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center shrink-0"><r.Icon className="w-5 h-5" strokeWidth={2} /></span>
-                <div className="min-w-0">
-                  <span className="text-sm font-semibold text-gray-700 block">{t(r.labelKey)}</span>
-                  {d.count > 0 && <span className="inline-flex items-center gap-0.5 text-[11px] text-green-600 font-semibold"><Check className="w-3 h-3" /> {d.count} {t('today')} · {timeLabel(d.lastAt)}</span>}
-                </div>
-              </div>
-            </Link>
-          ); })}
-        </div>
+      <section className="flex flex-col gap-4">
+        <h2 className="text-base font-semibold text-gray-700 flex items-center gap-1.5"><Plus className="w-4 h-4" /> {t('record')}</h2>
+        {recordGroups.map(group => (
+          <div key={group.headingKey} className="flex flex-col gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">{t(group.headingKey)}</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {group.links.map(r => {
+                const d = doneToday(r.type);
+                return (
+                <Link key={r.href} href={r.href}>
+                  <div className={`bg-white border rounded-xl px-4 py-3 flex items-center gap-3 active:bg-gray-50 min-h-[56px] ${d.count > 0 ? 'border-success/40' : 'border-gray-200'}`}>
+                    <span className="w-9 h-9 rounded-lg bg-muted text-foreground flex items-center justify-center shrink-0"><r.Icon className="w-5 h-5" strokeWidth={2} /></span>
+                    <div className="min-w-0">
+                      <span className="text-sm font-semibold text-gray-700 block">{t(r.labelKey)}</span>
+                      {d.count > 0 && <span className="inline-flex items-center gap-0.5 text-[11px] text-success font-semibold"><Check className="w-3 h-3" /> {d.count} {t('today')} · {timeLabel(d.lastAt)}</span>}
+                    </div>
+                  </div>
+                </Link>
+              ); })}
+            </div>
+          </div>
+        ))}
       </section>
     </div>
   );

@@ -5,6 +5,7 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { InventoryItem, InventoryLot, Purchase } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { Boxes, Check, X, Pencil, AlertTriangle, PartyPopper } from 'lucide-react';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -190,33 +191,33 @@ export default function InventoryPage() {
     <div className="p-6 flex flex-col gap-6 max-w-5xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <Boxes className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Boxes className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('inventory')}</h1>
             <p className="text-gray-500 text-sm">Stock levels, feed formulation, and purchase history.</p>
           </div>
         </div>
-        <button onClick={() => setShow(v => !v)} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ {t('recordPurchase')}</button>
+        <button onClick={() => setShow(v => !v)} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">+ {t('recordPurchase')}</button>
       </div>
 
       {/* Only shown when something's actually owed — no reason to take up screen
           space with a "KSh 0 owed" tile every time. */}
       {amountOwed && amountOwed.count > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 flex items-center justify-between flex-wrap gap-2">
+        <div className="bg-warning/15 border border-warning/40 rounded-xl px-5 py-4 flex items-center justify-between flex-wrap gap-2">
           <div>
-            <p className="text-amber-800 font-bold text-lg">{fmtKES(amountOwed.amountOwed)} owed to suppliers</p>
-            <p className="text-amber-700 text-sm">{amountOwed.count} unpaid {amountOwed.count === 1 ? 'delivery' : 'deliveries'} — settle from the Recent tab.</p>
+            <p className="text-warning-foreground font-bold text-lg">{fmtKES(amountOwed.amountOwed)} owed to suppliers</p>
+            <p className="text-warning-foreground/90 text-sm">{amountOwed.count} unpaid {amountOwed.count === 1 ? 'delivery' : 'deliveries'} — settle from the Recent tab.</p>
           </div>
-          <button onClick={() => setTab('recent')} className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold shrink-0">View</button>
+          <button onClick={() => setTab('recent')} className="px-3 py-1.5 bg-warning text-warning-foreground rounded-lg text-xs font-semibold shrink-0">View</button>
         </div>
       )}
 
       {show && (
-        <form onSubmit={recordPurchase} className="bg-white border border-green-300 rounded-xl p-5 flex flex-col gap-3">
+        <form onSubmit={recordPurchase} className="bg-white border border-primary/30 rounded-xl p-5 flex flex-col gap-3">
           <h3 className="font-bold text-gray-800">{t('recordPurchase')}</h3>
-          {err && <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
+          {err && <p className="text-destructive bg-destructive/10 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <select required value={form.itemId} onChange={e => setForm({ ...form, itemId: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
               <option value="">Select item…</option>
@@ -226,11 +227,11 @@ export default function InventoryPage() {
             <input placeholder={t('supplier')} value={form.supplier} onChange={e => setForm({ ...form, supplier: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             {form.itemId === '__new' && (
               <>
-                <input required placeholder="New item name (e.g. Maize, Dewormer)" value={form.itemName} onChange={e => setForm({ ...form, itemName: e.target.value })} className="border-2 border-green-300 rounded-lg px-3 py-2 text-sm" />
+                <input required placeholder="New item name (e.g. Maize, Dewormer)" value={form.itemName} onChange={e => setForm({ ...form, itemName: e.target.value })} className="border-2 border-primary/30 rounded-lg px-3 py-2 text-sm" />
                 <div className="grid grid-cols-2 gap-2">
-                  <input list="purchunits" placeholder="Unit (kg, bag, bottle)" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} className="border-2 border-green-300 rounded-lg px-3 py-2 text-sm" />
+                  <input list="purchunits" placeholder="Unit (kg, bag, bottle)" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} className="border-2 border-primary/30 rounded-lg px-3 py-2 text-sm" />
                   <datalist id="purchunits"><option value="kg" /><option value="bag" /><option value="litre" /><option value="bottle" /><option value="dose" /><option value="piece" /></datalist>
-                  <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="border-2 border-green-300 rounded-lg px-3 py-2 text-sm">
+                  <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="border-2 border-primary/30 rounded-lg px-3 py-2 text-sm">
                     {['FEED_FINISHED','FEED_INGREDIENT','MEDICINE','VACCINE','SEED','FERTILIZER','PESTICIDE','EQUIPMENT','CONSUMABLE'].map(c => <option key={c} value={c}>{c.replace('_',' ')}</option>)}
                   </select>
                 </div>
@@ -253,7 +254,7 @@ export default function InventoryPage() {
             <summary className="cursor-pointer text-gray-500 font-semibold hover:text-gray-700 px-4 py-3 bg-gray-50 rounded-lg">▼ Payment</summary>
             <div className="p-4 flex flex-col gap-3">
               <label className="flex items-center gap-2 text-gray-700 font-medium">
-                <input type="checkbox" checked={form.paidLater} onChange={e => setForm({ ...form, paidLater: e.target.checked })} className="w-4 h-4 accent-green-600" />
+                <input type="checkbox" checked={form.paidLater} onChange={e => setForm({ ...form, paidLater: e.target.checked })} className="w-4 h-4 accent-primary" />
                 Not paid yet — settle later (credit)
               </label>
               {form.paidLater ? (
@@ -270,7 +271,7 @@ export default function InventoryPage() {
             </div>
           </details>
           <div className="flex gap-2">
-            <button type="submit" disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? t('saving') : t('addStock')}</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 disabled:opacity-50">{saving ? t('saving') : t('addStock')}</button>
             <button type="button" onClick={() => setShow(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">{t('cancel')}</button>
           </div>
         </form>
@@ -279,7 +280,7 @@ export default function InventoryPage() {
       <div className="flex gap-1">
         {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === t.key ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+            className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === t.key ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-600'}`}>
             {t.label}
           </button>
         ))}
@@ -291,7 +292,7 @@ export default function InventoryPage() {
             const itemLots = lots.filter(l => l.itemId === item.id && l.qtyOnHand > 0);
             const totalStock = getStock(item.id);
             return (
-              <div key={item.id} className={`bg-white border rounded-xl p-5 ${isLow(item) ? 'border-amber-300' : 'border-gray-200'}`}>
+              <div key={item.id} className={`bg-white border rounded-xl p-5 ${isLow(item) ? 'border-warning/40' : 'border-gray-200'}`}>
                 {editItem === item.id ? (
                   <div className="mb-3 flex flex-col gap-2 bg-gray-50 rounded-lg p-3">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -300,7 +301,7 @@ export default function InventoryPage() {
                       <input type="number" value={itemEdit.lowStockThreshold} onChange={e => setItemEdit({ ...itemEdit, lowStockThreshold: e.target.value })} placeholder="Low-stock alert at" className="border rounded-lg px-3 py-2 text-sm" />
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={saveItemEdit} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">Save</button>
+                      <button onClick={saveItemEdit} className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:bg-primary/90">Save</button>
                       <button onClick={() => setEditItem(null)} className="px-3 py-1.5 bg-gray-200 rounded-lg text-xs font-semibold">{t('cancel')}</button>
                     </div>
                   </div>
@@ -310,7 +311,7 @@ export default function InventoryPage() {
                       <div className="flex items-center gap-2">
                         <h3 className="font-bold text-gray-900">{item.name}</h3>
                         {isLow(item) && <StatusChip status="warning" size="sm" label="LOW STOCK" />}
-                        <button onClick={() => startItemEdit(item)} className="text-xs text-green-600 font-semibold hover:underline">Edit</button>
+                        <button onClick={() => startItemEdit(item)} className="text-xs text-primary font-semibold hover:underline">Edit</button>
                       </div>
                       <p className="text-xs text-gray-400">{item.category} · Low-stock alert at {item.lowStockThreshold} {item.unit}</p>
                     </div>
@@ -318,51 +319,51 @@ export default function InventoryPage() {
                   </div>
                 )}
                 {itemLots.length > 0 && (
-                  <div className="overflow-x-auto -mx-1">
+                  <div className="-mx-1">
                   {lotEditErr && itemLots.some(l => l.id === editLot) && (
-                    <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-xs font-semibold mb-2">{lotEditErr}</p>
+                    <p className="text-destructive bg-destructive/10 rounded-lg px-3 py-2 text-xs font-semibold mb-2">{lotEditErr}</p>
                   )}
-                  <table className="w-full text-xs text-gray-600 min-w-[440px]">
-                    <thead className="text-gray-400 font-semibold border-b border-gray-100">
-                      <tr>
-                        <th className="text-left px-2 pb-2">{t('lotNo')}</th>
-                        <th className="text-right px-3 pb-2">{t('qty')}</th>
-                        <th className="text-right px-3 pb-2">{t('unitCost')}</th>
-                        <th className="text-left px-3 pb-2 whitespace-nowrap">{t('received')}</th>
-                        <th className="text-left px-3 pb-2 whitespace-nowrap">{t('expiry')}</th>
-                        <th className="text-center px-2 pb-2">WD</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
+                  <Table className="text-xs text-gray-600 min-w-[440px]">
+                    <TableHeader className="text-gray-400 font-semibold border-b border-gray-100">
+                      <TableRow>
+                        <TableHead className="text-left px-2 pb-2">{t('lotNo')}</TableHead>
+                        <TableHead className="text-right px-3 pb-2">{t('qty')}</TableHead>
+                        <TableHead className="text-right px-3 pb-2">{t('unitCost')}</TableHead>
+                        <TableHead className="text-left px-3 pb-2 whitespace-nowrap">{t('received')}</TableHead>
+                        <TableHead className="text-left px-3 pb-2 whitespace-nowrap">{t('expiry')}</TableHead>
+                        <TableHead className="text-center px-2 pb-2">WD</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody className="divide-y divide-gray-50">
                       {itemLots.map(lot => (
-                        <tr key={lot.id}>
-                          <td className="py-2 px-2 font-mono">{lot.lotNo}</td>
-                          <td className="py-2 px-3 text-right font-bold text-gray-900 whitespace-nowrap">
+                        <TableRow key={lot.id}>
+                          <TableCell className="py-2 px-2 font-mono">{lot.lotNo}</TableCell>
+                          <TableCell className="py-2 px-3 text-right font-bold text-gray-900 whitespace-nowrap">
                             {editLot === lot.id
                               ? <input type="number" min="0" value={lotEdit.qtyOnHand} onChange={e => setLotEdit({ ...lotEdit, qtyOnHand: e.target.value })} className="w-20 border rounded px-2 py-1 text-right" />
                               : <>{lot.qtyOnHand} {lot.unit}</>}
-                          </td>
-                          <td className="py-2 px-3 text-right whitespace-nowrap">
+                          </TableCell>
+                          <TableCell className="py-2 px-3 text-right whitespace-nowrap">
                             {editLot === lot.id
                               ? <input type="number" min="0" value={lotEdit.unitCost} onChange={e => setLotEdit({ ...lotEdit, unitCost: e.target.value })} className="w-20 border rounded px-2 py-1 text-right" />
                               : <>KSh {lot.unitCost}</>}
-                          </td>
-                          <td className="py-2 px-3 whitespace-nowrap">{new Date(lot.receivedDate).toLocaleDateString('en-KE')}</td>
-                          <td className="py-2 px-3 whitespace-nowrap">
+                          </TableCell>
+                          <TableCell className="py-2 px-3 whitespace-nowrap">{new Date(lot.receivedDate).toLocaleDateString('en-KE')}</TableCell>
+                          <TableCell className="py-2 px-3 whitespace-nowrap">
                             {lot.expiryDate
-                              ? <span className={`inline-flex items-center gap-1 ${isExpiringSoon(lot) ? 'text-amber-600 font-semibold' : ''}`}>{new Date(lot.expiryDate).toLocaleDateString('en-KE')}{isExpiringSoon(lot) && <AlertTriangle className="w-3 h-3" />}</span>
+                              ? <span className={`inline-flex items-center gap-1 ${isExpiringSoon(lot) ? 'text-warning-foreground font-semibold' : ''}`}>{new Date(lot.expiryDate).toLocaleDateString('en-KE')}{isExpiringSoon(lot) && <AlertTriangle className="w-3 h-3" />}</span>
                               : '—'
                             }
-                          </td>
-                          <td className="py-2 px-2 text-center whitespace-nowrap">
+                          </TableCell>
+                          <TableCell className="py-2 px-2 text-center whitespace-nowrap">
                             {editLot === lot.id
-                              ? <span className="flex gap-1 justify-center"><button onClick={saveLotEdit} className="text-green-600"><Check className="w-4 h-4" /></button><button onClick={() => { setEditLot(null); setLotEditErr(''); }} className="text-gray-400"><X className="w-4 h-4" /></button></span>
-                              : <button onClick={() => startLotEdit(lot)} className="text-gray-400 hover:text-green-600" title="Fix qty/cost"><Pencil className="w-3.5 h-3.5" /></button>}
-                          </td>
-                        </tr>
+                              ? <span className="flex gap-1 justify-center"><button onClick={saveLotEdit} className="text-primary"><Check className="w-4 h-4" /></button><button onClick={() => { setEditLot(null); setLotEditErr(''); }} className="text-gray-400"><X className="w-4 h-4" /></button></span>
+                              : <button onClick={() => startLotEdit(lot)} className="text-gray-400 hover:text-primary" title="Fix qty/cost"><Pencil className="w-3.5 h-3.5" /></button>}
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                   </div>
                 )}
                 {itemLots.length === 0 && <p className="text-xs text-gray-400">No lots with stock. All lots depleted (FIFO).</p>}
@@ -388,8 +389,8 @@ export default function InventoryPage() {
                       <p className="text-xs text-gray-500 truncate">{f.components.map(c => `${items.find(i => i.id === c.itemId)?.name ?? '?'} ${c.kg}kg`).join(' + ')}</p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      <button onClick={() => applyFormula(f)} className="text-xs text-green-600 font-semibold hover:underline">Use / edit</button>
-                      <button onClick={() => deleteFormula(f.id)} className="text-xs text-gray-400 hover:text-red-600">{t('delete')}</button>
+                      <button onClick={() => applyFormula(f)} className="text-xs text-primary font-semibold hover:underline">Use / edit</button>
+                      <button onClick={() => deleteFormula(f.id)} className="text-xs text-gray-400 hover:text-destructive">{t('delete')}</button>
                     </div>
                   </div>
                 ))}
@@ -398,8 +399,8 @@ export default function InventoryPage() {
           )}
 
           <div className="bg-gray-50 rounded-xl p-4 flex flex-col gap-3">
-            {mixErr && <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold">{mixErr}</p>}
-            {mixDone && <p className="text-green-700 bg-green-50 rounded-lg px-3 py-2 text-sm font-semibold flex items-center gap-1.5"><Check className="w-4 h-4 shrink-0" /> {mixDone}</p>}
+            {mixErr && <p className="text-destructive bg-destructive/10 rounded-lg px-3 py-2 text-sm font-semibold">{mixErr}</p>}
+            {mixDone && <p className="text-success bg-success/10 rounded-lg px-3 py-2 text-sm font-semibold flex items-center gap-1.5"><Check className="w-4 h-4 shrink-0" /> {mixDone}</p>}
             <input value={mixName} onChange={e => setMixName(e.target.value)} placeholder="Finished feed name (e.g. Custom Layer Mash)" className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base" />
             <div className="flex flex-col gap-2">
               {mixRows.map((row, i) => (
@@ -416,11 +417,11 @@ export default function InventoryPage() {
                   )}
                 </div>
               ))}
-              <button type="button" onClick={() => setMixRows(rs => [...rs, { itemId: '', kg: '' }])} className="text-sm text-green-600 font-semibold self-start">+ Add ingredient</button>
+              <button type="button" onClick={() => setMixRows(rs => [...rs, { itemId: '', kg: '' }])} className="text-sm text-primary font-semibold self-start">+ Add ingredient</button>
             </div>
-            <div className="flex items-center justify-between bg-green-50 rounded-xl px-4 py-2">
-              <span className="text-sm font-semibold text-green-700">Rolled-up cost:</span>
-              <span className="text-lg font-bold text-green-800">{mixKg > 0 ? `KSh ${(mixCost / mixKg).toFixed(2)} / kg · ${mixKg}kg total` : '—'}</span>
+            <div className="flex items-center justify-between bg-primary/10 rounded-xl px-4 py-2">
+              <span className="text-sm font-semibold text-primary">Rolled-up cost:</span>
+              <span className="text-lg font-bold text-primary">{mixKg > 0 ? `KSh ${(mixCost / mixKg).toFixed(2)} / kg · ${mixKg}kg total` : '—'}</span>
             </div>
             {editFormulaId && <p className="text-xs text-indigo-600 -mb-1">Editing the saved recipe. “Update recipe” saves changes without using stock; “Record Mix” actually mixes &amp; consumes stock.</p>}
             <div className="flex flex-col sm:flex-row gap-2">
@@ -429,7 +430,7 @@ export default function InventoryPage() {
                   {mixing ? t('saving') : t('updateRecipe')}
                 </button>
               )}
-              <button onClick={recordMix} disabled={mixing || !mixName || mixKg <= 0} className="flex-1 bg-green-600 text-white rounded-xl py-3 font-bold disabled:opacity-50">
+              <button onClick={recordMix} disabled={mixing || !mixName || mixKg <= 0} className="flex-1 bg-primary text-primary-foreground rounded-xl py-3 font-bold hover:bg-primary/90 disabled:opacity-50">
                 {mixing ? t('mixing') : t('recordMixEvent')}
               </button>
               {editFormulaId && (
@@ -444,8 +445,8 @@ export default function InventoryPage() {
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <h2 className="font-bold text-gray-800 mb-3">Milling / Processing</h2>
           <p className="text-gray-500 text-sm mb-4">Convert one item into a different, already-existing one — e.g. whole maize into flour. Always a loss, never a gain: output can&apos;t exceed input.</p>
-          {processErr && <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold mb-3">{processErr}</p>}
-          {processDone && <p className="text-green-700 bg-green-50 rounded-lg px-3 py-2 text-sm font-semibold mb-3">{processDone}</p>}
+          {processErr && <p className="text-destructive bg-destructive/10 rounded-lg px-3 py-2 text-sm font-semibold mb-3">{processErr}</p>}
+          {processDone && <p className="text-success bg-success/10 rounded-lg px-3 py-2 text-sm font-semibold mb-3">{processDone}</p>}
           <form onSubmit={recordProcess} className="flex flex-col gap-3 max-w-md">
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-gray-500">Raw item going in</label>
@@ -469,8 +470,8 @@ export default function InventoryPage() {
               </div>
               {processForm.outputItemId === '__new' && (
                 <div className="grid grid-cols-2 gap-2 mt-2">
-                  <input required placeholder="e.g. Maize flour" value={processForm.outputItemName} onChange={e => setProcessForm({ ...processForm, outputItemName: e.target.value })} className="border-2 border-green-300 rounded-lg px-3 py-2 text-sm" />
-                  <input list="processunits" placeholder="Unit (kg, bag…)" value={processForm.outputUnit} onChange={e => setProcessForm({ ...processForm, outputUnit: e.target.value })} className="border-2 border-green-300 rounded-lg px-3 py-2 text-sm" />
+                  <input required placeholder="e.g. Maize flour" value={processForm.outputItemName} onChange={e => setProcessForm({ ...processForm, outputItemName: e.target.value })} className="border-2 border-primary/30 rounded-lg px-3 py-2 text-sm" />
+                  <input list="processunits" placeholder="Unit (kg, bag…)" value={processForm.outputUnit} onChange={e => setProcessForm({ ...processForm, outputUnit: e.target.value })} className="border-2 border-primary/30 rounded-lg px-3 py-2 text-sm" />
                   <datalist id="processunits"><option value="kg" /><option value="bag" /><option value="litre" /></datalist>
                 </div>
               )}
@@ -482,7 +483,7 @@ export default function InventoryPage() {
             {Number(processForm.inputQty) > 0 && Number(processForm.outputQty) > 0 && (
               <p className="text-sm text-gray-600">Yield: <span className="font-bold text-gray-900">{((Number(processForm.outputQty) / Number(processForm.inputQty)) * 100).toFixed(1)}%</span></p>
             )}
-            <button type="submit" disabled={processing} className="bg-green-600 text-white rounded-xl py-3 font-bold disabled:opacity-50">
+            <button type="submit" disabled={processing} className="bg-primary text-primary-foreground rounded-xl py-3 font-bold hover:bg-primary/90 disabled:opacity-50">
               {processing ? t('saving') : 'Record processing'}
             </button>
           </form>
@@ -503,15 +504,15 @@ export default function InventoryPage() {
             ) : (
               <div className="flex flex-col gap-3">
                 {variances.map(v => (
-                  <div key={v.item} className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                  <div key={v.item} className="flex items-center justify-between bg-warning/15 border border-warning/40 rounded-xl px-4 py-3">
                     <div>
                       <p className="font-semibold text-gray-900">{v.item}</p>
                       <p className="text-xs text-gray-500">Expected {v.expected} {v.unit} · Counted {v.counted} {v.unit}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-amber-700 font-bold">{v.variance > 0 ? '+' : ''}{v.variance} {v.unit}</p>
+                      <p className="text-warning-foreground font-bold">{v.variance > 0 ? '+' : ''}{v.variance} {v.unit}</p>
                       {/* Variance always gets flagged for owner review — BR-11 */}
-                      <p className="text-xs text-amber-600">▲ Variance flag</p>
+                      <p className="text-xs text-warning-foreground">▲ Variance flag</p>
                     </div>
                   </div>
                 ))}
@@ -532,50 +533,48 @@ export default function InventoryPage() {
                 <p className="text-gray-400 text-xs mt-1">Use the &quot;+ Record Purchase&quot; button to add stock.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-gray-500 text-xs font-semibold border-b">
-                    <tr>
-                      <th className="text-left pb-2">{t('date')}</th>
-                      <th className="text-left pb-2">{t('item')}</th>
-                      <th className="text-left pb-2">{t('supplier')}</th>
-                      <th className="text-right pb-2">{t('qty')}</th>
-                      <th className="text-right pb-2">{t('unitCost')}</th>
-                      <th className="text-right pb-2">{t('total')}</th>
-                      <th className="text-right pb-2">Payment</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {[...purchases].sort((a, b) => new Date(b.receivedAt ?? b.createdAt).getTime() - new Date(a.receivedAt ?? a.createdAt).getTime()).map(p => {
-                      const item = items.find(i => i.id === p.itemId);
-                      const owed = Math.max(0, p.totalCost - p.amountPaid);
-                      return (
-                        <tr key={p.id} className="hover:bg-gray-50">
-                          <td className="py-2 text-gray-400">{new Date(p.receivedAt ?? p.createdAt).toLocaleDateString('en-KE')}</td>
-                          <td className="py-2 font-semibold text-gray-900">{item?.name ?? p.itemId}</td>
-                          <td className="py-2 text-gray-600">{p.supplier}</td>
-                          <td className="py-2 text-right">{p.quantity}</td>
-                          <td className="py-2 text-right text-gray-600">{fmtKES(p.unitCost)}</td>
-                          <td className="py-2 text-right font-bold text-red-700">{fmtKES(p.totalCost)}</td>
-                          <td className="py-2 text-right">
-                            {owed <= 0 ? (
-                              <span className="inline-block px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Paid</span>
-                            ) : (
-                              <div className="flex items-center justify-end gap-2">
-                                <span className="inline-block px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold whitespace-nowrap">Owes {fmtKES(owed)}</span>
-                                <button onClick={() => settlePurchase(p.id, p.totalCost)} disabled={settlingId === p.id}
-                                  className="text-xs font-semibold text-green-700 hover:underline disabled:opacity-50 whitespace-nowrap">
-                                  {settlingId === p.id ? '…' : 'Mark paid'}
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <Table>
+                <TableHeader className="text-gray-500 text-xs font-semibold border-b">
+                  <TableRow>
+                    <TableHead className="text-left pb-2">{t('date')}</TableHead>
+                    <TableHead className="text-left pb-2">{t('item')}</TableHead>
+                    <TableHead className="text-left pb-2">{t('supplier')}</TableHead>
+                    <TableHead className="text-right pb-2">{t('qty')}</TableHead>
+                    <TableHead className="text-right pb-2">{t('unitCost')}</TableHead>
+                    <TableHead className="text-right pb-2">{t('total')}</TableHead>
+                    <TableHead className="text-right pb-2">Payment</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="divide-y divide-gray-50">
+                  {[...purchases].sort((a, b) => new Date(b.receivedAt ?? b.createdAt).getTime() - new Date(a.receivedAt ?? a.createdAt).getTime()).map(p => {
+                    const item = items.find(i => i.id === p.itemId);
+                    const owed = Math.max(0, p.totalCost - p.amountPaid);
+                    return (
+                      <TableRow key={p.id} className="hover:bg-gray-50">
+                        <TableCell className="py-2 text-gray-400">{new Date(p.receivedAt ?? p.createdAt).toLocaleDateString('en-KE')}</TableCell>
+                        <TableCell className="py-2 font-semibold text-gray-900">{item?.name ?? p.itemId}</TableCell>
+                        <TableCell className="py-2 text-gray-600">{p.supplier}</TableCell>
+                        <TableCell className="py-2 text-right">{p.quantity}</TableCell>
+                        <TableCell className="py-2 text-right text-gray-600">{fmtKES(p.unitCost)}</TableCell>
+                        <TableCell className="py-2 text-right font-bold text-red-700">{fmtKES(p.totalCost)}</TableCell>
+                        <TableCell className="py-2 text-right">
+                          {owed <= 0 ? (
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-success/10 text-success text-xs font-semibold">Paid</span>
+                          ) : (
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="inline-block px-2 py-0.5 rounded-full bg-warning/15 text-warning-foreground text-xs font-semibold whitespace-nowrap">Owes {fmtKES(owed)}</span>
+                              <button onClick={() => settlePurchase(p.id, p.totalCost)} disabled={settlingId === p.id}
+                                className="text-xs font-semibold text-success hover:underline disabled:opacity-50 whitespace-nowrap">
+                                {settlingId === p.id ? '…' : 'Mark paid'}
+                              </button>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             )
           }
         </div>

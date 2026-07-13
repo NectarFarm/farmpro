@@ -9,7 +9,7 @@ import { Stethoscope, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 export default function VetUnitsPage() {
   const { t } = useTranslation();
-  const { user } = useAuthStore();
+  const { user, hasHydrated } = useAuthStore();
   const router = useRouter();
   const [batches, setBatches] = useState<Batch[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -19,11 +19,18 @@ export default function VetUnitsPage() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [prescribeError, setPrescribeError] = useState('');
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setGaveUp(true), 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
+    // See app/owner/dashboard/page.tsx — same hydration-race guard.
+    if (!hasHydrated && !gaveUp) return;
     if (!user) { router.replace('/owner/login'); return; }
     api.getBatches().then(b => setBatches(b.filter(b => b.status === 'ACTIVE')));
-  }, [user, router]);
+  }, [user, hasHydrated, gaveUp, router]);
 
   useEffect(() => {
     if (selected) api.getHealthRecords(selected).then(setHealth);

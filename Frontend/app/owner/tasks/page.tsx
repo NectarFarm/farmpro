@@ -5,6 +5,7 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Task, Batch } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { ClipboardList } from 'lucide-react';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
 const statusOf = (s: string) => (s === 'DONE' ? 'ok' : s === 'OVERDUE' ? 'critical' : 'info') as 'ok' | 'critical' | 'info';
 
@@ -56,21 +57,21 @@ export default function OwnerTasksPage() {
     <div className="p-6 flex flex-col gap-5 max-w-4xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <ClipboardList className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <ClipboardList className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('tasks')}</h1>
             <p className="text-gray-500 text-sm">Assign work to staff and track what&apos;s done, due, or overdue.</p>
           </div>
         </div>
-        <button onClick={() => { setErr(''); setShow(s => !s); }} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{show ? t('close') : `+ ${t('assignTask')}`}</button>
+        <button onClick={() => { setErr(''); setShow(s => !s); }} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">{show ? t('close') : `+ ${t('assignTask')}`}</button>
       </div>
 
-      {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
+      {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
 
       {show && (
-        <form onSubmit={createTask} className="bg-white border border-green-300 rounded-xl p-5 flex flex-col gap-3">
+        <form onSubmit={createTask} className="bg-white border border-primary/30 rounded-xl p-5 flex flex-col gap-3">
           <input required placeholder="Task title (e.g. Vaccinate Batch A)" value={tf.title} onChange={e => setTf({ ...tf, title: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <select required value={tf.assignedTo} onChange={e => setTf({ ...tf, assignedTo: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
@@ -86,40 +87,38 @@ export default function OwnerTasksPage() {
             </select>
             <input type="date" value={tf.dueAt} onChange={e => setTf({ ...tf, dueAt: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
-          {workers.length === 0 && <p className="text-xs text-amber-600">No staff with a login yet — add a worker and set their PIN on the People page first.</p>}
+          {workers.length === 0 && <p className="text-xs text-warning-foreground">No staff with a login yet — add a worker and set their PIN on the People page first.</p>}
           <div className="flex gap-2">
-            <button type="submit" disabled={saving || !tf.assignedTo} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? t('saving') : t('assign')}</button>
+            <button type="submit" disabled={saving || !tf.assignedTo} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 disabled:opacity-50">{saving ? t('saving') : t('assign')}</button>
             <button type="button" onClick={() => setShow(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">Cancel</button>
           </div>
         </form>
       )}
 
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
-              <tr>
-                <th className="px-4 py-3 text-left">{t('tasks')}</th>
-                <th className="px-3 py-3 text-left">{t('people')}</th>
-                <th className="px-3 py-3 text-left hidden md:table-cell">{t('batch')}</th>
-                <th className="px-3 py-3 text-center hidden md:table-cell">{t('due')}</th>
-                <th className="px-3 py-3 text-center">{t('status')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {tasks.map(t => (
-                <tr key={t.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3"><span className="font-semibold text-gray-900">{t.title}</span><span className="block text-xs text-gray-400 capitalize">{t.type.replace(/_/g, ' ')}</span></td>
-                  <td className="px-3 py-3 text-gray-700">{workerName(t.assignedTo)}</td>
-                  <td className="px-3 py-3 text-gray-500 hidden md:table-cell">{batchName(t.batchId) ?? '—'}</td>
-                  <td className="px-3 py-3 text-center text-gray-500 hidden md:table-cell">{t.dueAt ? new Date(t.dueAt).toLocaleDateString('en-KE') : '—'}</td>
-                  <td className="px-3 py-3 text-center"><StatusChip status={statusOf(t.status)} size="sm" label={t.status} /></td>
-                </tr>
-              ))}
-              {tasks.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">{t('noTasksYet')}</td></tr>}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <TableHeader className="bg-gray-50 text-gray-500 text-xs font-semibold">
+            <TableRow>
+              <TableHead className="px-4 py-3 text-left">{t('tasks')}</TableHead>
+              <TableHead className="px-3 py-3 text-left">{t('people')}</TableHead>
+              <TableHead className="px-3 py-3 text-left hidden md:table-cell">{t('batch')}</TableHead>
+              <TableHead className="px-3 py-3 text-center hidden md:table-cell">{t('due')}</TableHead>
+              <TableHead className="px-3 py-3 text-center">{t('status')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody className="divide-y divide-gray-100">
+            {tasks.map(t => (
+              <TableRow key={t.id} className="hover:bg-gray-50">
+                <TableCell className="px-4 py-3 whitespace-normal"><span className="font-semibold text-gray-900">{t.title}</span><span className="block text-xs text-gray-400 capitalize">{t.type.replace(/_/g, ' ')}</span></TableCell>
+                <TableCell className="px-3 py-3 text-gray-700">{workerName(t.assignedTo)}</TableCell>
+                <TableCell className="px-3 py-3 text-gray-500 hidden md:table-cell">{batchName(t.batchId) ?? '—'}</TableCell>
+                <TableCell className="px-3 py-3 text-center text-gray-500 hidden md:table-cell">{t.dueAt ? new Date(t.dueAt).toLocaleDateString('en-KE') : '—'}</TableCell>
+                <TableCell className="px-3 py-3 text-center"><StatusChip status={statusOf(t.status)} size="sm" label={t.status} /></TableCell>
+              </TableRow>
+            ))}
+            {tasks.length === 0 && <TableRow><TableCell colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm whitespace-normal">{t('noTasksYet')}</TableCell></TableRow>}
+          </TableBody>
+        </Table>
       </div>
     </div>
   );

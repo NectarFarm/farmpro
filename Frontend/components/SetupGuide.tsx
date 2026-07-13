@@ -192,7 +192,7 @@ export function SetupGuide() {
         onPointerUp={fab.onPointerUp}
         onClick={() => { if (!fab.wasDragged()) setOpen(true); }}
         aria-label="Open setup guide"
-        className="fixed bottom-20 md:bottom-5 right-5 z-40 flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
+        className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-5 z-40 flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
         <BookOpen className="w-5 h-5" />
         <span className="hidden sm:inline">Setup Guide</span>
         {completed < ALL.length && (

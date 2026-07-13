@@ -1,5 +1,6 @@
 'use client';
-import { ListOrdered, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ListOrdered, AlertTriangle } from 'lucide-react';
+import { RecordHeader, RecordSavedScreen } from '@/components/worker/RecordPageShell';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -87,26 +88,12 @@ export default function PhysicalCountPage() {
   };
 
   if (saved) {
-    return (
-      <div className="p-4 flex flex-col gap-5">
-        <div className="bg-green-50 border border-green-300 rounded-2xl p-6 text-center">
-          <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
-          <h1 className="text-xl font-bold text-green-800">{t('savedWillSync')}</h1>
-        </div>
-        <button onClick={() => router.replace('/worker/home')}
-          className="w-full min-h-[56px] bg-orange-600 text-white rounded-xl text-xl font-bold">
-          {t('backToHome')}
-        </button>
-      </div>
-    );
+    return <RecordSavedScreen message={t('savedWillSync')} doneLabel={t('backToHome')} onDone={() => router.replace('/worker/home')} />;
   }
 
   return (
-    <div className="p-4 flex flex-col gap-5">
-      <div className="bg-orange-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><ListOrdered className="w-6 h-6 shrink-0" /><span>{t('physicalCount')}</span></h1>
-        <p className="text-orange-200 text-sm">{t('reconciliationAudit')}</p>
-      </div>
+    <div className="p-4 flex flex-col gap-5 md:max-w-lg md:mx-auto">
+      <RecordHeader icon={ListOrdered} title={t('physicalCount')} subtitle={t('reconciliationAudit')} accent="orange" />
 
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium text-gray-700">{t('batch')} / {t('unit')}</label>

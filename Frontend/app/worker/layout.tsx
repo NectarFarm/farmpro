@@ -66,48 +66,87 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
   const handleLogout = () => { logout(); router.replace('/worker/login'); };
 
   return (
-    <div className="flex flex-col min-h-screen max-w-md mx-auto bg-gray-50">
-      {/* Header: back · title · sync · logout */}
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 px-3 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] flex items-center gap-2">
-        {isHome ? (
-          brand.logoUrl
-             
-            ? <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain pl-1" />
-            : <Wheat className="w-6 h-6 text-green-700 pl-1" />
-        ) : (
-          <button onClick={() => router.back()} aria-label="Back"
-            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100">
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-        )}
-        <span className="text-base font-bold text-green-800 truncate flex-1">{title}</span>
-        <SyncBadge />
-        <button onClick={handleLogout} aria-label="Log out"
-          className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600">
-          <LogOut className="w-5 h-5" />
-        </button>
-      </header>
-
-      <main className="flex-1 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">{children}</main>
-
-      {/* Bottom tab bar — DS-5: one-thumb reachable */}
-      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 z-40 pb-[env(safe-area-inset-bottom)]">
-        <div className="flex">
+    <div className="flex min-h-screen bg-gray-50">
+      {/* Desktop sidebar (md and up only). Deliberately NOT routed through
+          AppShell — this is presentational chrome only. All offline-sync
+          wiring (useSync(), the online/offline listener, warmRefCache()) stays
+          up in this same component, mounted exactly once regardless of
+          viewport; nothing below duplicates or moves it. */}
+      <aside className="hidden md:flex w-56 bg-green-950 text-white flex-col shrink-0">
+        <div className="px-5 py-5 border-b border-green-800/70">
+          <div className="flex items-center gap-2">
+            {brand.logoUrl
+              ? <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain" />
+              : <Wheat className="w-6 h-6 text-green-300" />}
+            <span className="font-bold text-lg">{brand.appName}</span>
+          </div>
+        </div>
+        <nav className="flex-1 py-3 px-2 flex flex-col gap-0.5">
           {tabs.map((tab) => {
             const active = pathname.startsWith(tab.href.split('/').slice(0, 3).join('/'));
             return (
               <Link key={tab.href} href={tab.href}
                 className={cn(
-                  'flex-1 flex flex-col items-center justify-center py-3 gap-0.5 min-h-[60px] text-xs font-semibold transition-colors',
-                  active ? 'text-green-700 bg-green-50' : 'text-gray-500 hover:text-gray-700'
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  active ? 'bg-green-600 text-white shadow-sm' : 'text-green-100/75 hover:bg-green-800/60 hover:text-white'
                 )}>
-                <tab.Icon className="w-5 h-5" strokeWidth={2} />
-                {t(tab.labelKey)}
+                <tab.Icon className="w-[18px] h-[18px]" strokeWidth={2} />{t(tab.labelKey)}
               </Link>
             );
           })}
+        </nav>
+        <div className="px-5 py-4 border-t border-green-800/70 flex items-center justify-between gap-2">
+          <SyncBadge />
+          <button onClick={handleLogout} aria-label="Log out" className="text-sm text-green-200/80 hover:text-white flex items-center gap-2">
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
-      </nav>
+      </aside>
+
+      <div className="flex flex-col flex-1 min-w-0 w-full max-w-md mx-auto md:max-w-3xl bg-gray-50">
+        {/* Header: back · title · sync · logout */}
+        <header className="sticky top-0 z-40 bg-white border-b border-gray-200 px-3 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] flex items-center gap-2">
+          {isHome ? (
+            brand.logoUrl
+
+              ? <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain pl-1 md:hidden" />
+              : <Wheat className="w-6 h-6 text-green-700 pl-1 md:hidden" />
+          ) : (
+            <button onClick={() => router.back()} aria-label="Back"
+              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 md:hidden">
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+          )}
+          <span className="text-base font-bold text-green-800 truncate flex-1">{title}</span>
+          <SyncBadge className="md:hidden" />
+          <button onClick={handleLogout} aria-label="Log out"
+            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 md:hidden">
+            <LogOut className="w-5 h-5" />
+          </button>
+        </header>
+
+        <main className="flex-1 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">{children}</main>
+
+        {/* Bottom tab bar — DS-5: one-thumb reachable. Mobile only; the
+            sidebar above takes over section-switching on desktop. */}
+        <nav className="md:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 z-40 pb-[env(safe-area-inset-bottom)]">
+          <div className="flex">
+            {tabs.map((tab) => {
+              const active = pathname.startsWith(tab.href.split('/').slice(0, 3).join('/'));
+              return (
+                <Link key={tab.href} href={tab.href}
+                  className={cn(
+                    'flex-1 flex flex-col items-center justify-center py-3 gap-0.5 min-h-[60px] text-xs font-semibold transition-colors',
+                    active ? 'text-green-700 bg-green-50' : 'text-gray-500 hover:text-gray-700'
+                  )}>
+                  <tab.Icon className="w-5 h-5" strokeWidth={2} />
+                  {t(tab.labelKey)}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      </div>
 
       <Toaster />
     </div>

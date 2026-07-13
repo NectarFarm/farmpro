@@ -501,6 +501,9 @@ export const EN = {
   todaysRecords: 'Today’s records',
   noRecordsToday: 'No records captured yet today.',
   recordMenuSubtitle: 'Choose what to record',
+  recordGroupEveryDay: 'Every day',
+  recordGroupAsNeeded: 'As needed',
+  recordGroupStockCounts: 'Stock counts',
 
   // Additional Phase 6 strings found while wiring pages
   batchFedPickNext: '{batch} fed — pick the next batch or finish',
@@ -1468,6 +1471,9 @@ export const SW: Record<TranslationKey, string> = {
   todaysRecords: 'Rekodi za Leo',
   noRecordsToday: 'Hakuna rekodi zilizonaswa leo bado.',
   recordMenuSubtitle: 'Chagua utakalorekodi',
+  recordGroupEveryDay: 'Kila siku',
+  recordGroupAsNeeded: 'Inapohitajika',
+  recordGroupStockCounts: 'Hesabu za akiba',
 
   // Maneno ya ziada ya Awamu ya 6 yaliyopatikana wakati wa kuunganisha kurasa
   batchFedPickNext: '{batch} kimelishwa — chagua kundi lifuatalo au maliza',

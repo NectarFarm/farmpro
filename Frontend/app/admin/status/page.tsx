@@ -30,9 +30,9 @@ function statusLevel(s: SystemStatus): HealthStatus {
 }
 
 const STATUS_META: Record<HealthStatus, { label: string; icon: LucideIcon; bg: string; txt: string; pulse: string }> = {
-  healthy:   { label: 'All Systems Operational', icon: CheckCircle2,  bg: 'bg-green-50 border-green-200', txt: 'text-green-700', pulse: 'bg-green-500' },
-  degraded:  { label: 'Degraded',                icon: AlertTriangle, bg: 'bg-amber-50 border-amber-200',  txt: 'text-amber-700', pulse: 'bg-amber-500' },
-  down:      { label: 'System Down',             icon: XCircle,       bg: 'bg-red-50 border-red-200',     txt: 'text-red-700',   pulse: 'bg-red-500' },
+  healthy:   { label: 'All Systems Operational', icon: CheckCircle2,  bg: 'bg-success/10 border-success/30', txt: 'text-success', pulse: 'bg-success' },
+  degraded:  { label: 'Degraded',                icon: AlertTriangle, bg: 'bg-warning/15 border-warning/40',  txt: 'text-warning-foreground', pulse: 'bg-warning' },
+  down:      { label: 'System Down',             icon: XCircle,       bg: 'bg-destructive/10 border-destructive/30',     txt: 'text-destructive',   pulse: 'bg-destructive' },
 };
 
 function fmtUptime(s: number): string {
@@ -85,8 +85,8 @@ export default function AdminStatusPage() {
     return (
       <div className="p-6 flex flex-col items-center justify-center py-20 max-w-5xl mx-auto gap-4">
         <Server className="w-16 h-16 text-gray-300" />
-        <p className="text-red-600 text-sm font-semibold">{t('errorLoadFailed')}</p>
-        <button onClick={load} className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition-colors">
+        <p className="text-destructive text-sm font-semibold">{t('errorLoadFailed')}</p>
+        <button onClick={load} className="px-4 py-2 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800 transition-colors">
           {t('retry')}
         </button>
       </div>
@@ -101,7 +101,7 @@ export default function AdminStatusPage() {
     {
       label: 'Database', icon: Database, ok: data.database.ok,
       detail: data.database.ok ? (data.database.version || 'connected') : (data.database.error || 'disconnected'),
-      tint: data.database.ok ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50',
+      tint: data.database.ok ? 'text-success bg-success/10' : 'text-destructive bg-destructive/10',
     },
     {
       label: 'Storage', icon: HardDrive, ok: data.storage.configured,
@@ -111,7 +111,7 @@ export default function AdminStatusPage() {
     {
       label: `${t('auditLog')} (7d)`, icon: Shield, ok: data.recentActivity.errors7d === 0,
       detail: `${data.recentActivity.auditEntries7d} entries · ${data.recentActivity.errors7d} errors`,
-      tint: data.recentActivity.errors7d === 0 ? 'text-indigo-600 bg-indigo-50' : 'text-amber-600 bg-amber-50',
+      tint: data.recentActivity.errors7d === 0 ? 'text-indigo-600 bg-indigo-50' : 'text-warning-foreground bg-warning/15',
     },
   ];
 
@@ -156,8 +156,8 @@ export default function AdminStatusPage() {
                 <card.icon className="w-[18px] h-[18px]" strokeWidth={2} />
               </div>
               {card.ok
-                ? <CheckCircle2 className="w-5 h-5 text-green-500" strokeWidth={2.5} />
-                : <XCircle className="w-5 h-5 text-red-500" strokeWidth={2.5} />
+                ? <CheckCircle2 className="w-5 h-5 text-success" strokeWidth={2.5} />
+                : <XCircle className="w-5 h-5 text-destructive" strokeWidth={2.5} />
               }
             </div>
             <div>
@@ -207,8 +207,8 @@ export default function AdminStatusPage() {
         </div>
         <div className="space-y-2 text-xs font-mono text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-4">
           <p className="text-gray-400"># System status &mdash; {new Date(data.ts).toISOString()}</p>
-          <p className="flex items-center gap-1.5">DB: {data.database.ok ? <Check className="w-3.5 h-3.5 text-green-600" /> : <X className="w-3.5 h-3.5 text-red-600" />} {data.database.version || data.database.error}</p>
-          <p className="flex items-center gap-1.5">Storage: {data.storage.configured ? <><Check className="w-3.5 h-3.5 text-green-600" /> {data.storage.bucket}</> : <><X className="w-3.5 h-3.5 text-red-600" /> (base64 fallback)</>}</p>
+          <p className="flex items-center gap-1.5">DB: {data.database.ok ? <Check className="w-3.5 h-3.5 text-success" /> : <X className="w-3.5 h-3.5 text-destructive" />} {data.database.version || data.database.error}</p>
+          <p className="flex items-center gap-1.5">Storage: {data.storage.configured ? <><Check className="w-3.5 h-3.5 text-success" /> {data.storage.bucket}</> : <><X className="w-3.5 h-3.5 text-destructive" /> (base64 fallback)</>}</p>
           <p>Migration: v{data.migrationVersion}</p>
           <p>Audit (7d): {data.recentActivity.auditEntries7d} entries, {data.recentActivity.errors7d} failures</p>
           <p>Uptime: {fmtUptime(data.environment.uptimeSeconds)}</p>

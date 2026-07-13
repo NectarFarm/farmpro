@@ -35,7 +35,7 @@ export function Pager({ page, totalPages, onPageChange, prevLabel = 'Prev', next
           ? <span key={`ellipsis-${idx}`} className="px-1 text-gray-300 text-xs">···</span>
           : (
             <button key={p} onClick={() => onPageChange(p)}
-              className={`min-w-[44px] h-[44px] text-xs font-semibold rounded-lg transition-colors ${p === safePage ? 'bg-green-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 border border-gray-200'}`}>
+              className={`min-w-[44px] h-[44px] text-xs font-semibold rounded-lg transition-colors ${p === safePage ? 'bg-foreground text-background shadow-sm' : 'text-gray-600 hover:bg-gray-100 border border-gray-200'}`}>
               {p}
             </button>
           )

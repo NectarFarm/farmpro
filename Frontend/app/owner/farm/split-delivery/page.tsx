@@ -74,13 +74,13 @@ export default function SplitDeliveryPage() {
   if (done) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-        <div className="bg-white border border-green-200 rounded-2xl p-8 max-w-sm w-full text-center flex flex-col gap-4 items-center">
-          <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center"><Check className="w-7 h-7 text-green-700" /></div>
+        <div className="bg-white border border-success/30 rounded-2xl p-8 max-w-sm w-full text-center flex flex-col gap-4 items-center">
+          <div className="w-14 h-14 rounded-full bg-success/10 flex items-center justify-center"><Check className="w-7 h-7 text-success" /></div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">Delivery recorded</h1>
             <p className="text-gray-500 text-sm mt-1">Created {done.count} batches, one per unit, linked to this delivery.</p>
           </div>
-          <button onClick={() => router.replace('/owner/farm')} className="w-full min-h-[48px] bg-green-600 text-white rounded-xl font-bold">Back to Farm</button>
+          <button onClick={() => router.replace('/owner/farm')} className="w-full min-h-[48px] bg-primary text-primary-foreground rounded-xl font-bold hover:bg-primary/90">Back to Farm</button>
         </div>
       </div>
     );
@@ -90,21 +90,21 @@ export default function SplitDeliveryPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <div className="bg-green-700 text-white px-5 py-4">
-        <div className="flex items-center gap-2 text-sm text-green-200 mb-2">
+      <div className="bg-primary text-primary-foreground px-5 py-4">
+        <div className="flex items-center gap-2 text-sm text-primary-foreground/80 mb-2">
           <Link href="/owner/farm" className="hover:underline">← {t('farm')}</Link>
         </div>
         <h1 className="text-lg font-bold flex items-center gap-2"><StepIcon className="w-5 h-5" /> Split one delivery across units</h1>
         <div className="flex gap-1.5 mt-3">
           {STEPS.map((s, i) => (
-            <div key={i} className={cn('flex-1 h-1.5 rounded-full', i <= step ? 'bg-white' : 'bg-green-500')} />
+            <div key={i} className={cn('flex-1 h-1.5 rounded-full', i <= step ? 'bg-white' : 'bg-primary-foreground/30')} />
           ))}
         </div>
-        <p className="text-green-200 text-xs mt-1">Step {step + 1} of {STEPS.length}: {STEPS[step].title}</p>
+        <p className="text-primary-foreground/80 text-xs mt-1">Step {step + 1} of {STEPS.length}: {STEPS[step].title}</p>
       </div>
 
       <div className="flex-1 p-5 max-w-lg mx-auto w-full flex flex-col gap-5">
-        {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
+        {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 
         {step === 0 && (
           <div className="flex flex-col gap-4">
@@ -119,8 +119,8 @@ export default function SplitDeliveryPage() {
               <div className="grid grid-cols-3 gap-2">
                 {ENTERPRISE_OPTIONS.map(opt => (
                   <button key={opt.key} type="button" onClick={() => { setEnterprise(o => o === opt.key ? '' : opt.key); setSpecies(opt.desc.split(' ')[0].toLowerCase()); }}
-                    className={cn('flex flex-col items-center gap-1 rounded-xl border-2 p-3', enterprise === opt.key ? 'bg-green-50 border-green-500' : 'bg-white border-gray-200')}>
-                    <opt.Icon className={cn('w-5 h-5', enterprise === opt.key ? 'text-green-700' : 'text-gray-500')} />
+                    className={cn('flex flex-col items-center gap-1 rounded-xl border-2 p-3', enterprise === opt.key ? 'bg-primary/10 border-primary' : 'bg-white border-gray-200')}>
+                    <opt.Icon className={cn('w-5 h-5', enterprise === opt.key ? 'text-primary' : 'text-gray-500')} />
                     <span className="text-xs font-semibold text-gray-700">{opt.label}</span>
                   </button>
                 ))}
@@ -170,11 +170,11 @@ export default function SplitDeliveryPage() {
               </div>
             ))}
             <button type="button" onClick={() => setRows(rs => [...rs, { unitId: '', qty: '' }])}
-              className="w-full border-2 border-dashed border-green-400 text-green-700 rounded-xl py-3 font-semibold text-sm">
+              className="w-full border-2 border-dashed border-primary/40 text-primary rounded-xl py-3 font-semibold text-sm">
               + Add another unit
             </button>
             <div className={cn('rounded-xl px-4 py-3 text-sm font-semibold text-center',
-              remaining === 0 ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200')}>
+              remaining === 0 ? 'bg-success/10 text-success border border-success/30' : 'bg-warning/15 text-warning-foreground border border-warning/40')}>
               {remaining === 0 ? `All ${totalQty} allocated ✓` : remaining > 0 ? `${remaining} left to allocate` : `${-remaining} too many — reduce a row`}
             </div>
           </div>
@@ -211,9 +211,9 @@ export default function SplitDeliveryPage() {
           <button onClick={() => setStep(s => s - 1)} disabled={saving} className="flex-1 min-h-[52px] bg-gray-100 text-gray-700 rounded-xl font-semibold disabled:opacity-50">{t('back')} ←</button>
         )}
         {step < STEPS.length - 1 ? (
-          <button onClick={() => canNext() && setStep(s => s + 1)} disabled={!canNext()} className="flex-1 min-h-[52px] bg-green-600 text-white rounded-xl font-bold disabled:opacity-40">{t('next')} →</button>
+          <button onClick={() => canNext() && setStep(s => s + 1)} disabled={!canNext()} className="flex-1 min-h-[52px] bg-primary text-primary-foreground rounded-xl font-bold hover:bg-primary/90 disabled:opacity-40">{t('next')} →</button>
         ) : (
-          <button onClick={submit} disabled={saving} className="flex-1 min-h-[52px] bg-green-700 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+          <button onClick={submit} disabled={saving} className="flex-1 min-h-[52px] bg-primary text-primary-foreground rounded-xl font-bold hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2">
             {!saving && <Check className="w-5 h-5" />} {saving ? t('saving') : 'Confirm & create batches'}
           </button>
         )}

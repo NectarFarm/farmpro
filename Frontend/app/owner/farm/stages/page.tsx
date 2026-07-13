@@ -70,33 +70,33 @@ export default function LifecycleStagesPage() {
     <div className="p-6 flex flex-col gap-5 max-w-3xl">
       <div>
         <div className="flex items-center gap-2 text-sm text-gray-500"><Link href="/owner/farm" className="hover:underline">← {t('farm')}</Link></div>
-        <h1 className="text-2xl font-bold text-gray-900 mt-1 flex items-center gap-2"><Sprout className="w-6 h-6 text-green-700" /> {t('lifecycleStages')}</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mt-1 flex items-center gap-2"><Sprout className="w-6 h-6 text-primary" /> {t('lifecycleStages')}</h1>
         <p className="text-gray-500 text-sm">Set the growth phases for each animal type and the AGE (days) each begins. The farm then shows when a batch is due to move to the next phase.</p>
       </div>
 
       <div className="flex gap-2 flex-wrap">
         {STAGE_ENTERPRISES.map(e => (
           <button key={e} onClick={() => setEnterprise(e)}
-            className={`px-3 py-2 rounded-xl font-semibold text-sm border-2 ${enterprise === e ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300'}`}>
+            className={`px-3 py-2 rounded-xl font-semibold text-sm border-2 ${enterprise === e ? 'bg-primary text-primary-foreground border-primary' : 'bg-white text-gray-700 border-gray-300'}`}>
             {LABELS[e] ?? e}
           </button>
         ))}
       </div>
 
-      {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
+      {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
 
       {loadFailed && (
-        <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-3 text-sm flex flex-col gap-2">
-          <p className="text-amber-800 font-semibold flex items-start gap-1.5">
+        <div className="bg-warning/15 border border-warning/40 rounded-lg px-3 py-3 text-sm flex flex-col gap-2">
+          <p className="text-warning-foreground font-semibold flex items-start gap-1.5">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
             Couldn&apos;t load your saved stages — showing defaults; do NOT save until you&apos;ve confirmed this is intentional.
           </p>
-          <label className="flex items-center gap-2 text-amber-800 font-medium">
+          <label className="flex items-center gap-2 text-warning-foreground font-medium">
             <input
               type="checkbox"
               checked={confirmedDefaults}
               onChange={e => setConfirmedDefaults(e.target.checked)}
-              className="w-4 h-4 accent-amber-600"
+              className="w-4 h-4 accent-warning"
             />
             I understand these are defaults, not my saved stages, and want to proceed anyway
           </label>
@@ -116,7 +116,7 @@ export default function LifecycleStagesPage() {
             <button onClick={() => removeRow(i)} aria-label="Remove" className="text-gray-400 hover:text-red-600 flex items-center justify-center"><X className="w-4 h-4" /></button>
           </div>
         ))}
-        <button onClick={addRow} className="self-start text-green-700 font-semibold text-sm">+ {t('addStage')}</button>
+        <button onClick={addRow} className="self-start text-primary font-semibold text-sm">+ {t('addStage')}</button>
         <p className="text-[11px] text-gray-400">The earliest stage is always pinned to day 0. Stages are ordered by their start day.</p>
       </div>
 
@@ -130,7 +130,7 @@ export default function LifecycleStagesPage() {
       )}
 
       <button onClick={save} disabled={saving || (loadFailed && !confirmedDefaults)}
-        className={`w-full min-h-[52px] rounded-xl font-bold text-base disabled:opacity-50 ${saved ? 'bg-green-100 text-green-700' : 'bg-green-600 text-white hover:bg-green-700'}`}>
+        className={`w-full min-h-[52px] rounded-xl font-bold text-base disabled:opacity-50 ${saved ? 'bg-success/10 text-success' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}>
         {saving ? t('saving') : saved ? t('stagesSaved') : t('saveStages', { label: LABELS[enterprise] ?? enterprise })}
       </button>
     </div>

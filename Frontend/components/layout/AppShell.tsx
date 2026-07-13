@@ -9,12 +9,17 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { WifiOff, type LucideIcon } from 'lucide-react';
+import { NavDrawer } from './NavDrawer';
 
 export interface AppShellNavItem {
   href: string;
   Icon: LucideIcon;
   label: string;
   badge?: number;
+  /** Groups items under a heading in the mobile nav drawer. Ungrouped items
+   *  (no `group`) render under no heading, before any grouped ones. Doesn't
+   *  affect the desktop sidebar, which already shows every item flat. */
+  group?: string;
 }
 
 export interface AppShellTheme {
@@ -38,15 +43,18 @@ export interface AppShellTheme {
 
 export interface AppShellProps {
   theme: AppShellTheme;
-  /** Logo + app name block at the top of the sidebar. */
+  /** Logo + app name block at the top of the sidebar. Styled for the sidebar's
+   *  own dark background (e.g. `text-green-300` icons) — not reused in the
+   *  mobile nav drawer, which has a light header of its own. */
   brand: React.ReactNode;
+  /** Plain-text app/section name for the mobile nav drawer's light-background
+   *  header, e.g. "Kutswa's Farm" or "IFMS Admin". */
+  drawerTitle: string;
   /** Content under the brand block (user name/role, email, etc). */
   sidebarSubtitle?: React.ReactNode;
   /** Sidebar footer content (typically the logout button, optionally a language switcher). */
   sidebarFooter: React.ReactNode;
   navItems: AppShellNavItem[];
-  /** Nav items shown in the mobile bottom bar. Defaults to `navItems`. */
-  mobileNavItems?: AppShellNavItem[];
   homeHref: string;
   homeLabel: string;
   /** Label for the trailing "detail" breadcrumb segment, e.g. "Details". */
@@ -96,10 +104,10 @@ function ConnectivityIndicator() {
 export function AppShell({
   theme,
   brand,
+  drawerTitle,
   sidebarSubtitle,
   sidebarFooter,
   navItems,
-  mobileNavItems,
   homeHref,
   homeLabel,
   detailLabel = 'Details',
@@ -142,24 +150,21 @@ export function AppShell({
         </div>
       </aside>
 
-      {/* Mobile nav */}
-      <div className={cn('md:hidden fixed bottom-0 left-0 right-0 text-white z-50 flex overflow-x-auto pb-[env(safe-area-inset-bottom)]', theme.sidebarBg)}>
-        {(mobileNavItems ?? navItems).map((item) => {
-          const active = pathname.startsWith(item.href);
-          return (
-            <Link key={item.href} href={item.href}
-              className={cn('flex flex-col items-center gap-1 px-3 py-2 text-[11px] shrink-0', active ? theme.mobileActiveText : theme.mobileInactiveText)}>
-              <item.Icon className="w-5 h-5" strokeWidth={2} />{item.label}
-            </Link>
-          );
-        })}
-      </div>
-
       {/* Main column with top bar */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-30 bg-white border-b border-gray-200 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] flex items-center gap-3">
+          {/* Mobile: hamburger at the section root (switch sections), back
+              button once drilled into a detail (retreat) — there isn't room
+              for both, and this matches the depth the user is actually at.
+              Desktop always shows back; the sidebar covers section-switching. */}
+          {isDetail ? (
+            <button onClick={() => router.back()} aria-label="Back"
+              className="md:hidden min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 text-xl">‹</button>
+          ) : (
+            <NavDrawer navItems={navItems} title={drawerTitle} />
+          )}
           <button onClick={() => router.back()} aria-label="Back"
-            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 text-xl">‹</button>
+            className="hidden md:flex min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 text-xl">‹</button>
           {/* Breadcrumb — where you are */}
           <nav className="flex items-center gap-1.5 text-sm min-w-0">
             <Link href={homeHref} className="text-gray-400 hover:text-gray-600">{homeLabel}</Link>
@@ -178,7 +183,7 @@ export function AppShell({
           {headerRight}
         </header>
 
-        <main className="flex-1 overflow-y-auto pb-16 md:pb-0">{children}</main>
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
 
       {floatingContent}

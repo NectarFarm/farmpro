@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+import { ThemeProvider } from 'next-themes';
 import { PWARegister } from '@/components/PWARegister';
 import { getSettings } from '@/app/api/admin/settings/route';
 import './globals.css';
@@ -43,11 +44,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        {/* Pinned to light for now: most page markup still hardcodes bg-white/
+            text-gray-900 etc. rather than the token classes that respond to
+            `.dark` (that migration is Phase 2/3 of the UI revamp, not done
+            yet). Defaulting to the OS's dark preference today would mix a
+            correctly-dark shadcn primitive (e.g. the nav drawer) against
+            still-light page content — a broken half-dark screen for any
+            Android user whose system theme is dark, which is common. The
+            toggle infra stays wired for once that coverage lands. */}
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+          {children}
+        </ThemeProvider>
         <PWARegister />
       </body>
     </html>

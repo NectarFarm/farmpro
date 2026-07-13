@@ -49,8 +49,8 @@ export default function ActivityPage() {
   return (
     <div className="p-6 flex flex-col gap-6 max-w-4xl">
       <div className="flex items-center gap-3">
-        <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-          <ClipboardList className="w-6 h-6 text-green-700" />
+        <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+          <ClipboardList className="w-6 h-6 text-primary" />
         </div>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{t('workerActivity')}</h1>
@@ -60,7 +60,7 @@ export default function ActivityPage() {
 
       {conflicts.length > 0 && (
         <div className="flex flex-col gap-2">
-          <h2 className="font-bold text-red-700 text-sm flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> Sync conflicts to review ({conflicts.length})</h2>
+          <h2 className="font-bold text-destructive text-sm flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> Sync conflicts to review ({conflicts.length})</h2>
           <p className="text-xs text-gray-500 -mt-1">Two workers recorded the same day&apos;s figure for a batch. The later one was kept — accept that, or override.</p>
           {conflicts.map(c => <ConflictResolver key={c.id} conflict={c} onResolve={resolve} busy={cBusy === c.id} />)}
         </div>

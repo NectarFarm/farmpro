@@ -72,7 +72,7 @@ export function AIAdvisor() {
         onPointerUp={fab.onPointerUp}
         onClick={() => { if (!fab.wasDragged()) setOpen(true); }}
         aria-label="AI advisor"
-        className="fixed bottom-20 md:bottom-5 left-5 z-40 flex items-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
+        className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] left-5 z-40 flex items-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
         <Bot className="w-5 h-5" /><span className="hidden sm:inline">AI Advisor</span>
         {messages.length > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400" title="Saved conversation" />}
       </button>

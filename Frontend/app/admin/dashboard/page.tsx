@@ -6,6 +6,7 @@ import {
   Tractor, ScrollText, Settings, Layers, Bird, Users,
   CheckCircle2, XCircle, ArrowRight, Activity, Shield, BarChart3
 } from 'lucide-react';
+import { StatPanel } from '@/components/ui/stat-panel';
 
 const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
 
@@ -46,12 +47,12 @@ export default function AdminDashboardPage() {
   useEffect(() => { loadStats(); }, []);
 
   const statCards = [
-    { label: t('totalFarms'), value: fmt(stats.totalFarms), icon: Tractor, tint: 'text-gray-900 bg-gray-100' },
-    { label: t('activeFarms'), value: fmt(stats.activeFarms), icon: CheckCircle2, tint: 'text-green-600 bg-green-50' },
-    { label: t('totalUsers'), value: fmt(stats.totalUsers), icon: Users, tint: 'text-blue-600 bg-blue-50' },
-    { label: t('totalBatchesAll'), value: fmt(stats.totalBatchesAll), icon: Layers, tint: 'text-amber-600 bg-amber-50' },
-    { label: t('totalWorkers'), value: fmt(stats.totalWorkers), icon: Bird, tint: 'text-violet-600 bg-violet-50' },
-    { label: t('inactive'), value: fmt(stats.suspendedFarms), icon: XCircle, tint: 'text-red-600 bg-red-50' },
+    { label: t('totalFarms'), value: fmt(stats.totalFarms), icon: Tractor, tone: 'neutral' as const },
+    { label: t('activeFarms'), value: fmt(stats.activeFarms), icon: CheckCircle2, tone: 'good' as const },
+    { label: t('totalUsers'), value: fmt(stats.totalUsers), icon: Users, tone: 'neutral' as const },
+    { label: t('totalBatchesAll'), value: fmt(stats.totalBatchesAll), icon: Layers, tone: 'neutral' as const },
+    { label: t('totalWorkers'), value: fmt(stats.totalWorkers), icon: Bird, tone: 'neutral' as const },
+    { label: t('inactive'), value: fmt(stats.suspendedFarms), icon: XCircle, tone: stats.suspendedFarms > 0 ? 'bad' as const : 'neutral' as const },
   ];
 
   return (
@@ -84,13 +85,7 @@ export default function AdminDashboardPage() {
           {/* Stats cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
             {statCards.map(card => (
-              <div key={card.label} className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-sm flex flex-col gap-2 hover:shadow-md transition-shadow">
-                <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${card.tint}`}>
-                  <card.icon className="w-[18px] h-[18px]" strokeWidth={2} />
-                </div>
-                <p className="text-2xl font-bold tracking-tight text-gray-900">{card.value}</p>
-                <p className="text-[11px] text-gray-500 font-medium">{card.label}</p>
-              </div>
+              <StatPanel key={card.label} label={card.label} value={card.value} icon={card.icon} tone={card.tone} />
             ))}
           </div>
 

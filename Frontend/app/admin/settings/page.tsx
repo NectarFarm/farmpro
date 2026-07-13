@@ -58,8 +58,8 @@ export default function AdminSettingsPage() {
       {settingsMsg && (
         <p className={`text-sm font-semibold rounded-xl px-4 py-3 border flex items-center gap-2 ${
           settingsOk
-            ? 'text-green-700 bg-green-50 border-green-200'
-            : 'text-red-600 bg-red-50 border-red-200'
+            ? 'text-success bg-success/10 border-success/30'
+            : 'text-destructive bg-destructive/10 border-destructive/30'
         }`}>
           {settingsOk ? <Check className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
           {settingsMsg}

@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { enterpriseIcon as enterpriseIconFor } from '@/lib/species';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { StatPanel } from '@/components/ui/stat-panel';
 
 const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
 const fmtKES = (n: number) => `KSh ${Math.abs(n).toLocaleString('en-KE')}`;
@@ -76,10 +78,10 @@ export default function AdminFarmDetailPage() {
   if (err) {
     return (
       <div className="p-6">
-        <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
-          <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-2" />
-          <p className="text-red-700 font-semibold">{err}</p>
-          <button onClick={load} className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold">{t('retry')}</button>
+        <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-5 text-center">
+          <AlertTriangle className="w-8 h-8 text-destructive/70 mx-auto mb-2" />
+          <p className="text-destructive font-semibold">{err}</p>
+          <button onClick={load} className="mt-3 px-4 py-2 bg-destructive text-white rounded-lg text-sm font-semibold hover:bg-destructive/90">{t('retry')}</button>
         </div>
       </div>
     );
@@ -107,12 +109,12 @@ export default function AdminFarmDetailPage() {
   const maxRevenue = Math.max(...monthlyRevenue.map(r => r.revenue), 1);
 
   const statCards = [
-    { label: t('activeBatches'), value: String(metrics.activeBatches), icon: Layers, tint: 'text-emerald-600 bg-emerald-50', sub: `${metrics.totalBatches} ${t('total').toLowerCase()}` },
-    { label: t('totalAnimals'), value: fmt(metrics.totalAnimals), icon: Bird, tint: 'text-sky-600 bg-sky-50', sub: `${metrics.totalInitial} ${t('initialQty')}` },
-    { label: t('mortalityRate'), value: `${metrics.mortalityPct}%`, icon: Activity, tint: metrics.mortalityPct > 10 ? 'text-red-600 bg-red-50' : 'text-rose-600 bg-rose-50', sub: `${metrics.totalDeaths} ${t('deaths')}` },
-    { label: t('averageFCR'), value: metrics.avgFCR ? String(metrics.avgFCR) : '—', icon: TrendingUp, tint: 'text-violet-600 bg-violet-50', sub: `${t('target')} \u2264 2.8` },
-    { label: t('revenue'), value: fmtKES(metrics.totalRevenue), icon: DollarSign, tint: 'text-green-600 bg-green-50' },
-    { label: t('grossMargin'), value: fmtKES(metrics.grossMargin), icon: Wallet, tint: metrics.grossMargin < 0 ? 'text-red-600 bg-red-50' : 'text-emerald-600 bg-emerald-50' },
+    { label: t('activeBatches'), value: String(metrics.activeBatches), icon: Layers, tone: 'neutral' as const, sub: `${metrics.totalBatches} ${t('total').toLowerCase()}` },
+    { label: t('totalAnimals'), value: fmt(metrics.totalAnimals), icon: Bird, tone: 'neutral' as const, sub: `${metrics.totalInitial} ${t('initialQty')}` },
+    { label: t('mortalityRate'), value: `${metrics.mortalityPct}%`, icon: Activity, tone: metrics.mortalityPct > 10 ? 'bad' as const : 'neutral' as const, sub: `${metrics.totalDeaths} ${t('deaths')}` },
+    { label: t('averageFCR'), value: metrics.avgFCR ? String(metrics.avgFCR) : '—', icon: TrendingUp, tone: 'neutral' as const, sub: `${t('target')} \u2264 2.8` },
+    { label: t('revenue'), value: fmtKES(metrics.totalRevenue), icon: DollarSign, tone: 'good' as const },
+    { label: t('grossMargin'), value: fmtKES(metrics.grossMargin), icon: Wallet, tone: metrics.grossMargin < 0 ? 'bad' as const : 'good' as const },
   ];
 
   return (
@@ -130,12 +132,12 @@ export default function AdminFarmDetailPage() {
             </div>
             <h1 className="text-2xl font-bold text-gray-900 truncate flex items-center gap-2">
               {farm.name}
-              {!farm.active && <span className="text-xs bg-red-600 text-white px-2 py-0.5 rounded-full">{t('suspended')}</span>}
+              {!farm.active && <span className="text-xs bg-destructive text-white px-2 py-0.5 rounded-full">{t('suspended')}</span>}
             </h1>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${farm.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${farm.active ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
             {farm.active ? t('active') : t('inactive')}
           </span>
           <span className="text-xs bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full capitalize">{farm.plan}</span>
@@ -160,14 +162,7 @@ export default function AdminFarmDetailPage() {
       {/* Stats cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         {statCards.map(card => (
-          <div key={card.label} className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-sm flex flex-col gap-2">
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${card.tint}`}>
-              <card.icon className="w-[18px] h-[18px]" strokeWidth={2} />
-            </div>
-            <p className="text-xl font-bold tracking-tight text-gray-900">{card.value}</p>
-            <p className="text-[11px] text-gray-500 font-medium">{card.label}</p>
-            {card.sub && <p className="text-[10px] text-gray-400 -mt-1">{card.sub}</p>}
-          </div>
+          <StatPanel key={card.label} label={card.label} value={card.value} icon={card.icon} tone={card.tone} sub={card.sub} />
         ))}
       </div>
 
@@ -186,8 +181,8 @@ export default function AdminFarmDetailPage() {
                   <span className="text-[10px] text-gray-400 font-medium">
                     {r.revenue > 0 ? `K${(r.revenue / 1000).toFixed(0)}K` : '—'}
                   </span>
-                  <div className="w-full bg-green-100 rounded-t-md relative" style={{ height: `${Math.max(pct, 4)}%` }}>
-                    <div className="absolute inset-0 bg-green-500 rounded-t-md opacity-80 hover:opacity-100 transition-opacity" />
+                  <div className="w-full bg-success/15 rounded-t-md relative" style={{ height: `${Math.max(pct, 4)}%` }}>
+                    <div className="absolute inset-0 bg-success rounded-t-md opacity-80 hover:opacity-100 transition-opacity" />
                   </div>
                   <span className="text-[10px] text-gray-400">{r.month.slice(5)}</span>
                 </div>
@@ -235,46 +230,44 @@ export default function AdminFarmDetailPage() {
         {batches.length === 0 ? (
           <p className="text-gray-400 text-sm text-center py-8">{t('noBatchesYet')}</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-xs text-gray-400 font-semibold uppercase tracking-wider">
-                  <th className="text-left py-2 px-2 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('name')}>{t('name')}{sortArrow('name')}</th>
-                  <th className="text-left py-2 px-2 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('species')}>{t('species')}{sortArrow('species')}</th>
-                  <th className="text-left py-2 px-2 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('stage')}>{t('stage')}{sortArrow('stage')}</th>
-                  <th className="text-right py-2 px-2 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('currentQty')}>{t('qty')}{sortArrow('currentQty')}</th>
-                  <th className="text-right py-2 px-2 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('mortalityPct')}>{t('mortalityRate')}{sortArrow('mortalityPct')}</th>
-                  <th className="text-right py-2 px-2 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('fcr')}>{t('fcrAbbr')}{sortArrow('fcr')}</th>
-                  <th className="text-right py-2 px-2 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('grossMargin')}>{t('grossMargin')}{sortArrow('grossMargin')}</th>
-                  <th className="text-center py-2 px-2 cursor-pointer hover:text-gray-700" onClick={() => toggleSort('status')}>{t('status')}{sortArrow('status')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {sortedBatches.map(b => (
-                  <tr key={b.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="py-2.5 px-2 font-semibold text-gray-900">{b.name}</td>
-                    <td className="py-2.5 px-2 text-gray-600 capitalize">{b.species}</td>
-                    <td className="py-2.5 px-2">
-                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{b.stage}</span>
-                    </td>
-                    <td className="py-2.5 px-2 text-right text-gray-800">{b.currentQty}<span className="text-gray-400 text-[10px]">/{b.initialQty}</span></td>
-                    <td className={`py-2.5 px-2 text-right ${b.mortalityPct > 10 ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>
-                      {b.mortalityPct}%<span className="text-gray-400 text-[10px]"> ({b.deaths})</span>
-                    </td>
-                    <td className="py-2.5 px-2 text-right text-gray-600">{b.fcr ?? '—'}</td>
-                    <td className={`py-2.5 px-2 text-right font-semibold ${b.grossMargin < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {b.grossMargin < 0 ? '-' : '+'}{fmtKES(Math.abs(b.grossMargin))}
-                    </td>
-                    <td className="py-2.5 px-2 text-center">
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${b.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : b.status === 'SOLD' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
-                        {b.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
+                <TableHead className="cursor-pointer hover:text-gray-700" onClick={() => toggleSort('name')}>{t('name')}{sortArrow('name')}</TableHead>
+                <TableHead className="cursor-pointer hover:text-gray-700" onClick={() => toggleSort('species')}>{t('species')}{sortArrow('species')}</TableHead>
+                <TableHead className="cursor-pointer hover:text-gray-700" onClick={() => toggleSort('stage')}>{t('stage')}{sortArrow('stage')}</TableHead>
+                <TableHead className="text-right cursor-pointer hover:text-gray-700" onClick={() => toggleSort('currentQty')}>{t('qty')}{sortArrow('currentQty')}</TableHead>
+                <TableHead className="text-right cursor-pointer hover:text-gray-700" onClick={() => toggleSort('mortalityPct')}>{t('mortalityRate')}{sortArrow('mortalityPct')}</TableHead>
+                <TableHead className="text-right cursor-pointer hover:text-gray-700" onClick={() => toggleSort('fcr')}>{t('fcrAbbr')}{sortArrow('fcr')}</TableHead>
+                <TableHead className="text-right cursor-pointer hover:text-gray-700" onClick={() => toggleSort('grossMargin')}>{t('grossMargin')}{sortArrow('grossMargin')}</TableHead>
+                <TableHead className="text-center cursor-pointer hover:text-gray-700" onClick={() => toggleSort('status')}>{t('status')}{sortArrow('status')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedBatches.map(b => (
+                <TableRow key={b.id}>
+                  <TableCell className="font-semibold text-gray-900">{b.name}</TableCell>
+                  <TableCell className="text-gray-600 capitalize">{b.species}</TableCell>
+                  <TableCell>
+                    <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{b.stage}</span>
+                  </TableCell>
+                  <TableCell className="text-right text-gray-800">{b.currentQty}<span className="text-gray-400 text-[10px]">/{b.initialQty}</span></TableCell>
+                  <TableCell className={`text-right ${b.mortalityPct > 10 ? 'text-destructive font-semibold' : 'text-gray-600'}`}>
+                    {b.mortalityPct}%<span className="text-gray-400 text-[10px]"> ({b.deaths})</span>
+                  </TableCell>
+                  <TableCell className="text-right text-gray-600">{b.fcr ?? '—'}</TableCell>
+                  <TableCell className={`text-right font-semibold ${b.grossMargin < 0 ? 'text-destructive' : 'text-success'}`}>
+                    {b.grossMargin < 0 ? '-' : '+'}{fmtKES(Math.abs(b.grossMargin))}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${b.status === 'ACTIVE' ? 'bg-success/10 text-success' : b.status === 'SOLD' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {b.status}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </div>
 
@@ -289,7 +282,7 @@ export default function AdminFarmDetailPage() {
           <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
             {recentActivity.map((a, i) => (
               <div key={a.clientUuid} className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-gray-50">
-                <span className={`text-xs font-bold uppercase px-1.5 py-0.5 rounded ${a.type === 'mortality' ? 'bg-red-50 text-red-600' : a.type === 'feeding' ? 'bg-amber-50 text-amber-600' : a.type === 'health' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'}`}>
+                <span className={`text-xs font-bold uppercase px-1.5 py-0.5 rounded ${a.type === 'mortality' ? 'bg-destructive/10 text-destructive' : a.type === 'feeding' ? 'bg-warning/15 text-warning-foreground' : a.type === 'health' ? 'bg-blue-50 text-blue-600' : 'bg-success/10 text-success'}`}>
                   {a.type}
                 </span>
                 <span className="text-xs text-gray-600 flex-1 min-w-0 truncate">

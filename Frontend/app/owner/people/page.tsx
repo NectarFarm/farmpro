@@ -5,6 +5,7 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Employee, Batch, WorkerProfile } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { Users, KeyRound, AlertTriangle, Check } from 'lucide-react';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
 const roleColor = (r: string) => ({ owner:'bg-purple-100 text-purple-700', manager:'bg-blue-100 text-blue-700', worker:'bg-green-100 text-green-700', vet:'bg-teal-100 text-teal-700', auditor:'bg-gray-100 text-gray-600' })[r] ?? 'bg-gray-100 text-gray-600';
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
@@ -122,7 +123,7 @@ export default function PeoplePage() {
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-gray-500">{t('worksOn')} (uncheck to unassign)</span>
         <div className="flex gap-2">
-          <button type="button" onClick={() => setter(new Set(allIds))} className="text-xs text-green-600 font-semibold">{t('all')}</button>
+          <button type="button" onClick={() => setter(new Set(allIds))} className="text-xs text-primary font-semibold">{t('all')}</button>
           <button type="button" onClick={() => setter(new Set())} className="text-xs text-gray-400 font-semibold">{t('none')}</button>
         </div>
       </div>
@@ -132,7 +133,7 @@ export default function PeoplePage() {
           <div className="flex flex-wrap gap-2">
             {activeBatches.map(b => (
               <button key={b.id} type="button" onClick={() => toggle(sel, setter, b.id)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border-2 ${sel.has(b.id) ? 'bg-green-50 text-green-700 border-green-300' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border-2 ${sel.has(b.id) ? 'bg-primary/10 text-primary border-primary/30' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
                 {sel.has(b.id) && <Check className="w-3 h-3" />}{b.name}
               </button>
             ))}
@@ -148,21 +149,21 @@ export default function PeoplePage() {
     <div className="p-6 flex flex-col gap-6 max-w-3xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <Users className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Users className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('people')}</h1>
             <p className="text-gray-500 text-sm">Staff, roles, batch assignments, salary, and sign-in credentials.</p>
           </div>
         </div>
-        <button onClick={openAdd} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ {t('addEmployee')}</button>
+        <button onClick={openAdd} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">+ {t('addEmployee')}</button>
       </div>
 
-      {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
+      {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
 
       {show && (
-        <form onSubmit={createEmployee} className="bg-white border border-green-300 rounded-xl p-5 flex flex-col gap-4">
+        <form onSubmit={createEmployee} className="bg-white border border-primary/30 rounded-xl p-5 flex flex-col gap-4">
           <h3 className="font-bold text-gray-800 text-lg">Add Employee</h3>
           <p className="text-xs text-gray-500">Quick-add: just name, phone, role, and PIN/password. Everything else can be set later.</p>
 
@@ -216,57 +217,56 @@ export default function PeoplePage() {
           </details>
 
           <div className="flex gap-2">
-            <button type="submit" disabled={saving} className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold text-sm disabled:opacity-50">{saving ? t('saving') : t('addEmployee')}</button>
+            <button type="submit" disabled={saving} className="px-6 py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:bg-primary/90 disabled:opacity-50">{saving ? t('saving') : t('addEmployee')}</button>
             <button type="button" onClick={() => setShow(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-semibold">Cancel</button>
           </div>
         </form>
       )}
 
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
-            <tr>
-              <th className="px-4 py-3 text-left">{t('name')}</th>
-              <th className="px-3 py-3 text-center">{t('role')}</th>
-              <th className="px-3 py-3 text-right hidden md:table-cell">{t('salary')}</th>
-              <th className="px-3 py-3 text-center hidden md:table-cell">{t('payDay')}</th>
-              <th className="px-3 py-3 text-center">{t('worksOn')}</th>
-              <th className="px-3 py-3 text-center">{t('status')}</th>
-              <th className="px-3 py-3"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
+        <Table>
+          <TableHeader className="bg-gray-50 text-gray-500 text-xs font-semibold">
+            <TableRow>
+              <TableHead className="px-4 py-3 text-left">{t('name')}</TableHead>
+              <TableHead className="px-3 py-3 text-center">{t('role')}</TableHead>
+              <TableHead className="px-3 py-3 text-right hidden md:table-cell">{t('salary')}</TableHead>
+              <TableHead className="px-3 py-3 text-center hidden md:table-cell">{t('payDay')}</TableHead>
+              <TableHead className="px-3 py-3 text-center">{t('worksOn')}</TableHead>
+              <TableHead className="px-3 py-3 text-center">{t('status')}</TableHead>
+              <TableHead className="px-3 py-3"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody className="divide-y divide-gray-100">
             {employees.map(emp => (
               <React.Fragment key={emp.id}>
-                <tr className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
+                <TableRow className="hover:bg-gray-50">
+                  <TableCell className="px-4 py-3 whitespace-normal">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-sm font-bold text-gray-600">{emp.name[0]}</div>
                       <div>
                         <span className="font-semibold text-gray-900 block">{emp.name}</span>
                         <span className="font-mono text-gray-400 text-xs">{emp.phone}</span>
                         {emp.role === 'worker' && (
-                          <span className={`flex items-center gap-1 text-[10px] font-semibold ${emp.pinSet ? 'text-green-600' : 'text-amber-600'}`}>
+                          <span className={`flex items-center gap-1 text-[10px] font-semibold ${emp.pinSet ? 'text-success' : 'text-warning-foreground'}`}>
                             {emp.pinSet ? <><KeyRound className="w-3 h-3" /> PIN set · {profileName(emp.workerProfileId)}</> : <><AlertTriangle className="w-3 h-3" /> No PIN — can&rsquo;t sign in yet</>}
                           </span>
                         )}
                       </div>
                     </div>
-                  </td>
-                  <td className="px-3 py-3 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${roleColor(emp.role)}`}>{emp.role}</span></td>
-                  <td className="px-3 py-3 text-right hidden md:table-cell">{emp.salary ? fmtKES(emp.salary) : <span className="text-gray-300">—</span>}</td>
-                  <td className="px-3 py-3 text-center hidden md:table-cell">{emp.payDay ? `${emp.payDay}` : <span className="text-gray-300">—</span>}</td>
-                  <td className="px-3 py-3 text-center"><span className="text-xs font-semibold text-gray-700">{assignmentLabel(emp)}</span></td>
-                  <td className="px-3 py-3 text-center"><StatusChip status={emp.active ? 'ok' : 'offline'} size="sm" label={emp.active ? t('active') : t('inactive')} /></td>
-                  <td className="px-3 py-3 text-right whitespace-nowrap">
-                    <button onClick={() => editId === emp.id ? setEditId(null) : startEdit(emp)} className="text-xs font-semibold text-green-700 hover:underline mr-3">{editId === emp.id ? t('close') : t('manage')}</button>
-                    <button onClick={() => patchEmployee(emp.id, { active: !emp.active })} className={`text-xs font-semibold hover:underline ${emp.active ? 'text-red-600' : 'text-green-600'}`}>{emp.active ? t('deactivate') : t('activate')}</button>
-                  </td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="px-3 py-3 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${roleColor(emp.role)}`}>{emp.role}</span></TableCell>
+                  <TableCell className="px-3 py-3 text-right hidden md:table-cell">{emp.salary ? fmtKES(emp.salary) : <span className="text-gray-300">—</span>}</TableCell>
+                  <TableCell className="px-3 py-3 text-center hidden md:table-cell">{emp.payDay ? `${emp.payDay}` : <span className="text-gray-300">—</span>}</TableCell>
+                  <TableCell className="px-3 py-3 text-center"><span className="text-xs font-semibold text-gray-700">{assignmentLabel(emp)}</span></TableCell>
+                  <TableCell className="px-3 py-3 text-center"><StatusChip status={emp.active ? 'ok' : 'offline'} size="sm" label={emp.active ? t('active') : t('inactive')} /></TableCell>
+                  <TableCell className="px-3 py-3 text-right whitespace-nowrap">
+                    <button onClick={() => editId === emp.id ? setEditId(null) : startEdit(emp)} className="text-xs font-semibold text-primary hover:underline mr-3">{editId === emp.id ? t('close') : t('manage')}</button>
+                    <button onClick={() => patchEmployee(emp.id, { active: !emp.active })} className={`text-xs font-semibold hover:underline ${emp.active ? 'text-destructive' : 'text-success'}`}>{emp.active ? t('deactivate') : t('activate')}</button>
+                  </TableCell>
+                </TableRow>
                 {editId === emp.id && (
-                  <tr className="bg-gray-50/60">
-                    <td colSpan={7} className="px-4 py-4">
+                  <TableRow className="bg-gray-50/60 hover:bg-gray-50/60">
+                    <TableCell colSpan={7} className="px-4 py-4 whitespace-normal">
                       <div className="flex flex-col gap-3">
                         <div className="flex flex-wrap gap-3">
                           <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Monthly salary (KSh)
@@ -295,21 +295,20 @@ export default function PeoplePage() {
                         </div>
                         <BatchPicker sel={editSel} setter={setEditSel} />
                         <div className="flex gap-2">
-                          <button onClick={() => saveEdit(emp)} disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? t('saving') : t('saveChanges')}</button>
+                          <button onClick={() => saveEdit(emp)} disabled={saving} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 disabled:opacity-50">{saving ? t('saving') : t('saveChanges')}</button>
                           <button onClick={() => setEditId(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">Cancel</button>
                         </div>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 )}
               </React.Fragment>
             ))}
             {employees.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">{t('noEmployees')}</td></tr>
+              <TableRow><TableCell colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm whitespace-normal">{t('noEmployees')}</TableCell></TableRow>
             )}
-          </tbody>
-        </table>
-        </div>
+          </TableBody>
+        </Table>
       </div>
     </div>
   );

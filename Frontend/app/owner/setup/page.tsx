@@ -179,22 +179,22 @@ export default function SetupWizardPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
-      <div className="bg-green-700 text-white px-6 py-5">
+      <div className="bg-primary text-primary-foreground px-6 py-5">
         <div className="flex items-center gap-3 mb-4">
           <Sprout className="w-8 h-8 shrink-0" />
-          <div><h1 className="text-xl font-bold">{t('setupWizard')}</h1><p className="text-green-200 text-sm">Get your farm ready to run in a few short steps.</p></div>
+          <div><h1 className="text-xl font-bold">{t('setupWizard')}</h1><p className="text-primary-foreground/80 text-sm">Get your farm ready to run in a few short steps.</p></div>
         </div>
         <div className="flex gap-1.5">
           {STEPS.map((s, i) => (
             <button key={i} onClick={() => i < step + 1 && setStep(i)}
-              className={cn('flex-1 h-2 rounded-full transition-colors', i <= step ? 'bg-white' : 'bg-green-500')}>
+              className={cn('flex-1 h-2 rounded-full transition-colors', i <= step ? 'bg-white' : 'bg-primary-foreground/30')}>
               <span className="sr-only">{t(s.labelKey)}</span>
             </button>
           ))}
         </div>
         <div className="flex justify-between mt-1">
-          <span className="text-green-200 text-xs flex items-center gap-1"><StepIcon className="w-3.5 h-3.5" /> {t('step')} {step+1}: {t(STEPS[step].labelKey)}</span>
-          <span className="text-green-300 text-xs">{step+1}/{STEPS.length}</span>
+          <span className="text-primary-foreground/80 text-xs flex items-center gap-1"><StepIcon className="w-3.5 h-3.5" /> {t('step')} {step+1}: {t(STEPS[step].labelKey)}</span>
+          <span className="text-primary-foreground/70 text-xs">{step+1}/{STEPS.length}</span>
         </div>
       </div>
 
@@ -203,7 +203,7 @@ export default function SetupWizardPage() {
         {/* Step 0: Farm */}
         {step === 0 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><House className="w-6 h-6 text-green-700" /> {t('yourFarm')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><House className="w-6 h-6 text-primary" /> {t('yourFarm')}</h2>
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-gray-700">{t('farmName')} *</label>
               <input value={farmName} onChange={e => setFarmName(e.target.value)} placeholder="e.g. Okello Family Farm"
@@ -221,7 +221,7 @@ export default function SetupWizardPage() {
                 {TEMPLATES.map(tmpl => (
                   <button key={tmpl.id} type="button" onClick={() => setSelectedTemplates(ts => ts.includes(tmpl.id) ? ts.filter(x=>x!==tmpl.id) : [...ts,tmpl.id])}
                     className={cn('flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-sm font-semibold transition-colors',
-                      selectedTemplates.includes(tmpl.id) ? 'bg-green-100 border-green-500 text-green-800' : 'bg-white border-gray-200 text-gray-700')}>
+                      selectedTemplates.includes(tmpl.id) ? 'bg-primary/10 border-primary text-primary' : 'bg-white border-gray-200 text-gray-700')}>
                     <tmpl.Icon className="w-5 h-5 shrink-0" /><div className="text-left"><div>{t(tmpl.labelKey)}</div><div className="text-xs text-gray-400 font-normal">{t(tmpl.descKey)}</div></div>
                   </button>
                 ))}
@@ -233,7 +233,7 @@ export default function SetupWizardPage() {
         {/* Step 1: Units */}
         {step === 1 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Building2 className="w-6 h-6 text-green-700" /> {t('productionUnits')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Building2 className="w-6 h-6 text-primary" /> {t('productionUnits')}</h2>
             {units.map((u, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
                 <div className="flex gap-3">
@@ -249,7 +249,7 @@ export default function SetupWizardPage() {
               </div>
             ))}
             <button type="button" onClick={() => setUnits(u => [...u, {name:'',type:'HOUSE',capacity:''}])}
-              className="w-full border-2 border-dashed border-green-400 text-green-700 rounded-xl py-3 font-semibold">
+              className="w-full border-2 border-dashed border-primary/40 text-primary rounded-xl py-3 font-semibold">
               + {t('addUnit')}
             </button>
           </div>
@@ -258,7 +258,7 @@ export default function SetupWizardPage() {
         {/* Step 2: Batches */}
         {step === 2 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><PawPrint className="w-6 h-6 text-green-700" /> {t('currentBatches')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><PawPrint className="w-6 h-6 text-primary" /> {t('currentBatches')}</h2>
             <p className="text-gray-500 text-sm">{t('batchesDesc')}</p>
             {batches.map((b, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
@@ -293,7 +293,7 @@ export default function SetupWizardPage() {
               </div>
             ))}
             <button type="button" onClick={() => setBatches(b => [...b, {name:'',species:'',unitName:'',qty:'',ageAtAcquire:'',cost:'',acquiredDate:''}])}
-              className="w-full border-2 border-dashed border-green-400 text-green-700 rounded-xl py-3 font-semibold">
+              className="w-full border-2 border-dashed border-primary/40 text-primary rounded-xl py-3 font-semibold">
               + {t('addBatch')}
             </button>
           </div>
@@ -302,7 +302,7 @@ export default function SetupWizardPage() {
         {/* Step 3: Inventory */}
         {step === 3 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Package className="w-6 h-6 text-green-700" /> {t('openingInventory')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Package className="w-6 h-6 text-primary" /> {t('openingInventory')}</h2>
             {inventory.map((item, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
                 <input value={item.name} onChange={e => setInventory(inv => inv.map((x,j)=>j===i?{...x,name:e.target.value}:x))}
@@ -324,7 +324,7 @@ export default function SetupWizardPage() {
               </div>
             ))}
             <button type="button" onClick={() => setInventory(i => [...i, {name:'',category:'FEED_FINISHED',unit:'kg',qty:'',unitCost:''}])}
-              className="w-full border-2 border-dashed border-green-400 text-green-700 rounded-xl py-3 font-semibold">
+              className="w-full border-2 border-dashed border-primary/40 text-primary rounded-xl py-3 font-semibold">
               + {t('addItem')}
             </button>
           </div>
@@ -333,7 +333,7 @@ export default function SetupWizardPage() {
         {/* Step 4: Employees */}
         {step === 4 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Users className="w-6 h-6 text-green-700" /> {t('employeesAndPINs')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Users className="w-6 h-6 text-primary" /> {t('employeesAndPINs')}</h2>
             <p className="text-gray-500 text-sm">{t('employeesPINDesc')}</p>
             {employees.map((emp, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
@@ -361,7 +361,7 @@ export default function SetupWizardPage() {
               </div>
             ))}
             <button type="button" onClick={() => setEmployees(e => [...e, {name:'',phone:'',role:'worker',pin:'',salary:'',payDay:''}])}
-              className="w-full border-2 border-dashed border-green-400 text-green-700 rounded-xl py-3 font-semibold">
+              className="w-full border-2 border-dashed border-primary/40 text-primary rounded-xl py-3 font-semibold">
               + {t('addEmployee')}
             </button>
           </div>
@@ -370,7 +370,7 @@ export default function SetupWizardPage() {
         {/* Step 5: Worker Profile Config */}
         {step === 5 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Settings className="w-6 h-6 text-green-700" /> {t('configProfile')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Settings className="w-6 h-6 text-primary" /> {t('configProfile')}</h2>
             <p className="text-gray-500 text-sm">{t('configProfileDesc')}</p>
             {/* Per-field visibility/required/editable is a real per-worker-profile setting
                 (workerProfiles.fields, edited in app/owner/config/page.tsx and enforced
@@ -393,26 +393,26 @@ export default function SetupWizardPage() {
         {/* Step 6: Thresholds */}
         {step === 6 && (
           <div className="flex flex-col gap-5">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Bell className="w-6 h-6 text-green-700" /> {t('alertThresholds')}</h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Bell className="w-6 h-6 text-primary" /> {t('alertThresholds')}</h2>
             <div className="flex flex-col gap-4">
               <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 flex items-center justify-between">
                 <div><p className="font-semibold text-gray-800">{t('mortalitySpikeAlert')}</p><p className="text-xs text-gray-400">{t('mortalitySpikeDesc')}</p></div>
                 <input type="number" step="0.1" value={mortalityRate} onChange={e => setMortalityRate(e.target.value)}
-                  className="w-20 border-2 border-green-300 rounded-xl px-3 py-2 text-center text-xl font-bold" />
+                  className="w-20 border-2 border-primary/40 rounded-xl px-3 py-2 text-center text-xl font-bold" />
               </div>
               <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 flex items-center justify-between">
                 <div><p className="font-semibold text-gray-800">{t('lowStockThreshold')}</p><p className="text-xs text-gray-400">{t('lowStockDesc')}</p></div>
                 <input type="number" value={lowStockKg} onChange={e => setLowStockKg(e.target.value)}
-                  className="w-20 border-2 border-green-300 rounded-xl px-3 py-2 text-center text-xl font-bold" />
+                  className="w-20 border-2 border-primary/40 rounded-xl px-3 py-2 text-center text-xl font-bold" />
               </div>
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-                <p className="text-green-800 font-bold">{t('setupComplete')}</p>
-                <p className="text-green-600 text-sm mt-1">{t('currency')}: {currency} · {t('farmName')}: {farmName || '(unnamed)'} · {units.filter(u=>u.name).length} {t('units')} · {batches.filter(b=>b.name).length} {t('batches')}</p>
+              <div className="bg-success/10 border border-success/30 rounded-xl p-4">
+                <p className="text-success font-bold">{t('setupComplete')}</p>
+                <p className="text-success/90 text-sm mt-1">{t('currency')}: {currency} · {t('farmName')}: {farmName || '(unnamed)'} · {units.filter(u=>u.name).length} {t('units')} · {batches.filter(b=>b.name).length} {t('batches')}</p>
                 {/* Connects the two onboarding systems (Phase 6 item 9): the wizard only
                     covers first-time data entry — the Setup Guide (floating button on the
                     dashboard) covers day-to-day running: worker permissions, alert rules,
                     tasks, sales, payroll. */}
-                <p className="text-green-700 text-xs mt-2">Next: after you finish, open the green &quot;Setup Guide&quot; button on your dashboard for what to do day to day — worker permissions, alert rules, tasks, sales and payroll.</p>
+                <p className="text-success/90 text-xs mt-2">Next: after you finish, open the green &quot;Setup Guide&quot; button on your dashboard for what to do day to day — worker permissions, alert rules, tasks, sales and payroll.</p>
               </div>
             </div>
           </div>
@@ -432,12 +432,12 @@ export default function SetupWizardPage() {
         {step < STEPS.length - 1 ? (
           <button onClick={() => { if (canNext()) setStep(s => s + 1); }}
             disabled={!canNext()}
-            className="flex-1 min-h-[52px] bg-green-600 text-white rounded-xl font-bold text-base disabled:opacity-40">
+            className="flex-1 min-h-[52px] bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-40">
             {t('next')} →
           </button>
         ) : (
           <button onClick={handleFinish} disabled={finishing}
-            className="flex-1 min-h-[52px] bg-green-700 text-white rounded-xl font-bold text-lg disabled:opacity-50 flex items-center justify-center gap-2">
+            className="flex-1 min-h-[52px] bg-primary text-primary-foreground rounded-xl font-bold text-lg disabled:opacity-50 flex items-center justify-center gap-2">
             {!finishing && <Check className="w-5 h-5" />} {finishing ? t('saving') : t('finishSetup')}
           </button>
         )}

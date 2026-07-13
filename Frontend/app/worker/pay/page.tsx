@@ -42,8 +42,8 @@ export default function MyPayPage() {
   return (
     <div className="p-4 flex flex-col gap-4">
       <div className="bg-green-700 text-white rounded-2xl px-5 py-4">
-        <p className="text-green-200 text-xs">{t('paidToDate')}{d.employee.paymentsFrom ? ` · since ${periodLabel(d.employee.paymentsFrom)}` : ''}</p>
-        <p className="text-3xl font-bold">{fmtKES(d.paidTotal)}</p>
+        <p className="text-green-200 text-xs uppercase tracking-wide font-semibold">{t('paidToDate')}{d.employee.paymentsFrom ? ` · since ${periodLabel(d.employee.paymentsFrom)}` : ''}</p>
+        <p className="text-4xl font-extrabold tracking-[-0.01em] [font-variant-numeric:tabular-nums]">{fmtKES(d.paidTotal)}</p>
         <p className="text-green-200 text-sm mt-1">{d.monthsPaid} {t('paidMonths')} · {t('salary')} {fmtKES(d.employee.salary)}/mo{d.employee.payDay ? ` · ${t('payDay')} ${d.employee.payDay}` : ''}</p>
       </div>
 
@@ -68,8 +68,8 @@ export default function MyPayPage() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-gray-900">{fmtKES(s.net)}</p>
-                    <p className={`text-xs font-semibold ${s.status === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>{s.status === 'paid' ? t('paid') : t('pending')}</p>
+                    <p className="font-bold text-gray-900 [font-variant-numeric:tabular-nums]">{fmtKES(s.net)}</p>
+                    <p className={`text-xs font-semibold ${s.status === 'paid' ? 'text-success' : 'text-warning-foreground'}`}>{s.status === 'paid' ? t('paid') : t('pending')}</p>
                   </div>
                 </li>
               ))}

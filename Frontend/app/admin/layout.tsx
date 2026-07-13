@@ -6,12 +6,12 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { LayoutDashboard, Tractor, ScrollText, Settings, Gauge, Shield, LogOut, type LucideIcon } from 'lucide-react';
 import { AppShell, type AppShellTheme } from '@/components/layout/AppShell';
 
-const ADMIN_NAV: { href: string; Icon: LucideIcon; label: string }[] = [
-  { href: '/admin/dashboard', Icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/admin/farms',     Icon: Tractor,         label: 'Farms' },
-  { href: '/admin/audit',     Icon: ScrollText,      label: 'Audit' },
-  { href: '/admin/status',    Icon: Gauge,           label: 'Status' },
-  { href: '/admin/settings',  Icon: Settings,        label: 'Settings' },
+const ADMIN_NAV: { href: string; Icon: LucideIcon; label: string; group: string }[] = [
+  { href: '/admin/dashboard', Icon: LayoutDashboard, label: 'Dashboard', group: 'Admin' },
+  { href: '/admin/farms',     Icon: Tractor,         label: 'Farms', group: 'Admin' },
+  { href: '/admin/audit',     Icon: ScrollText,      label: 'Audit', group: 'Admin' },
+  { href: '/admin/status',    Icon: Gauge,           label: 'Status', group: 'Admin' },
+  { href: '/admin/settings',  Icon: Settings,        label: 'Settings', group: 'Admin' },
 ];
 
 const ADMIN_THEME: AppShellTheme = {
@@ -41,6 +41,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <AppShell
       theme={ADMIN_THEME}
       navItems={navItems}
+      drawerTitle="IFMS Admin"
       homeHref="/admin/dashboard"
       homeLabel="Admin"
       showSectionIcon={false}

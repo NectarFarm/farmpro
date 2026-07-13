@@ -1,5 +1,6 @@
 'use client';
 import { PackageOpen, Check, AlertTriangle, Plus } from 'lucide-react';
+import { RecordHeader } from '@/components/worker/RecordPageShell';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -69,11 +70,8 @@ export default function ClosingStockPage() {
   };
 
   return (
-    <div className="p-4 flex flex-col gap-5">
-      <div className="bg-teal-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><PackageOpen className="w-6 h-6 shrink-0" /><span>{t('closingStockCount')}</span></h1>
-        <p className="text-teal-200 text-sm">{t('closingStockSubtitle')}</p>
-      </div>
+    <div className="p-4 flex flex-col gap-5 md:max-w-lg md:mx-auto">
+      <RecordHeader icon={PackageOpen} title={t('closingStockCount')} subtitle={t('closingStockSubtitle')} accent="teal" />
 
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
       <StaleDataNotice cachedAt={staleAt} />

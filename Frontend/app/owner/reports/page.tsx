@@ -117,7 +117,7 @@ export default function ReportsPage() {
         <p className="text-sm text-gray-500 leading-relaxed">{r.desc}</p>
 
         {generated === r.id && (
-          <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 text-green-700 text-xs font-semibold">
+          <div className="flex items-center gap-1.5 bg-success/10 border border-success/30 rounded-lg px-3 py-1.5 text-success text-xs font-semibold">
             <Check className="w-3.5 h-3.5 shrink-0" /> Generated — downloading…
           </div>
         )}
@@ -128,7 +128,7 @@ export default function ReportsPage() {
             const isBusy = busy === `${r.id}:${fmt}`;
             return (
               <button key={fmt} disabled={busy !== null} onClick={() => runExport(r.id, fmt)}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-50 hover:bg-green-50 hover:text-green-700 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 disabled:opacity-40 transition-colors">
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-50 hover:bg-primary/10 hover:text-primary border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 disabled:opacity-40 transition-colors">
                 {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FmtIcon className="w-3.5 h-3.5" />}
                 {fmt}
               </button>
@@ -146,8 +146,8 @@ export default function ReportsPage() {
     <div className="p-6 flex flex-col gap-8 max-w-5xl">
       <div className="flex items-center gap-3 flex-wrap justify-between">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <LineChart className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <LineChart className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('reports')}</h1>
@@ -163,7 +163,7 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
+      {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 
       {/* ── Section 1: date-filtered ───────────────────────────────── */}
       <section className="flex flex-col gap-4">

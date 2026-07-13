@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { ProductionUnit, Batch } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { ENTERPRISE_OPTIONS } from '@/lib/species';
 import {
@@ -109,8 +110,8 @@ export default function FarmPage() {
     <div className="p-6 flex flex-col gap-6 max-w-7xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <Tractor className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Tractor className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('farm')}</h1>
@@ -121,16 +122,16 @@ export default function FarmPage() {
           <Link href="/owner/farm/stages" className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm"><Sprout className="w-4 h-4" /> {t('lifecycleStages')}</Link>
           <Link href="/owner/farm/compare" className="flex items-center gap-1.5 px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg font-semibold text-sm hover:bg-indigo-200"><BarChart3 className="w-4 h-4" /> {t('compareBatches')}</Link>
           <button onClick={() => setShow(show === 'unit' ? '' : 'unit')} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">+ {t('addUnit')}</button>
-          <button onClick={() => setShow(show === 'batch' ? '' : 'batch')} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ {t('addBatch')}</button>
+          <button onClick={() => setShow(show === 'batch' ? '' : 'batch')} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">+ {t('addBatch')}</button>
           <Link href="/owner/farm/split-delivery" className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">+ Split delivery</Link>
         </div>
       </div>
 
-      {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
+      {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 
       {show === 'unit' && (
         <form onSubmit={e => { e.preventDefault(); create('units', unitForm, () => setUnitForm(EMPTY_UNIT)); }}
-          className="bg-white border border-green-300 rounded-xl p-5 flex flex-col gap-3">
+          className="bg-white border border-primary/30 rounded-xl p-5 flex flex-col gap-3">
           <h3 className="font-bold text-gray-800">{t('addProductionUnit')}</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <input required placeholder={t('unitNamePlaceholderForm')} value={unitForm.name} onChange={e => setUnitForm({ ...unitForm, name: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
@@ -139,13 +140,13 @@ export default function FarmPage() {
             </select>
             <input type="number" min="0" required placeholder={t('capacityPlaceholderForm')} value={unitForm.capacity} onChange={e => setUnitForm({ ...unitForm, capacity: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
-          <div className="flex gap-2"><button type="submit" disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? t('saving') : t('addUnit')}</button><button type="button" onClick={() => setShow('')} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">{t('cancel')}</button></div>
+          <div className="flex gap-2"><button type="submit" disabled={saving} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 disabled:opacity-50">{saving ? t('saving') : t('addUnit')}</button><button type="button" onClick={() => setShow('')} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">{t('cancel')}</button></div>
         </form>
       )}
 
       {show === 'batch' && (
         <form onSubmit={e => { e.preventDefault(); create('batches', batchForm, () => setBatchForm(EMPTY_BATCH)); }}
-          className="bg-white border border-green-300 rounded-xl p-5 flex flex-col gap-4">
+          className="bg-white border border-primary/30 rounded-xl p-5 flex flex-col gap-4">
           <h3 className="font-bold text-gray-800 text-lg">{t('addBatch')}</h3>
           {units.length === 0 && <p className="text-amber-600 text-sm">{t('noUnits')}</p>}
 
@@ -170,12 +171,12 @@ export default function FarmPage() {
                     }}
                     className={`flex flex-col items-center gap-1 rounded-xl border-2 p-3 transition-all ${
                       selected
-                        ? 'bg-green-50 border-green-500 shadow-sm'
+                        ? 'bg-primary/10 border-primary shadow-sm'
                         : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                     }`}
                   >
-                    <OptIcon className={`w-6 h-6 ${selected ? 'text-green-700' : 'text-gray-500'}`} />
-                    <span className={`text-xs font-semibold ${selected ? 'text-green-700' : 'text-gray-600'}`}>{opt.label}</span>
+                    <OptIcon className={`w-6 h-6 ${selected ? 'text-primary' : 'text-gray-500'}`} />
+                    <span className={`text-xs font-semibold ${selected ? 'text-primary' : 'text-gray-600'}`}>{opt.label}</span>
                   </button>
                 );
               })}
@@ -205,7 +206,7 @@ export default function FarmPage() {
           </details>
 
           <div className="flex gap-2">
-            <button type="submit" disabled={saving || units.length === 0} className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold text-sm disabled:opacity-50">{saving ? t('saving') : t('addBatch')}</button>
+            <button type="submit" disabled={saving || units.length === 0} className="px-6 py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:bg-primary/90 disabled:opacity-50">{saving ? t('saving') : t('addBatch')}</button>
             <button type="button" onClick={() => setShow('')} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">{t('cancel')}</button>
           </div>
         </form>
@@ -218,7 +219,7 @@ export default function FarmPage() {
           {units.map(u => {
             const ub = unitBatches(u);
             const dens = parseInt(density(u));
-            const heatColor = dens > 90 ? 'bg-red-100 border-red-300' : dens > 70 ? 'bg-amber-100 border-amber-300' : dens > 0 ? 'bg-green-100 border-green-300' : 'bg-gray-100 border-gray-200';
+            const heatColor = dens > 90 ? 'bg-destructive/10 border-destructive/30' : dens > 70 ? 'bg-warning/15 border-warning/40' : dens > 0 ? 'bg-success/10 border-success/30' : 'bg-gray-100 border-gray-200';
             const UnitIcon = unitIcon(u.type, ub[0]?.species ?? u.species);
             return (
               <div key={u.id} className={cn('rounded-xl border p-4', heatColor)}>
@@ -235,7 +236,7 @@ export default function FarmPage() {
                   <span>{dens > 0 ? `${dens}% ${t('full')}` : t('empty')}</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-1.5">
-                  <div className={cn('h-1.5 rounded-full', dens > 90 ? 'bg-red-500' : dens > 70 ? 'bg-amber-500' : 'bg-green-500')} style={{ width: `${Math.min(100, dens)}%` }} />
+                  <div className={cn('h-1.5 rounded-full', dens > 90 ? 'bg-destructive' : dens > 70 ? 'bg-warning' : 'bg-success')} style={{ width: `${Math.min(100, dens)}%` }} />
                 </div>                {ub.length > 0
                   ? <p className="text-xs text-gray-500 mt-1.5 truncate">{t('batchCountMeta', { count: ub.length, names: ub.map(b => b.name).join(', ') })}</p>
                   : <p className="text-xs text-gray-400 mt-1.5">{t('noBatchYet')}</p>}
@@ -268,7 +269,7 @@ export default function FarmPage() {
             />
             {(['active','closed','all'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)}
-                className={cn('px-3 py-1.5 rounded-lg text-xs font-semibold capitalize', filter === f ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+                className={cn('px-3 py-1.5 rounded-lg text-xs font-semibold capitalize', filter === f ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
                 {f === 'all' ? t('all') : f === 'active' ? t('active') : t('completed')}
               </button>
             ))}
@@ -277,32 +278,32 @@ export default function FarmPage() {
         {filtered.length === 0
           ? (
             <div className="text-center py-10 bg-white rounded-xl border border-dashed border-gray-200">
-              <p className="text-gray-400">{t('noBatches')} <button onClick={() => setShow('batch')} className="text-green-600 underline font-semibold">{t('addFirstBatch')} →</button></p>
+              <p className="text-gray-400">{t('noBatches')} <button onClick={() => setShow('batch')} className="text-primary underline font-semibold">{t('addFirstBatch')} →</button></p>
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-gray-600 text-xs font-semibold">
-                  <tr>
-                    <th className="px-4 py-3 text-left">{t('batch')}</th>
-                    <th className="px-3 py-3 text-left hidden md:table-cell">{t('unit')}</th>
-                    <th className="px-3 py-3 text-right">{t('age')}</th>
-                    <th className="px-3 py-3 text-right">{t('qty')}</th>
-                    <th className="px-3 py-3 text-right hidden lg:table-cell">{t('mortalityRate')}</th>
-                    <th className="px-3 py-3 text-center">{t('stage')}</th>
-                    <th className="px-3 py-3 text-center">{t('status')}</th>
-                    <th className="px-3 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
+              <Table>
+                <TableHeader className="bg-gray-50 text-gray-600 text-xs font-semibold">
+                  <TableRow>
+                    <TableHead className="px-4 py-3 text-left">{t('batch')}</TableHead>
+                    <TableHead className="px-3 py-3 text-left hidden md:table-cell">{t('unit')}</TableHead>
+                    <TableHead className="px-3 py-3 text-right">{t('age')}</TableHead>
+                    <TableHead className="px-3 py-3 text-right">{t('qty')}</TableHead>
+                    <TableHead className="px-3 py-3 text-right hidden lg:table-cell">{t('mortalityRate')}</TableHead>
+                    <TableHead className="px-3 py-3 text-center">{t('stage')}</TableHead>
+                    <TableHead className="px-3 py-3 text-center">{t('status')}</TableHead>
+                    <TableHead className="px-3 py-3"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="divide-y divide-gray-100">
                   {filtered.map(b => {
                     const u = units.find(u => u.id === b.unitId);
                     const days = Math.floor((Date.now() - new Date(b.acquiredDate).getTime()) / 86400000);
                     const mortPct = (((b.initialQty - b.currentQty) / b.initialQty) * 100).toFixed(1);
                     const BIcon = speciesIcon(b.species);
                     return (
-                      <tr key={b.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/owner/farm/${b.id}`)}>
-                        <td className="px-4 py-3">
+                      <TableRow key={b.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/owner/farm/${b.id}`)}>
+                        <TableCell className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <BIcon className="w-4 h-4 text-gray-500 shrink-0" />
                             <div>
@@ -313,14 +314,14 @@ export default function FarmPage() {
                               <p className="text-xs text-gray-400">{b.species}</p>
                             </div>
                           </div>
-                        </td>
-                        <td className="px-3 py-3 text-gray-600 hidden md:table-cell">{u?.name ?? '—'}</td>
-                        <td className="px-3 py-3 text-right font-mono text-gray-700">D{days}</td>
-                        <td className="px-3 py-3 text-right font-bold text-gray-900">{b.currentQty}</td>
-                        <td className="px-3 py-3 text-right hidden lg:table-cell">
-                          <span className={parseFloat(mortPct) > 5 ? 'text-red-600 font-bold' : 'text-gray-600'}>{mortPct}%</span>
-                        </td>
-                        <td className="px-3 py-3 text-center">
+                        </TableCell>
+                        <TableCell className="px-3 py-3 text-gray-600 hidden md:table-cell">{u?.name ?? '—'}</TableCell>
+                        <TableCell className="px-3 py-3 text-right font-mono text-gray-700">D{days}</TableCell>
+                        <TableCell className="px-3 py-3 text-right font-bold text-gray-900">{b.currentQty}</TableCell>
+                        <TableCell className="px-3 py-3 text-right hidden lg:table-cell">
+                          <span className={parseFloat(mortPct) > 5 ? 'text-destructive font-bold' : 'text-gray-600'}>{mortPct}%</span>
+                        </TableCell>
+                        <TableCell className="px-3 py-3 text-center">
                           <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-semibold">{b.stage}</span>
                           {dueMap[b.id]?.due && dueMap[b.id]?.nextStage && (
                             <span className="block mt-0.5 text-[10px] font-semibold text-amber-600">{t('nextStageDue', { stage: dueMap[b.id].nextStage ?? '' })}{dueMap[b.id].overdueDays > 0 ? ` (${dueMap[b.id].overdueDays}d)` : ''}</span>
@@ -328,14 +329,14 @@ export default function FarmPage() {
                           {dueMap[b.id] && !dueMap[b.id].due && dueMap[b.id].nextStage && (
                             <span className="block mt-0.5 text-[10px] text-gray-400">{t('nextStageIn', { stage: dueMap[b.id].nextStage ?? '', days: dueMap[b.id].daysRemaining })}</span>
                           )}
-                        </td>
-                        <td className="px-3 py-3 text-center"><StatusChip status={b.status === 'ACTIVE' ? 'ok' : 'offline'} size="sm" label={b.status} /></td>
-                        <td className="px-3 py-3 text-center"><Link href={`/owner/farm/${b.id}`} className="text-green-600 font-semibold text-xs hover:underline">{t('view')} →</Link></td>
-                      </tr>
+                        </TableCell>
+                        <TableCell className="px-3 py-3 text-center"><StatusChip status={b.status === 'ACTIVE' ? 'ok' : 'offline'} size="sm" label={b.status} /></TableCell>
+                        <TableCell className="px-3 py-3 text-center"><Link href={`/owner/farm/${b.id}`} className="text-primary font-semibold text-xs hover:underline">{t('view')} →</Link></TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )
         }
@@ -346,11 +347,11 @@ export default function FarmPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDialog(null)} />
           <div className="relative bg-white rounded-2xl w-full max-w-sm mx-4 p-5 flex flex-col gap-3 shadow-2xl">
-            <h3 className={`font-bold ${confirmDialog.danger ? 'text-red-700' : 'text-gray-900'}`}>{confirmDialog.title}</h3>
+            <h3 className={`font-bold ${confirmDialog.danger ? 'text-destructive' : 'text-gray-900'}`}>{confirmDialog.title}</h3>
             <p className="text-sm text-gray-600">{confirmDialog.body}</p>
             <div className="flex gap-2 mt-2">
               <button onClick={confirmDialog.onConfirm}
-                className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white ${confirmDialog.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}>
+                className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white ${confirmDialog.danger ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`}>
                 {t('confirm')}
               </button>
               <button onClick={() => setConfirmDialog(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">

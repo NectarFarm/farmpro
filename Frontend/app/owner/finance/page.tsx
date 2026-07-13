@@ -6,8 +6,10 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Sale, Purchase, Batch, Product, BatchCostSummary, InventoryItem, Employee } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { daysUntilPayDay } from '@/lib/payroll';
-import { Wallet, AlertTriangle, Bell } from 'lucide-react';
+import { Wallet, AlertTriangle, Bell, TrendingUp, TrendingDown, Scale } from 'lucide-react';
 import { Pager } from '@/components/Pager';
+import { StatPanel } from '@/components/ui/stat-panel';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const EMPTY = { batchId: '', productId: '', unitName: '', quantity: '', unitPrice: '', buyer: '' };
@@ -143,8 +145,8 @@ export default function FinancePage() {
     <div className="p-6 flex flex-col gap-6 max-w-5xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <Wallet className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Wallet className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('finance')}</h1>
@@ -152,14 +154,14 @@ export default function FinancePage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowSale(v => !v)} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">+ {t('recordSale')}</button>
+          <button onClick={() => setShowSale(v => !v)} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">+ {t('recordSale')}</button>
         </div>
       </div>
 
       {showSale && (
-        <form onSubmit={createSale} className="bg-white border border-green-300 rounded-xl p-5 flex flex-col gap-3">
+        <form onSubmit={createSale} className="bg-white border border-primary/30 rounded-xl p-5 flex flex-col gap-3">
           <h3 className="font-bold text-gray-800">{t('recordSale')}</h3>
-          {err && <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
+          {err && <p className="text-destructive bg-destructive/10 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <select required value={form.batchId} onChange={e => onBatch(e.target.value)} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm">
               <option value="">Select batch…</option>
@@ -195,9 +197,9 @@ export default function FinancePage() {
               </span>
             </p>
           )}
-          {total > 0 && <p className="text-sm text-gray-600">Total: <span className="font-bold text-green-700">{fmtKES(total)}</span></p>}
+          {total > 0 && <p className="text-sm text-gray-600">Total: <span className="font-bold text-success">{fmtKES(total)}</span></p>}
           <div className="flex gap-2">
-            <button type="submit" disabled={saving || overSell} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{saving ? t('saving') : t('saveSale')}</button>
+            <button type="submit" disabled={saving || overSell} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 disabled:opacity-50">{saving ? t('saving') : t('saveSale')}</button>
             <button type="button" onClick={() => setShowSale(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">Cancel</button>
           </div>
         </form>
@@ -207,51 +209,42 @@ export default function FinancePage() {
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold text-gray-800 text-sm">Budget · {monthLabel}</h2>
-          <span className={`text-xs font-semibold px-2 py-1 rounded-full ${monthNet >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+          <span className={`text-xs font-semibold px-2 py-1 rounded-full ${monthNet >= 0 ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
             {monthNet >= 0 ? t('surplus') : t('deficit')} {fmtKES(monthNet)}
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="text-center">
             <p className="text-xs text-gray-500">{t('revenueIn')}</p>
-            <p className="text-xl font-bold text-green-700">{fmtKES(monthRevenue)}</p>
+            <p className="text-xl font-bold text-success">{fmtKES(monthRevenue)}</p>
             {monthFines > 0 && <p className="text-[11px] text-gray-400">incl. {fmtKES(monthFines)} staff fines</p>}
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500">{t('expensesOut')}</p>
-            <p className="text-xl font-bold text-red-700">{fmtKES(monthExpenses)}</p>
+            <p className="text-xl font-bold text-destructive">{fmtKES(monthExpenses)}</p>
             <p className="text-[11px] text-gray-400">{fmtKES(monthPurchases)} stock · {fmtKES(monthSalaries)} salaries</p>
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500">{t('netThisMonth')}</p>
-            <p className={`text-xl font-bold ${monthNet >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtKES(monthNet)}</p>
+            <p className={`text-xl font-bold ${monthNet >= 0 ? 'text-success' : 'text-destructive'}`}>{fmtKES(monthNet)}</p>
           </div>
         </div>
         {payReminder && (
-          <div className="mt-3 flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 text-xs font-semibold"><Bell className="w-3.5 h-3.5 shrink-0" /> {payReminder}</div>
+          <div className="mt-3 flex items-center gap-1.5 bg-warning/15 border border-warning/40 rounded-lg px-3 py-2 text-warning-foreground text-xs font-semibold"><Bell className="w-3.5 h-3.5 shrink-0" /> {payReminder}</div>
         )}
       </div>
 
       {/* All-time summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-          <p className="text-xs text-gray-500">Total Revenue</p>
-          <p className="text-2xl font-bold text-green-700">{fmtKES(totalRevenue)}</p>
-        </div>
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-          <p className="text-xs text-gray-500">Total Purchases</p>
-          <p className="text-2xl font-bold text-red-700">{fmtKES(totalCost || 0)}</p>
-        </div>
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
-          <p className="text-xs text-gray-500">Revenue − Purchases</p>
-          <p className={`text-2xl font-bold ${totalRevenue - totalCost >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtKES(totalRevenue - totalCost)}</p>
-        </div>
+        <StatPanel label="Total Revenue" value={fmtKES(totalRevenue)} icon={TrendingUp} tone="good" />
+        <StatPanel label="Total Purchases" value={fmtKES(totalCost || 0)} icon={TrendingDown} tone="bad" />
+        <StatPanel label="Revenue − Purchases" value={fmtKES(totalRevenue - totalCost)} icon={Scale} tone={totalRevenue - totalCost >= 0 ? 'good' : 'bad'} />
       </div>
 
       <div className="flex gap-1">
         {[{key:'sales',l:t('sales')},{key:'purchases',l:t('purchases')},{key:'batchpl',l:`${t('batch')} P&L`}].map(tabItem => (
           <button key={tabItem.key} onClick={() => setTab(tabItem.key as typeof tab)}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === tabItem.key ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+            className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === tabItem.key ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-600'}`}>
             {tabItem.l}
           </button>
         ))}
@@ -259,29 +252,27 @@ export default function FinancePage() {
 
       {tab === 'sales' && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
-                <tr><th className="px-4 py-3 text-left">{t('date')}</th><th className="px-3 py-3 text-left">{t('product')}</th><th className="px-3 py-3 text-right">{t('qty')}</th><th className="px-3 py-3 text-right">{t('amount')}</th><th className="px-3 py-3 text-left hidden md:table-cell">{t('buyer')}</th>        <th className="px-3 py-3 text-center">{t('wdCheck')}</th><th className="px-3 py-3 text-center">{t('status')}</th></tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {pagedSales.map(s => (
-                  <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-400 text-xs">{new Date(s.createdAt).toLocaleDateString('en-KE')}</td>
-                    <td className="px-3 py-3 font-medium text-gray-900">{s.productType}</td>
-                    <td className="px-3 py-3 text-right">{s.quantity}</td>
-                    <td className="px-3 py-3 text-right font-bold text-gray-900">{fmtKES(s.totalAmount)}</td>
-                    <td className="px-3 py-3 text-gray-600 hidden md:table-cell">{s.buyer}</td>
-                    <td className="px-3 py-3 text-center">
-                      <StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? 'Cleared' : 'Blocked'} />
-                    </td>
-                    <td className="px-3 py-3 text-center"><span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">{s.status}</span></td>
-                  </tr>
-                ))}
-                {sales.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No sales recorded yet.</td></tr>}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader className="bg-gray-50 text-gray-500 text-xs font-semibold">
+              <TableRow><TableHead className="px-4 py-3 text-left">{t('date')}</TableHead><TableHead className="px-3 py-3 text-left">{t('product')}</TableHead><TableHead className="px-3 py-3 text-right">{t('qty')}</TableHead><TableHead className="px-3 py-3 text-right">{t('amount')}</TableHead><TableHead className="px-3 py-3 text-left hidden md:table-cell">{t('buyer')}</TableHead><TableHead className="px-3 py-3 text-center">{t('wdCheck')}</TableHead><TableHead className="px-3 py-3 text-center">{t('status')}</TableHead></TableRow>
+            </TableHeader>
+            <TableBody className="divide-y divide-gray-100">
+              {pagedSales.map(s => (
+                <TableRow key={s.id} className="hover:bg-gray-50">
+                  <TableCell className="px-4 py-3 text-gray-400 text-xs">{new Date(s.createdAt).toLocaleDateString('en-KE')}</TableCell>
+                  <TableCell className="px-3 py-3 font-medium text-gray-900">{s.productType}</TableCell>
+                  <TableCell className="px-3 py-3 text-right">{s.quantity}</TableCell>
+                  <TableCell className="px-3 py-3 text-right font-bold text-gray-900">{fmtKES(s.totalAmount)}</TableCell>
+                  <TableCell className="px-3 py-3 text-gray-600 hidden md:table-cell">{s.buyer}</TableCell>
+                  <TableCell className="px-3 py-3 text-center">
+                    <StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? 'Cleared' : 'Blocked'} />
+                  </TableCell>
+                  <TableCell className="px-3 py-3 text-center"><span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">{s.status}</span></TableCell>
+                </TableRow>
+              ))}
+              {sales.length === 0 && <TableRow><TableCell colSpan={7} className="px-4 py-8 text-center text-gray-400 whitespace-normal">No sales recorded yet.</TableCell></TableRow>}
+            </TableBody>
+          </Table>
           {salesTotalPages > 1 && (
             <div className="py-3 border-t border-gray-100">
               <Pager page={safeSalesPage} totalPages={salesTotalPages} onPageChange={setSalesPage} prevLabel={t('prev')} nextLabel={t('next')} />
@@ -292,26 +283,24 @@ export default function FinancePage() {
 
       {tab === 'purchases' && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-xs font-semibold">
-                <tr><th className="px-4 py-3 text-left">{t('date')}</th><th className="px-3 py-3 text-left">{t('item')}</th><th className="px-3 py-3 text-left hidden md:table-cell">{t('supplier')}</th><th className="px-3 py-3 text-right">{t('qty')}</th><th className="px-3 py-3 text-right">{t('unitCost')}</th><th className="px-3 py-3 text-right">{t('total')}</th></tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {pagedPurchases.map(p => (
-                  <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-400 text-xs">{new Date(p.createdAt).toLocaleDateString('en-KE')}</td>
-                    <td className="px-3 py-3 font-medium text-gray-900">{itemName(p.itemId)}</td>
-                    <td className="px-3 py-3 text-gray-600 hidden md:table-cell">{p.supplier}</td>
-                    <td className="px-3 py-3 text-right">{p.quantity}</td>
-                    <td className="px-3 py-3 text-right text-gray-600">{fmtKES(p.unitCost)}</td>
-                    <td className="px-3 py-3 text-right font-bold text-red-700">{fmtKES(p.totalCost)}</td>
-                  </tr>
-                ))}
-                {purchases.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No purchases yet. Record one on the Inventory page (&quot;+ Record Purchase&quot;).</td></tr>}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader className="bg-gray-50 text-gray-500 text-xs font-semibold">
+              <TableRow><TableHead className="px-4 py-3 text-left">{t('date')}</TableHead><TableHead className="px-3 py-3 text-left">{t('item')}</TableHead><TableHead className="px-3 py-3 text-left hidden md:table-cell">{t('supplier')}</TableHead><TableHead className="px-3 py-3 text-right">{t('qty')}</TableHead><TableHead className="px-3 py-3 text-right">{t('unitCost')}</TableHead><TableHead className="px-3 py-3 text-right">{t('total')}</TableHead></TableRow>
+            </TableHeader>
+            <TableBody className="divide-y divide-gray-100">
+              {pagedPurchases.map(p => (
+                <TableRow key={p.id} className="hover:bg-gray-50">
+                  <TableCell className="px-4 py-3 text-gray-400 text-xs">{new Date(p.createdAt).toLocaleDateString('en-KE')}</TableCell>
+                  <TableCell className="px-3 py-3 font-medium text-gray-900">{itemName(p.itemId)}</TableCell>
+                  <TableCell className="px-3 py-3 text-gray-600 hidden md:table-cell">{p.supplier}</TableCell>
+                  <TableCell className="px-3 py-3 text-right">{p.quantity}</TableCell>
+                  <TableCell className="px-3 py-3 text-right text-gray-600">{fmtKES(p.unitCost)}</TableCell>
+                  <TableCell className="px-3 py-3 text-right font-bold text-red-700">{fmtKES(p.totalCost)}</TableCell>
+                </TableRow>
+              ))}
+              {purchases.length === 0 && <TableRow><TableCell colSpan={6} className="px-4 py-8 text-center text-gray-400 whitespace-normal">No purchases yet. Record one on the Inventory page (&quot;+ Record Purchase&quot;).</TableCell></TableRow>}
+            </TableBody>
+          </Table>
           {purchasesTotalPages > 1 && (
             <div className="py-3 border-t border-gray-100">
               <Pager page={safePurchasesPage} totalPages={purchasesTotalPages} onPageChange={setPurchasesPage} prevLabel={t('prev')} nextLabel={t('next')} />
@@ -326,13 +315,13 @@ export default function FinancePage() {
           {batchPL.map(({ batch, cost }) => {
             const margin = cost?.grossMargin ?? 0;
             return (
-              <Link key={batch.id} href={`/owner/farm/${batch.id}`} className={`bg-white border rounded-xl p-5 flex items-center justify-between hover:bg-gray-50 ${margin >= 0 ? 'border-green-200' : 'border-red-200'}`}>
+              <Link key={batch.id} href={`/owner/farm/${batch.id}`} className={`bg-white border rounded-xl p-5 flex items-center justify-between hover:bg-gray-50 ${margin >= 0 ? 'border-success/30' : 'border-destructive/30'}`}>
                 <div>
                   <p className="font-bold text-gray-900">{batch.name}</p>
                   <p className="text-xs text-gray-400">Stage: {batch.stage}{cost?.fcr ? ` · FCR ${cost.fcr}` : ''}{cost?.mortalityPct != null ? ` · Mortality ${cost.mortalityPct}%` : ''}</p>
                 </div>
                 <div className="text-right">
-                  <p className={`text-xl font-bold ${margin >= 0 ? 'text-green-700' : 'text-red-600'}`}>{margin >= 0 ? '+' : '−'}{fmtKES(margin)}</p>
+                  <p className={`text-xl font-bold ${margin >= 0 ? 'text-success' : 'text-destructive'}`}>{margin >= 0 ? '+' : '−'}{fmtKES(margin)}</p>
                   <p className="text-xs text-gray-400">Cost {fmtKES(cost?.totalCost ?? 0)} · Rev {fmtKES(cost?.totalRevenue ?? 0)}</p>
                 </div>
               </Link>

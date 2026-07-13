@@ -130,8 +130,8 @@ export default function AdminFarmsPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <Tractor className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-gray-900 flex items-center justify-center">
+            <Tractor className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('farms')}</h1>
@@ -139,13 +139,13 @@ export default function AdminFarmsPage() {
           </div>
         </div>
         <button onClick={() => { setShowNew(v => !v); setCreateMsg(''); setErr(''); }}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm shrink-0 flex items-center gap-2 hover:bg-green-700">
+          className="px-4 py-2 bg-gray-900 text-white rounded-lg font-semibold text-sm shrink-0 flex items-center gap-2 hover:bg-gray-800">
           <Plus className="w-4 h-4" />{showNew ? t('cancel') : t('onboardFarm')}
         </button>
       </div>
 
-      {createMsg && <p className="text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm font-semibold flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> {createMsg}</p>}
-      {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
+      {createMsg && <p className="text-success bg-success/10 border border-success/30 rounded-xl px-4 py-3 text-sm font-semibold flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> {createMsg}</p>}
+      {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 
       {/* New farm form */}
       {showNew && (
@@ -163,7 +163,7 @@ export default function AdminFarmsPage() {
             <input placeholder={t('temporaryPassword')} type="text" value={nf.ownerPassword} onChange={e => setNf({ ...nf, ownerPassword: e.target.value })} className={inp} />
           </div>
           <button onClick={createFarm} disabled={creating || !nf.farmName || !nf.ownerEmail}
-            className="self-start px-5 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">
+            className="self-start px-5 py-2 bg-gray-900 text-white rounded-lg font-semibold text-sm hover:bg-gray-800 disabled:opacity-50">
             {creating ? t('creating') : t('createFarmLogin')}
           </button>
         </div>
@@ -201,14 +201,14 @@ export default function AdminFarmsPage() {
       ) : (
         <div className="flex flex-col gap-4">
           {paginatedTenants.map(tenant => (
-            <div key={tenant.id} className={`bg-white border rounded-xl p-5 flex flex-col gap-4 transition-shadow hover:shadow-md ${tenant.active ? 'border-gray-200' : 'border-red-300 bg-red-50/30'}`}>
+            <div key={tenant.id} className={`bg-white border rounded-xl p-5 flex flex-col gap-4 transition-shadow hover:shadow-md ${tenant.active ? 'border-gray-200' : 'border-destructive/30 bg-destructive/5'}`}>
               <div className="flex items-start justify-between flex-wrap gap-3">
                 <div>
                   <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                    <Link href={`/admin/farms/${tenant.id}`} className="hover:text-green-700 transition-colors">
+                    <Link href={`/admin/farms/${tenant.id}`} className="hover:text-gray-700 transition-colors">
                       {tenant.name}
                     </Link>
-                    {!tenant.active && <span className="text-xs bg-red-600 text-white px-2 py-0.5 rounded-full">{t('suspended')}</span>}
+                    {!tenant.active && <span className="text-xs bg-destructive text-white px-2 py-0.5 rounded-full">{t('suspended')}</span>}
                   </h3>
                   <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
                     <Link href={`/admin/farms/${tenant.id}`} className="flex items-center gap-1 hover:text-gray-700 transition-colors">
@@ -239,12 +239,12 @@ export default function AdminFarmsPage() {
                   const on = tenant.features.includes(f.key);
                   return (
                     <button key={f.key} onClick={() => toggle(tenant, f.key)} disabled={saving === tenant.id}
-                      className={`flex items-center justify-between px-3 py-2 rounded-lg border-2 text-left disabled:opacity-50 transition-colors ${on ? 'bg-green-50 border-green-300 hover:bg-green-100' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}>
+                      className={`flex items-center justify-between px-3 py-2 rounded-lg border-2 text-left disabled:opacity-50 transition-colors ${on ? 'bg-success/10 border-success/40 hover:bg-success/15' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}>
                       <div>
-                        <p className={`text-sm font-semibold ${on ? 'text-green-800' : 'text-gray-500'}`}>{f.label}</p>
+                        <p className={`text-sm font-semibold ${on ? 'text-success' : 'text-gray-500'}`}>{f.label}</p>
                         <p className="text-xs text-gray-400">{f.desc}</p>
                       </div>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full transition-colors ${on ? 'bg-green-600 text-white' : 'bg-gray-300 text-gray-600'}`}>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full transition-colors ${on ? 'bg-success text-white' : 'bg-gray-300 text-gray-600'}`}>
                         {on ? t('on') : t('off')}
                       </span>
                     </button>
@@ -261,7 +261,7 @@ export default function AdminFarmsPage() {
                       <input value={rename} onChange={e => setRename(e.target.value)} className={inp} />
                     </label>
                     <button onClick={() => patch(tenant.id, { name: rename })}
-                      className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700">{t('rename')}</button>
+                      className="px-3 py-2 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800">{t('rename')}</button>
                   </div>
 
                   <div className="bg-gray-50 rounded-lg p-3 flex flex-col gap-2">
@@ -273,21 +273,21 @@ export default function AdminFarmsPage() {
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <button onClick={() => saveOwner(tenant, { name: owner.name, email: owner.email, phone: owner.phone }, t('ownerUpdated'))}
-                        className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700">{t('saveDetails')}</button>
+                        className="px-3 py-2 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800">{t('saveDetails')}</button>
                       <input value={newPass} onChange={e => setNewPass(e.target.value)} placeholder={t('newPassword')} className={`${inp} flex-1 min-w-[160px]`} />
                       <button onClick={() => saveOwner(tenant, { newPassword: newPass }, t('passwordReset'))} disabled={newPass.length < 8}
-                        className="px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">{t('resetPassword')}</button>
+                        className="px-3 py-2 bg-warning text-warning-foreground rounded-lg text-xs font-semibold hover:bg-warning/90 disabled:opacity-50">{t('resetPassword')}</button>
                     </div>
                     {ownerMsg && <p className="text-xs text-gray-600">{ownerMsg}</p>}
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
                     <button onClick={() => patch(tenant.id, { active: !tenant.active })}
-                      className={`px-3 py-2 rounded-lg text-xs font-semibold text-white transition-colors ${tenant.active ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'}`}>
+                      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${tenant.active ? 'bg-warning text-warning-foreground hover:bg-warning/90' : 'bg-success text-white hover:bg-success/90'}`}>
                       {tenant.active ? t('suspendFarm') : t('reactivateFarm')}
                     </button>
                     <button onClick={() => removeFarm(tenant)}
-                      className="px-3 py-2 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors">{t('deleteFarm')}</button>
+                      className="px-3 py-2 bg-destructive text-white rounded-lg text-xs font-semibold hover:bg-destructive/90 transition-colors">{t('deleteFarm')}</button>
                     <span className="text-xs text-gray-400">{t('suspendNote')}</span>
                   </div>
                 </div>
@@ -307,11 +307,11 @@ export default function AdminFarmsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDialog(null)} />
           <div className="relative bg-white rounded-2xl w-full max-w-sm mx-4 p-5 flex flex-col gap-3 shadow-2xl">
-            <h3 className={`font-bold ${confirmDialog.danger ? 'text-red-700' : 'text-gray-900'}`}>{confirmDialog.title}</h3>
+            <h3 className={`font-bold ${confirmDialog.danger ? 'text-destructive' : 'text-gray-900'}`}>{confirmDialog.title}</h3>
             <p className="text-sm text-gray-600">{confirmDialog.body}</p>
             <div className="flex gap-2 mt-2">
               <button onClick={confirmDialog.onConfirm}
-                className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white ${confirmDialog.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}>
+                className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white ${confirmDialog.danger ? 'bg-destructive hover:bg-destructive/90' : 'bg-success hover:bg-success/90'}`}>
                 {t('confirm')}
               </button>
               <button onClick={() => setConfirmDialog(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">
