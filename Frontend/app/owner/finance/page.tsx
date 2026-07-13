@@ -5,7 +5,7 @@ import { api, getProducts } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Sale, Purchase, Batch, Product, BatchCostSummary, InventoryItem, Employee } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
-import { totalMonthlyWageBill, daysUntilPayDay } from '@/lib/payroll';
+import { daysUntilPayDay } from '@/lib/payroll';
 import { Wallet, AlertTriangle, Bell } from 'lucide-react';
 import { Pager } from '@/components/Pager';
 
@@ -33,13 +33,18 @@ export default function FinancePage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [payroll, setPayroll] = useState<{ fines: number; net: number; withSlip: number } | null>(null);
+  // Per-employee payroll rows for this month (from GET /api/payroll) — used to build
+  // an accurate monthly wage estimate below (see monthSalaries) instead of the
+  // all-or-nothing payroll.net, which silently drops any employee payroll hasn't
+  // been run for yet this month (e.g. a new hire added after "Run payroll" already ran).
+  const [payrollEmployees, setPayrollEmployees] = useState<{ eligible: boolean; payslip: { net: number } | null; preview: { net: number } }[]>([]);
   const itemName = (id: string) => items.find(i => i.id === id)?.name ?? id;
 
   const reload = () => Promise.all([api.getSales(), api.getPurchases(), api.getBatches()]).then(([s,p,b]) => { setSales(s); setPurchases(p); setBatches(b); });
   useEffect(() => {
     reload(); api.getItems().then(setItems); api.getEmployees().then(setEmployees).catch(() => {});
     fetch(`/api/payroll?period=${new Date().toISOString().slice(0, 7)}`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null).then(d => { if (d?.summary) setPayroll(d.summary); }).catch(() => {});
+      .then(r => r.ok ? r.json() : null).then(d => { if (d?.summary) setPayroll(d.summary); if (d?.employees) setPayrollEmployees(d.employees); }).catch(() => {});
   }, []);
   useEffect(() => {
     if (!batches.length) { setBatchPL([]); return; }
@@ -117,8 +122,12 @@ export default function FinancePage() {
   const monthFines = payroll?.fines ?? 0;                 // staff fines are farm income
   const monthRevenue = monthSales + monthFines;
   const monthPurchases = purchases.filter(p => inMonth(p.createdAt)).reduce((a, p) => a + p.totalCost, 0);
-  // Actual net paid once payroll has run this month; otherwise the wage-bill estimate.
-  const monthSalaries = payroll && payroll.withSlip > 0 ? payroll.net : totalMonthlyWageBill(employees);
+  // Per-employee hybrid: the actual run/paid net for anyone payroll has already been
+  // run for this month, and a live preview for anyone eligible but not yet processed
+  // (e.g. hired after "Run payroll" already ran) — so nobody is silently dropped.
+  const monthSalaries = payrollEmployees
+    .filter(e => e.eligible)
+    .reduce((s, e) => s + (e.payslip ? e.payslip.net : e.preview.net), 0);
   const monthExpenses = monthPurchases + monthSalaries;
   const monthNet = monthRevenue - monthExpenses;
   const monthLabel = now.toLocaleDateString('en-KE', { month: 'long', year: 'numeric' });

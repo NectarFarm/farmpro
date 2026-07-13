@@ -65,9 +65,10 @@ export function monthlySalaryByBatch(
   return out;
 }
 
-// Allocate ACTUAL payroll (the gross of generated payslips) to batches — the
-// best-practice basis for per-batch labour cost. Unlike monthlySalaryByBatch this
-// uses real disbursed wages and includes EVERY worker who was paid (even if since
+// Allocate ACTUAL payroll (the gross of generated payslips, whether their status is
+// still pending or already paid) to batches — the best-practice basis for per-batch
+// labour cost. Unlike monthlySalaryByBatch this uses each worker's real RUN payroll
+// gross and includes EVERY worker who had payroll run for them (even if since
 // deactivated), because that labour was genuinely incurred. Spread by head share
 // across each worker's assigned active batches, same rule as the live allocator.
 export interface PaidWorker { paidGross: number; assignedBatchIds?: string[] | null }

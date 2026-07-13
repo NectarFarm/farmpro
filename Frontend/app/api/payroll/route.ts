@@ -91,11 +91,15 @@ export async function POST(req: Request) {
         await db.update(payslips).set(slipVals)
           .where(eq(payslips.id, existing.id));
       } else {
+        // Two concurrent `run` requests can both see "no existing slip" and both
+        // reach this branch — the unique (tenantId, employeeId, period) constraint
+        // plus onConflictDoNothing makes only one INSERT win; the loser is a safe
+        // no-op instead of creating a duplicate payslip row.
         await db.insert(payslips).values({
           id: crypto.randomUUID(), tenantId, employeeId: e.id, period,
           ...slipVals,
           status: 'pending', paidAt: null, createdAt: now,
-        });
+        }).onConflictDoNothing({ target: [payslips.tenantId, payslips.employeeId, payslips.period] });
       }
       generated++;
     }
@@ -125,6 +129,9 @@ export async function POST(req: Request) {
     if (!validPeriod(period)) return badRequest('Invalid period.');
     if (!Number.isFinite(amount) || amount === 0) return badRequest('Enter an amount.');
     if (type !== 'adjustment' && amount < 0) return badRequest('Amount must be positive.');
+    const [emp] = await db.select({ id: employees.id }).from(employees)
+      .where(and(eq(employees.tenantId, tenantId), eq(employees.id, employeeId))).limit(1);
+    if (!emp) return badRequest('Unknown employee.');
     const slip = await slipFor(tenantId, employeeId, period);
     if (slip?.status === 'paid') return badRequest('That month is already paid and locked. Use the next month.');
     const row = { id: crypto.randomUUID(), tenantId, employeeId, type, amount, amountCents: toCents(amount), note, period, date: now.slice(0, 10), createdAt: now, clientUuid };

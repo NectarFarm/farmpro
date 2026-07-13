@@ -1,7 +1,7 @@
 // IFMS Drizzle schema — SRS v1.0 §4. Every tenant-owned row carries tenant_id.
 // Money is doublePrecision for the demo; production should use integer minor units.
 import {
-  pgTable, text, integer, doublePrecision, boolean, timestamp, jsonb,
+  pgTable, text, integer, doublePrecision, boolean, timestamp, jsonb, unique,
 } from 'drizzle-orm/pg-core';
 import type { FieldConfig } from '@/lib/types';
 import { ALL_FEATURE_KEYS } from '@/lib/features';
@@ -118,7 +118,11 @@ export const payslips = pgTable('payslips', {
   status: text('status').notNull().default('pending'), // pending | paid
   paidAt: text('paid_at'),
   createdAt: text('created_at').notNull(),
-});
+}, (t) => [
+  // One payslip per employee per period — blocks the double-INSERT race on
+  // concurrent `action:'run'` requests (see app/api/payroll/route.ts).
+  unique('payslips_tenant_employee_period_unique').on(t.tenantId, t.employeeId, t.period),
+]);
 
 // Advances, fines (fines are also farm income), bonuses & adjustments per employee,
 // applied to a given month's payslip.

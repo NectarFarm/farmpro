@@ -22,6 +22,11 @@ export default function PayrollPage() {
   const [err, setErr] = useState('');
   const [addFor, setAddFor] = useState<string | null>(null);
   const [entry, setEntry] = useState({ type: 'advance', amount: '', note: '' });
+  // Generated once per logical entry attempt (when the add-advance/fine row opens for
+  // an employee) and reused across any retry of that SAME attempt — so a manual retry
+  // after a lost response can't create a duplicate via a fresh idempotency key. Only
+  // regenerated when the form is (re)opened, or cleared after a successful submit.
+  const [entryUuid, setEntryUuid] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setErr('');
@@ -54,8 +59,9 @@ export default function PayrollPage() {
       setErr(entry.type === 'adjustment' ? 'Enter a non-zero amount.' : 'Enter an amount greater than 0.');
       return;
     }
-    if (await post({ action: 'ledger', employeeId, period, type: entry.type, amount, note: entry.note, clientUuid: crypto.randomUUID() }, `add:${employeeId}`)) {
-      setAddFor(null); setEntry({ type: 'advance', amount: '', note: '' });
+    const clientUuid = entryUuid ?? crypto.randomUUID();
+    if (await post({ action: 'ledger', employeeId, period, type: entry.type, amount, note: entry.note, clientUuid }, `add:${employeeId}`)) {
+      setAddFor(null); setEntry({ type: 'advance', amount: '', note: '' }); setEntryUuid(null);
     }
   };
   const delEntry = (ledgerId: string) => post({ action: 'deleteLedger', ledgerId }, `del:${ledgerId}`);
@@ -154,7 +160,7 @@ export default function PayrollPage() {
                         : <span className="text-xs text-gray-400">{t('notRun')}</span>}
                     </td>
                     <td className="px-2 py-2 text-right whitespace-nowrap">
-                      {!locked && <button onClick={() => setAddFor(addFor === row.id ? null : row.id)} className="text-xs font-semibold text-gray-600 hover:underline mr-2">{t('addAdvFine')}</button>}
+                      {!locked && <button onClick={() => { const opening = addFor !== row.id; setAddFor(opening ? row.id : null); setEntryUuid(opening ? crypto.randomUUID() : null); }} className="text-xs font-semibold text-gray-600 hover:underline mr-2">{t('addAdvFine')}</button>}
                       {row.payslip && !locked && <button onClick={() => pay(row.id)} disabled={busy !== ''} className="text-xs font-semibold text-green-700 hover:underline mr-2">{t('pay')}</button>}
                       <button onClick={() => payslipPdf(row)} className="text-xs font-semibold text-gray-500 hover:underline mr-2">{t('payslip')}</button>
                       <button onClick={() => yearPdf(row)} disabled={busy !== ''} className="text-xs font-semibold text-gray-500 hover:underline">{busy === `year:${row.id}` ? '…' : t('yearStatement')}</button>

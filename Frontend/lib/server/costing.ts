@@ -11,11 +11,12 @@ import { enterpriseFromSpecies } from './productTemplates';
 import { labourByBatch } from '@/lib/payroll';
 import type { BatchCostSummary } from '@/lib/types';
 
-// ACTUAL labour cost per batch, from real payroll: each worker's total paid gross
-// (from their payslips) allocated across the batches they're assigned to by head
-// share. This is the disbursed wage, not a live-salary estimate — so a paid month
-// is permanent and changing a salary never rewrites a batch's historical labour.
-// Computed once per request and fed into computeBatchCost (keeps it query-stable).
+// ACTUAL labour cost per batch, from real payroll: each worker's total RUN payroll
+// gross (summed across their payslips, whichever period, whether paid or still
+// pending) allocated across the batches they're assigned to by head share. This is
+// the committed/run wage figure, not a live-salary estimate — a payslip's gross is
+// snapshotted at run time, so changing a salary never rewrites a batch's historical
+// labour. Computed once per request and fed into computeBatchCost (keeps it query-stable).
 export async function batchLabour(tenantId: string): Promise<Record<string, number>> {
   const [emps, bs, slips] = await Promise.all([
     db.select({ id: employees.id, assignedBatchIds: employees.assignedBatchIds }).from(employees).where(eq(employees.tenantId, tenantId)),

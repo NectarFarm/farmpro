@@ -239,6 +239,13 @@
       "when": 1783938700000,
       "tag": "0033_processing_events",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1783938800000,
+      "tag": "0034_payslips_period_unique",
+      "breakpoints": true
     }
   ]
 }
