@@ -1,6 +1,8 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
+import { api } from '@/lib/api';
+import type { ProductionUnit } from '@/lib/types';
 import {
   LineChart, ShoppingCart, BarChart3, TrendingDown, Syringe, Package, Users,
   Wallet, Bird, Wheat, FileText, FileSpreadsheet, Table, ShieldCheck, Check,
@@ -44,11 +46,17 @@ export default function ReportsPage() {
   const [err, setErr] = useState('');
   const [dateFrom, setDateFrom] = useState(iso(new Date(Date.now() - 90 * 86400000)));
   const [dateTo, setDateTo] = useState(iso(new Date()));
+  const [units, setUnits] = useState<ProductionUnit[]>([]);
+  const [unitId, setUnitId] = useState('');
   const [linkEmail, setLinkEmail] = useState('');
   const [linkDays, setLinkDays] = useState(7);
   const [link, setLink] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    api.getUnits().then(setUnits).catch(() => setUnits([]));
+  }, []);
 
   const generateLink = async () => {
     setLinkBusy(true); setLink(''); setErr('');
@@ -65,12 +73,13 @@ export default function ReportsPage() {
   const runExport = async (id: string, fmt: 'PDF' | 'Excel' | 'CSV') => {
     setErr(''); setBusy(`${id}:${fmt}`);
     try {
-      const res = await fetch(`/api/reports/${id}?from=${dateFrom}&to=${dateTo}`, { credentials: 'include' });
+      const unitParam = unitId ? `&unitId=${encodeURIComponent(unitId)}` : '';
+      const res = await fetch(`/api/reports/${id}?from=${dateFrom}&to=${dateTo}${unitParam}`, { credentials: 'include' });
       if (!res.ok) throw new Error(res.status === 401 ? t('errorUnauthorized') : res.status === 403 ? t('notPermittedForRole') : t('reportFailed', { status: String(res.status) }));
       const data = await res.json();
       // Translate server-side report column headers for exported PDF/CSV/Excel
       const colMap: Record<string, string> = {
-        'Date': 'date', 'Batch': 'batch', 'Type': 'type', 'Qty': 'qty',
+        'Date': 'date', 'Batch': 'batch', 'Unit': 'unit', 'Type': 'type', 'Qty': 'qty',
         'Product': 'product', 'Unit Price': 'unitPrice', 'Total': 'total',
         'Buyer': 'buyer', 'Deaths': 'deaths', 'Cause': 'cause', 'Lot': 'lot',
         'Hours': 'hours', 'Rate': 'rate', 'Cost': 'cost', 'Feed kg': 'feedKg',
@@ -135,13 +144,22 @@ export default function ReportsPage() {
 
   return (
     <div className="p-6 flex flex-col gap-8 max-w-5xl">
-      <div className="flex items-center gap-3">
-        <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-          <LineChart className="w-6 h-6 text-green-700" />
+      <div className="flex items-center gap-3 flex-wrap justify-between">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+            <LineChart className="w-6 h-6 text-green-700" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('reports')}</h1>
+            <p className="text-gray-500 text-sm">Export activity logs and batch economics for your records, a lender, or an investor.</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('reports')}</h1>
-          <p className="text-gray-500 text-sm">Export activity logs and batch economics for your records, a lender, or an investor.</p>
+        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Unit</span>
+          <select value={unitId} onChange={e => setUnitId(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1 text-sm bg-white min-w-[10rem]">
+            <option value="">All units</option>
+            {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
         </div>
       </div>
 

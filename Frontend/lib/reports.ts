@@ -37,10 +37,10 @@ export function filterRange<T>(rows: readonly T[], getIso: (r: T) => string | nu
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 // ─── Per-batch economics (lifecycle) ────────────────────────────────────────
-export const PL_COLUMNS = ['Batch', 'Feed', 'Health', 'Labour', 'Salaries', 'Overhead', 'Acquisition', 'Total Cost', 'Revenue', 'Gross Margin'];
+export const PL_COLUMNS = ['Batch', 'Unit', 'Feed', 'Health', 'Labour', 'Salaries', 'Overhead', 'Acquisition', 'Total Cost', 'Revenue', 'Gross Margin'];
 
-export function plRow(name: string, c: BatchCostSummary): (string | number)[] {
-  return [name, c.feedCost, c.healthCost, c.laborCost, c.salaryCost ?? 0, c.overheadCost, c.acquisitionCost, c.totalCost, c.totalRevenue, c.grossMargin];
+export function plRow(name: string, unit: string, c: BatchCostSummary): (string | number)[] {
+  return [name, unit, c.feedCost, c.healthCost, c.laborCost, c.salaryCost ?? 0, c.overheadCost, c.acquisitionCost, c.totalCost, c.totalRevenue, c.grossMargin];
 }
 
 // A bottom-line TOTAL row across every batch — what donors/lenders read first.
@@ -50,35 +50,35 @@ export function plTotalsRow(costs: readonly BatchCostSummary[]): (string | numbe
     salary: a.salary + (c.salaryCost ?? 0), overhead: a.overhead + c.overheadCost, acq: a.acq + c.acquisitionCost,
     cost: a.cost + c.totalCost, rev: a.rev + c.totalRevenue, margin: a.margin + c.grossMargin,
   }), { feed: 0, health: 0, labour: 0, salary: 0, overhead: 0, acq: 0, cost: 0, rev: 0, margin: 0 });
-  return ['TOTAL', r2(t.feed), r2(t.health), r2(t.labour), r2(t.salary), r2(t.overhead), r2(t.acq), r2(t.cost), r2(t.rev), r2(t.margin)];
+  return ['TOTAL', '', r2(t.feed), r2(t.health), r2(t.labour), r2(t.salary), r2(t.overhead), r2(t.acq), r2(t.cost), r2(t.rev), r2(t.margin)];
 }
 
-export function profitAndLoss(items: readonly { name: string; cost: BatchCostSummary }[], meta: ReportData['meta']): ReportData {
-  const rows = items.map((i) => plRow(i.name, i.cost));
+export function profitAndLoss(items: readonly { name: string; unit: string; cost: BatchCostSummary }[], meta: ReportData['meta']): ReportData {
+  const rows = items.map((i) => plRow(i.name, i.unit, i.cost));
   const hasTotalsRow = rows.length > 0;
   if (hasTotalsRow) rows.push(plTotalsRow(items.map((i) => i.cost)));
   return { title: 'Profit & Loss by Batch (KSh)', columns: PL_COLUMNS, rows, meta, scope: 'lifecycle', hasTotalsRow };
 }
 
-export function fcrReport(items: readonly { name: string; species: string; cost: BatchCostSummary }[], meta: ReportData['meta']): ReportData {
+export function fcrReport(items: readonly { name: string; unit: string; species: string; cost: BatchCostSummary }[], meta: ReportData['meta']): ReportData {
   const rows = items.map((i) => [
-    i.name, i.species,
+    i.name, i.unit, i.species,
     i.cost.fcr ?? '—',
     i.cost.outputUnit === 'eggs' ? 'feed/dozen' : 'feed/kg',
     `${i.cost.mortalityPct ?? 0}%`,
     i.cost.feedCost,
   ] as (string | number)[]);
-  return { title: 'FCR & Efficiency', columns: ['Batch', 'Species', 'FCR', 'FCR basis', 'Mortality', 'Feed Cost (KSh)'], rows, meta, scope: 'lifecycle' };
+  return { title: 'FCR & Efficiency', columns: ['Batch', 'Unit', 'Species', 'FCR', 'FCR basis', 'Mortality', 'Feed Cost (KSh)'], rows, meta, scope: 'lifecycle' };
 }
 
-export function batchCard(items: readonly { name: string; species: string; stage: string; cost: BatchCostSummary }[], meta: ReportData['meta']): ReportData {
+export function batchCard(items: readonly { name: string; unit: string; species: string; stage: string; cost: BatchCostSummary }[], meta: ReportData['meta']): ReportData {
   const rows = items.map((i) => [
-    i.name, i.species, i.stage,
+    i.name, i.unit, i.species, i.stage,
     i.cost.fcr ?? '—', `${i.cost.mortalityPct ?? 0}%`,
     i.cost.survivors ?? 0, i.cost.soldHead ?? 0, i.cost.currentQty,
     i.cost.costPerUnit, i.cost.totalCost, i.cost.totalRevenue, i.cost.grossMargin,
   ] as (string | number)[]);
-  return { title: 'Batch Performance Cards', columns: ['Batch', 'Species', 'Stage', 'FCR', 'Mortality', 'Survived', 'Sold', 'On farm', 'Cost/Unit', 'Total Cost', 'Revenue', 'Margin'], rows, meta, scope: 'lifecycle' };
+  return { title: 'Batch Performance Cards', columns: ['Batch', 'Unit', 'Species', 'Stage', 'FCR', 'Mortality', 'Survived', 'Sold', 'On farm', 'Cost/Unit', 'Total Cost', 'Revenue', 'Margin'], rows, meta, scope: 'lifecycle' };
 }
 
 // ─── Period financial summary (date-filtered, reliable from transactions) ────

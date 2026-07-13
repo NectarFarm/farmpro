@@ -42,13 +42,15 @@ describe('filterRange', () => {
 describe('plRow — salaries are a first-class column (the consistency bug)', () => {
   it('places each cost in the right column, including Salaries', () => {
     const c = cost({ feedCost: 100, healthCost: 20, laborCost: 30, salaryCost: 40, overheadCost: 10, acquisitionCost: 500, totalCost: 700, totalRevenue: 900, grossMargin: 200 });
-    expect(plRow('B1', c)).toEqual(['B1', 100, 20, 30, 40, 10, 500, 700, 900, 200]);
+    expect(plRow('B1', 'Layer house A', c)).toEqual(['B1', 'Layer house A', 100, 20, 30, 40, 10, 500, 700, 900, 200]);
     // Column header for the salary value really is "Salaries".
-    expect(PL_COLUMNS[plRow('B1', c).indexOf(40)]).toBe('Salaries');
+    expect(PL_COLUMNS[plRow('B1', 'Layer house A', c).indexOf(40)]).toBe('Salaries');
+    // Unit sits right after the batch name column.
+    expect(PL_COLUMNS[1]).toBe('Unit');
   });
   it('treats a missing salaryCost as 0 (never undefined in the sheet)', () => {
     const c = cost({ salaryCost: undefined });
-    expect(plRow('B1', c)[4]).toBe(0);
+    expect(plRow('B1', 'Layer house A', c)[5]).toBe(0);
   });
 });
 
@@ -58,24 +60,28 @@ describe('plTotalsRow', () => {
     const b = cost({ feedCost: 50, salaryCost: 10, totalCost: 90, totalRevenue: 40, grossMargin: -50 });
     const row = plTotalsRow([a, b]);
     expect(row[0]).toBe('TOTAL');
-    expect(row[1]).toBe(150);  // feed
-    expect(row[4]).toBe(50);   // salaries
-    expect(row[7]).toBe(290);  // total cost
-    expect(row[8]).toBe(340);  // revenue
-    expect(row[9]).toBe(50);   // margin (100 + -50)
+    expect(row[1]).toBe('');   // Unit column stays blank on the totals row
+    expect(row[2]).toBe(150);  // feed
+    expect(row[5]).toBe(50);   // salaries
+    expect(row[8]).toBe(290);  // total cost
+    expect(row[9]).toBe(340);  // revenue
+    expect(row[10]).toBe(50);  // margin (100 + -50)
   });
 });
 
 describe('profitAndLoss', () => {
   it('appends a TOTAL row and is lifecycle-scoped', () => {
     const r = profitAndLoss([
-      { name: 'A', cost: cost({ totalCost: 100, totalRevenue: 150, grossMargin: 50 }) },
-      { name: 'B', cost: cost({ totalCost: 200, totalRevenue: 100, grossMargin: -100 }) },
+      { name: 'A', unit: 'Layer house A', cost: cost({ totalCost: 100, totalRevenue: 150, grossMargin: 50 }) },
+      { name: 'B', unit: 'Kienyeji Meat - Lower', cost: cost({ totalCost: 200, totalRevenue: 100, grossMargin: -100 }) },
     ], { Generated: 'x' });
     expect(r.scope).toBe('lifecycle');
     expect(r.rows).toHaveLength(3);            // 2 batches + TOTAL
+    expect(r.rows[0][1]).toBe('Layer house A');
+    expect(r.rows[1][1]).toBe('Kienyeji Meat - Lower');
     expect(r.rows[2][0]).toBe('TOTAL');
-    expect(r.rows[2][9]).toBe(-50);           // 50 + -100
+    expect(r.rows[2][1]).toBe('');
+    expect(r.rows[2][10]).toBe(-50);           // 50 + -100
   });
   it('has no TOTAL row when there are no batches', () => {
     const r = profitAndLoss([], { Generated: 'x' });
@@ -86,23 +92,24 @@ describe('profitAndLoss', () => {
 describe('fcrReport', () => {
   it('labels the FCR basis per species (eggs vs kg)', () => {
     const r = fcrReport([
-      { name: 'Layers', species: 'layer', cost: cost({ fcr: 2.4, outputUnit: 'eggs', mortalityPct: 3 }) },
-      { name: 'Broilers', species: 'broiler', cost: cost({ fcr: 1.7, outputUnit: 'kg', mortalityPct: 5 }) },
+      { name: 'Layers', unit: 'Layer house A', species: 'layer', cost: cost({ fcr: 2.4, outputUnit: 'eggs', mortalityPct: 3 }) },
+      { name: 'Broilers', unit: 'Unassigned', species: 'broiler', cost: cost({ fcr: 1.7, outputUnit: 'kg', mortalityPct: 5 }) },
     ], { Generated: 'x' });
-    expect(r.rows[0]).toEqual(['Layers', 'layer', 2.4, 'feed/dozen', '3%', 0]);
-    expect(r.rows[1][3]).toBe('feed/kg');
+    expect(r.rows[0]).toEqual(['Layers', 'Layer house A', 'layer', 2.4, 'feed/dozen', '3%', 0]);
+    expect(r.rows[1][4]).toBe('feed/kg');
     expect(r.scope).toBe('lifecycle');
   });
   it('shows an em dash when FCR is not computable', () => {
-    const r = fcrReport([{ name: 'X', species: 'maize', cost: cost({ fcr: undefined }) }], { Generated: 'x' });
-    expect(r.rows[0][2]).toBe('—');
+    const r = fcrReport([{ name: 'X', unit: 'Unassigned', species: 'maize', cost: cost({ fcr: undefined }) }], { Generated: 'x' });
+    expect(r.rows[0][3]).toBe('—');
   });
 });
 
 describe('batchCard', () => {
   it('breaks the headcount into survived / sold / on-farm', () => {
-    const r = batchCard([{ name: 'A', species: 'broiler', stage: 'GROWING', cost: cost({ survivors: 95, soldHead: 70, currentQty: 25 }) }], { Generated: 'x' });
-    expect(r.rows[0].slice(5, 8)).toEqual([95, 70, 25]);
+    const r = batchCard([{ name: 'A', unit: 'Layer house A', species: 'broiler', stage: 'GROWING', cost: cost({ survivors: 95, soldHead: 70, currentQty: 25 }) }], { Generated: 'x' });
+    expect(r.rows[0][1]).toBe('Layer house A');
+    expect(r.rows[0].slice(6, 9)).toEqual([95, 70, 25]);
   });
 });
 
