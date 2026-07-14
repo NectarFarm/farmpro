@@ -6,6 +6,9 @@ import type { InventoryItem, InventoryLot, Purchase } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { Boxes, Check, X, Pencil, AlertTriangle, PartyPopper } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { TableToolbar } from '@/components/TableToolbar';
+import { Pager } from '@/components/Pager';
+import { useTableFilter } from '@/hooks/useTableFilter';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -168,6 +171,12 @@ export default function InventoryPage() {
       await reload(); await loadOwed();
     } finally { setSettlingId(null); }
   };
+
+  const itemNameFor = (id: string) => items.find(i => i.id === id)?.name ?? id;
+  const { search: purchaseSearch, setSearch: setPurchaseSearch, page: purchasePage, setPage: setPurchasePage, totalPages: purchaseTotalPages, paged: pagedPurchases } = useTableFilter(purchases, {
+    searchFields: (p) => `${itemNameFor(p.itemId)} ${p.supplier}`,
+    sortFn: (a, b) => new Date(b.receivedAt ?? b.createdAt).getTime() - new Date(a.receivedAt ?? a.createdAt).getTime(),
+  });
 
   const getStock = (itemId: string) => lots.filter(l => l.itemId === itemId).reduce((s,l) => s + l.qtyOnHand, 0);
   const isLow = (item: InventoryItem) => getStock(item.id) < item.lowStockThreshold;
@@ -533,48 +542,53 @@ export default function InventoryPage() {
                 <p className="text-gray-400 text-xs mt-1">Use the &quot;+ Record Purchase&quot; button to add stock.</p>
               </div>
             ) : (
-              <Table>
-                <TableHeader className="text-gray-500 text-xs font-semibold border-b">
-                  <TableRow>
-                    <TableHead className="text-left pb-2">{t('date')}</TableHead>
-                    <TableHead className="text-left pb-2">{t('item')}</TableHead>
-                    <TableHead className="text-left pb-2">{t('supplier')}</TableHead>
-                    <TableHead className="text-right pb-2">{t('qty')}</TableHead>
-                    <TableHead className="text-right pb-2">{t('unitCost')}</TableHead>
-                    <TableHead className="text-right pb-2">{t('total')}</TableHead>
-                    <TableHead className="text-right pb-2">Payment</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody className="divide-y divide-gray-50">
-                  {[...purchases].sort((a, b) => new Date(b.receivedAt ?? b.createdAt).getTime() - new Date(a.receivedAt ?? a.createdAt).getTime()).map(p => {
-                    const item = items.find(i => i.id === p.itemId);
-                    const owed = Math.max(0, p.totalCost - p.amountPaid);
-                    return (
-                      <TableRow key={p.id} className="hover:bg-gray-50">
-                        <TableCell className="py-2 text-gray-400">{new Date(p.receivedAt ?? p.createdAt).toLocaleDateString('en-KE')}</TableCell>
-                        <TableCell className="py-2 font-semibold text-gray-900">{item?.name ?? p.itemId}</TableCell>
-                        <TableCell className="py-2 text-gray-600">{p.supplier}</TableCell>
-                        <TableCell className="py-2 text-right">{p.quantity}</TableCell>
-                        <TableCell className="py-2 text-right text-gray-600">{fmtKES(p.unitCost)}</TableCell>
-                        <TableCell className="py-2 text-right font-bold text-red-700">{fmtKES(p.totalCost)}</TableCell>
-                        <TableCell className="py-2 text-right">
-                          {owed <= 0 ? (
-                            <span className="inline-block px-2 py-0.5 rounded-full bg-success/10 text-success text-xs font-semibold">Paid</span>
-                          ) : (
-                            <div className="flex items-center justify-end gap-2">
-                              <span className="inline-block px-2 py-0.5 rounded-full bg-warning/15 text-warning-foreground text-xs font-semibold whitespace-nowrap">Owes {fmtKES(owed)}</span>
-                              <button onClick={() => settlePurchase(p.id, p.totalCost)} disabled={settlingId === p.id}
-                                className="text-xs font-semibold text-success hover:underline disabled:opacity-50 whitespace-nowrap">
-                                {settlingId === p.id ? '…' : 'Mark paid'}
-                              </button>
-                            </div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+              <>
+                <TableToolbar search={purchaseSearch} onSearchChange={setPurchaseSearch} placeholder="Search item or supplier…" className="mb-3" />
+                <Table>
+                  <TableHeader className="text-gray-500 text-xs font-semibold border-b">
+                    <TableRow>
+                      <TableHead className="text-left pb-2">{t('date')}</TableHead>
+                      <TableHead className="text-left pb-2">{t('item')}</TableHead>
+                      <TableHead className="text-left pb-2">{t('supplier')}</TableHead>
+                      <TableHead className="text-right pb-2">{t('qty')}</TableHead>
+                      <TableHead className="text-right pb-2">{t('unitCost')}</TableHead>
+                      <TableHead className="text-right pb-2">{t('total')}</TableHead>
+                      <TableHead className="text-right pb-2">Payment</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="divide-y divide-gray-50">
+                    {pagedPurchases.map(p => {
+                      const owed = Math.max(0, p.totalCost - p.amountPaid);
+                      return (
+                        <TableRow key={p.id} className="hover:bg-gray-50">
+                          <TableCell className="py-2 text-gray-400">{new Date(p.receivedAt ?? p.createdAt).toLocaleDateString('en-KE')}</TableCell>
+                          <TableCell className="py-2 font-semibold text-gray-900">{itemNameFor(p.itemId)}</TableCell>
+                          <TableCell className="py-2 text-gray-600">{p.supplier}</TableCell>
+                          <TableCell className="py-2 text-right">{p.quantity}</TableCell>
+                          <TableCell className="py-2 text-right text-gray-600">{fmtKES(p.unitCost)}</TableCell>
+                          <TableCell className="py-2 text-right font-bold text-red-700">{fmtKES(p.totalCost)}</TableCell>
+                          <TableCell className="py-2 text-right">
+                            {owed <= 0 ? (
+                              <span className="inline-block px-2 py-0.5 rounded-full bg-success/10 text-success text-xs font-semibold">Paid</span>
+                            ) : (
+                              <div className="flex items-center justify-end gap-2">
+                                <span className="inline-block px-2 py-0.5 rounded-full bg-warning/15 text-warning-foreground text-xs font-semibold whitespace-nowrap">Owes {fmtKES(owed)}</span>
+                                <button onClick={() => settlePurchase(p.id, p.totalCost)} disabled={settlingId === p.id}
+                                  className="text-xs font-semibold text-success hover:underline disabled:opacity-50 whitespace-nowrap">
+                                  {settlingId === p.id ? '…' : 'Mark paid'}
+                                </button>
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+                <div className="mt-3">
+                  <Pager page={purchasePage} totalPages={purchaseTotalPages} onPageChange={setPurchasePage} />
+                </div>
+              </>
             )
           }
         </div>

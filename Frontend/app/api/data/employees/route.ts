@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import { employees, users } from '@/db/schemas';
-import { and, eq, asc } from 'drizzle-orm';
+import { and, eq, asc, inArray } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
 import { ok, created, unauthorized, forbidden, notFound, badRequest, tooMany } from '@/lib/server/http';
@@ -8,6 +8,7 @@ import { parseBody, createEmployeeSchema, updateEmployeeSchema, MIN_PASSWORD_LEN
 import { toCents } from '@/lib/server/money';
 import { checkWriteRateLimit, checkReadRateLimit } from '@/lib/server/rateLimit';
 import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
+import { normalizePhone, phoneLookupVariants } from '@/lib/phone';
 
 // GET /api/data/employees[?id=]  — this is a static route, so it shadows
 // app/api/data/[resource]/route.ts's GET for this exact path (Next.js prefers
@@ -58,7 +59,9 @@ export async function POST(req: Request) {
   const id = crypto.randomUUID();
 
   const role = body.role;
-  const phone = body.phone;
+  // Canonicalized so this account is reachable at login regardless of which
+  // format (07.../254.../+254...) the owner happens to type here vs at login.
+  const phone = normalizePhone(body.phone) ?? body.phone.trim();
   const email = body.email?.trim().toLowerCase() ?? null;
   const profileId = body.workerProfileId ?? null;
   const pin = body.pin.trim();
@@ -74,7 +77,7 @@ export async function POST(req: Request) {
 
   const makeLogin = !!(pinHash || passwordHash);
   if (makeLogin) {
-    const [dupPhone] = await db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
+    const [dupPhone] = await db.select({ id: users.id }).from(users).where(inArray(users.phone, phoneLookupVariants(phone))).limit(1);
     if (dupPhone) return badRequest('That phone number already has a login.');
     if (email) {
       const [dupEmail] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);

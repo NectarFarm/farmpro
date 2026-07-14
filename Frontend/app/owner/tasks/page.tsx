@@ -6,6 +6,10 @@ import type { Task, Batch } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { ClipboardList } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { TableToolbar } from '@/components/TableToolbar';
+import { Pager } from '@/components/Pager';
+import { useTableFilter } from '@/hooks/useTableFilter';
+import { cn } from '@/lib/utils';
 
 const statusOf = (s: string) => (s === 'DONE' ? 'ok' : s === 'OVERDUE' ? 'critical' : 'info') as 'ok' | 'critical' | 'info';
 
@@ -39,6 +43,14 @@ export default function OwnerTasksPage() {
 
   const workerName = (id: string) => workers.find(w => w.id === id)?.name ?? '—';
   const batchName = (id?: string | null) => (id ? batches.find(b => b.id === id)?.name ?? id : null);
+
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'done'>('all');
+  const statusFiltered = tasks.filter(t =>
+    statusFilter === 'all' ? true : statusFilter === 'done' ? t.status === 'DONE' : t.status !== 'DONE');
+  const { search, setSearch, page, setPage, totalPages, paged } = useTableFilter(statusFiltered, {
+    searchFields: (t) => `${t.title} ${t.type} ${workerName(t.assignedTo)} ${batchName(t.batchId) ?? ''}`,
+    sortFn: (a, b) => b.dueAt.localeCompare(a.dueAt),
+  });
 
   const createTask = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setErr('');
@@ -95,6 +107,15 @@ export default function OwnerTasksPage() {
         </form>
       )}
 
+      <TableToolbar search={search} onSearchChange={setSearch} placeholder="Search tasks, people, batch…">
+        {(['all', 'pending', 'done'] as const).map(f => (
+          <button key={f} onClick={() => setStatusFilter(f)}
+            className={cn('px-3 py-1.5 rounded-lg text-xs font-semibold capitalize', statusFilter === f ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+            {f}
+          </button>
+        ))}
+      </TableToolbar>
+
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <Table>
           <TableHeader className="bg-gray-50 text-gray-500 text-xs font-semibold">
@@ -107,7 +128,7 @@ export default function OwnerTasksPage() {
             </TableRow>
           </TableHeader>
           <TableBody className="divide-y divide-gray-100">
-            {tasks.map(t => (
+            {paged.map(t => (
               <TableRow key={t.id} className="hover:bg-gray-50">
                 <TableCell className="px-4 py-3 whitespace-normal"><span className="font-semibold text-gray-900">{t.title}</span><span className="block text-xs text-gray-400 capitalize">{t.type.replace(/_/g, ' ')}</span></TableCell>
                 <TableCell className="px-3 py-3 text-gray-700">{workerName(t.assignedTo)}</TableCell>
@@ -116,10 +137,11 @@ export default function OwnerTasksPage() {
                 <TableCell className="px-3 py-3 text-center"><StatusChip status={statusOf(t.status)} size="sm" label={t.status} /></TableCell>
               </TableRow>
             ))}
-            {tasks.length === 0 && <TableRow><TableCell colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm whitespace-normal">{t('noTasksYet')}</TableCell></TableRow>}
+            {paged.length === 0 && <TableRow><TableCell colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm whitespace-normal">{t('noTasksYet')}</TableCell></TableRow>}
           </TableBody>
         </Table>
       </div>
+      <Pager page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }

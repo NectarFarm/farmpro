@@ -5,6 +5,9 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import { Wallet, Lock, X, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { StatPanel } from '@/components/ui/stat-panel';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { TableToolbar } from '@/components/TableToolbar';
+import { Pager } from '@/components/Pager';
+import { useTableFilter } from '@/hooks/useTableFilter';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 type Slip = { gross: number; advances: number; fines: number; bonuses: number; net: number; status: 'pending' | 'paid'; paidAt: string | null } | null;
@@ -106,6 +109,11 @@ export default function PayrollPage() {
     } catch { setErr(t('couldNotBuildStatement')); } finally { setBusy(''); }
   };
 
+  const { search: payrollSearch, setSearch: setPayrollSearch, page: payrollPage, setPage: setPayrollPage, totalPages: payrollTotalPages, paged: pagedRows } = useTableFilter(rows, {
+    searchFields: (r) => r.name,
+    pageSize: 20,
+  });
+
   return (
     <div className="p-6 flex flex-col gap-5 max-w-5xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -141,16 +149,19 @@ export default function PayrollPage() {
       )}
 
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
+        <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between flex-wrap gap-2">
           <span className="font-bold text-gray-800 text-sm">{periodLabel(period)}</span>
           <button onClick={payAll} disabled={busy !== ''} className="text-xs font-semibold text-green-700 hover:underline">{t('markPaid')}</button>
+        </div>
+        <div className="px-4 py-3 border-b">
+          <TableToolbar search={payrollSearch} onSearchChange={setPayrollSearch} placeholder="Search name…" />
         </div>
         <Table>
           <TableHeader className="text-gray-500 text-xs font-semibold border-b">
             <TableRow><TableHead className="px-3 py-2 text-left">{t('name')}</TableHead><TableHead className="px-2 py-2 text-right">{t('gross')}</TableHead><TableHead className="px-2 py-2 text-right">{t('adv')}</TableHead><TableHead className="px-2 py-2 text-right">{t('fines')}</TableHead><TableHead className="px-2 py-2 text-right">{t('netProfit')}</TableHead><TableHead className="px-2 py-2 text-center">{t('status')}</TableHead><TableHead className="px-2 py-2"></TableHead></TableRow>
           </TableHeader>
           <TableBody className="divide-y divide-gray-100">
-            {rows.map(row => {
+            {pagedRows.map(row => {
               const b = row.payslip ?? row.preview;
               const locked = row.payslip?.status === 'paid';
               return (
@@ -198,10 +209,11 @@ export default function PayrollPage() {
                 </React.Fragment>
               );
             })}
-            {rows.length === 0 && <TableRow><TableCell colSpan={7} className="px-3 py-6 text-center text-gray-400 whitespace-normal">No employees. Add staff with a salary on the People page.</TableCell></TableRow>}
+            {pagedRows.length === 0 && <TableRow><TableCell colSpan={7} className="px-3 py-6 text-center text-gray-400 whitespace-normal">No employees. Add staff with a salary on the People page.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </div>
+      <Pager page={payrollPage} totalPages={payrollTotalPages} onPageChange={setPayrollPage} />
       <p className="text-xs text-gray-400">Tip: add advances/fines first, then “Run payroll”, check the nets, then “Pay”. A paid month is locked — changing a salary only affects future months.</p>
     </div>
   );

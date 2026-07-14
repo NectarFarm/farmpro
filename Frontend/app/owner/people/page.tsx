@@ -6,6 +6,9 @@ import type { Employee, Batch, WorkerProfile } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { Users, KeyRound, AlertTriangle, Check } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { TableToolbar } from '@/components/TableToolbar';
+import { Pager } from '@/components/Pager';
+import { useTableFilter } from '@/hooks/useTableFilter';
 
 const roleColor = (r: string) => ({ owner:'bg-purple-100 text-purple-700', manager:'bg-blue-100 text-blue-700', worker:'bg-green-100 text-green-700', vet:'bg-teal-100 text-teal-700', auditor:'bg-gray-100 text-gray-600' })[r] ?? 'bg-gray-100 text-gray-600';
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
@@ -145,6 +148,11 @@ export default function PeoplePage() {
     </div>
   );
 
+  const { search: staffSearch, setSearch: setStaffSearch, page: staffPage, setPage: setStaffPage, totalPages: staffTotalPages, paged: pagedEmployees } = useTableFilter(employees, {
+    searchFields: (e) => `${e.name} ${e.role} ${e.phone}`,
+    pageSize: 20,
+  });
+
   return (
     <div className="p-6 flex flex-col gap-6 max-w-3xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -223,6 +231,8 @@ export default function PeoplePage() {
         </form>
       )}
 
+      <TableToolbar search={staffSearch} onSearchChange={setStaffSearch} placeholder="Search name, role, phone…" />
+
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <Table>
           <TableHeader className="bg-gray-50 text-gray-500 text-xs font-semibold">
@@ -237,7 +247,7 @@ export default function PeoplePage() {
             </TableRow>
           </TableHeader>
           <TableBody className="divide-y divide-gray-100">
-            {employees.map(emp => (
+            {pagedEmployees.map(emp => (
               <React.Fragment key={emp.id}>
                 <TableRow className="hover:bg-gray-50">
                   <TableCell className="px-4 py-3 whitespace-normal">
@@ -304,12 +314,13 @@ export default function PeoplePage() {
                 )}
               </React.Fragment>
             ))}
-            {employees.length === 0 && (
+            {pagedEmployees.length === 0 && (
               <TableRow><TableCell colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm whitespace-normal">{t('noEmployees')}</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
       </div>
+      <Pager page={staffPage} totalPages={staffTotalPages} onPageChange={setStaffPage} />
     </div>
   );
 }

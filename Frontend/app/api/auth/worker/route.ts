@@ -1,11 +1,12 @@
 import { db } from '@/db';
 import { users } from '@/db/schemas';
-import { eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
 import { checkLoginRateLimit } from '@/lib/server/rateLimit';
 import { ok, badRequest, unauthorized, serviceUnavailable, tooMany } from '@/lib/server/http';
 import { parseBody, workerLoginSchema } from '@/lib/server/validate';
+import { phoneLookupVariants } from '@/lib/phone';
 
 const BAD_CREDS = 'Wrong phone number or PIN.';
 
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
 
     let user;
     try {
-      [user] = await db.select().from(users).where(eq(users.phone, phone)).limit(1);
+      [user] = await db.select().from(users).where(inArray(users.phone, phoneLookupVariants(phone))).limit(1);
     } catch {
       return serviceUnavailable("We couldn't reach the server. You can still work offline — sync when you're back online.");
     }

@@ -1,11 +1,12 @@
 import { db } from '@/db';
 import { users, tenants } from '@/db/schemas';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
 import { checkLoginRateLimit } from '@/lib/server/rateLimit';
 import { ok, badRequest, unauthorized, serviceUnavailable, forbidden, tooMany } from '@/lib/server/http';
 import { parseBody, loginSchema } from '@/lib/server/validate';
+import { phoneLookupVariants } from '@/lib/phone';
 import type { Role } from '@/lib/types';
 
 const WEB_ROLES: Role[] = ['owner', 'manager', 'vet', 'auditor', 'super_admin'];
@@ -37,8 +38,13 @@ export async function POST(req: Request) {
     let user;
     try {
       // Prefer an exact email match, then fall back to phone (distinct namespaces).
+      // Phone lookup matches every format the same number could have been typed or
+      // stored in ("0712345678" / "254712345678" / "+254712345678" all resolve to
+      // the same account) — accounts predate this normalization, so existing rows
+      // are in mixed formats and a plain equality check would silently reject a
+      // correct login typed in a different format than the one on file.
       [user] = await db.select().from(users).where(eq(users.email, identifier.toLowerCase())).limit(1);
-      if (!user) [user] = await db.select().from(users).where(eq(users.phone, identifier)).limit(1);
+      if (!user) [user] = await db.select().from(users).where(inArray(users.phone, phoneLookupVariants(identifier))).limit(1);
     } catch {
       return serviceUnavailable("We couldn't reach the server. Check your connection and try again.");
     }

@@ -11,6 +11,7 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import { enterpriseIcon as enterpriseIconFor } from '@/lib/species';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { StatPanel } from '@/components/ui/stat-panel';
+import { FarmFeatureToggles, FarmManagePanel } from '@/components/admin/FarmManagePanel';
 
 const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
 const fmtKES = (n: number) => `KSh ${Math.abs(n).toLocaleString('en-KE')}`;
@@ -47,6 +48,8 @@ export default function AdminFarmDetailPage() {
   const [sortKey, setSortKey] = useState<string>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [batchSearch, setBatchSearch] = useState('');
+  const [showManage, setShowManage] = useState(false);
+  const [packages, setPackages] = useState<{ id: string; name: string; features: string[] }[]>([]);
 
   const load = useCallback(() => {
     setLoading(true); setErr('');
@@ -57,6 +60,10 @@ export default function AdminFarmDetailPage() {
   }, [id]);
 
   useEffect(() => { if (id) load(); }, [id, load]);
+  useEffect(() => {
+    fetch('/api/admin/packages', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { packages: [] }).then(d => setPackages(d.packages ?? [])).catch(() => {});
+  }, []);
 
   const toggleSort = (key: string) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -155,7 +162,22 @@ export default function AdminFarmDetailPage() {
             <p className="text-sm font-semibold text-gray-900">{owner.name}</p>
             <p className="text-xs text-gray-400">{owner.email}{owner.phone ? ` · ${owner.phone}` : ''}</p>
           </div>
-          <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full ml-auto">{t('owner')}</span>
+          <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{t('owner')}</span>
+          <button onClick={() => setShowManage(v => !v)}
+            className="ml-auto px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-200 transition-colors">
+            {showManage ? t('close') : t('manage')}
+          </button>
+        </div>
+      )}
+
+      {/* Manage farm — rename, owner login, plan/features, suspend/delete */}
+      {showManage && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-4">
+          <h2 className="font-bold text-gray-800">{t('manage')}</h2>
+          <FarmFeatureToggles tenant={farm} packages={packages} onChanged={load} />
+          <div className="border-t border-gray-200 pt-4">
+            <FarmManagePanel tenant={farm} onChanged={load} />
+          </div>
         </div>
       )}
 

@@ -1,13 +1,12 @@
 'use client';
 import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { FEATURES } from '@/lib/features';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { Tractor, Layers, Users, Bird, Search, Plus, Filter, Check } from 'lucide-react';
 import { Pager } from '@/components/Pager';
+import { FarmFeatureToggles, FarmManagePanel } from '@/components/admin/FarmManagePanel';
 
 interface Tenant { id: string; name: string; plan: string; features: string[]; active: boolean; users: number; workers: number; batches: number }
-interface Owner { name: string; email: string; phone: string }
 
 const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
 const inp = 'border border-gray-300 rounded-lg px-3 py-2 text-sm';
@@ -20,7 +19,6 @@ export default function AdminFarmsPage() {
   const [planFilter, setPlanFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState('');
   const [err, setErr] = useState('');
 
   const [showNew, setShowNew] = useState(false);
@@ -30,13 +28,8 @@ export default function AdminFarmsPage() {
   const [nf, setNf] = useState({ farmName: '', ownerName: '', ownerEmail: '', ownerPhone: '', ownerPassword: '', plan: 'pro' });
 
   const [manageId, setManageId] = useState<string | null>(null);
-  const [rename, setRename] = useState('');
-  const [owner, setOwner] = useState<Owner>({ name: '', email: '', phone: '' });
-  const [newPass, setNewPass] = useState('');
-  const [ownerMsg, setOwnerMsg] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = 10;
-  const [confirmDialog, setConfirmDialog] = useState<{ title: string; body: string; danger?: boolean; onConfirm: () => void } | null>(null);
 
   const load = () => fetch('/api/admin/tenants', { credentials: 'include' })
     .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status === 403 ? t('adminsOnly') : t('failedToLoad'))))
@@ -54,17 +47,6 @@ export default function AdminFarmsPage() {
     .then(r => r.ok ? r.json() : { packages: [] }).then(d => setPackages(d.packages ?? [])).catch(() => { });
   useEffect(() => { load(); loadStats(); loadPackages(); }, []);
 
-  const patch = async (id: string, body: Record<string, unknown>) => {
-    setSaving(id); setErr('');
-    try {
-      const res = await fetch(`/api/admin/tenants?id=${id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Save failed');
-      await load();
-    } catch (e) { setErr((e as Error).message); } finally { setSaving(''); }
-  };
-  const toggle = (t: Tenant, key: string) => patch(t.id, { features: t.features.includes(key) ? t.features.filter(f => f !== key) : [...t.features, key] });
-  const setPlan = (t: Tenant, plan: string) => patch(t.id, { plan, features: packages.find(p => p.id === plan)?.features ?? t.features });
-
   const createFarm = async () => {
     setCreating(true); setErr(''); setCreateMsg('');
     try {
@@ -77,33 +59,7 @@ export default function AdminFarmsPage() {
     } catch (e) { setErr((e as Error).message); } finally { setCreating(false); }
   };
 
-  const openManage = async (t: Tenant) => {
-    if (manageId === t.id) { setManageId(null); return; }
-    setManageId(t.id); setRename(t.name); setNewPass(''); setOwnerMsg(''); setOwner({ name: '', email: '', phone: '' });
-    const r = await fetch(`/api/admin/owner?tenantId=${t.id}`, { credentials: 'include' });
-    if (r.ok) { const o = await r.json(); setOwner({ name: o.name ?? '', email: o.email ?? '', phone: o.phone ?? '' }); }
-  };
-  const saveOwner = async (t: Tenant, body: Record<string, unknown>, msg: string) => {
-    setOwnerMsg('');
-    const res = await fetch(`/api/admin/owner?tenantId=${t.id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!res.ok) { setOwnerMsg((await res.json().catch(() => ({}))).error || 'Failed'); return; }
-    setOwnerMsg(msg); setNewPass(''); await load();
-  };
-  const doRemoveFarm = async (tenant: Tenant) => {
-    setSaving(tenant.id);
-    const res = await fetch(`/api/admin/tenants?id=${tenant.id}`, { method: 'DELETE', credentials: 'include' });
-    setSaving('');
-    if (!res.ok) { setErr(t('deleteFailed')); return; }
-    setManageId(null); await load();
-  };
-  const removeFarm = (tenant: Tenant) => {
-    setConfirmDialog({
-      title: t('deleteFarm'),
-      body: t('confirmDeleteFarm', { name: tenant.name, batches: tenant.batches, users: tenant.users }),
-      danger: true,
-      onConfirm: () => { setConfirmDialog(null); doRemoveFarm(tenant); },
-    });
-  };
+  const openManage = (t: Tenant) => setManageId((cur) => (cur === t.id ? null : t.id));
 
   const filteredTenants = useMemo(() => {
     return tenants.filter(t => {
@@ -220,76 +176,18 @@ export default function AdminFarmsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <select value={tenant.plan} onChange={e => setPlan(tenant, e.target.value)}
-                    className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs">
-                    {packages.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    {!packages.some(p => p.id === tenant.plan) && <option value={tenant.plan}>{tenant.plan}</option>}
-                  </select>
                   <button onClick={() => openManage(tenant)}
                     className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-200 transition-colors">
                     {manageId === tenant.id ? t('close') : t('manage')}
                   </button>
-                  {saving === tenant.id && <span className="text-xs text-gray-400 animate-pulse">{t('saving')}</span>}
                 </div>
               </div>
 
-              {/* Feature toggles */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {FEATURES.map(f => {
-                  const on = tenant.features.includes(f.key);
-                  return (
-                    <button key={f.key} onClick={() => toggle(tenant, f.key)} disabled={saving === tenant.id}
-                      className={`flex items-center justify-between px-3 py-2 rounded-lg border-2 text-left disabled:opacity-50 transition-colors ${on ? 'bg-success/10 border-success/40 hover:bg-success/15' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}>
-                      <div>
-                        <p className={`text-sm font-semibold ${on ? 'text-success' : 'text-gray-500'}`}>{f.label}</p>
-                        <p className="text-xs text-gray-400">{f.desc}</p>
-                      </div>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full transition-colors ${on ? 'bg-success text-white' : 'bg-gray-300 text-gray-600'}`}>
-                        {on ? t('on') : t('off')}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <FarmFeatureToggles tenant={tenant} packages={packages} onChanged={load} />
 
-              {/* Manage panel */}
               {manageId === tenant.id && (
-                <div className="border-t border-gray-200 pt-4 flex flex-col gap-4">
-                  <div className="flex items-end gap-2 flex-wrap">
-                    <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 flex-1 min-w-[180px]">
-                      {t('farmName')}
-                      <input value={rename} onChange={e => setRename(e.target.value)} className={inp} />
-                    </label>
-                    <button onClick={() => patch(tenant.id, { name: rename })}
-                      className="px-3 py-2 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800">{t('rename')}</button>
-                  </div>
-
-                  <div className="bg-gray-50 rounded-lg p-3 flex flex-col gap-2">
-                    <p className="text-xs font-bold text-gray-600">{t('ownerLogin')}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <input value={owner.name} onChange={e => setOwner({ ...owner, name: e.target.value })} placeholder={t('ownerName')} className={inp} />
-                      <input value={owner.email} onChange={e => setOwner({ ...owner, email: e.target.value })} placeholder={t('ownerEmail')} className={inp} />
-                      <input value={owner.phone} onChange={e => setOwner({ ...owner, phone: e.target.value })} placeholder={t('ownerPhone')} className={inp} />
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button onClick={() => saveOwner(tenant, { name: owner.name, email: owner.email, phone: owner.phone }, t('ownerUpdated'))}
-                        className="px-3 py-2 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800">{t('saveDetails')}</button>
-                      <input value={newPass} onChange={e => setNewPass(e.target.value)} placeholder={t('newPassword')} className={`${inp} flex-1 min-w-[160px]`} />
-                      <button onClick={() => saveOwner(tenant, { newPassword: newPass }, t('passwordReset'))} disabled={newPass.length < 8}
-                        className="px-3 py-2 bg-warning text-warning-foreground rounded-lg text-xs font-semibold hover:bg-warning/90 disabled:opacity-50">{t('resetPassword')}</button>
-                    </div>
-                    {ownerMsg && <p className="text-xs text-gray-600">{ownerMsg}</p>}
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button onClick={() => patch(tenant.id, { active: !tenant.active })}
-                      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${tenant.active ? 'bg-warning text-warning-foreground hover:bg-warning/90' : 'bg-success text-white hover:bg-success/90'}`}>
-                      {tenant.active ? t('suspendFarm') : t('reactivateFarm')}
-                    </button>
-                    <button onClick={() => removeFarm(tenant)}
-                      className="px-3 py-2 bg-destructive text-white rounded-lg text-xs font-semibold hover:bg-destructive/90 transition-colors">{t('deleteFarm')}</button>
-                    <span className="text-xs text-gray-400">{t('suspendNote')}</span>
-                  </div>
+                <div className="border-t border-gray-200 pt-4">
+                  <FarmManagePanel tenant={tenant} onChanged={load} />
                 </div>
               )}
             </div>
@@ -300,26 +198,6 @@ export default function AdminFarmsPage() {
       {/* Pagination */}
       {totalPages > 1 && (
         <Pager page={safePage} totalPages={totalPages} onPageChange={setPage} prevLabel={t('prev')} nextLabel={t('next')} />
-      )}
-
-      {/* Generic styled confirm dialog — replaces window.confirm for delete-farm */}
-      {confirmDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDialog(null)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-sm mx-4 p-5 flex flex-col gap-3 shadow-2xl">
-            <h3 className={`font-bold ${confirmDialog.danger ? 'text-destructive' : 'text-gray-900'}`}>{confirmDialog.title}</h3>
-            <p className="text-sm text-gray-600">{confirmDialog.body}</p>
-            <div className="flex gap-2 mt-2">
-              <button onClick={confirmDialog.onConfirm}
-                className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white ${confirmDialog.danger ? 'bg-destructive hover:bg-destructive/90' : 'bg-success hover:bg-success/90'}`}>
-                {t('confirm')}
-              </button>
-              <button onClick={() => setConfirmDialog(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">
-                {t('cancel')}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

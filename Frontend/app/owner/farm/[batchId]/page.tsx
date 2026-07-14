@@ -10,6 +10,9 @@ import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { TableToolbar } from '@/components/TableToolbar';
+import { Pager } from '@/components/Pager';
+import { useTableFilter } from '@/hooks/useTableFilter';
 import { headNoun, groupNoun } from '@/lib/species';
 import {
   Sprout, Settings, X, AlertTriangle, Check, Skull, Syringe, Wheat, Egg, type LucideIcon,
@@ -269,6 +272,11 @@ export default function BatchDetailPage() {
     } catch (e) { showToast((e as Error).message, true); }
     finally { setSaving(false); setTimeout(() => setToast(''), 2500); }
   };
+
+  const { search: salesSearch, setSearch: setSalesSearch, page: salesPage, setPage: setSalesPage, totalPages: salesTotalPages, paged: pagedSales } = useTableFilter(sales, {
+    searchFields: (s) => `${s.productType} ${s.buyer}`,
+    sortFn: (a, b) => b.createdAt.localeCompare(a.createdAt),
+  });
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-5xl">
@@ -678,25 +686,31 @@ export default function BatchDetailPage() {
         {sales.length === 0
           ? <p className="text-gray-400 text-sm">{t('noSales')}</p>
           : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="text-gray-500 text-xs font-semibold border-b">
-                  <TableRow><TableHead className="text-left pb-2">{t('date')}</TableHead><TableHead className="text-left">{t('product')}</TableHead><TableHead className="text-right">{t('qty')}</TableHead><TableHead className="text-right">{t('amount')}</TableHead><TableHead className="text-left">{t('buyer')}</TableHead><TableHead className="text-center">{t('status')}</TableHead></TableRow>
-                </TableHeader>
-                <TableBody className="divide-y divide-gray-50">
-                  {sales.map(s => (
-                    <TableRow key={s.id} className="py-2">
-                      <TableCell className="py-2 text-gray-400">{new Date(s.createdAt).toLocaleDateString('en-KE')}</TableCell>
-                      <TableCell className="py-2 text-gray-700">{s.productType}</TableCell>
-                      <TableCell className="py-2 text-right">{s.quantity}</TableCell>
-                      <TableCell className="py-2 text-right font-semibold text-gray-900">{fmtKES(s.totalAmount)}</TableCell>
-                      <TableCell className="py-2 text-gray-600">{s.buyer}</TableCell>
-                      <TableCell className="py-2 text-center"><StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? t('clearedLabel') : t('blockedLabel')} /></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <>
+              <TableToolbar search={salesSearch} onSearchChange={setSalesSearch} placeholder="Search product or buyer…" className="mb-3" />
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="text-gray-500 text-xs font-semibold border-b">
+                    <TableRow><TableHead className="text-left pb-2">{t('date')}</TableHead><TableHead className="text-left">{t('product')}</TableHead><TableHead className="text-right">{t('qty')}</TableHead><TableHead className="text-right">{t('amount')}</TableHead><TableHead className="text-left">{t('buyer')}</TableHead><TableHead className="text-center">{t('status')}</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody className="divide-y divide-gray-50">
+                    {pagedSales.map(s => (
+                      <TableRow key={s.id} className="py-2">
+                        <TableCell className="py-2 text-gray-400">{new Date(s.createdAt).toLocaleDateString('en-KE')}</TableCell>
+                        <TableCell className="py-2 text-gray-700">{s.productType}</TableCell>
+                        <TableCell className="py-2 text-right">{s.quantity}</TableCell>
+                        <TableCell className="py-2 text-right font-semibold text-gray-900">{fmtKES(s.totalAmount)}</TableCell>
+                        <TableCell className="py-2 text-gray-600">{s.buyer}</TableCell>
+                        <TableCell className="py-2 text-center"><StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? t('clearedLabel') : t('blockedLabel')} /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="mt-3">
+                <Pager page={salesPage} totalPages={salesTotalPages} onPageChange={setSalesPage} />
+              </div>
+            </>
           )
         }
       </div>

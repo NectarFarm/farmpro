@@ -55,6 +55,22 @@ export default function AdminSettingsPage() {
         </div>
       </div>
 
+      {/* Jump nav — this page stacks three unrelated sections, so a quick way
+          to skip past the ones you're not here for beats scrolling past them. */}
+      <div className="flex items-center gap-2 flex-wrap -mt-2">
+        {[
+          { id: 'branding', label: t('branding') },
+          { id: 'packages', label: t('packages') },
+          { id: 'testing', label: t('acceptanceTesting') },
+        ].map((s) => (
+          <a key={s.id} href={`#${s.id}`}
+            onClick={(e) => { e.preventDefault(); document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+            className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full text-xs font-semibold hover:bg-gray-200 transition-colors">
+            {s.label}
+          </a>
+        ))}
+      </div>
+
       {settingsMsg && (
         <p className={`text-sm font-semibold rounded-xl px-4 py-3 border flex items-center gap-2 ${
           settingsOk
@@ -67,7 +83,7 @@ export default function AdminSettingsPage() {
       )}
 
       {/* Branding */}
-      <section className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col gap-5">
+      <section id="branding" className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col gap-5 scroll-mt-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center">
             <Palette className="w-5 h-5 text-indigo-600" />
@@ -122,7 +138,7 @@ export default function AdminSettingsPage() {
       </section>
 
       {/* Subscription packages */}
-      <div className="overflow-hidden">
+      <div id="packages" className="overflow-hidden scroll-mt-6">
         <div className="flex items-center gap-3 pl-1 pb-3">
           <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center">
             <Package2 className="w-5 h-5 text-purple-600" />
@@ -136,7 +152,7 @@ export default function AdminSettingsPage() {
       </div>
 
       {/* Acceptance testing */}
-      <div className="overflow-hidden">
+      <div id="testing" className="overflow-hidden scroll-mt-6">
         <div className="flex items-center gap-3 pl-1 pb-3">
           <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
             <BookCheck className="w-5 h-5 text-amber-600" />
