@@ -139,7 +139,7 @@ export default function OwnerDashboardPage() {
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {group.cards.map(card => (
               <StatPanel key={card.label} label={card.label} value={card.value} icon={card.Icon} sub={card.sub}
                 tone={card.bad ? 'bad' : card.good ? 'good' : 'neutral'} />
