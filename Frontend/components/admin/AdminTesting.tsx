@@ -44,7 +44,7 @@ export function AdminTesting() {
     }).catch(() => {});
   useEffect(() => { load(); }, []);
 
-  const act = async (tenantId: string, action: 'enable' | 'disable' | 'request') => {
+  const act = async (tenantId: string, action: 'enable' | 'disable' | 'request' | 'retest-failed') => {
     setBusy(`${tenantId}:${action}`); setErr('');
     try {
       const res = await fetch('/api/admin/testing', {
@@ -204,6 +204,13 @@ export function AdminTesting() {
                 <button onClick={() => act(f.tenantId, 'request')} disabled={busy !== ''} className="px-3 py-1.5 bg-white border border-amber-300 text-amber-700 rounded-lg text-xs font-semibold disabled:opacity-50">
                   {busy === `${f.tenantId}:request` ? '…' : 'Request test'}
                 </button>
+                {f.run && f.run.report.failed > 0 && (
+                  <button onClick={() => act(f.tenantId, 'retest-failed')} disabled={busy !== ''}
+                    title="Reset only the failed steps to pending — passed steps stay as-is, no need to redo the whole checklist"
+                    className="px-3 py-1.5 bg-white border border-red-300 text-red-700 rounded-lg text-xs font-semibold disabled:opacity-50">
+                    {busy === `${f.tenantId}:retest-failed` ? '…' : `Retest ${f.run.report.failed} failed`}
+                  </button>
+                )}
                 {f.run && (
                   <>
                     <button onClick={() => setOpenReport(openReport === f.tenantId ? null : f.tenantId)} className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold">

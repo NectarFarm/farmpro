@@ -3,7 +3,7 @@ import { tenants, testRuns, testPhotos } from '@/db/schemas';
 import { and, eq, inArray } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, badRequest, unauthorized, forbidden } from '@/lib/server/http';
-import { freshRun, progress, summarize, normalizeSteps, type TestStep } from '@/lib/testing';
+import { freshRun, progress, summarize, normalizeSteps, retestFailed, type TestStep } from '@/lib/testing';
 import { getActiveSteps, saveActiveSteps } from '@/lib/server/testingConfig';
 import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 
@@ -99,6 +99,23 @@ export async function POST(req: Request) {
     await db.insert(testRuns).values({ tenantId, status: 'in_progress', steps, startedAt: now, submittedAt: null })
       .onConflictDoUpdate({ target: testRuns.tenantId, set: { status: 'in_progress', steps, startedAt: now, submittedAt: null } });
     return ok({ tenantId, testingEnabled: true, requested: true });
+  }
+  if (action === 'retest-failed') {
+    // "Please redo just what broke" — resets FAILED steps to pending, keeps
+    // everything the tester already passed. Avoids making them re-walk the
+    // whole checklist for one broken step.
+    const [run] = await db.select().from(testRuns).where(eq(testRuns.tenantId, tenantId)).limit(1);
+    if (!run) return badRequest('No test run for this farm yet.');
+    const before = safeSteps(run.steps);
+    const failedIds = new Set(before.filter((s) => s.status === 'fail').map((s) => s.id));
+    if (failedIds.size === 0) return badRequest('Nothing failed — nothing to retest.');
+    const steps = retestFailed(before);
+    // Drop screenshots that belonged to the steps being reset — they're now stale.
+    const staleShots = before.filter((s) => failedIds.has(s.id)).flatMap((s) => s.photoIds ?? []);
+    if (staleShots.length) await db.delete(testPhotos).where(and(eq(testPhotos.tenantId, tenantId), inArray(testPhotos.id, staleShots)));
+    await db.update(tenants).set({ testingEnabled: true }).where(eq(tenants.id, tenantId));
+    await db.update(testRuns).set({ status: 'in_progress', steps, submittedAt: null }).where(eq(testRuns.tenantId, tenantId));
+    return ok({ tenantId, testingEnabled: true, retested: [...failedIds] });
   }
   return badRequest('Unknown action.');
 }

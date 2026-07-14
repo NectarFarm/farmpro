@@ -63,9 +63,17 @@ export default function ReportsPage() {
     try {
       const res = await fetch('/api/auditor-link', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: linkEmail, days: linkDays }),
+        // Omit email entirely when blank rather than sending '' — belt-and-braces
+        // alongside the server's own preprocessing of '' to undefined.
+        body: JSON.stringify({ ...(linkEmail.trim() ? { email: linkEmail.trim() } : {}), days: linkDays }),
       });
-      if (!res.ok) throw new Error(res.status === 403 ? 'Owner only' : 'Failed to generate link');
+      if (!res.ok) {
+        // Surface the server's actual reason (e.g. "Invalid email") instead of a
+        // generic string — a validation error was previously indistinguishable
+        // from a real failure, which is what made this bug hard to diagnose.
+        const body = await res.json().catch(() => ({}));
+        throw new Error(res.status === 403 ? 'Owner only' : body.error || 'Failed to generate link');
+      }
       setLink((await res.json()).url);
     } catch (e) { setErr((e as Error).message); } finally { setLinkBusy(false); }
   };
@@ -204,7 +212,9 @@ export default function ReportsPage() {
         <div className="flex gap-3 flex-wrap">
           <input value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="Auditor email (optional)" className="flex-1 min-w-[180px] border border-blue-300 rounded-xl px-4 py-2 text-sm" />
           <select value={linkDays} onChange={e => setLinkDays(Number(e.target.value))} className="border border-blue-300 rounded-xl px-3 py-2 text-sm bg-white">
-            <option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option>
+            {/* Server caps at MAX_AUDITOR_LINK_DAYS = 14 (lib/server/auditorLinks.ts) —
+                these options previously went up to 90, which always failed. */}
+            <option value={1}>1 day</option><option value={7}>7 days</option><option value={14}>14 days</option>
           </select>
           <button onClick={generateLink} disabled={linkBusy} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-50">
             {linkBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}

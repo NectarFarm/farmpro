@@ -449,7 +449,10 @@ export const physicalCountSchema = z.object({
 });
 
 export const auditorLinkSchema = z.object({
-  email: z.string().email().optional(),
+  // The client always sends the `email` key (never omits it), so a blank
+  // "optional" field arrives as '' — treat that the same as not provided,
+  // rather than failing z.string().email()'s format check on an empty string.
+  email: z.preprocess((v) => (v === '' ? undefined : v), z.string().email().optional()),
   days: z.number().int().min(1).max(14).optional(),
 });
 

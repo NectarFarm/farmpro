@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   TEST_STEPS, freshRun, applyStepUpdate, progress, canSubmit, summarize, slugify, normalizeSteps,
-  addPhotoToStep, allPhotoIds,
+  addPhotoToStep, allPhotoIds, retestFailed,
 } from '@/lib/testing';
 
 describe('freshRun', () => {
@@ -130,6 +130,34 @@ describe('screenshots on failed steps', () => {
   it('summarize carries each failure\'s screenshot ids for the admin', () => {
     const run = addPhotoToStep(failed(), 'login', 'p1', 3);
     expect(summarize(run).failures.find((f) => f.id === 'login')!.photoIds).toEqual(['p1']);
+  });
+});
+
+describe('retestFailed', () => {
+  it('resets only failed steps to pending, leaving passed steps untouched', () => {
+    let run = freshRun();
+    run = applyStepUpdate(run, { id: run[0].id, status: 'pass' });
+    run = applyStepUpdate(run, { id: run[1].id, status: 'fail', note: 'broke' });
+    const retried = retestFailed(run);
+    expect(retried.find((s) => s.id === run[0].id)!.status).toBe('pass');
+    expect(retried.find((s) => s.id === run[1].id)!.status).toBe('pending');
+  });
+
+  it('clears the note and screenshots of a reset step', () => {
+    let run = freshRun();
+    run = applyStepUpdate(run, { id: run[0].id, status: 'fail', note: 'broke' });
+    run = addPhotoToStep(run, run[0].id, 'p1', 3);
+    const retried = retestFailed(run);
+    const step = retried.find((s) => s.id === run[0].id)!;
+    expect(step.note).toBeUndefined();
+    expect(step.photoIds).toBeUndefined();
+    expect(allPhotoIds(retried)).toEqual([]); // so the server knows to delete p1
+  });
+
+  it('leaves a run with no failures unchanged', () => {
+    let run = freshRun();
+    run = applyStepUpdate(run, { id: run[0].id, status: 'pass' });
+    expect(retestFailed(run)).toEqual(run);
   });
 });
 

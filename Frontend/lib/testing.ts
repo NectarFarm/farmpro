@@ -252,6 +252,15 @@ export function allPhotoIds(steps: readonly TestStep[]): string[] {
   return steps.flatMap((s) => s.photoIds ?? []);
 }
 
+// Reset only the FAILED steps back to pending (clearing their note/screenshots);
+// passed and already-pending steps are untouched. Lets an admin ask a tester to
+// redo just what broke instead of the whole checklist. The reused
+// applyStepUpdate/TestingGuide flow needs no changes — it already just walks
+// whichever steps are 'pending', in checklist order.
+export function retestFailed(steps: readonly TestStep[]): TestStep[] {
+  return steps.map((s) => (s.status === 'fail' ? { ...s, status: 'pending' as StepStatus, note: undefined, photoIds: undefined } : s));
+}
+
 export interface Progress {
   total: number; done: number; passed: number; failed: number; pendingCount: number;
   pending: TestStep[]; nextPending: TestStep | null; complete: boolean;
