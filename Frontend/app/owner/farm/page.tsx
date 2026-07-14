@@ -7,6 +7,8 @@ import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { ProductionUnit, Batch } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { SeeMoreButton } from '@/components/SeeMoreButton';
+import { useCappedList } from '@/hooks/useCappedList';
 import { cn } from '@/lib/utils';
 import { groupedEnterpriseOptions } from '@/lib/species';
 import {
@@ -105,6 +107,15 @@ export default function FarmPage() {
   const unitBatches = (u: ProductionUnit) => batches.filter(b => b.unitId === u.id && b.status === 'ACTIVE');
   const unitPop = (u: ProductionUnit) => unitBatches(u).reduce((s, b) => s + b.currentQty, 0);
   const density = (u: ProductionUnit) => u.capacity ? (unitPop(u) / u.capacity * 100).toFixed(0) : '—';
+
+  // Fullest/most-active units first — the ones most likely to need attention.
+  const { visible: visibleUnits, remaining: unitsRemaining, showMore: showMoreUnits, showAll: showAllUnits } = useCappedList(units, {
+    sortFn: (a, b) => (parseInt(density(b)) || -1) - (parseInt(density(a)) || -1),
+  });
+  // Most recently acquired batches first, on top of the existing status filter/search.
+  const { visible: visibleBatches, remaining: batchesRemaining, showMore: showMoreBatches, showAll: showAllBatches } = useCappedList(filtered, {
+    sortFn: (a, b) => new Date(b.acquiredDate).getTime() - new Date(a.acquiredDate).getTime(),
+  });
 
   return (
     <div className="p-6 flex flex-col gap-4 max-w-7xl">
@@ -225,7 +236,7 @@ export default function FarmPage() {
       <section>
         <h2 className="text-base font-semibold text-gray-700 mb-2">{t('productionUnits')}</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
-          {units.map(u => {
+          {visibleUnits.map(u => {
             const ub = unitBatches(u);
             const dens = parseInt(density(u));
             const heatColor = dens > 90 ? 'bg-destructive/10 border-destructive/30' : dens > 70 ? 'bg-warning/15 border-warning/40' : dens > 0 ? 'bg-success/10 border-success/30' : 'bg-gray-100 border-gray-200';
@@ -262,6 +273,7 @@ export default function FarmPage() {
           })
         }
       </div>
+      <SeeMoreButton remaining={unitsRemaining} onShowMore={showMoreUnits} onShowAll={showAllUnits} />
       </section>
 
       {/* Batch table */}
@@ -305,7 +317,7 @@ export default function FarmPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody className="divide-y divide-gray-100">
-                  {filtered.map(b => {
+                  {visibleBatches.map(b => {
                     const u = units.find(u => u.id === b.unitId);
                     const days = Math.floor((Date.now() - new Date(b.acquiredDate).getTime()) / 86400000);
                     const mortPct = (((b.initialQty - b.currentQty) / b.initialQty) * 100).toFixed(1);
@@ -346,6 +358,7 @@ export default function FarmPage() {
                   })}
                 </TableBody>
               </Table>
+              <div className="py-3 border-t border-gray-100"><SeeMoreButton remaining={batchesRemaining} onShowMore={showMoreBatches} onShowAll={showAllBatches} /></div>
             </div>
           )
         }

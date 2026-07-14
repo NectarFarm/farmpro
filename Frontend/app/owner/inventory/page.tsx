@@ -8,7 +8,9 @@ import { Boxes, Check, X, Pencil, AlertTriangle, PartyPopper } from 'lucide-reac
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { TableToolbar } from '@/components/TableToolbar';
 import { Pager } from '@/components/Pager';
+import { SeeMoreButton } from '@/components/SeeMoreButton';
 import { useTableFilter } from '@/hooks/useTableFilter';
+import { useCappedList } from '@/hooks/useCappedList';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -185,6 +187,17 @@ export default function InventoryPage() {
     return (new Date(lot.expiryDate).getTime() - Date.now()) < 30 * 86400000;
   };
 
+  const [stockSort, setStockSort] = useState<'low' | 'name' | 'stock'>('low');
+  const STOCK_SORTERS: Record<typeof stockSort, (a: InventoryItem, b: InventoryItem) => number> = {
+    low: (a, b) => Number(isLow(b)) - Number(isLow(a)) || a.name.localeCompare(b.name),
+    name: (a, b) => a.name.localeCompare(b.name),
+    stock: (a, b) => getStock(b.id) - getStock(a.id),
+  };
+  const { search: stockSearch, setSearch: setStockSearch, visible: visibleItems, remaining: stockRemaining, filteredCount: stockFilteredCount, showMore: showMoreStock, showAll: showAllStock } = useCappedList(items, {
+    searchFields: ['name', 'category'],
+    sortFn: STOCK_SORTERS[stockSort],
+  });
+
   // Variance computed server-side from workers' daily closing-stock counts vs on-hand.
   const [variances, setVariances] = useState<{ item: string; unit: string; expected: number; counted: number; variance: number }[]>([]);
 
@@ -297,7 +310,18 @@ export default function InventoryPage() {
 
       {tab === 'stock' && (
         <div className="flex flex-col gap-5">
-          {items.map(item => {
+          {items.length > 0 && (
+            <TableToolbar search={stockSearch} onSearchChange={setStockSearch} placeholder="Search items…">
+              <select value={stockSort} onChange={e => setStockSort(e.target.value as typeof stockSort)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-600">
+                <option value="low">Low stock first</option>
+                <option value="name">Name A–Z</option>
+                <option value="stock">Highest stock first</option>
+              </select>
+              <span className="text-xs text-gray-400">{stockFilteredCount} item{stockFilteredCount === 1 ? '' : 's'}</span>
+            </TableToolbar>
+          )}
+          {visibleItems.map(item => {
             const itemLots = lots.filter(l => l.itemId === item.id && l.qtyOnHand > 0);
             const totalStock = getStock(item.id);
             return (
@@ -379,6 +403,10 @@ export default function InventoryPage() {
               </div>
             );
           })}
+          {items.length > 0 && stockFilteredCount === 0 && (
+            <p className="text-center text-gray-400 text-sm py-6">No items match &quot;{stockSearch}&quot;.</p>
+          )}
+          <SeeMoreButton remaining={stockRemaining} onShowMore={showMoreStock} onShowAll={showAllStock} />
         </div>
       )}
 

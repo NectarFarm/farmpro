@@ -6,6 +6,9 @@ import { api } from '@/lib/api';
 import type { Alert } from '@/lib/types';
 import { alertDestination } from '@/lib/alerts';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { TableToolbar } from '@/components/TableToolbar';
+import { SeeMoreButton } from '@/components/SeeMoreButton';
+import { useCappedList } from '@/hooks/useCappedList';
 import { Bell, RefreshCw, PartyPopper, Check } from 'lucide-react';
 
 export default function AlertsPage() {
@@ -64,6 +67,15 @@ export default function AlertsPage() {
 
   const active = alerts.filter(a => !a.acknowledged && !acked.has(a.id));
   const resolved = alerts.filter(a => a.acknowledged || acked.has(a.id));
+  const byRecency = (a: Alert, b: Alert) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+
+  const {
+    search: activeSearch, setSearch: setActiveSearch, visible: visibleActive, remaining: activeRemaining,
+    filteredCount: activeFilteredCount, showMore: showMoreActive, showAll: showAllActive,
+  } = useCappedList(active, { searchFields: ['title', 'message'], sortFn: byRecency });
+  const {
+    visible: visibleResolved, remaining: resolvedRemaining, showMore: showMoreResolved, showAll: showAllResolved,
+  } = useCappedList(resolved, { sortFn: byRecency, initial: 5 });
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-3xl">
@@ -91,7 +103,15 @@ export default function AlertsPage() {
           ? <div className="flex items-center justify-center gap-2 py-8 bg-white border border-dashed rounded-xl text-gray-400"><PartyPopper className="w-4 h-4" /> {t('noActiveAlerts')}</div>
           : (
             <div className="flex flex-col gap-3">
-              {active.map(a => (
+              {active.length > 10 && (
+                <TableToolbar search={activeSearch} onSearchChange={setActiveSearch} placeholder="Search alerts…" className="mb-1">
+                  <span className="text-xs text-gray-400">{activeFilteredCount} of {active.length}</span>
+                </TableToolbar>
+              )}
+              {activeFilteredCount === 0 && (
+                <p className="text-center text-gray-400 text-sm py-6">No alerts match &quot;{activeSearch}&quot;.</p>
+              )}
+              {visibleActive.map(a => (
                 <div key={a.id} role="button" tabIndex={0}
                   onClick={() => router.push(alertDestination(a))}
                   onKeyDown={e => { if (e.key === 'Enter') router.push(alertDestination(a)); }}
@@ -106,6 +126,7 @@ export default function AlertsPage() {
                   <button onClick={e => { e.stopPropagation(); ackAlert(a.id); }} className="text-xs text-success font-semibold shrink-0 hover:underline border border-success/30 rounded-lg px-3 py-1.5">Acknowledge</button>
                 </div>
               ))}
+              <SeeMoreButton remaining={activeRemaining} onShowMore={showMoreActive} onShowAll={showAllActive} />
             </div>
           )
         }
@@ -115,13 +136,14 @@ export default function AlertsPage() {
         <section>
           <h2 className="font-semibold text-gray-400 mb-3">{t('acknowledged')} ({resolved.length})</h2>
           <div className="flex flex-col gap-2 opacity-50">
-            {resolved.map(a => (
+            {visibleResolved.map(a => (
               <div key={a.id} className="bg-gray-50 border border-gray-200 rounded-xl px-5 py-3 flex gap-3">
                 <StatusChip status="ok" size="sm" label="ACK" />
                 <p className="text-sm text-gray-500">{a.title}</p>
               </div>
             ))}
           </div>
+          <div className="opacity-100 mt-2"><SeeMoreButton remaining={resolvedRemaining} onShowMore={showMoreResolved} onShowAll={showAllResolved} /></div>
         </section>
       )}
 
