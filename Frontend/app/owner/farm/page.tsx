@@ -8,7 +8,7 @@ import type { ProductionUnit, Batch } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-import { ENTERPRISE_OPTIONS } from '@/lib/species';
+import { groupedEnterpriseOptions } from '@/lib/species';
 import {
   Tractor, Sprout, BarChart3, Fish, Bird, Rabbit, Wheat, Milk, Bug, Leaf, House,
   PawPrint, Layers, type LucideIcon,
@@ -107,7 +107,7 @@ export default function FarmPage() {
   const density = (u: ProductionUnit) => u.capacity ? (unitPop(u) / u.capacity * 100).toFixed(0) : '—';
 
   return (
-    <div className="p-6 flex flex-col gap-6 max-w-7xl">
+    <div className="p-6 flex flex-col gap-4 max-w-7xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -115,15 +115,18 @@ export default function FarmPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('farm')}</h1>
-            <p className="text-gray-500 text-sm">Production units and batches — capacity, growth stage, and status.</p>
+            <p className="hidden sm:block text-gray-500 text-sm">Production units and batches — capacity, growth stage, and status.</p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Link href="/owner/farm/stages" className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm"><Sprout className="w-4 h-4" /> {t('lifecycleStages')}</Link>
-          <Link href="/owner/farm/compare" className="flex items-center gap-1.5 px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg font-semibold text-sm hover:bg-indigo-200"><BarChart3 className="w-4 h-4" /> {t('compareBatches')}</Link>
-          <button onClick={() => setShow(show === 'unit' ? '' : 'unit')} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">+ {t('addUnit')}</button>
-          <button onClick={() => setShow(show === 'batch' ? '' : 'batch')} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">+ {t('addBatch')}</button>
-          <Link href="/owner/farm/split-delivery" className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">+ Split delivery</Link>
+        {/* Primary action first so it's never scrolled off-screen; the rest is a
+            single horizontally-scrolling row on mobile instead of wrapping to
+            several rows and pushing the actual dashboard content further down. */}
+        <div className="flex gap-2 overflow-x-auto md:flex-wrap w-full sm:w-auto -mx-1 px-1 sm:mx-0 sm:px-0">
+          <button onClick={() => setShow(show === 'batch' ? '' : 'batch')} className="shrink-0 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">+ {t('addBatch')}</button>
+          <button onClick={() => setShow(show === 'unit' ? '' : 'unit')} className="shrink-0 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">+ {t('addUnit')}</button>
+          <Link href="/owner/farm/split-delivery" className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">+ Split delivery</Link>
+          <Link href="/owner/farm/compare" className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg font-semibold text-sm hover:bg-indigo-200"><BarChart3 className="w-4 h-4" /> {t('compareBatches')}</Link>
+          <Link href="/owner/farm/stages" className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm"><Sprout className="w-4 h-4" /> {t('lifecycleStages')}</Link>
         </div>
       </div>
 
@@ -150,37 +153,42 @@ export default function FarmPage() {
           <h3 className="font-bold text-gray-800 text-lg">{t('addBatch')}</h3>
           {units.length === 0 && <p className="text-amber-600 text-sm">{t('noUnits')}</p>}
 
-          {/* Species picker — visual icon grid */}
-          <div>
-            <p className="text-sm font-semibold text-gray-700 mb-2">{t('whatAreYouAdding')} <span className="text-gray-400 font-normal">{t('tapToSelectEnterprise')}</span></p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-              {ENTERPRISE_OPTIONS.map(opt => {
-                const selected = batchForm.enterprise === opt.key ||
-                  (!batchForm.enterprise && opt.key === 'layers' && !batchForm.species);
-                const OptIcon = opt.Icon;
-                return (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    onClick={() => {
-                      setBatchForm({
-                        ...batchForm,
-                        enterprise: batchForm.enterprise === opt.key ? '' : opt.key,
-                        species: batchForm.enterprise === opt.key ? '' : opt.desc.split(' ')[0].toLowerCase(),
-                      });
-                    }}
-                    className={`flex flex-col items-center gap-1 rounded-xl border-2 p-3 transition-all ${
-                      selected
-                        ? 'bg-primary/10 border-primary shadow-sm'
-                        : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <OptIcon className={`w-6 h-6 ${selected ? 'text-primary' : 'text-gray-500'}`} />
-                    <span className={`text-xs font-semibold ${selected ? 'text-primary' : 'text-gray-600'}`}>{opt.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Species picker — visual icon grid, grouped by animal family */}
+          <div className="flex flex-col gap-3">
+            <p className="text-sm font-semibold text-gray-700">{t('whatAreYouAdding')} <span className="text-gray-400 font-normal">{t('tapToSelectEnterprise')}</span></p>
+            {groupedEnterpriseOptions().map(({ group, options }) => (
+              <div key={group} className="flex flex-col gap-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">{group}</p>
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                  {options.map(opt => {
+                    const selected = batchForm.enterprise === opt.key ||
+                      (!batchForm.enterprise && opt.key === 'layers' && !batchForm.species);
+                    const OptIcon = opt.Icon;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => {
+                          setBatchForm({
+                            ...batchForm,
+                            enterprise: batchForm.enterprise === opt.key ? '' : opt.key,
+                            species: batchForm.enterprise === opt.key ? '' : opt.defaultSpecies,
+                          });
+                        }}
+                        className={`flex flex-col items-center gap-1 rounded-xl border-2 p-3 transition-all ${
+                          selected
+                            ? 'bg-primary/10 border-primary shadow-sm'
+                            : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <OptIcon className={`w-6 h-6 ${selected ? 'text-primary' : 'text-gray-500'}`} />
+                        <span className={`text-xs font-semibold ${selected ? 'text-primary' : 'text-gray-600'}`}>{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Quick fields — only the essentials */}
@@ -212,25 +220,26 @@ export default function FarmPage() {
         </form>
       )}
 
-      {/* Units heatmap */}
+      {/* Units heatmap — the "is anything wrong" glance, so it comes first and
+          stays as compact as legibility allows. */}
       <section>
-        <h2 className="text-base font-semibold text-gray-700 mb-3">{t('productionUnits')}</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <h2 className="text-base font-semibold text-gray-700 mb-2">{t('productionUnits')}</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
           {units.map(u => {
             const ub = unitBatches(u);
             const dens = parseInt(density(u));
             const heatColor = dens > 90 ? 'bg-destructive/10 border-destructive/30' : dens > 70 ? 'bg-warning/15 border-warning/40' : dens > 0 ? 'bg-success/10 border-success/30' : 'bg-gray-100 border-gray-200';
             const UnitIcon = unitIcon(u.type, ub[0]?.species ?? u.species);
             return (
-              <div key={u.id} className={cn('rounded-xl border p-4', heatColor)}>
-                <div className="flex items-center gap-2 mb-2">
-                  <UnitIcon className="w-5 h-5 text-gray-600 shrink-0" />
+              <div key={u.id} className={cn('rounded-xl border p-3', heatColor)}>
+                <div className="flex items-start gap-2 mb-2">
+                  <UnitIcon className="w-5 h-5 text-gray-600 shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900 text-sm truncate">{u.name}</p>
+                    <p className="font-bold text-gray-900 text-sm leading-tight">{u.name}</p>
                     <p className="text-xs text-gray-500">{u.code} · {u.type}</p>
                   </div>
-                  <StatusChip status={unitStatusVariant(u.status)} size="sm" label={u.status} />
                 </div>
+                <div className="mb-2"><StatusChip status={unitStatusVariant(u.status)} size="sm" label={u.status} /></div>
                 <div className="flex justify-between text-xs text-gray-600 mb-2">
                   <span>{unitPop(u)} / {u.capacity}</span>
                   <span>{dens > 0 ? `${dens}% ${t('full')}` : t('empty')}</span>

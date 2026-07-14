@@ -24,7 +24,7 @@ export interface ProductionUnit {
 
 export interface Batch {
   id: string; tenantId: string; unitId: string; name: string;
-  species: string; breed?: string; source: BatchSource;
+  species: string; enterprise?: string | null; breed?: string; source: BatchSource;
   acquiredDate: string; ageAtAcquire: number; initialQty: number; currentQty: number;
   stage: BatchStage; acquisitionCost: number; status: 'ACTIVE'|'CLOSED'|'ARCHIVED';
   parentBatchIds?: string[];

@@ -26,6 +26,7 @@ export async function askAI(messages: ChatMessage[]): Promise<string> {
   }
   if (!res.ok) {
     if (res.status === 401) throw new Error('The AI key was rejected. Please check your OpenRouter key.');
+    if (res.status === 402) throw new Error('The AI service has no credits left. Top up the OpenRouter account to keep using it.');
     if (res.status === 429) throw new Error('The AI is busy right now (rate limited). Try again shortly.');
     throw new Error('The AI service had a problem. Please try again.');
   }

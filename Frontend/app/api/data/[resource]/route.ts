@@ -30,7 +30,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ resource: strin
   const session = await getSession();
   if (!session) return unauthorized();
   const readLimit = checkReadRateLimit(req);
-  if (!readLimit.allowed) return tooMany(`Too many requests.`, readLimit.retryAfter);
+  if (!readLimit.allowed) return tooMany('Too many requests.', readLimit.retryAfter);
 
   const { resource } = await ctx.params;
   const def = RESOURCES[resource];
@@ -89,7 +89,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
   const session = await getSession();
   if (!session) return unauthorized();
   const writeLimit = checkWriteRateLimit(req);
-  if (!writeLimit.allowed) return tooMany(`Too many requests.`, writeLimit.retryAfter);
+  if (!writeLimit.allowed) return tooMany('Too many requests.', writeLimit.retryAfter);
   const { resource } = await ctx.params;
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -156,7 +156,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ resource: str
   const session = await getSession();
   if (!session) return unauthorized();
   const writeLimit = checkWriteRateLimit(req);
-  if (!writeLimit.allowed) return tooMany(`Too many requests.`, writeLimit.retryAfter);
+  if (!writeLimit.allowed) return tooMany('Too many requests.', writeLimit.retryAfter);
   const { resource } = await ctx.params;
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return badRequest('id required');

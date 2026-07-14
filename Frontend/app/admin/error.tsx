@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { ShieldAlert } from 'lucide-react';
+import { reportError } from '@/lib/errorReporter';
 
 export default function AdminError({
   error,
@@ -13,6 +14,7 @@ export default function AdminError({
 }) {
   useEffect(() => {
     console.error('Admin page error:', error);
+    reportError(error, 'admin');
   }, [error]);
 
   return (

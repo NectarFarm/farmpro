@@ -63,7 +63,14 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
   const titleKey: TranslationKey = TITLE_KEYS[pathname] ?? 'home';
   const title = t(titleKey) ?? brand.appName;
   const isHome = pathname === '/worker/home';
-  const handleLogout = () => { logout(); router.replace('/worker/login'); };
+  // Best-effort: never block logout on this. Only clears already-synced
+  // records and the disposable ref-data cache — real unsynced work in the
+  // outbox survives, per lib/offline/db.ts's purgeSyncedAndCacheOnLogout.
+  const handleLogout = () => {
+    void import('@/lib/offline/db').then(m => m.purgeSyncedAndCacheOnLogout()).catch(() => {});
+    logout();
+    router.replace('/worker/login');
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-50">

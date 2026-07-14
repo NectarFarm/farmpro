@@ -3,12 +3,21 @@
 // Runs in browser only; never on server/edge
 
 import Dexie, { type Table } from 'dexie';
+// Static import deliberately, NOT `await import('./crypto')`: a dynamic import
+// is a separate on-demand chunk that Turbopack/webpack fetches over the
+// network the first time it's called — which fails offline even though the
+// module was already loaded elsewhere on the page. That would break the
+// exact offline-first submission path this encryption code is meant to run
+// on. crypto.ts imports `getDB` back from this file, but the cycle is safe:
+// both sides only touch the imported binding inside function bodies, never
+// at module-init time.
+import { encryptString } from './crypto';
 
 export interface PendingRecord {
   id?: number; // auto-incremented local key
   clientUuid: string;
   type: string;
-  payload: string; // JSON stringified
+  payload: string; // JSON stringified, OR an EncryptedEnvelope (iv/ct) JSON string when enc:1
   capturedAt: string;
   // 'rejected' = the server explicitly refused this record (e.g. failed
   // validation) — distinct from 'conflict' (both versions were valid, one won)
@@ -18,6 +27,10 @@ export interface PendingRecord {
   status: 'pending' | 'syncing' | 'synced' | 'conflict' | 'rejected';
   error?: string;
   attempts?: number; // used by sync retry/backoff (Phase 2); not indexed
+  // Presence (not content-sniffing) marks `payload` as an encrypted envelope —
+  // explicit so a legacy plaintext payload that happens to contain keys named
+  // iv/ct is never misread. Absent = legacy plaintext JSON (pre-encryption rows).
+  enc?: 1;
 }
 
 export interface CachedPinHash {
@@ -30,14 +43,24 @@ export interface CachedPinHash {
 
 export interface CachedRef {
   key: string;        // 'batches' | 'units' | 'items' | 'lots' | `tasks:${userId}` | `products:${batchId}`
-  data: string;        // JSON.stringify'd payload
+  data: string;        // JSON.stringify'd payload, OR an EncryptedEnvelope JSON string when enc:1
   cachedAt: string;    // ISO timestamp
+  enc?: 1;             // see PendingRecord.enc
+}
+
+// One row, id: 'device-key'. See lib/offline/crypto.ts for the key's design —
+// a non-extractable CryptoKey, natively structured-clonable into IndexedDB.
+export interface DeviceKeyRow {
+  id: string;
+  key: CryptoKey;
+  createdAt: string;
 }
 
 class IFMSDatabase extends Dexie {
   pending!: Table<PendingRecord>;
   pinCache!: Table<CachedPinHash>;
   refCache!: Table<CachedRef>;
+  keyStore!: Table<DeviceKeyRow>;
 
   constructor() {
     super('ifms_worker_db');
@@ -51,6 +74,12 @@ class IFMSDatabase extends Dexie {
     this.version(2).stores({
       refCache: 'key',
       profileCache: null,
+    });
+    // v3: add keyStore (device encryption key — lib/offline/crypto.ts). Only a
+    // new object store is added; the `enc` field on pending/refCache rows is
+    // additive data, not an index, so it needs no version bump of its own.
+    this.version(3).stores({
+      keyStore: 'id',
     });
   }
 }
@@ -67,10 +96,12 @@ export function getDB(): IFMSDatabase {
 
 export async function enqueuePendingRecord(type: string, payload: unknown, clientUuid: string) {
   const db = getDB();
+  const envelope = await encryptString(JSON.stringify(payload));
   await db.pending.add({
     clientUuid,
     type,
-    payload: JSON.stringify(payload),
+    payload: JSON.stringify(envelope),
+    enc: 1,
     capturedAt: new Date().toISOString(),
     status: 'pending',
   });
@@ -96,6 +127,37 @@ export async function getRejectedCount(): Promise<number> {
     const db = getDB();
     return db.pending.where('status').equals('rejected').count();
   } catch { return 0; }
+}
+
+// Oldest still-outstanding record's capturedAt — drives the SyncBadge's
+// stale-outbox warning (a device lost/destroyed before this syncs loses that
+// data permanently, so a worker sitting on an old unsynced queue should be
+// prompted to reconnect before that happens).
+export async function getOldestPendingCapturedAt(): Promise<string | null> {
+  try {
+    const db = getDB();
+    const rows = await db.pending.where('status').anyOf(['pending', 'syncing']).toArray();
+    if (rows.length === 0) return null;
+    return rows.reduce((oldest, r) => (r.capturedAt < oldest ? r.capturedAt : oldest), rows[0].capturedAt);
+  } catch { return null; }
+}
+
+// Logout-time cleanup: purge only rows that are safely redundant locally —
+// already-synced records (safe, they're durably on the server) and the
+// disposable reference-data cache (repopulates on next login's warmRefCache()).
+// Deliberately NEVER touches 'pending'/'syncing'/'conflict'/'rejected' rows —
+// those represent real unsynced work and must survive a logout. Narrows the
+// window in which a shared device could have a previous worker's data sitting
+// in local storage after they've logged out.
+export async function purgeSyncedAndCacheOnLogout(): Promise<void> {
+  try {
+    const db = getDB();
+    const synced = await db.pending.where('status').equals('synced').primaryKeys();
+    await Promise.all([
+      db.pending.bulkDelete(synced),
+      db.refCache.clear(),
+    ]);
+  } catch { /* best-effort — never block logout on this */ }
 }
 
 export interface TodayRecordSummary {

@@ -246,6 +246,20 @@
       "when": 1783938800000,
       "tag": "0034_payslips_period_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1783982688463,
+      "tag": "0035_batches_enterprise",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1784010787336,
+      "tag": "0036_error_logs_and_missing_indexes",
+      "breakpoints": true
     }
   ]
 }

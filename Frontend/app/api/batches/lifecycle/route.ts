@@ -2,7 +2,7 @@ import { db } from '@/db';
 import { batches, lifecycleStages, batchStageEvents, productionUnits } from '@/db/schemas';
 import { and, eq } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
-import { enterpriseFromSpecies } from '@/lib/server/productTemplates';
+import { resolveEnterprise } from '@/lib/server/productTemplates';
 import { ageDays, dueToAdvance } from '@/lib/lifecycle';
 import { ok, badRequest, unauthorized, forbidden, notFound } from '@/lib/server/http';
 import type { Role } from '@/lib/types';
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const [b] = await db.select().from(batches).where(and(eq(batches.tenantId, session.tenantId), eq(batches.id, batchId))).limit(1);
   if (!b) return notFound();
 
-  const enterprise = enterpriseFromSpecies(b.species);
+  const enterprise = resolveEnterprise(b);
   const stages = enterprise
     ? (await db.select().from(lifecycleStages).where(and(eq(lifecycleStages.tenantId, session.tenantId), eq(lifecycleStages.enterprise, enterprise))))
         .sort((a, c) => a.ord - c.ord).map((s) => ({ name: s.name, startDay: s.startDay }))

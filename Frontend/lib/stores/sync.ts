@@ -15,6 +15,11 @@ interface SyncStore {
   rejectedCount: number;
   conflicts: ConflictEntry[];
   lastSynced: string | null;
+  // capturedAt of the oldest still-unsynced record — drives the SyncBadge's
+  // "reconnect soon" warning so a lost/destroyed device doesn't silently lose
+  // data that's been sitting in the outbox a long time. Null when the queue
+  // is empty (or not yet checked).
+  oldestPendingCapturedAt: string | null;
   setOnline: (v: boolean) => void;
   setPendingCount: (n: number) => void;
   setRejectedCount: (n: number) => void;
@@ -22,6 +27,7 @@ interface SyncStore {
   addConflict: (c: ConflictEntry) => void;
   resolveConflict: (id: string, resolution: 'kept_mine' | 'kept_server') => void;
   setSynced: () => void;
+  setOldestPendingCapturedAt: (v: string | null) => void;
 }
 
 export const useSyncStore = create<SyncStore>()((set) => ({
@@ -31,6 +37,7 @@ export const useSyncStore = create<SyncStore>()((set) => ({
   rejectedCount: 0,
   conflicts: [],
   lastSynced: null,
+  oldestPendingCapturedAt: null,
   setOnline: (isOnline) => set({ isOnline, status: isOnline ? 'idle' : 'offline' }),
   setPendingCount: (pendingCount) => set({ pendingCount }),
   setRejectedCount: (rejectedCount) => set({ rejectedCount }),
@@ -39,5 +46,6 @@ export const useSyncStore = create<SyncStore>()((set) => ({
   resolveConflict: (id, resolution) => set(s => ({
     conflicts: s.conflicts.map(c => c.id === id ? { ...c, resolution, resolvedAt: new Date().toISOString() } : c),
   })),
-  setSynced: () => set({ lastSynced: new Date().toISOString(), pendingCount: 0, status: 'idle' }),
+  setSynced: () => set({ lastSynced: new Date().toISOString(), pendingCount: 0, status: 'idle', oldestPendingCapturedAt: null }),
+  setOldestPendingCapturedAt: (oldestPendingCapturedAt) => set({ oldestPendingCapturedAt }),
 }));

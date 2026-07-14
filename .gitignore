@@ -5,3 +5,6 @@ node_modules/
 !.env.example
 *.log
 .DS_Store
+
+# Android TWA build (keystore must never be committed)
+apk-build/

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { WorkerProfile, FieldConfig, FieldPermission } from '@/lib/types';
-import { Settings, Check, Lock } from 'lucide-react';
+import { Settings, Check, Lock, Download } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
 export default function WorkerConfigPage() {
@@ -24,6 +24,24 @@ export default function WorkerConfigPage() {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+
+  const downloadBackup = async () => {
+    setBackingUp(true); setErr('');
+    try {
+      const res = await fetch('/api/backup/export', { credentials: 'include' });
+      if (!res.ok) throw new Error(res.status === 403 ? 'Owner access required.' : 'Backup export failed.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = ''; // server's Content-Disposition filename wins
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { setErr((e as Error).message); } finally { setBackingUp(false); }
+  };
 
   const selectProfile = (p: WorkerProfile) => { setSelected(p); setEdited(p.fields); setPhotoThreshold(p.mortalityPhotoThreshold); setSaved(false); };
   const reload = (keepId?: string) => api.getWorkerProfiles().then(p => {
@@ -78,10 +96,15 @@ export default function WorkerConfigPage() {
         <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
           <Settings className="w-6 h-6 text-primary" />
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold text-gray-900">{t('config')}</h1>
           <p className="text-gray-500 text-sm">Control what each worker profile can see, edit, and must fill in.</p>
         </div>
+        <button onClick={downloadBackup} disabled={backingUp}
+          title="Download a JSON backup of your farm's data. Supplementary only — not a substitute for your own record-keeping."
+          className="shrink-0 px-4 py-2 rounded-xl font-semibold text-sm border-2 border-gray-300 text-gray-700 flex items-center gap-2 disabled:opacity-60">
+          <Download className="w-4 h-4" /> {backingUp ? 'Preparing…' : 'Download backup'}
+        </button>
       </div>
 
       {/* Profile selector */}

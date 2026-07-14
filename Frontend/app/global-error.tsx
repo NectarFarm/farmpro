@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { reportError } from '@/lib/errorReporter';
 
 // Root-layout-level error boundary. Next.js only renders this when the root
 // layout itself throws, so it must supply its own <html>/<body> — the normal
@@ -16,6 +17,7 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error('Root layout error:', error);
+    reportError(error, 'global-error');
   }, [error]);
 
   return (

@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return unauthorized();
   const readLimit = checkReadRateLimit(req);
-  if (!readLimit.allowed) return tooMany(`Too many requests.`, readLimit.retryAfter);
+  if (!readLimit.allowed) return tooMany('Too many requests.', readLimit.retryAfter);
   if (session.role !== 'owner' && session.role !== 'manager') return forbidden();
 
   const url = new URL(req.url);
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session) return unauthorized();
   const writeLimit = checkWriteRateLimit(req);
-  if (!writeLimit.allowed) return tooMany(`Too many requests.`, writeLimit.retryAfter);
+  if (!writeLimit.allowed) return tooMany('Too many requests.', writeLimit.retryAfter);
   if (session.role !== 'owner') return forbidden();
 
   const parsed = await parseBody(req, createEmployeeSchema);
@@ -111,7 +111,7 @@ export async function PATCH(req: Request) {
   const session = await getSession();
   if (!session) return unauthorized();
   const writeLimit = checkWriteRateLimit(req);
-  if (!writeLimit.allowed) return tooMany(`Too many requests.`, writeLimit.retryAfter);
+  if (!writeLimit.allowed) return tooMany('Too many requests.', writeLimit.retryAfter);
   if (session.role !== 'owner') return forbidden();
 
   const id = new URL(req.url).searchParams.get('id');

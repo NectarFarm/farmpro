@@ -6,7 +6,7 @@ import { db } from '@/db';
 import type { DbClient } from '@/db';
 import { batches, mortalityRecords, inventoryItems, inventoryLots, tasks, alertRules, alerts, lifecycleStages } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
-import { enterpriseFromSpecies } from './productTemplates';
+import { resolveEnterprise } from './productTemplates';
 import { ageDays, dueToAdvance } from '@/lib/lifecycle';
 
 // Raise a single event alert with a deterministic id. Idempotent: if an alert with
@@ -106,7 +106,7 @@ export async function evaluateAlerts(tenantId: string): Promise<{ conditions: nu
     const stageBatches = await db.select().from(batches).where(eq(batches.tenantId, tenantId));
     for (const b of stageBatches) {
       if (b.status !== 'ACTIVE') continue;
-      const ent = enterpriseFromSpecies(b.species);
+      const ent = resolveEnterprise(b);
       if (!ent) continue;
       const set = stageRows.filter((s) => s.enterprise === ent).sort((a, c) => a.ord - c.ord).map((s) => ({ name: s.name, startDay: s.startDay }));
       if (!set.length) continue;

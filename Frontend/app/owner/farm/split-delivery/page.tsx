@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { ProductionUnit } from '@/lib/types';
-import { ENTERPRISE_OPTIONS } from '@/lib/species';
+import { groupedEnterpriseOptions } from '@/lib/species';
 import { cn } from '@/lib/utils';
 import { Boxes, Layers, ListChecks, Check } from 'lucide-react';
 
@@ -114,17 +114,22 @@ export default function SplitDeliveryPage() {
               <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. June tilapia fries"
                 className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base" />
             </div>
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">What is it?</p>
-              <div className="grid grid-cols-3 gap-2">
-                {ENTERPRISE_OPTIONS.map(opt => (
-                  <button key={opt.key} type="button" onClick={() => { setEnterprise(o => o === opt.key ? '' : opt.key); setSpecies(opt.desc.split(' ')[0].toLowerCase()); }}
-                    className={cn('flex flex-col items-center gap-1 rounded-xl border-2 p-3', enterprise === opt.key ? 'bg-primary/10 border-primary' : 'bg-white border-gray-200')}>
-                    <opt.Icon className={cn('w-5 h-5', enterprise === opt.key ? 'text-primary' : 'text-gray-500')} />
-                    <span className="text-xs font-semibold text-gray-700">{opt.label}</span>
-                  </button>
-                ))}
-              </div>
+            <div className="flex flex-col gap-3">
+              <p className="text-sm font-medium text-gray-700">What is it?</p>
+              {groupedEnterpriseOptions().map(({ group, options }) => (
+                <div key={group} className="flex flex-col gap-1.5">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">{group}</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {options.map(opt => (
+                      <button key={opt.key} type="button" onClick={() => { setEnterprise(o => o === opt.key ? '' : opt.key); setSpecies(enterprise === opt.key ? '' : opt.defaultSpecies); }}
+                        className={cn('flex flex-col items-center gap-1 rounded-xl border-2 p-3', enterprise === opt.key ? 'bg-primary/10 border-primary' : 'bg-white border-gray-200')}>
+                        <opt.Icon className={cn('w-5 h-5', enterprise === opt.key ? 'text-primary' : 'text-gray-500')} />
+                        <span className="text-xs font-semibold text-gray-700">{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">

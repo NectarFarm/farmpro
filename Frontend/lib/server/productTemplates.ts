@@ -100,6 +100,15 @@ export function enterpriseFromSpecies(species: string): string | null {
   return null;
 }
 
+// Single source of truth for "what enterprise is this batch": the persisted
+// column, set unambiguously from the creation-time picker, wins whenever it's
+// present. Falls back to the free-text species matcher above only for batches
+// created before the `enterprise` column existed, or via free-text species
+// entry (setup wizard) with no picker involved.
+export function resolveEnterprise(batch: { enterprise?: string | null; species?: string | null }): string | null {
+  return batch.enterprise || enterpriseFromSpecies(batch.species ?? '');
+}
+
 export const ENTERPRISE_LABELS: Record<string, string> = {
   layers: 'Layers (eggs)', broilers: 'Broilers (meat)', pig_fatten: 'Pig fattening',
   pig_breed: 'Pig breeding', tilapia: 'Tilapia', catfish: 'Catfish', maize: 'Maize',
@@ -121,7 +130,7 @@ const DEFAULT_LIVE_WEIGHT_KG: Record<string, number> = {
   rabbits: 2,
 };
 
-export function defaultLiveWeightKg(species: string): number | null {
-  const ent = enterpriseFromSpecies(species);
+export function defaultLiveWeightKg(species: string, enterprise?: string | null): number | null {
+  const ent = enterprise || enterpriseFromSpecies(species);
   return ent && DEFAULT_LIVE_WEIGHT_KG[ent] != null ? DEFAULT_LIVE_WEIGHT_KG[ent] : null;
 }

@@ -7,7 +7,7 @@ import {
   healthRecords, laborLogs, overheads, employees, payslips,
 } from '@/db/schemas';
 import { and, eq } from 'drizzle-orm';
-import { enterpriseFromSpecies } from './productTemplates';
+import { resolveEnterprise } from './productTemplates';
 import { labourByBatch } from '@/lib/payroll';
 import type { BatchCostSummary } from '@/lib/types';
 
@@ -71,7 +71,7 @@ export function summarizeBatchCost(batch: BatchRow, inputs: CostInputs): BatchCo
   const eggs = prod.filter((p) => p.type.toLowerCase().includes('egg')).reduce((s, p) => s + p.qty, 0);
   const totalRevenue = salesRows.reduce((s, x) => s + x.totalAmount, 0);
 
-  const enterprise = enterpriseFromSpecies(batch.species || '');
+  const enterprise = resolveEnterprise(batch);
   const isLayer = enterprise === 'layers';
   const producedKg = prod.reduce((s, p) => s + (p.weightKg ?? 0), 0)
     + salesRows.reduce((s, x) => s + (x.weightKg ?? 0), 0);
@@ -271,7 +271,7 @@ export async function computeDashboardKPIs(tenantId: string) {
   const entDeaths: Record<string, number> = {};
   const entInitial: Record<string, number> = {};
   for (const b of allBatches) {
-    const ent = enterpriseFromSpecies(b.species || '') || 'other';
+    const ent = resolveEnterprise(b) || 'other';
     if (!enterpriseBreaks[ent]) enterpriseBreaks[ent] = { batches: 0, animals: 0, mortalityPct: 0 };
     if (b.status === 'ACTIVE') {
       enterpriseBreaks[ent].batches++;
@@ -282,7 +282,7 @@ export async function computeDashboardKPIs(tenantId: string) {
   for (const m of morts) {
     const batch = allBatches.find((b) => b.id === m.batchId);
     if (!batch) continue;
-    const ent = enterpriseFromSpecies(batch.species || '') || 'other';
+    const ent = resolveEnterprise(batch) || 'other';
     entDeaths[ent] = (entDeaths[ent] ?? 0) + m.count;
   }
   for (const ent of Object.keys(enterpriseBreaks)) {

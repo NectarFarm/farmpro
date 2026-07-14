@@ -1,7 +1,7 @@
 // IFMS Drizzle schema — SRS v1.0 §4. Every tenant-owned row carries tenant_id.
 // Money is doublePrecision for the demo; production should use integer minor units.
 import {
-  pgTable, text, integer, doublePrecision, boolean, timestamp, jsonb, unique,
+  pgTable, text, integer, doublePrecision, boolean, timestamp, jsonb, unique, index,
 } from 'drizzle-orm/pg-core';
 import type { FieldConfig } from '@/lib/types';
 import { ALL_FEATURE_KEYS } from '@/lib/features';
@@ -67,7 +67,9 @@ export const users = pgTable('users', {
   language: text('language').notNull().default('en'),
   passwordHash: text('password_hash'), // owner/manager/vet/auditor
   pinHash: text('pin_hash'),           // worker
-});
+}, (t) => [
+  index('idx_users_tenant_role').on(t.tenantId, t.role),
+]);
 
 export const workerProfiles = pgTable('worker_profiles', {
   id: text('id').primaryKey(),
@@ -96,7 +98,9 @@ export const employees = pgTable('employees', {
   // Batches this worker is assigned to. NULL = all (current & future) active batches
   // — the default. [] = none. [ids] = exactly those. Drives salary allocation.
   assignedBatchIds: jsonb('assigned_batch_ids').$type<string[]>(),
-});
+}, (t) => [
+  index('idx_employees_tenant_active').on(t.tenantId, t.active),
+]);
 
 // One payslip per employee per month. `gross` is SNAPSHOT at run time, so editing
 // an employee's salary never rewrites a past payslip. Once status='paid' it's locked.
@@ -122,6 +126,7 @@ export const payslips = pgTable('payslips', {
   // One payslip per employee per period — blocks the double-INSERT race on
   // concurrent `action:'run'` requests (see app/api/payroll/route.ts).
   unique('payslips_tenant_employee_period_unique').on(t.tenantId, t.employeeId, t.period),
+  index('idx_payslips_tenant_period').on(t.tenantId, t.period),
 ]);
 
 // Advances, fines (fines are also farm income), bonuses & adjustments per employee,
@@ -141,7 +146,9 @@ export const employeeLedger = pgTable('employee_ledger', {
   // one insert). Nullable — older clients may not send one, in which case we fall
   // back to a plain insert with a server-generated id.
   clientUuid: text('client_uuid').unique(),
-});
+}, (t) => [
+  index('idx_employee_ledger_tenant_emp').on(t.tenantId, t.employeeId),
+]);
 
 export const productionUnits = pgTable('production_units', {
   id: text('id').primaryKey(),
@@ -163,6 +170,13 @@ export const batches = pgTable('batches', {
   unitId: text('unit_id').notNull(),
   name: text('name').notNull(),
   species: text('species').notNull(),
+  // Canonical enterprise key ('layers', 'broilers', 'tilapia', ...) set directly
+  // from the batch-creation picker. The source of truth for costing/lifecycle/
+  // alert-engine enterprise lookups — see resolveEnterprise() in
+  // lib/server/productTemplates.ts. Nullable: older batches predating this
+  // column, and batches created via free-text species entry (setup wizard),
+  // fall back to enterpriseFromSpecies(species) guessing.
+  enterprise: text('enterprise'),
   breed: text('breed'),
   source: text('source').notNull(),
   acquiredDate: text('acquired_date').notNull(),
@@ -187,7 +201,10 @@ export const batches = pgTable('batches', {
   // is the opposite direction: one delivery event fanning out into several
   // sibling batches, each still a normal single-unit batch in every other respect.
   deliveryGroupId: text('delivery_group_id'),
-});
+}, (t) => [
+  index('idx_batches_tenant_status').on(t.tenantId, t.status),
+  index('idx_batches_tenant_species').on(t.tenantId, t.species),
+]);
 
 // Per-tenant lifecycle stage SET for an enterprise (broilers, layers, pig_fatten…).
 // Ordered stages, each starting at an age in DAYS. Seeded from STAGE_TEMPLATES on
@@ -240,7 +257,10 @@ export const inventoryLots = pgTable('inventory_lots', {
   supplierId: text('supplier_id'),
   receivedDate: text('received_date').notNull(),
   withdrawalDays: integer('withdrawal_days'),
-});
+}, (t) => [
+  index('idx_lots_tenant_item').on(t.tenantId, t.itemId),
+  index('idx_lots_tenant_expiry').on(t.tenantId, t.expiryDate),
+]);
 
 export const tasks = pgTable('tasks', {
   id: text('id').primaryKey(),
@@ -255,7 +275,13 @@ export const tasks = pgTable('tasks', {
   status: text('status').notNull().default('ASSIGNED'),
   dueAt: text('due_at').notNull(),
   overdue: boolean('overdue').default(false),
-});
+}, (t) => [
+  index('idx_tasks_tenant_status').on(t.tenantId, t.status),
+  index('idx_tasks_tenant_assigned').on(t.tenantId, t.assignedTo),
+  // Forward-looking: no current query filters/sorts by due_at yet, but a
+  // due-soon/overdue task view is a plausible near-term feature and this is cheap.
+  index('idx_tasks_tenant_due').on(t.tenantId, t.dueAt),
+]);
 
 export const alerts = pgTable('alerts', {
   id: text('id').primaryKey(),
@@ -266,7 +292,10 @@ export const alerts = pgTable('alerts', {
   type: text('type').notNull(),
   createdAt: text('created_at').notNull(),
   acknowledged: boolean('acknowledged').notNull().default(false),
-});
+}, (t) => [
+  index('idx_alerts_tenant_ack').on(t.tenantId, t.acknowledged),
+  index('idx_alerts_tenant_severity').on(t.tenantId, t.severity),
+]);
 
 export const sales = pgTable('sales', {
   id: text('id').primaryKey(),
@@ -287,7 +316,10 @@ export const sales = pgTable('sales', {
   withdrawalCheck: text('withdrawal_check').notNull(),
   withdrawalUntil: text('withdrawal_until'),
   createdAt: text('created_at').notNull(),
-});
+}, (t) => [
+  index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),
+  index('idx_sales_tenant_date').on(t.tenantId, t.createdAt),
+]);
 
 export const purchases = pgTable('purchases', {
   id: text('id').primaryKey(),
@@ -314,7 +346,9 @@ export const purchases = pgTable('purchases', {
   paymentMethod: text('payment_method'), // 'cash' | 'mpesa' | 'credit' | ...
   amountPaid: doublePrecision('amount_paid').notNull().default(0),
   amountPaidCents: integer('amount_paid_cents').notNull().default(0),
-});
+}, (t) => [
+  index('idx_purchases_tenant_date').on(t.tenantId, t.createdAt),
+]);
 
 // Generic landing table for synced field events (mortality/feeding/health/…).
 // clientUuid is the PK → upserts are idempotent (FR-M17-5).
@@ -326,7 +360,11 @@ export const records = pgTable('records', {
   capturedAt: text('captured_at').notNull(),
   createdBy: text('created_by').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (t) => [
+  index('idx_records_tenant_type').on(t.tenantId, t.type),
+  index('idx_records_tenant_captured_at').on(t.tenantId, t.capturedAt),
+  index('idx_records_tenant_created_by').on(t.tenantId, t.createdBy),
+]);
 
 // Append-only audit trail (FR-M18). UPDATE/DELETE should be revoked at the DB grant level.
 export const auditLog = pgTable('audit_log', {
@@ -339,7 +377,10 @@ export const auditLog = pgTable('audit_log', {
   after: jsonb('after'),
   meta: jsonb('meta'),
   at: timestamp('at').defaultNow(),
-});
+}, (t) => [
+  index('idx_audit_log_tenant_action').on(t.tenantId, t.action),
+  index('idx_audit_log_tenant_at').on(t.tenantId, t.at),
+]);
 
 export const conflictLog = pgTable('conflict_log', {
   id: text('id').primaryKey(),
@@ -355,7 +396,9 @@ export const conflictLog = pgTable('conflict_log', {
   // The owner has reviewed this conflict (accepted the auto last-write-wins, or
   // overridden it) → it drops off the "needs review" list.
   reviewed: boolean('reviewed').notNull().default(false),
-});
+}, (t) => [
+  index('idx_conflict_log_tenant_reviewed').on(t.tenantId, t.reviewed),
+]);
 
 // Typed field-event tables. /api/sync routes known record types here (clientUuid PK
 // → idempotent). The costing engine reads these.
@@ -369,7 +412,10 @@ export const feedingRecords = pgTable('feeding_records', {
   leftoverKg: doublePrecision('leftover_kg'),
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
-});
+}, (t) => [
+  index('idx_feeding_tenant_batch').on(t.tenantId, t.batchId),
+  index('idx_feeding_tenant_captured').on(t.tenantId, t.capturedAt),
+]);
 
 export const mortalityRecords = pgTable('mortality_records', {
   clientUuid: text('client_uuid').primaryKey(),
@@ -381,7 +427,10 @@ export const mortalityRecords = pgTable('mortality_records', {
   photoId: text('photo_id'),
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
-});
+}, (t) => [
+  index('idx_mortality_tenant_batch').on(t.tenantId, t.batchId),
+  index('idx_mortality_tenant_captured').on(t.tenantId, t.capturedAt),
+]);
 
 export const productionRecords = pgTable('production_records', {
   clientUuid: text('client_uuid').primaryKey(),
@@ -392,7 +441,11 @@ export const productionRecords = pgTable('production_records', {
   weightKg: doublePrecision('weight_kg'),
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
-});
+}, (t) => [
+  index('idx_production_tenant_batch').on(t.tenantId, t.batchId),
+  index('idx_production_tenant_type').on(t.tenantId, t.type),
+  index('idx_production_tenant_captured').on(t.tenantId, t.capturedAt),
+]);
 
 export const healthRecords = pgTable('health_records', {
   clientUuid: text('client_uuid').primaryKey(),
@@ -412,7 +465,12 @@ export const healthRecords = pgTable('health_records', {
   // Delivery method (e.g. 'Drinking water', 'Injection', 'Wing stab') — the worker
   // form has always collected this; it had nowhere to land until this column.
   route: text('route'),
-});
+}, (t) => [
+  index('idx_health_tenant_batch').on(t.tenantId, t.batchId),
+  // Every sibling typed-record table (feeding/mortality/production) already has a
+  // (tenant_id, captured_at) index; health_records was the one left out — added here.
+  index('idx_health_tenant_captured').on(t.tenantId, t.capturedAt),
+]);
 
 export const laborLogs = pgTable('labor_logs', {
   clientUuid: text('client_uuid').primaryKey(),
@@ -422,7 +480,9 @@ export const laborLogs = pgTable('labor_logs', {
   ratePerHour: doublePrecision('rate_per_hour').notNull(),
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
-});
+}, (t) => [
+  index('idx_labor_tenant_batch').on(t.tenantId, t.batchId),
+]);
 
 // Tenant overheads (rent/utilities/depreciation) — allocated to batches by a driver.
 export const overheads = pgTable('overheads', {
@@ -460,7 +520,9 @@ export const products = pgTable('products', {
   fieldKey: text('field_key'), // permission key on worker profiles for collecting it
   active: boolean('active').notNull().default(true),
   isAnimalProduct: boolean('is_animal_product').notNull().default(false),
-});
+}, (t) => [
+  index('idx_products_tenant_batch').on(t.tenantId, t.batchId),
+]);
 
 // Worker-captured photos (mortality evidence, etc.). Stored in R2 (object storage)
 // when configured, falling back to base64 data URLs in Postgres for small-scale use.
@@ -475,7 +537,9 @@ export const photos = pgTable('photos', {
   capturedBy: text('captured_by'),
   capturedAt: text('captured_at'),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (t) => [
+  index('idx_photos_tenant').on(t.tenantId),
+]);
 
 // Daily closing-stock counts (FR-M4-4): a worker's physical count per item.
 export const closingStockCounts = pgTable('closing_stock_counts', {
@@ -502,7 +566,9 @@ export const physicalCounts = pgTable('physical_counts', {
   reconciled: boolean('reconciled').notNull().default(false), // owner applied / dismissed
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
-});
+}, (t) => [
+  index('idx_physical_counts_tenant_batch').on(t.tenantId, t.batchId),
+]);
 
 // Weight sampling history (drives the biomass sell-cap + growth/weight-loss warning).
 export const weightSamples = pgTable('weight_samples', {
@@ -513,7 +579,9 @@ export const weightSamples = pgTable('weight_samples', {
   avgWeightKg: doublePrecision('avg_weight_kg').notNull(),
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
-});
+}, (t) => [
+  index('idx_weight_samples_tenant_batch').on(t.tenantId, t.batchId),
+]);
 
 // Morning-round observations: water readings + the abnormal flag. An abnormal report
 // raises an owner alert so a problem in the field is never silently lost.
@@ -532,7 +600,9 @@ export const observations = pgTable('observations', {
   abnormalNote: text('abnormal_note'),
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
-});
+}, (t) => [
+  index('idx_observations_tenant_batch').on(t.tenantId, t.batchId),
+]);
 
 // Feed-mix events (FR-M4-3): consumes ingredient lots → finished-feed lot.
 export const feedFormulas = pgTable('feed_formulas', {
@@ -575,7 +645,9 @@ export const auditorLinks = pgTable('auditor_links', {
   expiresAt: timestamp('expires_at').notNull(),
   revokedAt: timestamp('revoked_at'),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (t) => [
+  index('idx_auditor_links_tenant').on(t.tenantId),
+]);
 
 // Server-side session kill list. Logout (and future remote revoke) insert the
 // session jti here; getSession rejects revoked tokens even if the cookie remains.
@@ -584,4 +656,26 @@ export const revokedSessions = pgTable('revoked_sessions', {
   userId: text('user_id'),
   revokedAt: timestamp('revoked_at').defaultNow(),
   expiresAt: timestamp('expires_at').notNull(),
-});
+}, (t) => [
+  index('idx_revoked_sessions_expires').on(t.expiresAt),
+]);
+
+// Client-reported error/crash log — populated by the error boundaries
+// (app/{global-error,error}.tsx and the section-level error.tsx files) via
+// POST /api/errors. tenantId/userId are nullable: a crash can happen before a
+// session exists (e.g. on /login) or with a broken/expired session.
+export const errorLogs = pgTable('error_logs', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id'),
+  userId: text('user_id'),
+  context: text('context'), // 'root' | 'global' | 'worker' | 'owner' | 'admin' | 'manager' | 'auditor'
+  severity: text('severity').notNull().default('error'), // 'error' | 'fatal' (global-error.tsx)
+  message: text('message').notNull(),
+  digest: text('digest'), // Next.js error.digest — correlates with server logs
+  stack: text('stack'),
+  url: text('url'),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => [
+  index('idx_error_logs_tenant_created').on(t.tenantId, t.createdAt),
+]);
