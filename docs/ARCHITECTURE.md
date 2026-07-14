@@ -1,4 +1,4 @@
-> **As-built revision — 2026-06-24.** Updated to match the implemented system. The original inception version is preserved untouched at `docs/inception/ARCHITECTURE.md`. See `docs/AS_BUILT.md` for the full deviation list.
+> **As-built revision — 2026-07-14** (supersedes the 2026-06-24 revision below — production deployment moved to Vercel+Neon, an Android APK shipped, offline reliability and rate-limiting sections were corrected, a corporate UI redesign landed, and a 7-item NFR audit (battery, iOS, backup/recovery, availability, at-rest encryption, scalability, reliability/error-tracking) was fixed and verified; see §7, §8, §9, §11–14 for the deltas). Updated to match the implemented system. The original inception version is preserved untouched at `docs/inception/ARCHITECTURE.md`. See `docs/AS_BUILT.md` for the full deviation list.
 
 # IFMS — Technical Architecture & Implementation Plan
 
@@ -6,8 +6,8 @@
 |---|---|
 | **Product** | Integrated Farm Management System (IFMS) |
 | **Document type** | Technical Architecture & Implementation Plan |
-| **Version** | **3.0 — Option B: Next.js full-stack (supersedes v2's Django-API design); as-built 2026-06-24** |
-| **Status** | Phase-1 built & proven — pilot |
+| **Version** | **3.2 — Option B: Next.js full-stack (supersedes v2's Django-API design); as-built 2026-07-14** |
+| **Status** | Phase-1 built & proven — deployed to production, pilot in progress |
 | **Source of truth** | SRS v1.0 · DESIGN.md v1.0 · `docs/AS_BUILT.md` (as-built) |
 | **Audience** | Developers, technical co-founder, owner (Kutswa) |
 
@@ -171,21 +171,38 @@ assertWritable(session, fieldKeys)   → reject writes to non-editable fields
 | DB access boundary | Drizzle in `server-only` modules; client cannot import it | `NFR-SEC-2` |
 | Transport / at rest | TLS, secure cookies; Postgres encryption at the host | `NFR-SEC-1` |
 | Audit | append-only `audit_log`; corrections = adjusting entries | `FR-M18` |
-| **Deferred** | DB-level RLS, login rate-limiting, image re-encode, tenant export/delete, configurable retention | — |
+| **As-built (2026-07-14) — local storage encryption** | Worker device Dexie/IndexedDB (`pending` queue, `refCache`) encrypted with a non-extractable, device-bound **AES-256-GCM** key (`lib/offline/crypto.ts`); protects a lost/stolen locked/logged-out device, not an unlocked one | `NFR-SEC-1` |
+| **As-built (2026-07-14) — error reporting** | Client error boundaries POST to `/api/errors` → `error_logs` table; no session required (works even on a broken session); `GET /api/admin/errors` is super_admin-gated | `NFR-M-1` |
+| **Deferred** | DB-level RLS, image re-encode, tenant export/delete, configurable retention, Redis-backed durable rate limiting | — |
 
 ---
 
-## 8. Rate Limiting — deferred
+## 8. Rate Limiting — built (in-memory), Redis durability deferred
 
-Application-level rate limiting (including **login throttling/lockout**) is **not yet built** — it needs a shared counter store (Redis/Upstash), which is part of the deferred infrastructure tier. The intended policy, for when that tier lands:
+**As-built (2026-07-14), correcting the previous "deferred" note below:** an in-memory
+token-bucket limiter (`lib/server/rateLimit.ts`) is live on every Route Handler —
+`checkLoginRateLimit` (per identifier+IP) on login, `checkReadRateLimit`/
+`checkWriteRateLimit` on data routes. It resets on server restart and, on Vercel, each
+serverless instance holds its own buckets — a soft per-instance ceiling, not a durable
+global one. That's the part that's still deferred:
 
-| Tier | Mechanism (planned) | Policy |
+| Tier | Mechanism (as built) | Policy |
 |---|---|---|
-| Edge | host/CDN rate-limiting rules | coarse per-IP ceiling; bot/DDoS shield |
-| App | Ratelimit in Route Handlers (Redis) | reads 100/min·user · writes 30/min·user · photo 10/min·user |
-| Auth | counter + backoff | **login 5/min·IP + lockout** |
+| Edge | — (not added) | — |
+| App | in-memory token bucket, per Node process (`lib/server/rateLimit.ts`) | reads/writes rate-limited per route; resets on restart, per-lambda on Vercel |
+| Auth | in-memory counter (`checkLoginRateLimit`) | login rate-limited per identifier+IP |
 
-The sync client already honors `429` + `Retry-After` with exponential backoff, so adding server-side limits later is non-breaking.
+**Deferred:** a Redis/Upstash-backed shared counter, so the limit holds across serverless
+instances instead of per-instance — needed before public exposure at real traffic, not
+before pilot. The sync client already honors `429` + `Retry-After` with exponential
+backoff (`lib/offline/sync.ts`), so swapping in a durable limiter later is non-breaking.
+
+**As-built (2026-07-14) — read caching, same per-instance caveat.** `lib/server/ttlCache.ts`
+is a short-TTL (45s) in-memory cache, wired into `GET /api/dashboard/kpis` only — the
+single most expensive on-read query (a full-tenant aggregation, §10). Deliberately not
+cached inside `computeDashboardKPIs` itself (would break `tests/unit/costing.test.ts`'s
+per-call mock setup). Same caveat as the rate limiter above: resets on cold start, not
+shared across serverless instances — a soft smoothing layer, not a durable cache tier.
 
 ---
 
@@ -194,7 +211,8 @@ The sync client already honors `429` + `Retry-After` with exponential backoff, s
 - **Drain:** a sync engine flushes `pending` → `POST /api/sync` in batches → marks `synced`. The route lands every event in the generic `records` table and additionally routes known types (feeding, mortality, health/vaccination, closing_stock, production) into their typed tables. Mortality photos (data-URL) are stored in `photos` and linked.
 - **Idempotency:** `client_uuid` is the PK on every event table; inserts use `onConflictDoNothing` → retries never duplicate; a repeat is treated as "already accepted", not a conflict (`FR-M17-5`).
 - **Conflict (true edit clash) — done for production records:** production has a natural business key (one record per batch, per type, per day), so two workers logging the same day's output is a real edit conflict. It's resolved **last-write-wins by `capturedAt`**, with the loser preserved in `conflict_log` and the conflict returned to the client (`FR-M17-3`).
-- **Deferred:** conflict detection for the *other* record types (feeding/mortality/health/closing_stock) is not yet built — those are idempotent-insert only. Service-Worker background sync is also deferred; the drain fires on reconnect / app-open / manual sync.
+- **Deferred:** conflict detection for the *other* record types (feeding/mortality/health/closing_stock) is not yet built — those are idempotent-insert only.
+- **As-built (2026-07-14) — read-cache + backoff + background sync:** record-form dropdowns (batches/units/items/lots) previously went empty offline since reference data was fetched live and never cached. `lib/offline/refCache.ts` is a Dexie-backed cache-through layer — network first, last-known-good served on failure, with a visible staleness banner. The flush loop backs off exponentially (30s→15min, jittered) on repeated failure instead of retrying every 30s forever, and **Background Sync API** (`public/sw.js`, progressive enhancement — not iOS/Firefox) flushes pending records even if the app is closed, alongside the existing reconnect/app-open/manual triggers.
 
 ---
 
@@ -217,18 +235,46 @@ There is **no background/queue tier**. Everything the inception design parked on
 
 ## 11. Deployment, Ops & Commercialization (as built)
 
-**Dockerized, single image.** See `Frontend/DOCKER.md`.
+**As-built (2026-07-14) — production runs on Vercel + Neon, not Docker.** The 2026-06-24
+revision of this doc described Docker as the deployment story; that changed once the app
+actually went to production. **Docker remains the recommended local-dev path** and a
+portable self-host option, but the live system is:
+
+| Component | Where | Note |
+|---|---|---|
+| Compute | **Vercel** (project linked via `.vercel/project.json`) | `vercel --prod` deploys; free/Hobby tier for pilot |
+| Database | **Neon** (pooled serverless Postgres) | must use the **pooled** connection string (`-pooler` suffix) — serverless functions need connection pooling, not a direct connection |
+| Config | Vercel project env vars | `SESSION_SECRET` **fails closed** in production if unset or left at the insecure dev default (checked in both `middleware.ts` and the Node-runtime session code) |
+| Distribution | web (PWA, installable) + **Android APK** (Bubblewrap TWA, direct sideload — see below) | every web deploy updates the installed APK instantly, no separate release cycle unless the signing identity changes |
+
+**Local dev / self-host (unchanged, still Dockerized).** See `Frontend/DOCKER.md`.
 | Component | Where | Note |
 |---|---|---|
 | App | Multi-stage **`Frontend/Dockerfile`** (Node 22, Next.js **standalone**, **non-root** user) | `pnpm build` → `.next/standalone`; runs `node server.js` on `:3000` |
 | Orchestration | **`Frontend/docker-compose.yml`** | `docker compose up --build`: Postgres → one-shot `migrate` (`db:migrate` + `db:seed`) → app on `:13000` |
 | Database | **PostgreSQL 16** container (volume-backed) | `DATABASE_URL` via compose env |
-| Config | container env (`SESSION_SECRET`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, ports) | `.env` is **not** baked into the image |
-| Portability | any container host | standard Postgres + standard Next.js → no lock-in |
+| Portability | any container host | standard Postgres + standard Next.js → no lock-in; Vercel+Neon was chosen for zero-ops pilot hosting, not because the app requires it |
 
-**Multi-tenant SaaS / feature entitlements (new).** `tenants.plan` (`free` / `standard` / `pro`) + `tenants.features` (jsonb) drive what each farm sees (`lib/features.ts`). `/api/me` returns the tenant's features; the owner UI gates nav, the Setup Guide, and the AI Advisor by them. A **platform-admin dashboard** (`/admin/dashboard`, super_admin only, backed by `/api/admin/tenants`) sets each farm's plan and toggles individual features.
+**Android APK (as-built, new).** Packaged as a **Trusted Web Activity** via Bubblewrap
+(not Capacitor — no native-plugin need beyond the existing camera-capture `<input>`, and
+Capacitor would need a static export the app's SSR architecture can't produce).
+`public/.well-known/assetlinks.json` binds the APK's signing cert to the web origin; a
+mismatch there is the #1 cause of the shell falling back to showing a browser URL bar.
+`bubblewrap build` itself doesn't work in a nonstandard Android SDK layout — the working
+recipe is `./gradlew assembleRelease` + manual `zipalign`/`apksigner`. Distributed by
+**direct sideload** (WhatsApp/Drive link/SD card), no Play Store listing.
 
-> The free/always-on hosting analysis from the inception doc (Cloudflare Workers + Supabase + an Oracle VM) is **not** what shipped — the app is a portable Docker image you can run anywhere, including those hosts, but it carries no Workers/Supabase/Oracle dependency.
+**Multi-tenant SaaS / feature entitlements.** `tenants.plan` (`free` / `standard` / `pro`) + `tenants.features` (jsonb) drive what each farm sees (`lib/features.ts`). `/api/me` returns the tenant's features; the owner UI gates nav, the Setup Guide, and the AI Advisor by them. A **platform-admin dashboard** (`/admin/dashboard`, super_admin only, backed by `/api/admin/tenants`) sets each farm's plan and toggles individual features.
+
+**As-built (2026-07-14) — availability & backup.** `GET /api/health` now actually runs
+`db.execute(sql`select 1`)` with a 3s timeout (503 on failure/timeout) instead of a static
+200 — an uptime monitor pointed at it (e.g. UptimeRobot; not wired up, account creation is
+out of scope here) will now correctly detect a Neon outage. Owner-only `GET
+/api/backup/export` is a supplementary, on-demand JSON export of the tenant's 14 core
+tables (excludes `passwordHash`/`pinHash`) — a safety net alongside, not a replacement for,
+Neon's own point-in-time-recovery retention (verify that separately in the Neon dashboard).
+
+> The free/always-on hosting analysis from the inception doc (Cloudflare Workers + Supabase + an Oracle VM) is **not** what shipped either — Vercel + Neon is the actual free/zero-ops pair in production, chosen for Next.js-native fit rather than the originally-analysed stack.
 
 ---
 
@@ -242,11 +288,21 @@ There is **no background/queue tier**. Everything the inception design parked on
 | **Costing, sales, withdrawal** | ✅ Built | On-read cost roll-ups, batch P&L, product-driven sales |
 | **Config, alerts, reports** | ✅ Built | Server-enforced worker field config; on-read/manual alert eval; jspdf reports (feature-gated) |
 | **Products & enterprise templates** | ✅ Built | Per-batch products, enterprise defaults, auto-provisioning |
-| **AI Advisor** | ✅ Built | OpenRouter-backed, grounded, multi-turn |
+| **AI Advisor** | ✅ Built | OpenRouter-backed, grounded, multi-turn; wiring re-verified 2026-07-14 (blocked only by the tested key's account having no OpenRouter credits — not a code issue) |
 | **Commercialization** | ✅ Built | plans/features, `/admin/dashboard` |
-| **PWA install / Service Worker** | ⏳ Deferred | offline queue works; installable SW background sync not added |
-| **Background/cron tier, rate-limiting** | ⏳ Deferred | see §8, §10 |
-| **Pilot** | Next | deploy the Docker image; worker phones; owner training; security checklist (§7) green |
+| **PWA install / Service Worker** | ✅ Built | installable manifest + maskable icons; SW registers in production; Background Sync API flushes pending records when the app is closed (progressive enhancement) |
+| **Offline read-cache + sync backoff** | ✅ Built | `lib/offline/refCache.ts` (form dropdowns survive offline), exponential backoff on repeated flush failure |
+| **Android APK** | ✅ Built | Bubblewrap TWA, direct sideload; every web deploy updates the installed app |
+| **Corporate UI redesign** | ✅ Built | design tokens, nav drawer (fixed a real mobile-nav bug), worker desktop layout, `StatPanel`/`Table` component adoption across owner/admin |
+| **Rate limiting** | ⚠️ Partial | in-memory, built (§8) — Redis-backed durability across serverless instances deferred |
+| **KPI dashboard caching** | ✅ Built | 45s in-memory TTL cache on `/api/dashboard/kpis` (§8) — same per-instance caveat as rate limiting |
+| **Local storage encryption** | ✅ Built | AES-256-GCM, device-bound key, Dexie `pending`/`refCache` (§7) — protects a locked/logged-out lost device only |
+| **Error tracking** | ✅ Built | client boundaries → `/api/errors` → `error_logs`; `/api/admin/errors` viewer (§7) — no dedicated admin page yet |
+| **Availability monitoring** | ⚠️ Partial | `/api/health` now DB-checked (§11) — external monitor not wired up |
+| **Backup & recovery** | ✅ Built | owner-only `/api/backup/export` (§11) + device-side stale-outbox warning — supplementary to Neon PITR, not a replacement |
+| **Background/cron tier** | ⏳ Deferred | see §10 |
+| **Production deployment** | ✅ Done | Vercel + Neon, live (see §11) |
+| **Pilot** | In progress | production live; APK distributed by sideload; owner training; security checklist (§7) green |
 
 ---
 
@@ -275,15 +331,16 @@ IFMS/
 ---
 
 ## 14. Done vs Deferred (snapshot)
-**Done (the inception migration is complete):** Django dropped; Drizzle schemas + migrations; tenant-scoped Route Handlers; PBKDF2 auth + HMAC sessions + edge route gate; server-side field-perm stripping with default-deny + CI test; the sync drain (`/api/sync`, idempotent, production conflict detection); the mock→real API switch; on-read costing/alerts/reports; products + enterprise templates; photos via `/api/photos/[id]`; OpenRouter AI Advisor; plans/features + admin dashboard; Dockerized deploy.
+**Done (the inception migration is complete):** Django dropped; Drizzle schemas + migrations; tenant-scoped Route Handlers; PBKDF2 auth + HMAC sessions + edge route gate; server-side field-perm stripping with default-deny + CI test; the sync drain (`/api/sync`, idempotent, production conflict detection); the mock→real API switch; on-read costing/alerts/reports; products + enterprise templates; photos via `/api/photos/[id]`; OpenRouter AI Advisor; plans/features + admin dashboard; in-memory rate limiting (login + read/write); offline read-cache + sync backoff; installable PWA + Background Sync; **production deployment (Vercel + Neon)**; **Android APK (Bubblewrap TWA)**; **corporate UI redesign**; **batch enterprise/species classification accuracy fix**; **NFR audit remediation (2026-07-14): battery-efficient sync polling, DB-checked `/api/health`, AES-256-GCM local storage encryption, index/schema-drift correction + KPI dashboard caching, owner backup export + stale-outbox device warning, client error reporting + admin viewer**. Dockerized deploy remains available for local dev/self-host.
 
 **Deferred (not yet built):**
 - [ ] Background/cron tier: scheduled alert evaluation, reminders, heavy async reports, SMS/push dispatch, data archival.
-- [ ] Login rate-limiting / lockout (needs a Redis/Upstash counter — see §8).
+- [ ] Redis/Upstash-backed durable rate limiting — the in-memory limiter (§8) is a soft per-instance ceiling, not a global one; fine for pilot. The new KPI TTL cache shares this caveat.
 - [ ] Conflict detection for non-production sync types (feeding/mortality/health/closing_stock).
-- [ ] PWA install + Service Worker background sync; `manifest.json` + icons.
 - [ ] External photo store (R2/Supabase) + signed URLs (currently data-URL in `photos`).
 - [ ] DB-level RLS as defense-in-depth; TOTP 2FA; tenant export/delete + retention policy.
+- [ ] Dark mode: token infrastructure wired (`next-themes`, `.dark` CSS) but pinned to light — most page markup doesn't yet use the tokens that would respond to it.
+- [ ] iOS device testing (code-audited only, never run on a physical device/simulator); an external uptime monitor wired to `/api/health`; a dedicated admin UI page for `/api/admin/errors`.
 
 ---
 
@@ -303,10 +360,10 @@ IFMS/
 ## 16. Open Decisions
 1. **When to add the background/cron tier** (scheduled alerts, async reports, SMS/push) — and on what (a Node worker, or the originally-planned FastAPI+Celery)?
 2. **External photo store** (Cloudflare R2 vs Supabase Storage) + signed-URL minting, to replace the in-table data-URL.
-3. **Login rate-limiting backend** (Redis/Upstash) — required before public exposure.
+3. **Durable rate-limiting backend** (Redis/Upstash) — the in-memory limiter is live but per-instance; a shared counter is required before public exposure at scale.
 4. **TOTP 2FA for owners** — Phase 2 or sooner?
 5. **SMS provider** — Africa's Talking (Kenya-native) vs Twilio — once dispatch is built.
 
 ---
 
-*End of Architecture v3.0 (Option B), as-built 2026-06-24. A single Next.js 16 full-stack app is the product and the API; the browser holds no secret and no DB access; field-level security and tenant isolation live in the Next.js server, fronted by an edge route gate; PostgreSQL via Drizzle is the system of record; the AI Advisor calls OpenRouter; the whole thing ships as one portable Docker image. Django/DRF and the Celery/Redis worker tier are intentionally absent — the inception versions are preserved in `docs/inception/`, and `docs/AS_BUILT.md` is the full deviation list.*
+*End of Architecture v3.2 (Option B), as-built 2026-07-14 (supersedes the 2026-06-24 revision — see the §7/§8/§9/§11–14 as-built notes above for what changed, including the 2026-07-14 NFR audit remediation). A single Next.js 16 full-stack app is the product and the API; the browser holds no secret and no DB access; field-level security and tenant isolation live in the Next.js server, fronted by an edge route gate; PostgreSQL via Drizzle (hosted on Neon) is the system of record; the AI Advisor calls OpenRouter; the app deploys to Vercel in production and ships as a portable Docker image for local dev/self-host, plus a Bubblewrap-packaged Android APK distributed by direct sideload. Django/DRF and the Celery/Redis worker tier are intentionally absent — the inception versions are preserved in `docs/inception/`, and `docs/AS_BUILT.md` is the full deviation list.*

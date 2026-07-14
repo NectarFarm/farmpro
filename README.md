@@ -8,6 +8,10 @@ It is delivered as a **multi-tenant SaaS** with subscription plans and an AI far
 > **New here? Read this file, then `docs/AS_BUILT.md` for what's actually implemented,
 > and `docs/` for the full specs.**
 
+**Live:** deployed to production on **Vercel + Neon** (see "Run it" below for local dev).
+Also packaged as a sideloadable **Android APK** (Bubblewrap TWA) — every web deploy
+updates the installed app automatically; see `docs/AS_BUILT.md` §14 for the build recipe.
+
 ---
 
 ## What it does
