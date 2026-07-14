@@ -3,7 +3,7 @@ import { batches, productionUnits, lifecycleStages, sales, products, batchStageE
 import { and, eq, asc } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, created, unauthorized, forbidden, notFound, badRequest, tooMany } from '@/lib/server/http';
-import { parseBody, createBatchSchema } from '@/lib/server/validate';
+import { parseBody, createBatchSchema, updateBatchSchema } from '@/lib/server/validate';
 import { toCents } from '@/lib/server/money';
 import { checkWriteRateLimit, checkReadRateLimit } from '@/lib/server/rateLimit';
 import { createProductsForBatch, defaultsForBatch } from '@/lib/server/products';
@@ -132,6 +132,52 @@ export async function POST(req: Request) {
   const defs = defaultsForBatch(body.species, body.enterprise || undefined);
   const prod = defs.length ? await createProductsForBatch(session.tenantId, id, defs) : [];
   return created({ id, products: prod.length });
+}
+
+// PATCH /api/data/batches?id=... — correct mistyped data-entry fields after
+// creation (name, species/breed/source, acquired date, acquisition cost, age
+// at acquire). Deliberately excludes unitId/qty/stage — those change via the
+// dedicated move/adjust/advance-stage flows so unit occupancy and history
+// stay in sync, which a plain field patch here would bypass.
+export async function PATCH(req: Request) {
+  const session = await getSession();
+  if (!session) return unauthorized();
+  const writeLimit = checkWriteRateLimit(req);
+  if (!writeLimit.allowed) return tooMany('Too many requests.', writeLimit.retryAfter);
+  if (session.role !== 'owner' && session.role !== 'manager') return forbidden();
+
+  const id = new URL(req.url).searchParams.get('id');
+  if (!id) return badRequest('id required');
+  const tid = session.tenantId;
+
+  const parsed = await parseBody(req, updateBatchSchema);
+  if ('error' in parsed) return parsed.error;
+  const body = parsed.data;
+
+  const [before] = await db.select().from(batches).where(and(eq(batches.tenantId, tid), eq(batches.id, id))).limit(1);
+  if (!before) return notFound();
+
+  const patch: Record<string, unknown> = {};
+  if (body.name !== undefined) patch.name = body.name;
+  if (body.species !== undefined) patch.species = body.species;
+  if (body.enterprise !== undefined) patch.enterprise = body.enterprise;
+  if (body.breed !== undefined) patch.breed = body.breed;
+  if (body.source !== undefined) patch.source = body.source;
+  if (body.acquiredDate !== undefined) patch.acquiredDate = body.acquiredDate;
+  if (body.ageAtAcquire !== undefined) patch.ageAtAcquire = body.ageAtAcquire;
+  if (body.acquisitionCost !== undefined) {
+    patch.acquisitionCost = body.acquisitionCost;
+    patch.acquisitionCostCents = toCents(body.acquisitionCost);
+  }
+  if (Object.keys(patch).length === 0) return badRequest('Nothing to update.');
+
+  await db.update(batches).set(patch).where(and(eq(batches.tenantId, tid), eq(batches.id, id)));
+  await audit({
+    tenantId: tid, actor: actorLabel(session), action: 'batch.update', entity: id,
+    before: Object.fromEntries(Object.keys(patch).map((k) => [k, (before as Record<string, unknown>)[k]])),
+    after: patch,
+  });
+  return ok({ id });
 }
 
 // DELETE /api/data/batches?id=...&action=close — close or hard-delete a batch.

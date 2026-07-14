@@ -216,8 +216,8 @@ export default function WorkerConfigPage() {
 
           {/* Security notice */}
           <div className="bg-warning/15 border border-warning/40 rounded-xl px-4 py-3">
-            <p className="text-warning-foreground font-semibold text-sm flex items-center gap-1.5"><Lock className="w-4 h-4" /> How hiding is enforced</p>
-            <p className="text-warning-foreground/90 text-xs mt-0.5">Hidden fields are stripped on the server (<span className="font-mono">lib/server/fieldPermissions</span>) before the response leaves the API, based on the worker&apos;s assigned profile — so they never reach the phone and can&apos;t be revealed by inspecting network traffic or editing the page. Covered by automated tests (<span className="font-mono">fieldPermissions</span>).</p>
+            <p className="text-warning-foreground font-semibold text-sm flex items-center gap-1.5"><Lock className="w-4 h-4" /> A hidden field is truly gone</p>
+            <p className="text-warning-foreground/90 text-xs mt-0.5">A field marked Hidden never reaches the worker&apos;s phone at all — it&apos;s removed before the data leaves our servers, so it can&apos;t be seen or recovered by tampering with the app.</p>
           </div>
         </>
       )}

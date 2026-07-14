@@ -94,7 +94,7 @@ export default function ReportsPage() {
         'Line': 'line', 'Amount': 'amount', 'Info': 'details',
         'Feed': 'feedConsumed', 'Health': 'health', 'Labour': 'labour',
         'Salaries': 'salaries', 'Overhead': 'overhead', 'Acquisition': 'acquisition',
-        'Total Cost': 'totalCost', 'Revenue': 'revenue', 'Gross Margin': 'grossMargin',
+        'Total Cost': 'totalCost', 'Revenue': 'revenue', 'Net Profit': 'grossMargin',
         'Species': 'species',        'FCR': 'fcr', 'FCR basis': 'fcrBasis',
         'Mortality': 'mortalityRate', 'Feed Cost (KSh)': 'feedConsumed',
         'Stage': 'stage', 'Survived': 'survivors', 'Sold': 'sold',

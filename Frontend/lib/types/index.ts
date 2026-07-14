@@ -90,7 +90,11 @@ export interface Task {
 
 export interface Alert {
   id: string; severity: AlertSeverity; title: string; message: string;
-  type: 'low_stock'|'mortality_spike'|'overdue_vaccine'|'water_quality'|'feed_variance'|'withdrawal_violation'|'task_missed'|'expiry';
+  // 'stage_due'|'weight_loss'|'stock_variance'|'abnormal' are the types actually
+  // raised by lib/server/alertEngine.ts and lib/server/syncHandlers.ts today;
+  // the rest are reserved for planned rule types not yet implemented.
+  type: 'low_stock'|'mortality_spike'|'overdue_vaccine'|'water_quality'|'feed_variance'|'withdrawal_violation'|'task_missed'|'expiry'
+    |'stage_due'|'weight_loss'|'stock_variance'|'abnormal';
   createdAt: string; acknowledged: boolean;
 }
 

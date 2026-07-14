@@ -37,7 +37,10 @@ export function filterRange<T>(rows: readonly T[], getIso: (r: T) => string | nu
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 // ─── Per-batch economics (lifecycle) ────────────────────────────────────────
-export const PL_COLUMNS = ['Batch', 'Unit', 'Feed', 'Health', 'Labour', 'Salaries', 'Overhead', 'Acquisition', 'Total Cost', 'Revenue', 'Gross Margin'];
+// "Net Profit", not "Gross Margin" — this column is revenue minus EVERY cost
+// (feed/health/labour/salaries/overhead/acquisition), which is net profit in
+// accounting terms; the calculation was always correct, only the label wasn't.
+export const PL_COLUMNS = ['Batch', 'Unit', 'Feed', 'Health', 'Labour', 'Salaries', 'Overhead', 'Acquisition', 'Total Cost', 'Revenue', 'Net Profit'];
 
 export function plRow(name: string, unit: string, c: BatchCostSummary): (string | number)[] {
   return [name, unit, c.feedCost, c.healthCost, c.laborCost, c.salaryCost ?? 0, c.overheadCost, c.acquisitionCost, c.totalCost, c.totalRevenue, c.grossMargin];

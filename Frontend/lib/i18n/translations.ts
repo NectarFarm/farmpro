@@ -229,7 +229,11 @@ export const EN = {
   surplus: 'Surplus',
   deficit: 'Deficit',
   loss: 'Loss',
-  grossMargin: 'Gross margin',
+  // The field/value here is revenue minus EVERY cost (feed, health, labour,
+  // salaries, overhead, acquisition) — that's net profit, not gross margin in
+  // the accounting sense (revenue minus COGS only, before operating expenses).
+  // Renamed the label, not the underlying calculation, which is correct as-is.
+  grossMargin: 'Net profit',
   breakEven: 'Break-even',
   costPerUnit: 'Cost per unit',
   costPerHead: 'Cost/head',
@@ -1200,7 +1204,7 @@ export const SW: Record<TranslationKey, string> = {
   surplus: 'Ziada',
   deficit: 'Upungufu',
   loss: 'Hasara',
-  grossMargin: 'Faida ya jumla',
+  grossMargin: 'Faida halisi',
   breakEven: 'Kuvunja hata',
   costPerUnit: 'Gharama kwa kila',
   costPerHead: 'Gharama kwa kila kichwa',

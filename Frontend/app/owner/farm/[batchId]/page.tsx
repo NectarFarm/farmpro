@@ -66,6 +66,10 @@ export default function BatchDetailPage() {
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; body: string; danger?: boolean; onConfirm: () => void } | null>(null);
   const [deleteBatchTyped, setDeleteBatchTyped] = useState('');
   const [showDeleteBatch, setShowDeleteBatch] = useState(false);
+  const [showEditBatch, setShowEditBatch] = useState(false);
+  const [editBatchForm, setEditBatchForm] = useState({ name: '', species: '', breed: '', source: '', acquiredDate: '', acquisitionCost: '', ageAtAcquire: '' });
+  const [editBatchErr, setEditBatchErr] = useState('');
+  const [savingEditBatch, setSavingEditBatch] = useState(false);
 
   const reload = () => {
     setLoadError('');
@@ -200,6 +204,33 @@ export default function BatchDetailPage() {
     finally { setSavingBatch(false); setTimeout(() => setToast(''), 3500); }
   };
 
+  const openEditBatch = () => {
+    if (!batch) return;
+    setEditBatchForm({
+      name: batch.name, species: batch.species ?? '', breed: batch.breed ?? '', source: batch.source ?? '',
+      acquiredDate: batch.acquiredDate ?? '', acquisitionCost: String(batch.acquisitionCost ?? 0),
+      ageAtAcquire: String(batch.ageAtAcquire ?? 0),
+    });
+    setEditBatchErr(''); setShowEditBatch(true);
+  };
+  const saveEditBatch = async () => {
+    if (!batch) return;
+    setSavingEditBatch(true); setEditBatchErr('');
+    try {
+      const res = await fetch(`/api/data/batches?id=${encodeURIComponent(batch.id)}`, {
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editBatchForm.name, species: editBatchForm.species, breed: editBatchForm.breed || null,
+          source: editBatchForm.source, acquiredDate: editBatchForm.acquiredDate,
+          acquisitionCost: Number(editBatchForm.acquisitionCost) || 0, ageAtAcquire: Number(editBatchForm.ageAtAcquire) || 0,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Save failed');
+      setShowEditBatch(false); reload(); showToast(t('changesSaved'));
+    } catch (e) { setEditBatchErr((e as Error).message); }
+    finally { setSavingEditBatch(false); setTimeout(() => setToast(''), 3500); }
+  };
+
   const addProduct = async () => {
     setSavingProduct(true); setPErr('');
     try {
@@ -212,6 +243,15 @@ export default function BatchDetailPage() {
   };
 
   useEffect(() => { if (batchId) { reload(); loadWithdrawal(); } }, [batchId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Must run before the loadError/!batch early returns below — every hook in a
+  // component has to run on every render, in the same order, or React throws
+  // "Rendered more hooks than during the previous render" the first time `batch`
+  // flips from null to loaded (this crashed the whole page until fixed).
+  const { search: salesSearch, setSearch: setSalesSearch, page: salesPage, setPage: setSalesPage, totalPages: salesTotalPages, paged: pagedSales } = useTableFilter(sales, {
+    searchFields: (s) => `${s.productType} ${s.buyer}`,
+    sortFn: (a, b) => b.createdAt.localeCompare(a.createdAt),
+  });
 
   if (loadError) {
     return (
@@ -273,11 +313,6 @@ export default function BatchDetailPage() {
     finally { setSaving(false); setTimeout(() => setToast(''), 2500); }
   };
 
-  const { search: salesSearch, setSearch: setSalesSearch, page: salesPage, setPage: setSalesPage, totalPages: salesTotalPages, paged: pagedSales } = useTableFilter(sales, {
-    searchFields: (s) => `${s.productType} ${s.buyer}`,
-    sortFn: (a, b) => b.createdAt.localeCompare(a.createdAt),
-  });
-
   return (
     <div className="p-6 flex flex-col gap-6 max-w-5xl">
       {/* Breadcrumb */}
@@ -310,6 +345,11 @@ export default function BatchDetailPage() {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-[200px] p-0">
+                    <DropdownMenuItem onClick={openEditBatch} disabled={savingBatch}
+                      className="px-4 py-2.5 text-sm text-gray-700 font-semibold disabled:opacity-50 rounded-none flex-col items-start gap-0">
+                      Edit details
+                      <span className="block text-xs text-gray-400 font-normal">Fix a wrong species, breed, source, date, or purchase cost</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={closeBatch} disabled={savingBatch}
                       className="px-4 py-2.5 text-sm text-gray-700 font-semibold disabled:opacity-50 rounded-none flex-col items-start gap-0">
                       {t('closeBatch')}
@@ -773,6 +813,51 @@ export default function BatchDetailPage() {
             className="border-2 border-gray-300 rounded-xl px-4 py-3 text-base" />
         </div>
       </ConfirmSheet>
+
+      {/* Edit batch details — correct a data-entry mistake (wrong species/breed/
+          source/date/purchase cost) without touching quantity, unit, or stage,
+          which each have their own dedicated flow that keeps other numbers in sync. */}
+      {showEditBatch && batch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowEditBatch(false)} />
+          <div className="relative bg-white rounded-2xl w-full max-w-md mx-4 p-5 flex flex-col gap-3 shadow-2xl">
+            <h3 className="font-bold text-gray-900">Edit batch details</h3>
+            {editBatchErr && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-sm font-semibold">{editBatchErr}</p>}
+            <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">{t('name')}
+              <input value={editBatchForm.name} onChange={e => setEditBatchForm({ ...editBatchForm, name: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">{t('species')}
+                <input value={editBatchForm.species} onChange={e => setEditBatchForm({ ...editBatchForm, species: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Breed
+                <input value={editBatchForm.breed} onChange={e => setEditBatchForm({ ...editBatchForm, breed: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">{t('source')}
+                <input value={editBatchForm.source} onChange={e => setEditBatchForm({ ...editBatchForm, source: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Acquired date
+                <input type="date" value={editBatchForm.acquiredDate} onChange={e => setEditBatchForm({ ...editBatchForm, acquiredDate: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">{t('acquisitionCost')} (KSh)
+                <input type="number" min="0" value={editBatchForm.acquisitionCost} onChange={e => setEditBatchForm({ ...editBatchForm, acquisitionCost: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Age at acquire (days)
+                <input type="number" min="0" value={editBatchForm.ageAtAcquire} onChange={e => setEditBatchForm({ ...editBatchForm, ageAtAcquire: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button onClick={saveEditBatch} disabled={savingEditBatch || !editBatchForm.name.trim()}
+                className="flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary/90 disabled:opacity-50">
+                {savingEditBatch ? t('saving') : t('saveChanges')}
+              </button>
+              <button onClick={() => setShowEditBatch(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">
+                {t('cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Generic styled confirm dialog — replaces window.confirm for delete-product / close-batch */}
       {confirmDialog && (

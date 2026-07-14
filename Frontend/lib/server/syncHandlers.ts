@@ -261,7 +261,9 @@ export async function handleWeightSample(
       .where(and(eq(batches.tenantId, tenantId), eq(batches.id, batchId)));
     if (ins.length && prev && avg < prev.avg * 0.97) {
       await raiseAlert(tenantId, {
-        id: `auto:weightloss:${r.clientUuid}`, severity: 'warning', type: 'weight_loss',
+        // batchId embedded (not just clientUuid) so the owner's alert list can
+        // link straight to the batch instead of a generic page — see lib/alerts.ts.
+        id: `auto:weightloss:${batchId}:${r.clientUuid}`, severity: 'warning', type: 'weight_loss',
         title: 'Weight loss', message: `${await batchName(tenantId, batchId, tx)}: avg weight fell ${prev.avg}→${avg} kg`,
       }, tx);
     }
@@ -298,7 +300,8 @@ export async function handlePhysicalCount(
   }).onConflictDoNothing({ target: physicalCounts.clientUuid }).returning({ id: physicalCounts.clientUuid });
   if (ins.length && variance !== 0) {
     await raiseAlert(tenantId, {
-      id: `auto:variance:${r.clientUuid}`, severity: variance < 0 ? 'critical' : 'warning', type: 'stock_variance',
+      // batchId embedded so the alert list can link straight to the batch — see lib/alerts.ts.
+      id: `auto:variance:${batchId}:${r.clientUuid}`, severity: variance < 0 ? 'critical' : 'warning', type: 'stock_variance',
       title: 'Stock variance',
       message: `${await batchName(tenantId, batchId, tx)}: counted ${physical} vs system ${systemCount} (${variance > 0 ? '+' : ''}${variance})${reason ? ` — ${reason}` : ''}`,
     }, tx);

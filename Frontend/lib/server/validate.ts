@@ -101,6 +101,22 @@ export const createBatchSchema = z.object({
   stage: z.string().optional(),
 });
 
+// PATCH /api/data/batches?id= — corrects mistyped data-entry fields after
+// creation (e.g. a wrong acquisition price). Deliberately excludes unitId,
+// qty/quantity, and stage — those change via the dedicated move/adjust/
+// advance-stage flows, which also update unit occupancy and history/audit
+// entries that a plain field edit here would bypass.
+export const updateBatchSchema = z.object({
+  name: zNonEmpty.optional(),
+  species: z.string().optional(),
+  enterprise: z.string().optional().nullable(),
+  breed: z.string().optional().nullable(),
+  source: z.string().optional(),
+  acquiredDate: z.string().optional(),
+  acquisitionCost: zNonNegNumberCoerced.optional(),
+  ageAtAcquire: zNonNegNumberCoerced.optional(),
+});
+
 // POST /api/batches/split-delivery — one delivery (e.g. 3600 fries), received
 // as a single lot but stocked across several units in one action (e.g. 1200
 // into each of 3 tanks). Creates one normal single-unit batch per allocation,
