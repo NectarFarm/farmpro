@@ -3,7 +3,8 @@ import { users, tenants } from '@/db/schemas';
 import { eq, inArray } from 'drizzle-orm';
 import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
-import { checkLoginRateLimit } from '@/lib/server/rateLimit';
+import { checkLoginRateLimit, clientIp } from '@/lib/server/rateLimit';
+import { checkLoginLockout, recordLoginAttempt, clearLoginFailures } from '@/lib/server/loginThrottle';
 import { ok, badRequest, unauthorized, serviceUnavailable, forbidden, tooMany } from '@/lib/server/http';
 import { parseBody, loginSchema } from '@/lib/server/validate';
 import { phoneLookupVariants } from '@/lib/phone';
@@ -34,6 +35,15 @@ export async function POST(req: Request) {
     const body = parsed.data;
     const identifier = body.identifier.trim();
     const secret = body.secret;
+    const ip = clientIp(req);
+
+    // DB-backed lockout: authoritative across serverless instances and cold starts,
+    // unlike the in-memory check above. Generic message — never reveal whether the
+    // account exists or is specifically locked vs. simply rate-limited.
+    const lockout = await checkLoginLockout(identifier);
+    if (lockout.locked) {
+      return tooMany(`Too many login attempts. Try again in ${lockout.retryAfter} seconds.`, lockout.retryAfter);
+    }
 
     let user;
     try {
@@ -50,7 +60,12 @@ export async function POST(req: Request) {
     }
 
     const hash = user?.passwordHash ?? user?.pinHash;
-    if (!user || !hash || !(await verifySecret(secret, hash))) return unauthorized(BAD);
+    if (!user || !hash || !(await verifySecret(secret, hash))) {
+      await recordLoginAttempt(identifier, ip, false);
+      return unauthorized(BAD);
+    }
+    // Correct credentials — clear the failure counter so honest typos never linger.
+    await clearLoginFailures(identifier);
 
     // A suspended farm (non-renewal) can't sign in — except the platform admin.
     if (user.role !== 'super_admin') {

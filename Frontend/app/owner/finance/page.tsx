@@ -8,6 +8,8 @@ import { StatusChip } from '@/components/worker/StatusChip';
 import { daysUntilPayDay } from '@/lib/payroll';
 import { Wallet, AlertTriangle, Bell, TrendingUp, TrendingDown, Scale } from 'lucide-react';
 import { Pager } from '@/components/Pager';
+import { useCappedList } from '@/hooks/useCappedList';
+import { SeeMoreButton } from '@/components/SeeMoreButton';
 import { StatPanel } from '@/components/ui/stat-panel';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
@@ -31,6 +33,9 @@ export default function FinancePage() {
   const [avail, setAvail] = useState<{ basis: 'headcount' | 'harvested' | 'biomass'; available: number; produced?: number; sold?: number; avgWeightKg?: number } | null>(null);
 
   const [batchPL, setBatchPL] = useState<{ batch: Batch; cost: BatchCostSummary | null }[]>([]);
+  // Cap the per-batch P&L list (a large farm can have many batches) — top N with a
+  // "See more" tap, the same pattern the Farm page uses for its batches table.
+  const batchPLList = useCappedList(batchPL);
 
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -50,7 +55,17 @@ export default function FinancePage() {
   }, []);
   useEffect(() => {
     if (!batches.length) { setBatchPL([]); return; }
-    Promise.all(batches.map(async b => ({ batch: b, cost: await api.getCostSummary(b.id).catch(err => { console.error('Failed to load cost summary', err); return null; }) }))).then(setBatchPL);
+    // One request for ALL batch costs (server bulk-loads once) instead of one
+    // /api/cost-summary call per batch — that N+1 risked Vercel's function timeout.
+    api.getCostSummaries()
+      .then(costs => {
+        const byId = new Map(costs.map(c => [c.batchId, c]));
+        setBatchPL(batches.map(b => ({ batch: b, cost: byId.get(b.id) ?? null })));
+      })
+      .catch(err => {
+        console.error('Failed to load cost summaries', err);
+        setBatchPL(batches.map(b => ({ batch: b, cost: null })));
+      });
   }, [batches]);
 
   const product = products.find(p => p.id === form.productId);
@@ -312,7 +327,7 @@ export default function FinancePage() {
       {tab === 'batchpl' && (
         <div className="flex flex-col gap-3">
           {batchPL.length === 0 && <p className="text-gray-400 text-sm text-center py-6">No batches yet. Add a batch on the Farm page to see its P&L.</p>}
-          {batchPL.map(({ batch, cost }) => {
+          {batchPLList.visible.map(({ batch, cost }) => {
             const margin = cost?.grossMargin ?? 0;
             return (
               <Link key={batch.id} href={`/owner/farm/${batch.id}`} className={`bg-white border rounded-xl p-5 flex items-center justify-between hover:bg-gray-50 ${margin >= 0 ? 'border-success/30' : 'border-destructive/30'}`}>
@@ -327,6 +342,7 @@ export default function FinancePage() {
               </Link>
             );
           })}
+          <SeeMoreButton remaining={batchPLList.remaining} onShowMore={batchPLList.showMore} onShowAll={batchPLList.showAll} />
         </div>
       )}
     </div>

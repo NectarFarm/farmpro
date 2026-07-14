@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { normalizePhone } from '@/lib/phone';
 
 // Hits a RUNNING app (the dev server, or the app service in docker compose).
 const BASE = process.env.TEST_BASE_URL ?? 'http://localhost:13000';
+
+// Phones are stored/returned in canonical form (e.g. "+254766…" → "254766…"),
+// so match on the normalized value rather than the exact string a test typed.
+const samePhone = (a: string, b: string) =>
+  (normalizePhone(a) ?? a.trim()) === (normalizePhone(b) ?? b.trim());
 
 async function rawLogin(identifier: string, secret: string) {
   return fetch(`${BASE}/api/auth/login`, {
@@ -744,7 +750,7 @@ describe('employee logins, worker profiles & task assignment', () => {
   it('adding a worker WITH a PIN creates a login that can actually sign in', async () => {
     const res = await json(owner, '/api/data/employees', { name: 'Field Hand', phone: wPhone, role: 'worker', salary: 12000, pin: '4321', workerProfileId: profileId });
     expect(res.status).toBe(201);
-    const emp = (await (await api('/api/data/employees', owner)).json()).find((e: { phone: string }) => e.phone === wPhone);
+    const emp = (await (await api('/api/data/employees', owner)).json()).find((e: { phone: string }) => samePhone(e.phone, wPhone));
     expect(emp.pinSet).toBe(true);
     expect(emp.workerProfileId).toBe(profileId);
     const signIn = await rawLogin(wPhone, '4321');
@@ -760,7 +766,7 @@ describe('employee logins, worker profiles & task assignment', () => {
 
   it('owner assigns a task and the worker sees ONLY their own tasks', async () => {
     const workers = await (await api('/api/workers', owner)).json();
-    const w = workers.find((x: { phone: string }) => x.phone === wPhone);
+    const w = workers.find((x: { phone: string }) => samePhone(x.phone, wPhone));
     expect(w).toBeTruthy();
     const t = await json(owner, '/api/data/tasks', { title: 'Vaccinate Batch A', type: 'vaccination', assignedTo: w.id, dueAt: new Date().toISOString(), scheduledFor: new Date().toISOString() });
     expect(t.status).toBe(201);

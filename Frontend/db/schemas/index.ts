@@ -660,6 +660,27 @@ export const revokedSessions = pgTable('revoked_sessions', {
   index('idx_revoked_sessions_expires').on(t.expiresAt),
 ]);
 
+// DB-backed brute-force protection for login. Every FAILED sign-in inserts a row
+// keyed by the normalized identifier (email or phone); a SUCCESSFUL sign-in clears
+// that identifier's failures. Unlike the in-memory limiter in lib/server/rateLimit.ts
+// — which each Vercel serverless instance holds separately and every cold start
+// wipes — this survives across instances, so a brute-force attempt fanned out over
+// many instances is still counted against one shared table. Only recent rows are
+// ever queried (WHERE created_at > now() - window); older rows are inert and can be
+// truncated by an admin/cleanup job (see purgeOldLoginAttempts in loginThrottle.ts).
+export const loginAttempts = pgTable('login_attempts', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(), // normalized email or phone (trimmed, lowercased)
+  ip: text('ip'),                            // best-effort client IP (may be absent behind proxies)
+  success: boolean('success').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  // The lockout query filters by identifier + recency, so lead with identifier.
+  index('idx_login_attempts_identifier_created').on(t.identifier, t.createdAt),
+  // Supports the cleanup/purge sweep over old rows regardless of identifier.
+  index('idx_login_attempts_created').on(t.createdAt),
+]);
+
 // Client-reported error/crash log — populated by the error boundaries
 // (app/{global-error,error}.tsx and the section-level error.tsx files) via
 // POST /api/errors. tenantId/userId are nullable: a crash can happen before a

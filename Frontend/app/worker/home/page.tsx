@@ -9,6 +9,8 @@ import type { Task, Alert } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
 import { StaleDataNotice } from '@/components/worker/StaleDataNotice';
 import { useTodayActivity, timeLabel } from '@/lib/hooks/useTodayActivity';
+import { useCappedList } from '@/hooks/useCappedList';
+import { SeeMoreButton } from '@/components/SeeMoreButton';
 import Link from 'next/link';
 import {
   Egg, Sunrise, Skull, Wheat, Syringe, Scale, ListOrdered, PackageOpen, Plus,
@@ -75,6 +77,13 @@ export default function WorkerHomePage() {
 
   const alertStatus = (a: Alert) => a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'info';
 
+  // Cap the unacknowledged-alerts list — a farm with dozens of open alerts must
+  // not render every one as a full card on the worker's phone home screen.
+  const byRecency = (a: Alert, b: Alert) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  const {
+    visible: visibleAlerts, remaining: alertsRemaining, showMore: showMoreAlerts, showAll: showAllAlerts,
+  } = useCappedList(alerts, { sortFn: byRecency });
+
   // Grouped by operational cadence, same grouping as /worker/record.
   const recordGroups = [
     { headingKey: 'recordGroupEveryDay', links: [
@@ -115,7 +124,7 @@ export default function WorkerHomePage() {
         <section>
           <h2 className="text-base font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-amber-600" /> {t('alerts')}</h2>
           <div className="flex flex-col gap-2">
-            {alerts.map(a => (
+            {visibleAlerts.map(a => (
               <div key={a.id} className={`rounded-xl px-4 py-3 border flex items-start gap-3 ${a.severity === 'critical' ? 'bg-red-50 border-red-300' : a.severity === 'warning' ? 'bg-amber-50 border-amber-300' : 'bg-blue-50 border-blue-300'}`}>
                 <StatusChip status={alertStatus(a)} size="sm" label={a.severity.toUpperCase()} />
                 <div className="flex-1 min-w-0">
@@ -124,6 +133,7 @@ export default function WorkerHomePage() {
                 </div>
               </div>
             ))}
+            <SeeMoreButton remaining={alertsRemaining} onShowMore={showMoreAlerts} onShowAll={showAllAlerts} />
           </div>
         </section>
       )}

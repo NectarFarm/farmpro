@@ -3,7 +3,8 @@ import { users } from '@/db/schemas';
 import { inArray } from 'drizzle-orm';
 import { verifySecret } from '@/lib/server/crypto';
 import { createSession } from '@/lib/server/session';
-import { checkLoginRateLimit } from '@/lib/server/rateLimit';
+import { checkLoginRateLimit, clientIp } from '@/lib/server/rateLimit';
+import { checkLoginLockout, recordLoginAttempt, clearLoginFailures } from '@/lib/server/loginThrottle';
 import { ok, badRequest, unauthorized, serviceUnavailable, tooMany } from '@/lib/server/http';
 import { parseBody, workerLoginSchema } from '@/lib/server/validate';
 import { phoneLookupVariants } from '@/lib/phone';
@@ -22,6 +23,15 @@ export async function POST(req: Request) {
     }
     if ('error' in parsed) return parsed.error;
     const { phone, pin } = parsed.data;
+    const ip = clientIp(req);
+
+    // DB-backed lockout — authoritative across serverless instances/cold starts.
+    // Critical here: worker PINs are only 4–6 digits, so this is the real brute-force
+    // defense. Generic message — never reveal whether the phone maps to an account.
+    const lockout = await checkLoginLockout(phone);
+    if (lockout.locked) {
+      return tooMany(`Too many login attempts. Try again in ${lockout.retryAfter} seconds.`, lockout.retryAfter);
+    }
 
     let user;
     try {
@@ -29,8 +39,11 @@ export async function POST(req: Request) {
     } catch {
       return serviceUnavailable("We couldn't reach the server. You can still work offline — sync when you're back online.");
     }
-    if (!user || user.role !== 'worker' || !user.pinHash) return unauthorized(BAD_CREDS);
-    if (!(await verifySecret(pin, user.pinHash))) return unauthorized(BAD_CREDS);
+    if (!user || user.role !== 'worker' || !user.pinHash || !(await verifySecret(pin, user.pinHash))) {
+      await recordLoginAttempt(phone, ip, false);
+      return unauthorized(BAD_CREDS);
+    }
+    await clearLoginFailures(phone);
 
     await createSession({
       userId: user.id, tenantId: user.tenantId, role: 'worker',
