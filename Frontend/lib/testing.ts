@@ -32,7 +32,7 @@ export const TEST_STEPS: TestStepDef[] = [
     instruction: 'Check the owner dashboard shows real numbers everywhere and the revenue period filter works.',
     checks: [
       'Active Batches, Total Animals, Mortality %, Avg FCR each show a real number',
-      'Gross Margin and Revenue show a KSh figure',
+      'Net Profit and Revenue show a KSh figure',
       'Task Completion and Pending Alerts show',
       'The production chart draws',
       'Revenue period toggle Month / Quarter / Year / All changes the amount (All-time is largest)',
