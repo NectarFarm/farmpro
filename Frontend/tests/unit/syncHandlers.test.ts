@@ -1,7 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
 import { handleProduction, handleMorningRound, type IncomingRecord } from '@/lib/server/syncHandlers';
 import { productionPayloadSchema } from '@/lib/server/validate';
+import { products } from '@/db/schemas';
 import type { DbClient } from '@/db';
+
+// Spy on the real `eq` (delegates to the actual implementation, so every
+// other call site in syncHandlers.ts — like/ilike/desc/and included — keeps
+// working) so the #201 test below can assert the product lookup is actually
+// scoped by batchId, not just infer it from mocked query results.
+const { eqSpy } = vi.hoisted(() => ({ eqSpy: vi.fn() }));
+vi.mock('drizzle-orm', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('drizzle-orm')>();
+  return { ...actual, eq: (...args: Parameters<typeof actual.eq>) => { eqSpy(...args); return actual.eq(...args); } };
+});
 
 // ── Query-chain helpers (mirrors tests/unit/inventory.test.ts's pattern) ────
 // `tx.select(...).from(...).where(...)` is awaited directly in some call
@@ -94,6 +105,36 @@ describe('handleProduction', () => {
     await handleProduction(record, 't1', 'u1', tx);
     expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({
       productId: null, baseUnit: null,
+    }));
+  });
+
+  it('scopes the product lookup by batchId, not just tenantId, and falls back to NULL for a cross-batch id (#201)', async () => {
+    eqSpy.mockClear();
+    // Models a productId that belongs to a different batch of the same
+    // tenant: with the batchId predicate in place, that row no longer
+    // matches, so the lookup returns empty exactly like an unresolved id.
+    const select = vi.fn()
+      .mockReturnValueOnce(selectOnce([])) // product lookup: no match for this batch
+      .mockReturnValueOnce(selectOnce([])); // same-day lookup: no existing row
+    const insertChain = makeInsertChain();
+    const insert = vi.fn(() => insertChain);
+    const tx = { select, insert } as unknown as DbClient;
+
+    const record: IncomingRecord = {
+      clientUuid: 'c4', type: 'production',
+      payload: { batchId: 'b1', type: 'Eggs', qty: 7, productId: 'other-batchs-product' },
+      capturedAt: '2026-08-05T08:00:00Z',
+    };
+
+    const result = await handleProduction(record, 't1', 'u1', tx);
+
+    // The lookup issues eq(products.batchId, 'b1') — proves the fix is the
+    // batchId predicate itself, not just that empty results happen to null out.
+    expect(eqSpy).toHaveBeenCalledWith(products.batchId, 'b1');
+    // qty/type the worker reported are still persisted; only the foreign id is dropped.
+    expect(result.routed).toBe(true);
+    expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({
+      batchId: 'b1', type: 'Eggs', qty: 7, productId: null, baseUnit: null,
     }));
   });
 

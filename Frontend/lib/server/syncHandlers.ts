@@ -59,17 +59,23 @@ export async function handleProduction(
 
   // product_id is now a real FK (ON DELETE RESTRICT) — snapshot baseUnit from
   // the product row rather than trusting the client for it, and verify the id
-  // actually resolves for this tenant before writing it. A stale id (product
-  // deleted in the narrow window between offline capture and sync — deletion
-  // itself is blocked once a record references it, but nothing stops it
-  // *before* that first record lands) must not turn into an FK violation that
-  // rejects the whole record; fall back to null, same as an unresolved
-  // backfill row, rather than losing the qty/type the worker actually reported.
+  // actually resolves for this tenant *and this batch* before writing it. A
+  // stale id (product deleted in the narrow window between offline capture
+  // and sync — deletion itself is blocked once a record references it, but
+  // nothing stops it *before* that first record lands) must not turn into an
+  // FK violation that rejects the whole record; fall back to null, same as an
+  // unresolved backfill row, rather than losing the qty/type the worker
+  // actually reported. The batchId predicate matters just as much as the
+  // tenantId one: without it, a productId belonging to another batch of the
+  // same tenant resolves fine here but then matches no batch's cost driver in
+  // costing.ts, so the qty silently vanishes from output with no error and no
+  // unresolved-row count. Scoping the lookup to this batch makes a cross-batch
+  // id fail to resolve here instead, landing it in the same null fallback.
   let productId: string | null = null;
   let baseUnit: string | null = null;
   if (p.productId) {
     const [prod] = await tx.select({ baseUnit: products.baseUnit }).from(products)
-      .where(and(eq(products.tenantId, tenantId), eq(products.id, p.productId))).limit(1);
+      .where(and(eq(products.tenantId, tenantId), eq(products.batchId, batchId), eq(products.id, p.productId))).limit(1);
     if (prod) { productId = p.productId; baseUnit = prod.baseUnit; }
   }
 
