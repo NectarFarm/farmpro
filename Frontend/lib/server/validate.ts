@@ -403,6 +403,12 @@ export const productionPayloadSchema = z.object({
   // was previously stripped here (unknown key) and never reached the DB,
   // forcing costing to substring-match on the free-text `type` instead. See #22.
   productId: z.string().optional().nullable(),
+  // Explicit logical slot for this collection ('morning', 'evening', or the
+  // slot of a record being edited) — see #24. Omitted (the collect page never
+  // sends one today) means "this is a distinct event": the server defaults to
+  // a slot unique to this submission, so it's always additive. Sent → a second
+  // submission on the same slot the same day is a genuine edit, not a new event.
+  slot: z.string().trim().min(1).optional().nullable(),
 });
 
 export const weightSamplePayloadSchema = z.object({

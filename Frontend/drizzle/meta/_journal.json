@@ -281,6 +281,13 @@
       "when": 1785783385623,
       "tag": "0039_production_records_product_id",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786368810269,
+      "tag": "0040_production_records_slot_key",
+      "breakpoints": true
     }
   ]
 }

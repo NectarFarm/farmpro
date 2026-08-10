@@ -452,12 +452,28 @@ export const productionRecords = pgTable('production_records', {
   // editable (baseUnit can change later), so this preserves what the qty
   // above was actually measured in, independent of the product's current state.
   baseUnit: text('base_unit'),
+  // Logical identity of this collection event within a (tenant, batch) — see
+  // issue #24. `${day}:${productId ?? 'none'}:${slot}`, where `slot` is either
+  // an explicit slot the client chose ('morning', 'evening', 'morning_round' …)
+  // or, when the client sent none, this row's OWN client_uuid. Folding
+  // client_uuid in as the default makes the slot globally unique per
+  // submission, so two workers collecting the same product on the same day
+  // land as two ADDITIVE rows instead of colliding. An explicit slot is how a
+  // genuine edit is expressed: a second submission on the same slot UPDATES
+  // the existing row in place (see lib/server/syncHandlers.ts) — it is never
+  // DELETEd.
+  slotKey: text('slot_key').notNull(),
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
 }, (t) => [
   index('idx_production_tenant_batch').on(t.tenantId, t.batchId),
   index('idx_production_tenant_type').on(t.tenantId, t.type),
   index('idx_production_tenant_captured').on(t.tenantId, t.capturedAt),
+  // One row per logical slot per batch. This is the mechanism that makes
+  // collection additive by default (each no-slot submission gets its own
+  // globally-unique slot) while still letting an explicit edit collapse onto
+  // one row instead of ever duplicating or deleting.
+  unique('production_records_tenant_batch_slot_unique').on(t.tenantId, t.batchId, t.slotKey),
 ]);
 
 // One row per tenant per backfill run — durable, queryable record of how many
@@ -469,11 +485,31 @@ export const productionRecords = pgTable('production_records', {
 //   SELECT * FROM production_backfill_report ORDER BY created_at DESC;
 export const productionBackfillReport = pgTable('production_backfill_report', {
   id: text('id').primaryKey(),
-  migration: text('migration').notNull(), // e.g. '0039' — which run produced this row
+  migration: text('migration').notNull(), // e.g. '0039' — which run produced this run
   tenantId: text('tenant_id').notNull(),
   resolved: integer('resolved').notNull(),
   unresolved: integer('unresolved').notNull(),
   total: integer('total').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// One row per tenant per run of scripts/recoverProductionConflicts.ts (#25) —
+// same durable-report pattern as production_backfill_report above, since that
+// script is dry-run-first/operator-triggered rather than a migration, and its
+// per-tenant recovered/unrecoverable counts must survive past the terminal
+// output. `mode` distinguishes a dry run (report only) from an actual restore
+// (rows written) so the operator can tell which counts describe what actually
+// happened to the data vs. what a dry run merely found. An operator reads
+// this after a run with:
+//   SELECT * FROM production_recovery_report ORDER BY created_at DESC;
+export const productionRecoveryReport = pgTable('production_recovery_report', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  mode: text('mode').notNull(), // 'dry_run' | 'restore'
+  recovered: integer('recovered').notNull(),
+  recoveredQty: doublePrecision('recovered_qty').notNull(),
+  alreadyRestored: integer('already_restored').notNull(), // idempotency: recovered on a prior run
+  unrecoverable: integer('unrecoverable').notNull(), // malformed/missing server_version — reported, never guessed
   createdAt: timestamp('created_at').defaultNow(),
 });
 
