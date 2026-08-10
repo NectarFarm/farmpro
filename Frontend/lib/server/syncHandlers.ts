@@ -12,6 +12,8 @@ import { consumeFeedFIFO } from './inventory';
 import { raiseAlert } from './alertEngine';
 import { validatePhotoDataUrl } from './media';
 import { isStorageConfigured, uploadPhoto } from './storage';
+import { assertWritable } from './fieldPermissions';
+import type { Session } from './session';
 import {
   feedingPayloadSchema, mortalityPayloadSchema, healthPayloadSchema,
   closingStockPayloadSchema, productionPayloadSchema, weightSamplePayloadSchema,
@@ -127,7 +129,7 @@ async function upsertProductionSlot(
 }
 
 export async function handleProduction(
-  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
+  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient, session: Session,
 ): Promise<RouteResult> {
   const parsed = productionPayloadSchema.safeParse(r.payload ?? {});
   // Throw (not `return { routed: true }`) on a genuinely malformed payload —
@@ -162,9 +164,22 @@ export async function handleProduction(
   let productId: string | null = null;
   let baseUnit: string | null = null;
   if (p.productId) {
-    const [prod] = await tx.select({ baseUnit: products.baseUnit }).from(products)
+    const [prod] = await tx.select({ baseUnit: products.baseUnit, fieldKey: products.fieldKey }).from(products)
       .where(and(eq(products.tenantId, tenantId), eq(products.batchId, batchId), eq(products.id, p.productId))).limit(1);
-    if (prod) { productId = p.productId; baseUnit = prod.baseUnit; }
+    if (prod) {
+      productId = p.productId;
+      baseUnit = prod.baseUnit;
+      // #203: the product's own `field_key` (e.g. `collect_eggs`) is the
+      // permission gate a worker profile carries for collecting THIS product
+      // (see addCollectionPermissions in lib/server/products.ts, which is what
+      // put it there). Only gate when it resolves to a real product with a
+      // field_key — an unresolved/stale productId already falls back to NULL
+      // above and carries nothing to check here; that's the same defensive
+      // posture as the rest of this function, not a permissions bypass (a
+      // fabricated productId can't be used to dodge the check because it
+      // simply never resolves to a product at all).
+      if (prod.fieldKey) await assertWritable(session, [prod.fieldKey]);
+    }
   }
 
   const row = {
@@ -180,7 +195,7 @@ export async function handleProduction(
 // ── Feeding ─────────────────────────────────────────────────────────────────
 
 export async function handleFeeding(
-  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
+  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient, session: Session,
 ): Promise<RouteResult> {
   const parsed = feedingPayloadSchema.safeParse(r.payload ?? {});
   // Throw (not `return { routed: true }`) on a genuinely malformed payload —
@@ -192,6 +207,11 @@ export async function handleFeeding(
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
   }
+  // #203: field permissions are a write boundary, not just a read-side one —
+  // a worker whose profile marks feed_quantity non-editable must not be able
+  // to write a feeding record either. Thrown before any insert, so it lands
+  // in the sync response's rejected[] the same way a malformed payload does.
+  await assertWritable(session, ['feed_quantity']);
   const p = parsed.data;
   const feedItemId = p.feedItemId ?? undefined;
   const qtyKg = p.quantityKg;
@@ -207,7 +227,7 @@ export async function handleFeeding(
 // ── Mortality ───────────────────────────────────────────────────────────────
 
 export async function handleMortality(
-  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
+  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient, session: Session,
 ): Promise<RouteResult> {
   const parsed = mortalityPayloadSchema.safeParse(r.payload ?? {});
   // Throw (not `return { routed: true }`) on a genuinely malformed payload —
@@ -220,6 +240,10 @@ export async function handleMortality(
     throw new Error(parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid record payload.');
   }
   const p = parsed.data;
+  // #203: only gate on `cause` — it's the one mortality field a worker
+  // profile can hide/lock (mortality_cause); the death count itself carries
+  // no field-permission key today.
+  if (p.cause) await assertWritable(session, ['mortality_cause']);
   const base = { clientUuid: r.clientUuid, tenantId, recordedBy: userId, capturedAt: r.capturedAt };
   let photoId: string | undefined;
   if (p.photo && p.photo.startsWith('data:image')) {
@@ -398,7 +422,7 @@ export async function handlePhysicalCount(
 // ── Morning round ───────────────────────────────────────────────────────────
 
 export async function handleMorningRound(
-  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
+  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient, session: Session,
 ): Promise<RouteResult> {
   const parsed = morningRoundPayloadSchema.safeParse(r.payload ?? {});
   // Throw (not `return { routed: true }`) on a genuinely malformed payload —
@@ -415,6 +439,11 @@ export async function handleMorningRound(
     const batchId = e.batchId;
     const eggs = e.eggsCollected;
     if (batchId && eggs > 0) {
+      // #203: the morning round's egg count is gated by its own dedicated
+      // `eggs_collected` field key — distinct from the collect page's
+      // per-product `collect_<product>` key, since this form has no product
+      // picker at all (see the comment below).
+      await assertWritable(session, ['eggs_collected']);
       // The morning-round form has no product picker (unlike the collect page)
       // — it just writes the literal `type: 'eggs'` below. Resolve the batch's
       // egg-collecting product the same way the 0039 backfill does for this
@@ -448,6 +477,9 @@ export async function handleMorningRound(
     const feedItemId = e.feedItemId;
     const feedUsed = e.feedUsed;
     if (batchId && feedItemId && feedUsed > 0) {
+      // #203: same feed_quantity gate as the standalone feeding form —
+      // morning round's feed-used field writes to the same feedingRecords table.
+      await assertWritable(session, ['feed_quantity']);
       const ins = await tx.insert(feedingRecords).values({
         clientUuid: `${r.clientUuid}:${batchId}:feed`, tenantId, batchId,
         feedItemId, quantityKg: feedUsed, recordedBy: userId, capturedAt: r.capturedAt,
@@ -456,6 +488,12 @@ export async function handleMorningRound(
     }
     if (batchId) {
       const abnormal = e.abnormal === true;
+      // #203: water_level gates the water-quality observation itself
+      // (required on every entry); abnormal gates only an actual abnormality
+      // report, not the routine "no" answer, since only "yes" writes anything
+      // a hidden/read-only profile would need to be blocked from recording.
+      const gatedKeys = abnormal ? ['water_level', 'abnormal'] : ['water_level'];
+      await assertWritable(session, gatedKeys);
       const obs = await tx.insert(observations).values({
         clientUuid: `${r.clientUuid}:${batchId}:obs`, tenantId, batchId, unitId: e.unitId ?? null,
         waterLevel: e.waterLevel ?? null, waterColour: e.waterColour ?? null,
@@ -476,7 +514,11 @@ export async function handleMorningRound(
 
 // ── Router ──────────────────────────────────────────────────────────────────
 
-const TYPE_HANDLERS: Record<string, (r: IncomingRecord, t: string, u: string, tx: DbClient) => Promise<RouteResult>> = {
+// Handlers that don't touch any permission-gated field (health, closing
+// stock, weight sample, physical count) simply ignore the trailing `session`
+// argument — a function with fewer declared parameters is assignable here,
+// TypeScript still passes `session` through at the call site below.
+const TYPE_HANDLERS: Record<string, (r: IncomingRecord, t: string, u: string, tx: DbClient, session: Session) => Promise<RouteResult>> = {
   feeding: handleFeeding,
   mortality: handleMortality,
   health: handleHealth,
@@ -490,9 +532,9 @@ const TYPE_HANDLERS: Record<string, (r: IncomingRecord, t: string, u: string, tx
 };
 
 export async function routeTyped(
-  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
+  r: IncomingRecord, tenantId: string, userId: string, tx: DbClient, session: Session,
 ): Promise<RouteResult> {
   const handler = TYPE_HANDLERS[r.type];
-  if (handler) return handler(r, tenantId, userId, tx);
+  if (handler) return handler(r, tenantId, userId, tx, session);
   return { routed: false };
 }
