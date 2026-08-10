@@ -12,6 +12,7 @@ import { toCents } from '@/lib/server/money';
 import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
 import { defaultStages, STAGE_ENTERPRISES } from '@/lib/lifecycle';
 import { enterpriseFromSpecies } from '@/lib/server/productTemplates';
+import { createProductsForBatch, defaultsForBatch } from '@/lib/server/products';
 import { normalizePhone } from '@/lib/phone';
 
 // Thrown for bad/ambiguous input so the outer handler can turn it into a 400
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
 
   try {
     const summary = await db.transaction(async (tx) => {
-      const summary = { units: 0, batches: 0, items: 0, employees: 0, logins: 0, stages: 0 };
+      const summary = { units: 0, batches: 0, items: 0, employees: 0, logins: 0, stages: 0, products: 0 };
 
       if (s(b.farmName)) await tx.update(tenants).set({ name: s(b.farmName) }).where(eq(tenants.id, tid));
 
@@ -129,6 +130,24 @@ export async function POST(req: Request) {
       const firstStageByEnterprise = new Map<string, string>();
       for (const r of allStageRows) if (!firstStageByEnterprise.has(r.enterprise)) firstStageByEnterprise.set(r.enterprise, r.name);
 
+      // Default worker profile (so Config + worker visibility work, and so the
+      // batches loop below has a profile to attach auto-collection permissions
+      // to via createProductsForBatch) — already idempotent: reuses the
+      // tenant's existing profile if one exists. Moved ahead of the batches
+      // loop (it used to run after inventory) so a fresh tenant's very first
+      // batch grants its worker profile the matching collect_* fields instead
+      // of creating the profile too late for createProductsForBatch to find it.
+      const existingProfile = await tx.select({ id: workerProfiles.id }).from(workerProfiles).where(eq(workerProfiles.tenantId, tid));
+      let profileId = existingProfile[0]?.id;
+      if (!profileId) {
+        profileId = crypto.randomUUID();
+        await tx.insert(workerProfiles).values({
+          id: profileId, tenantId: tid, name: 'Standard Worker', fields: DEFAULT_FIELDS,
+          modules: ['morning_round', 'mortality', 'feeding', 'health', 'weight_sampling'],
+          mortalityPhotoThreshold: n(b.mortalityPhotoThreshold, 'mortality photo threshold') || 1, alertThresholds: {},
+        });
+      }
+
       // Batches (assigned to a unit) — idempotent by tenantId+name.
       const existingBatches = await tx.select({ name: batches.name })
         .from(batches).where(eq(batches.tenantId, tid));
@@ -154,8 +173,16 @@ export async function POST(req: Request) {
         const species = s(ba.species, 'unknown');
         const enterprise = enterpriseFromSpecies(species);
         const stage = (enterprise && firstStageByEnterprise.get(enterprise)) || defaultStages(enterprise)[0]?.name || 'GROWING';
+        const batchId = crypto.randomUUID();
         await tx.insert(batches).values({
-          id: crypto.randomUUID(), tenantId: tid, unitId, name: s(ba.name), species,
+          id: batchId, tenantId: tid, unitId, name: s(ba.name), species,
+          // Persisted so resolveEnterprise()/costing/lifecycle don't have to fall
+          // back to guessing from free-text species for every wizard-created
+          // batch — this is the same value already computed above for the
+          // stage lookup, just also written to the column the other two
+          // batch-creation paths (app/api/data/batches/route.ts,
+          // app/api/batches/split-delivery/route.ts) already set.
+          enterprise,
           source: 'PURCHASED', acquiredDate: dt(ba.acquiredDate, `batch "${ba.name}" date acquired`),
           ageAtAcquire: n(ba.ageAtAcquire, `batch "${ba.name}" age`),
           initialQty: qty, currentQty: qty,
@@ -164,6 +191,21 @@ export async function POST(req: Request) {
         batchNames.add(key);
         summary.batches++;
         if (qty > 0) unitQtyDelta.set(unitId, (unitQtyDelta.get(unitId) ?? 0) + qty);
+
+        // Auto-create the batch's default products (and, for the collectible
+        // ones, the matching worker-profile collect permissions + "assign a
+        // collector" alert) — exactly what app/api/data/batches/route.ts does
+        // for a batch created via the ordinary "Add Batch" form. Without this
+        // a wizard-created batch has zero products: no collection, no sale,
+        // an empty product list, despite the Setup Guide promising otherwise.
+        // Run with `tx` (not the default `db`) so it's part of the wizard's
+        // one transaction — if anything later in this submission fails, these
+        // product rows roll back with everything else instead of orphaning.
+        const defs = defaultsForBatch(species, enterprise ?? undefined);
+        if (defs.length) {
+          const prod = await createProductsForBatch(tid, batchId, defs, tx);
+          summary.products += prod.length;
+        }
       }
 
       // Apply accumulated headcount into each touched unit's cached currentQty —
@@ -205,19 +247,6 @@ export async function POST(req: Request) {
         }
         itemNames.add(key);
         summary.items++;
-      }
-
-      // Default worker profile (so Config + worker visibility work) — already
-      // idempotent: reuses the tenant's existing profile if one exists.
-      const existingProfile = await tx.select({ id: workerProfiles.id }).from(workerProfiles).where(eq(workerProfiles.tenantId, tid));
-      let profileId = existingProfile[0]?.id;
-      if (!profileId) {
-        profileId = crypto.randomUUID();
-        await tx.insert(workerProfiles).values({
-          id: profileId, tenantId: tid, name: 'Standard Worker', fields: DEFAULT_FIELDS,
-          modules: ['morning_round', 'mortality', 'feeding', 'health', 'weight_sampling'],
-          mortalityPhotoThreshold: n(b.mortalityPhotoThreshold, 'mortality photo threshold') || 1, alertThresholds: {},
-        });
       }
 
       // Employees (+ login for workers who set a PIN) — idempotent by tenantId+phone.

@@ -1,5 +1,6 @@
 import 'server-only';
 import { db } from '@/db';
+import type { DbClient } from '@/db';
 import { products, workerProfiles, alerts } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
 import { PRODUCT_TEMPLATES, enterpriseFromSpecies, type ProductDef } from './productTemplates';
@@ -24,12 +25,17 @@ export function mainProductForBatch(species: string, enterprise?: string): Produ
   return PRODUCT_TEMPLATES[key].find(p => p.isMainProduct) ?? null;
 }
 
-export async function createProductsForBatch(tenantId: string, batchId: string, defs: ProductDef[]): Promise<CreatedProduct[]> {
+// `client` defaults to the top-level `db` but accepts a transaction handle —
+// callers that must keep product creation atomic with the batch insert (e.g.
+// the setup wizard, whose whole submission is one transaction) pass their
+// `tx` through so a later failure/rollback in the same transaction also
+// rolls back these inserts instead of leaving orphaned products.
+export async function createProductsForBatch(tenantId: string, batchId: string, defs: ProductDef[], client: DbClient = db): Promise<CreatedProduct[]> {
   const created: CreatedProduct[] = [];
   for (const d of defs) {
     const fieldKey = productFieldKey(d.name);
     const id = crypto.randomUUID();
-    await db.insert(products).values({
+    await client.insert(products).values({
       id, tenantId, batchId, name: d.name, baseUnit: d.baseUnit, saleUnits: d.saleUnits,
       collectFrequency: d.collectFrequency, flow: d.flow ?? 'sale', fieldKey, active: true,
       isAnimalProduct: d.isAnimalProduct ?? false,
@@ -42,15 +48,15 @@ export async function createProductsForBatch(tenantId: string, batchId: string, 
   // collects (eggs, manure, milk…) — never the live animal itself, which is sold.
   const collectible = created.filter((_, i) => !defs[i].isAnimalProduct);
   if (collectible.length) {
-    await addCollectionPermissions(tenantId, collectible);
-    await notifyAssignCollectors(tenantId, collectible);
+    await addCollectionPermissions(tenantId, collectible, client);
+    await notifyAssignCollectors(tenantId, collectible, client);
   }
   return created;
 }
 
 // Auto-add a collection permission field to every worker profile (idempotent).
-async function addCollectionPermissions(tenantId: string, items: CreatedProduct[]) {
-  const profiles = await db.select().from(workerProfiles).where(eq(workerProfiles.tenantId, tenantId));
+async function addCollectionPermissions(tenantId: string, items: CreatedProduct[], client: DbClient = db) {
+  const profiles = await client.select().from(workerProfiles).where(eq(workerProfiles.tenantId, tenantId));
   for (const p of profiles) {
     const fields = ((p.fields ?? []) as FieldConfig[]).slice();
     const existing = new Set(fields.map((f) => f.fieldKey));
@@ -61,15 +67,15 @@ async function addCollectionPermissions(tenantId: string, items: CreatedProduct[
         changed = true;
       }
     }
-    if (changed) await db.update(workerProfiles).set({ fields }).where(eq(workerProfiles.id, p.id));
+    if (changed) await client.update(workerProfiles).set({ fields }).where(eq(workerProfiles.id, p.id));
   }
 }
 
 // Notify the farmer to assign a worker to collect each new product.
-async function notifyAssignCollectors(tenantId: string, items: CreatedProduct[]) {
+async function notifyAssignCollectors(tenantId: string, items: CreatedProduct[], client: DbClient = db) {
   const now = new Date().toISOString();
   for (const it of items) {
-    await db.insert(alerts).values({
+    await client.insert(alerts).values({
       id: `assign:${it.id}`, tenantId, severity: 'info', type: 'task_missed',
       title: 'Assign a collector', message: `Assign a worker to collect ${it.name} (${it.frequency})`,
       createdAt: now, acknowledged: false,
