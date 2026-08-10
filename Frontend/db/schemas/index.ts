@@ -439,6 +439,19 @@ export const productionRecords = pgTable('production_records', {
   type: text('type').notNull(), // eggs | meat | fish | crop
   qty: doublePrecision('qty').notNull(),
   weightKg: doublePrecision('weight_kg'),
+  // The product this collection was recorded against (client already sends
+  // this — see app/worker/record/collect/page.tsx). Nullable: legacy rows and
+  // unresolved backfill rows have no product match, and the worker payload
+  // itself is defensive about a missing id. ON DELETE RESTRICT (not SET NULL,
+  // not CASCADE): products are hard-deletable (DELETE /api/products), but once
+  // a product has recorded production against it, that history must not be
+  // silently orphaned (null) or destroyed (cascaded) by an unrelated product
+  // edit/delete — the delete itself should fail instead. See issue #22.
+  productId: text('product_id').references(() => products.id, { onDelete: 'restrict' }),
+  // Snapshot of the product's base unit at capture time — products are
+  // editable (baseUnit can change later), so this preserves what the qty
+  // above was actually measured in, independent of the product's current state.
+  baseUnit: text('base_unit'),
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
 }, (t) => [
@@ -446,6 +459,23 @@ export const productionRecords = pgTable('production_records', {
   index('idx_production_tenant_type').on(t.tenantId, t.type),
   index('idx_production_tenant_captured').on(t.tenantId, t.capturedAt),
 ]);
+
+// One row per tenant per backfill run — durable, queryable record of how many
+// production_records.product_id values the 0039 migration's backfill resolved
+// vs left NULL. `RAISE NOTICE` (used by 0038's products backfill) isn't
+// guaranteed to surface in production deploy logs (`vercel-build` runs
+// `pnpm db:migrate` non-interactively), so #22's AC — per-tenant resolved vs
+// unresolved counts — is written here instead. An operator reads it with:
+//   SELECT * FROM production_backfill_report ORDER BY created_at DESC;
+export const productionBackfillReport = pgTable('production_backfill_report', {
+  id: text('id').primaryKey(),
+  migration: text('migration').notNull(), // e.g. '0039' — which run produced this row
+  tenantId: text('tenant_id').notNull(),
+  resolved: integer('resolved').notNull(),
+  unresolved: integer('unresolved').notNull(),
+  total: integer('total').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
 
 export const healthRecords = pgTable('health_records', {
   clientUuid: text('client_uuid').primaryKey(),
@@ -520,6 +550,14 @@ export const products = pgTable('products', {
   fieldKey: text('field_key'), // permission key on worker profiles for collecting it
   active: boolean('active').notNull().default(true),
   isAnimalProduct: boolean('is_animal_product').notNull().default(false),
+  // The asset itself (the live animal at this batch's stage) — drives headcount
+  // decrement on sale. Previously inferred from isAnimalProduct; now recorded
+  // directly so a batch's main product is unambiguous. See productTemplates.ts.
+  isMainProduct: boolean('is_main_product').notNull().default(false),
+  // The costing denominator for this batch — exactly one per batch. Distinct from
+  // isMainProduct: for layers the asset is the spent hen but the costing
+  // denominator is eggs, so one flag cannot carry both meanings.
+  isCostDriver: boolean('is_cost_driver').notNull().default(false),
 }, (t) => [
   index('idx_products_tenant_batch').on(t.tenantId, t.batchId),
 ]);

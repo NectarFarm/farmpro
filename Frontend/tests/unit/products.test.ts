@@ -1,9 +1,30 @@
 import { describe, it, expect, vi } from 'vitest';
-import { productFieldKey, defaultsForBatch, mainProductForBatch } from '@/lib/server/products';
+import { productFieldKey, defaultsForBatch, mainProductForBatch, createProductsForBatch } from '@/lib/server/products';
 
-vi.mock('@/db', () => ({
-  db: { insert: vi.fn(), select: vi.fn(), update: vi.fn() },
+const { mockDbInsert, mockDbSelect } = vi.hoisted(() => ({
+  mockDbInsert: vi.fn(),
+  mockDbSelect: vi.fn(),
 }));
+vi.mock('@/db', () => ({
+  db: { insert: mockDbInsert, select: mockDbSelect, update: vi.fn() },
+}));
+
+// Captures every row passed to `db.insert(products).values(row)` while still
+// satisfying the alerts insert's `.onConflictDoNothing(...)` chain — see
+// notifyAssignCollectors in lib/server/products.ts.
+function setupInsertCapture() {
+  const insertedRows: Record<string, unknown>[] = [];
+  mockDbInsert.mockImplementation(() => ({
+    values: vi.fn((row: Record<string, unknown>) => {
+      insertedRows.push(row);
+      const p: Promise<void> & { onConflictDoNothing?: () => Promise<void> } = Promise.resolve();
+      p.onConflictDoNothing = vi.fn(() => Promise.resolve());
+      return p;
+    }),
+  }));
+  mockDbSelect.mockImplementation(() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
+  return insertedRows;
+}
 
 describe('products', () => {
   describe('productFieldKey', () => {
@@ -151,6 +172,45 @@ describe('products', () => {
       const main = mainProductForBatch('', 'maize');
       expect(main?.name).toBe('Maize grain');
       expect(main?.isAnimalProduct ?? false).toBe(false);
+    });
+  });
+
+  // is_main_product / is_cost_driver were previously silently dropped on insert
+  // (see #21) — the DB had no way to identify a batch's asset or costing
+  // denominator. Pin that createProductsForBatch now writes both from the template.
+  describe('createProductsForBatch persists isMainProduct and isCostDriver', () => {
+    it('a new layers batch has Eggs as cost driver and Spent hen as main product', async () => {
+      const insertedRows = setupInsertCapture();
+      const defs = defaultsForBatch('layer', 'layers');
+      await createProductsForBatch('t1', 'batch1', defs);
+
+      const eggs = insertedRows.find((r) => r.name === 'Eggs');
+      const spentHen = insertedRows.find((r) => r.name === 'Spent hen');
+      expect(eggs?.isCostDriver).toBe(true);
+      expect(eggs?.isMainProduct).toBe(false);
+      expect(spentHen?.isMainProduct).toBe(true);
+      expect(spentHen?.isCostDriver).toBe(false);
+
+      // No batch this function creates can ever have more than one cost driver.
+      expect(insertedRows.filter((r) => r.isCostDriver === true)).toHaveLength(1);
+    });
+
+    it('defaults isMainProduct and isCostDriver to false when the template omits them', async () => {
+      const insertedRows = setupInsertCapture();
+      await createProductsForBatch('t1', 'batch2', defaultsForBatch('broiler', 'broilers'));
+
+      const manure = insertedRows.find((r) => r.name === 'Manure');
+      expect(manure?.isMainProduct).toBe(false);
+      expect(manure?.isCostDriver).toBe(false);
+    });
+
+    it.each(Object.keys({
+      layers: 0, broilers: 0, pig_fatten: 0, pig_breed: 0, tilapia: 0, catfish: 0,
+      maize: 0, goats: 0, dairy: 0, ducks: 0, rabbits: 0, bees: 0,
+    }))('every %s batch created gets exactly one is_cost_driver row', async (enterprise) => {
+      const insertedRows = setupInsertCapture();
+      await createProductsForBatch('t1', 'batchX', defaultsForBatch('', enterprise));
+      expect(insertedRows.filter((r) => r.isCostDriver === true)).toHaveLength(1);
     });
   });
 });

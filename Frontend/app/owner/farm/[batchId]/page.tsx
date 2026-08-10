@@ -471,7 +471,12 @@ export default function BatchDetailPage() {
               <p className={`text-lg font-bold ${cost.fcr && cost.fcr > 2.8 ? 'text-amber-600' : 'text-gray-900'}`}>
                 {cost.fcr ?? '—'}
               </p>
-              <p className="text-xs text-gray-400">{cost.outputUnit === 'eggs' ? t('fcrPerDozen') : t('fcrPerKg')}</p>
+              <p className="text-xs text-gray-400">
+                {cost.fcrMode === 'PER_DOZEN' ? t('fcrPerDozen')
+                  : cost.fcrMode === 'PER_BASE_UNIT' ? t('fcrPerUnit', { unit: cost.outputUnit || 'unit' })
+                  : cost.fcrMode === 'PER_KG' ? t('fcrPerKg')
+                  : ''}
+              </p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3 text-center">
               <p className="text-xs text-gray-400">{t('onFarmNow')}</p>

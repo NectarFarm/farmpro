@@ -267,6 +267,20 @@
       "when": 1784033442486,
       "tag": "0037_login_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785770718256,
+      "tag": "0038_products_main_cost_driver",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785783385623,
+      "tag": "0039_production_records_product_id",
+      "breakpoints": true
     }
   ]
 }

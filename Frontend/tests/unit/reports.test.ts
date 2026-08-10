@@ -90,18 +90,29 @@ describe('profitAndLoss', () => {
 });
 
 describe('fcrReport', () => {
-  it('labels the FCR basis per species (eggs vs kg)', () => {
+  // Since #23, the FCR basis label is driven by the explicit fcrMode returned by
+  // costing.ts (FCR_MODE_BY_ENTERPRISE) — never guessed from outputUnit, which is
+  // now the driver product's real base unit ('piece' for eggs, not the literal
+  // string 'eggs').
+  it('labels the FCR basis per fcrMode (dozen / kg / base unit / none)', () => {
     const r = fcrReport([
-      { name: 'Layers', unit: 'Layer house A', species: 'layer', cost: cost({ fcr: 2.4, outputUnit: 'eggs', mortalityPct: 3 }) },
-      { name: 'Broilers', unit: 'Unassigned', species: 'broiler', cost: cost({ fcr: 1.7, outputUnit: 'kg', mortalityPct: 5 }) },
+      { name: 'Layers', unit: 'Layer house A', species: 'layer', cost: cost({ fcr: 2.4, outputUnit: 'piece', fcrMode: 'PER_DOZEN', mortalityPct: 3 }) },
+      { name: 'Broilers', unit: 'Unassigned', species: 'broiler', cost: cost({ fcr: 1.7, outputUnit: 'kg', fcrMode: 'PER_KG', mortalityPct: 5 }) },
+      { name: 'Dairy', unit: 'Unassigned', species: 'cow', cost: cost({ fcr: 2, outputUnit: 'litre', fcrMode: 'PER_BASE_UNIT', mortalityPct: 0 }) },
     ], { Generated: 'x' });
     expect(r.rows[0]).toEqual(['Layers', 'Layer house A', 'layer', 2.4, 'feed/dozen', '3%', 0]);
     expect(r.rows[1][4]).toBe('feed/kg');
+    expect(r.rows[2][4]).toBe('feed/litre');
     expect(r.scope).toBe('lifecycle');
   });
-  it('shows an em dash when FCR is not computable', () => {
-    const r = fcrReport([{ name: 'X', unit: 'Unassigned', species: 'maize', cost: cost({ fcr: undefined }) }], { Generated: 'x' });
+  it('shows an em dash for FCR basis when fcrMode is NONE (e.g. maize) or absent (no cost driver)', () => {
+    const r = fcrReport([
+      { name: 'X', unit: 'Unassigned', species: 'maize', cost: cost({ fcr: undefined, fcrMode: 'NONE' }) },
+      { name: 'Y', unit: 'Unassigned', species: 'goat', cost: cost({ fcr: undefined, fcrMode: undefined }) },
+    ], { Generated: 'x' });
     expect(r.rows[0][3]).toBe('—');
+    expect(r.rows[0][4]).toBe('—');
+    expect(r.rows[1][4]).toBe('—');
   });
 });
 

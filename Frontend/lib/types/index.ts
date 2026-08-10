@@ -135,7 +135,17 @@ export interface BatchCostSummary {
   batchId: string; acquisitionCost: number; feedCost: number;
   healthCost: number; laborCost: number; salaryCost?: number; overheadCost: number;
   totalCost: number; totalRevenue: number; grossMargin: number;
-  costPerUnit: number; outputUnit: string; breakEvenAge?: number;
+  // undefined = no cost-driver product configured for this batch; a number
+  // (including 0, via outputQty) means a driver exists. See outputQty below —
+  // costPerUnit alone cannot tell "no driver" apart from "driver, zero output".
+  costPerUnit?: number; outputUnit: string; breakEvenAge?: number;
+  // undefined = no driver configured; 0 = driver exists but nothing recorded
+  // against it yet; >0 = real output. See lib/server/costing.ts summarizeBatchCost.
+  outputQty?: number;
+  // How `fcr` (when defined) should be read — per kg / per base unit (e.g.
+  // litre milk) / per dozen (eggs) — or 'NONE' where FCR is meaningless
+  // (e.g. maize). Explicit per enterprise; never inferred from outputUnit.
+  fcrMode?: 'PER_KG' | 'PER_BASE_UNIT' | 'PER_DOZEN' | 'NONE';
   fcr?: number; henDayPct?: number; henHousedPct?: number; adg?: number; mortalityPct?: number;
   currentQty: number; costPerBird?: number; breakEvenPricePerRemaining?: number; remainingQty?: number;
   // Headcount fates: survivors = initial − died; soldHead left the farm; deaths = died.

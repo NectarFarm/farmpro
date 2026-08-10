@@ -88,13 +88,13 @@ describe('computeBatchCost', () => {
       .mockReturnValueOnce(mockChain('lots', []))
       .mockReturnValueOnce(mockChain('feedings', []))
       .mockReturnValueOnce(mockChain('morts', []))
-      .mockReturnValueOnce(mockChain('prods', [{ type: 'eggs', qty: 1000, batchId: 'b1', tenantId: 't1' }]))
+      .mockReturnValueOnce(mockChain('prods', [{ type: 'eggs', qty: 1000, batchId: 'b1', tenantId: 't1', productId: 'egg-product', baseUnit: 'piece' }]))
       .mockReturnValueOnce(mockChain('sales', []))
       .mockReturnValueOnce(mockChain('health', []))
       .mockReturnValueOnce(mockChain('labor', []))
       .mockReturnValueOnce(mockChain('overhead', []))
       .mockReturnValueOnce(mockChain('batches2', [makeBatch({ currentQty: 95 })]))
-      .mockReturnValueOnce(mockChain('products', []));
+      .mockReturnValueOnce(mockChain('products', [{ id: 'egg-product', baseUnit: 'piece', isCostDriver: true }]));
 
     const result = await computeBatchCost('t1', 'b1');
     expect(result!.costPerUnit).toBe(50);
@@ -108,13 +108,13 @@ describe('computeBatchCost', () => {
         { quantityKg: 200, lotId: 'l1', batchId: 'b1', tenantId: 't1' },
       ]))
       .mockReturnValueOnce(mockChain('morts', []))
-      .mockReturnValueOnce(mockChain('prods', [{ type: 'eggs', qty: 500, batchId: 'b1', tenantId: 't1' }]))
+      .mockReturnValueOnce(mockChain('prods', [{ type: 'eggs', qty: 500, batchId: 'b1', tenantId: 't1', productId: 'egg-product', baseUnit: 'piece' }]))
       .mockReturnValueOnce(mockChain('sales', []))
       .mockReturnValueOnce(mockChain('health', []))
       .mockReturnValueOnce(mockChain('labor', []))
       .mockReturnValueOnce(mockChain('overhead', []))
       .mockReturnValueOnce(mockChain('batches2', [makeBatch({ currentQty: 95 })]))
-      .mockReturnValueOnce(mockChain('products', []));
+      .mockReturnValueOnce(mockChain('products', [{ id: 'egg-product', baseUnit: 'piece', isCostDriver: true }]));
 
     const result = await computeBatchCost('t1', 'b1');
     expect(result!.fcr).toBe(4.8);
@@ -156,7 +156,8 @@ describe('computeBatchCost', () => {
       .mockReturnValueOnce(mockChain('health', []))
       .mockReturnValueOnce(mockChain('labor', []))
       .mockReturnValueOnce(mockChain('overhead', []))
-      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ initialQty: 100, currentQty: 50 })]));
+      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ initialQty: 100, currentQty: 50 })]))
+      .mockReturnValueOnce(mockChain('products', []));
 
     const result = await computeBatchCost('t1', 'b1');
     expect(result!.survivors).toBe(100);          // none died
@@ -180,7 +181,8 @@ describe('computeBatchCost', () => {
       .mockReturnValueOnce(mockChain('health', [{ quantity: 1000, productLotId: 'l1', batchId: 'b1', tenantId: 't1' }]))
       .mockReturnValueOnce(mockChain('labor', []))
       .mockReturnValueOnce(mockChain('overhead', []))
-      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ initialQty: 100, currentQty: 25 })]));
+      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ initialQty: 100, currentQty: 25 })]))
+      .mockReturnValueOnce(mockChain('products', []));
 
     const result = await computeBatchCost('t1', 'b1');
     expect(result!.totalCost).toBe(21000);            // 15000 + 5000 feed + 1000 health
@@ -271,7 +273,8 @@ describe('computeBatchCost — labour from actual payroll', () => {
       .mockReturnValueOnce(mockChain('health', []))
       .mockReturnValueOnce(mockChain('labor', []))
       .mockReturnValueOnce(mockChain('overhead', []))
-      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ currentQty: 100 })]));
+      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ currentQty: 100 })]))
+      .mockReturnValueOnce(mockChain('products', []));
     return computeBatchCost('t1', 'b1', labour);
   }
 
@@ -298,7 +301,8 @@ describe('computeBatchCost — labour from actual payroll', () => {
       .mockReturnValueOnce(mockChain('health', []))
       .mockReturnValueOnce(mockChain('labor', []))
       .mockReturnValueOnce(mockChain('overhead', []))
-      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ currentQty: 100 })]));
+      .mockReturnValueOnce(mockChain('batches2', [makeBatch({ currentQty: 100 })]))
+      .mockReturnValueOnce(mockChain('products', []));
     const result = await computeBatchCost('t1', 'b1');
     expect(result!.salaryCost).toBe(0);
     expect(result!.totalCost).toBe(10000);
@@ -356,8 +360,9 @@ describe('computeDashboardKPIs', () => {
       .mockReturnValueOnce(empty)
       .mockReturnValueOnce(empty)
       .mockReturnValueOnce(empty)
-      // computeAllBatchCosts: batches, morts, sales, lots, feedings, prod, health, labor, overhead
+      // computeAllBatchCosts: batches, morts, sales, lots, feedings, prod, health, labor, overhead, products
       .mockReturnValueOnce(batchesChain)
+      .mockReturnValueOnce(empty)
       .mockReturnValueOnce(empty)
       .mockReturnValueOnce(empty)
       .mockReturnValueOnce(empty)

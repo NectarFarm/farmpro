@@ -399,6 +399,10 @@ export const productionPayloadSchema = z.object({
   eggs: zCoercedNum().finite().min(0).optional(),
   count: zCoercedNum().finite().min(0).optional(),
   weightKg: zCoercedNum().optional().nullable(),
+  // The client (app/worker/record/collect/page.tsx) already sends this — it
+  // was previously stripped here (unknown key) and never reached the DB,
+  // forcing costing to substring-match on the free-text `type` instead. See #22.
+  productId: z.string().optional().nullable(),
 });
 
 export const weightSamplePayloadSchema = z.object({

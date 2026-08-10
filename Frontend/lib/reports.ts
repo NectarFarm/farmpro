@@ -63,11 +63,24 @@ export function profitAndLoss(items: readonly { name: string; unit: string; cost
   return { title: 'Profit & Loss by Batch (KSh)', columns: PL_COLUMNS, rows, meta, scope: 'lifecycle', hasTotalsRow };
 }
 
+// FCR basis text per mode — driven by the explicit fcrMode (see costing.ts's
+// FCR_MODE_BY_ENTERPRISE), never guessed from outputUnit (which, since #23, is
+// the driver product's actual base unit — 'piece', 'kg', 'litre', 'head' — not
+// a stand-in like the old literal 'eggs').
+function fcrBasisLabel(cost: BatchCostSummary): string {
+  switch (cost.fcrMode) {
+    case 'PER_DOZEN': return 'feed/dozen';
+    case 'PER_KG': return 'feed/kg';
+    case 'PER_BASE_UNIT': return cost.outputUnit ? `feed/${cost.outputUnit}` : 'feed/unit';
+    default: return '—'; // NONE, or no fcrMode at all (batch has no cost driver)
+  }
+}
+
 export function fcrReport(items: readonly { name: string; unit: string; species: string; cost: BatchCostSummary }[], meta: ReportData['meta']): ReportData {
   const rows = items.map((i) => [
     i.name, i.unit, i.species,
     i.cost.fcr ?? '—',
-    i.cost.outputUnit === 'eggs' ? 'feed/dozen' : 'feed/kg',
+    fcrBasisLabel(i.cost),
     `${i.cost.mortalityPct ?? 0}%`,
     i.cost.feedCost,
   ] as (string | number)[]);
@@ -79,7 +92,7 @@ export function batchCard(items: readonly { name: string; unit: string; species:
     i.name, i.unit, i.species, i.stage,
     i.cost.fcr ?? '—', `${i.cost.mortalityPct ?? 0}%`,
     i.cost.survivors ?? 0, i.cost.soldHead ?? 0, i.cost.currentQty,
-    i.cost.costPerUnit, i.cost.totalCost, i.cost.totalRevenue, i.cost.grossMargin,
+    i.cost.costPerUnit ?? '—', i.cost.totalCost, i.cost.totalRevenue, i.cost.grossMargin,
   ] as (string | number)[]);
   return { title: 'Batch Performance Cards', columns: ['Batch', 'Unit', 'Species', 'Stage', 'FCR', 'Mortality', 'Survived', 'Sold', 'On farm', 'Cost/Unit', 'Total Cost', 'Revenue', 'Margin'], rows, meta, scope: 'lifecycle' };
 }

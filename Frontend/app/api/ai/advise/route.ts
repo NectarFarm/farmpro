@@ -42,8 +42,15 @@ export async function POST(req: Request) {
   const prodByType: Record<string, number> = {};
   for (const p of prod) if (p.capturedAt.slice(0, 10) >= cutoff) prodByType[p.type] = (prodByType[p.type] ?? 0) + p.qty;
 
+  // avgFCR is 0 both when it's genuinely 0 (never happens in practice) AND when
+  // no active batch had a computable FCR at all (a maize-only farm, a meat-goats
+  // batch that's never been milked, etc — see #23). Feeding a bare "0" into a
+  // prompt that's told to "never invent figures" would read as a real, good
+  // number, so say plainly when there's nothing to report instead.
+  const avgFcrText = kpis.avgFCRSampleSize > 0 ? String(kpis.avgFCR) : 'not available (no batch has feed-conversion data yet)';
+
   const context = `LIVE FARM DATA (as of ${new Date().toISOString().slice(0, 10)}):
-- Active batches: ${kpis.activeBatches}; total animals: ${kpis.totalBirds}; mortality: ${kpis.mortalityPct}%; avg FCR: ${kpis.avgFCR}.
+- Active batches: ${kpis.activeBatches}; total animals: ${kpis.totalBirds}; mortality: ${kpis.mortalityPct}%; avg FCR: ${avgFcrText}.
 - Gross margin: KES ${kpis.grossMargin}; revenue this month: KES ${kpis.revenueThisMonth}; pending alerts: ${kpis.pendingAlerts}.
 - Batches: ${bs.map((b) => `${b.name} [${b.species}, ${b.currentQty} head, stage ${b.stage}]`).join('; ') || 'none yet'}.
 - Active alerts: ${activeAlerts.join('; ') || 'none'}.
