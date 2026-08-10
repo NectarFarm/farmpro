@@ -171,11 +171,13 @@ export const batches = pgTable('batches', {
   name: text('name').notNull(),
   species: text('species').notNull(),
   // Canonical enterprise key ('layers', 'broilers', 'tilapia', ...) set directly
-  // from the batch-creation picker. The source of truth for costing/lifecycle/
-  // alert-engine enterprise lookups — see resolveEnterprise() in
-  // lib/server/productTemplates.ts. Nullable: older batches predating this
-  // column, and batches created via free-text species entry (setup wizard),
-  // fall back to enterpriseFromSpecies(species) guessing.
+  // from the batch-creation picker, or (setup wizard) guessed once at creation
+  // time from the free-text species via enterpriseFromSpecies() and persisted.
+  // The source of truth for costing/lifecycle/alert-engine enterprise lookups —
+  // see resolveEnterprise() in lib/server/productTemplates.ts. Nullable: older
+  // batches predating this column, and any species text that matches no known
+  // enterprise, still fall back to re-running enterpriseFromSpecies(species)
+  // at read time via resolveEnterprise().
   enterprise: text('enterprise'),
   breed: text('breed'),
   source: text('source').notNull(),
