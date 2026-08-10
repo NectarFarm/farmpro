@@ -288,6 +288,13 @@
       "when": 1786368810269,
       "tag": "0040_production_records_slot_key",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786378442546,
+      "tag": "0041_widen_cents_to_bigint",
+      "breakpoints": true
     }
   ]
 }

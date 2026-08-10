@@ -1,7 +1,7 @@
 // IFMS Drizzle schema — SRS v1.0 §4. Every tenant-owned row carries tenant_id.
 // Money is doublePrecision for the demo; production should use integer minor units.
 import {
-  pgTable, text, integer, doublePrecision, boolean, timestamp, jsonb, unique, index,
+  bigint, boolean, doublePrecision, index, integer, jsonb, pgTable, text, timestamp, unique,
 } from 'drizzle-orm/pg-core';
 import type { FieldConfig } from '@/lib/types';
 import { ALL_FEATURE_KEYS } from '@/lib/features';
@@ -92,7 +92,7 @@ export const employees = pgTable('employees', {
   pinSet: boolean('pin_set').notNull().default(false),
   active: boolean('active').notNull().default(true),
   salary: doublePrecision('salary').notNull().default(0), // monthly wage (KSh); 0 = unpaid/unset
-  salaryCents: integer('salary_cents').notNull().default(0),
+  salaryCents: bigint('salary_cents', { mode: 'number' }).notNull().default(0),
   payDay: integer('pay_day'),                             // day of month (1–31) wages are due
   paymentsFrom: text('payments_from'),                    // 'YYYY-MM' payroll begins (null = first run)
   // Batches this worker is assigned to. NULL = all (current & future) active batches
@@ -110,15 +110,15 @@ export const payslips = pgTable('payslips', {
   employeeId: text('employee_id').notNull(),
   period: text('period').notNull(), // 'YYYY-MM'
   gross: doublePrecision('gross').notNull(),
-  grossCents: integer('gross_cents').notNull().default(0),
+  grossCents: bigint('gross_cents', { mode: 'number' }).notNull().default(0),
   advances: doublePrecision('advances').notNull().default(0),
-  advancesCents: integer('advances_cents').notNull().default(0),
+  advancesCents: bigint('advances_cents', { mode: 'number' }).notNull().default(0),
   fines: doublePrecision('fines').notNull().default(0),
-  finesCents: integer('fines_cents').notNull().default(0),
+  finesCents: bigint('fines_cents', { mode: 'number' }).notNull().default(0),
   bonuses: doublePrecision('bonuses').notNull().default(0),
-  bonusesCents: integer('bonuses_cents').notNull().default(0),
+  bonusesCents: bigint('bonuses_cents', { mode: 'number' }).notNull().default(0),
   net: doublePrecision('net').notNull(),
-  netCents: integer('net_cents').notNull().default(0),
+  netCents: bigint('net_cents', { mode: 'number' }).notNull().default(0),
   status: text('status').notNull().default('pending'), // pending | paid
   paidAt: text('paid_at'),
   createdAt: text('created_at').notNull(),
@@ -137,7 +137,7 @@ export const employeeLedger = pgTable('employee_ledger', {
   employeeId: text('employee_id').notNull(),
   type: text('type').notNull(), // advance | fine | bonus | adjustment
   amount: doublePrecision('amount').notNull(),
-  amountCents: integer('amount_cents').notNull().default(0),
+  amountCents: bigint('amount_cents', { mode: 'number' }).notNull().default(0),
   note: text('note'),
   period: text('period').notNull(), // 'YYYY-MM' it applies to
   date: text('date').notNull(),
@@ -187,7 +187,7 @@ export const batches = pgTable('batches', {
   currentQty: integer('current_qty').notNull(),
   stage: text('stage').notNull(),
   acquisitionCost: doublePrecision('acquisition_cost').notNull().default(0),
-  acquisitionCostCents: integer('acquisition_cost_cents').notNull().default(0),
+  acquisitionCostCents: bigint('acquisition_cost_cents', { mode: 'number' }).notNull().default(0),
   status: text('status').notNull().default('ACTIVE'),
   parentBatchIds: jsonb('parent_batch_ids').$type<string[]>(),
   // Avg live weight (kg) of one animal, for stock sold by weight (fish, pork). Caps
@@ -254,7 +254,7 @@ export const inventoryLots = pgTable('inventory_lots', {
   qtyOnHand: doublePrecision('qty_on_hand').notNull().default(0),
   unit: text('unit').notNull(),
   unitCost: doublePrecision('unit_cost').notNull().default(0),
-  unitCostCents: integer('unit_cost_cents').notNull().default(0),
+  unitCostCents: bigint('unit_cost_cents', { mode: 'number' }).notNull().default(0),
   expiryDate: text('expiry_date'),
   supplierId: text('supplier_id'),
   receivedDate: text('received_date').notNull(),
@@ -309,9 +309,9 @@ export const sales = pgTable('sales', {
   baseQty: doublePrecision('base_qty'), // quantity converted to base units (e.g. eggs) — for stock math
   weightKg: doublePrecision('weight_kg'),
   unitPrice: doublePrecision('unit_price').notNull(),
-  unitPriceCents: integer('unit_price_cents').notNull().default(0),
+  unitPriceCents: bigint('unit_price_cents', { mode: 'number' }).notNull().default(0),
   totalAmount: doublePrecision('total_amount').notNull(),
-  totalAmountCents: integer('total_amount_cents').notNull().default(0),
+  totalAmountCents: bigint('total_amount_cents', { mode: 'number' }).notNull().default(0),
   buyer: text('buyer').notNull(),
   paymentMethod: text('payment_method').notNull(),
   status: text('status').notNull(),
@@ -331,9 +331,9 @@ export const purchases = pgTable('purchases', {
   supplier: text('supplier').notNull(),
   quantity: doublePrecision('quantity').notNull(),
   unitCost: doublePrecision('unit_cost').notNull(),
-  unitCostCents: integer('unit_cost_cents').notNull().default(0),
+  unitCostCents: bigint('unit_cost_cents', { mode: 'number' }).notNull().default(0),
   totalCost: doublePrecision('total_cost').notNull(),
-  totalCostCents: integer('total_cost_cents').notNull().default(0),
+  totalCostCents: bigint('total_cost_cents', { mode: 'number' }).notNull().default(0),
   createdAt: text('created_at').notNull(), // insert timestamp — not the transaction date, see receivedAt
   // The date the delivery actually happened (farmer-supplied, defaults to
   // today) — distinct from createdAt, which is just when the row was saved.
@@ -347,7 +347,7 @@ export const purchases = pgTable('purchases', {
   paidAt: text('paid_at'),
   paymentMethod: text('payment_method'), // 'cash' | 'mpesa' | 'credit' | ...
   amountPaid: doublePrecision('amount_paid').notNull().default(0),
-  amountPaidCents: integer('amount_paid_cents').notNull().default(0),
+  amountPaidCents: bigint('amount_paid_cents', { mode: 'number' }).notNull().default(0),
 }, (t) => [
   index('idx_purchases_tenant_date').on(t.tenantId, t.createdAt),
 ]);
@@ -558,7 +558,7 @@ export const overheads = pgTable('overheads', {
   tenantId: text('tenant_id').notNull(),
   label: text('label').notNull(),
   amount: doublePrecision('amount').notNull(),
-  amountCents: integer('amount_cents').notNull().default(0),
+  amountCents: bigint('amount_cents', { mode: 'number' }).notNull().default(0),
   driver: text('driver').notNull().default('population'), // population | even | revenue
 });
 
@@ -688,7 +688,7 @@ export const feedFormulas = pgTable('feed_formulas', {
   components: jsonb('components').$type<{ itemId: string; kg: number }[]>().notNull().default([]),
   totalKg: doublePrecision('total_kg').notNull(),
   unitCost: doublePrecision('unit_cost').notNull(),
-  unitCostCents: integer('unit_cost_cents').notNull().default(0),
+  unitCostCents: bigint('unit_cost_cents', { mode: 'number' }).notNull().default(0),
   createdAt: text('created_at').notNull(),
 });
 
@@ -704,7 +704,7 @@ export const processingEvents = pgTable('processing_events', {
   outputItemId: text('output_item_id').notNull(),
   outputQty: doublePrecision('output_qty').notNull(),
   fee: doublePrecision('fee').notNull().default(0), // e.g. a milling/grinding charge
-  feeCents: integer('fee_cents').notNull().default(0),
+  feeCents: bigint('fee_cents', { mode: 'number' }).notNull().default(0),
   note: text('note'),
   recordedBy: text('recorded_by').notNull(),
   capturedAt: text('captured_at').notNull(),
