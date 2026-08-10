@@ -2,6 +2,7 @@ import 'server-only';
 import { db } from '@/db';
 import { loginAttempts } from '@/db/schemas';
 import { and, eq, gt, lt, asc } from 'drizzle-orm';
+import { pgErrorCode } from './dbErrors';
 
 // DB-backed login brute-force protection.
 //
@@ -27,9 +28,13 @@ function normalize(identifier: string): string {
   return identifier.trim().toLowerCase();
 }
 
-/** "table doesn't exist yet" — thrown before the migration runs; fail OPEN so login still works. */
+/**
+ * "table doesn't exist yet" — thrown before the migration runs; fail OPEN so login
+ * still works. drizzle wraps the real postgres error in a DrizzleQueryError, so the
+ * SQLSTATE lives on err.cause.code, not err.code — see lib/server/dbErrors.ts.
+ */
 function isMissingTable(err: unknown): boolean {
-  return (err as { code?: string })?.code === '42P01';
+  return pgErrorCode(err) === '42P01';
 }
 
 export type LockoutResult =

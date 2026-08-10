@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { DrizzleQueryError } from 'drizzle-orm';
 import { DELETE } from '@/app/api/products/route';
 
 // DELETE /api/products used to hard-delete unconditionally. Migration 0039
@@ -8,6 +9,19 @@ import { DELETE } from '@/app/api/products/route';
 // regression if it surfaces as a raw 500 (#195). These tests exercise the
 // actual exported route handler (not a copy of its logic) with the db and
 // session layers mocked, the same way tests/unit/products.test.ts mocks '@/db'.
+//
+// The error shape below is deliberately NOT a flat `Object.assign(new Error, {
+// code })` — that shape is never produced at runtime. drizzle-orm (postgres-js
+// driver) always wraps the real postgres error in a DrizzleQueryError, with
+// the SQLSTATE-bearing PostgresError attached as `.cause` (verified empirically
+// against this project's own drizzle-orm 0.45.1 + postgres client: `e.code` is
+// `undefined`, `e.cause.code` is the SQLSTATE). A test built on the flat shape
+// cannot fail against a route that only checks `e.code` — which is exactly how
+// this bug shipped — so these tests construct the real `DrizzleQueryError`.
+function pgError(code: string, message: string): DrizzleQueryError {
+  const cause = Object.assign(new Error(message), { code });
+  return new DrizzleQueryError('delete from "products" ...', [], cause as Error);
+}
 
 const { mockDbDelete, mockGetSession } = vi.hoisted(() => ({
   mockDbDelete: vi.fn(),
@@ -35,7 +49,7 @@ describe('DELETE /api/products', () => {
   });
 
   it('deleting a product with production history returns a 4xx, not a 500', async () => {
-    const fkError = Object.assign(new Error('update or delete on table "products" violates foreign key constraint'), { code: '23503' });
+    const fkError = pgError('23503', 'update or delete on table "products" violates foreign key constraint');
     mockDbDelete.mockReturnValue({ where: vi.fn().mockRejectedValue(fkError) });
 
     const req = new Request('http://localhost/api/products?id=p1', { method: 'DELETE' });
@@ -59,10 +73,13 @@ describe('DELETE /api/products', () => {
   });
 
   it('rethrows an unrelated db error rather than mislabeling it as the FK case', async () => {
-    const otherError = Object.assign(new Error('connection reset'), { code: '57P01' });
+    // A DrizzleQueryError's own .message is the failed query text, not the
+    // underlying postgres message, so assert on identity + the wrapped cause
+    // rather than matching .message against the cause's text.
+    const otherError = pgError('57P01', 'connection reset');
     mockDbDelete.mockReturnValue({ where: vi.fn().mockRejectedValue(otherError) });
 
     const req = new Request('http://localhost/api/products?id=p3', { method: 'DELETE' });
-    await expect(DELETE(req)).rejects.toThrow('connection reset');
+    await expect(DELETE(req)).rejects.toBe(otherError);
   });
 });

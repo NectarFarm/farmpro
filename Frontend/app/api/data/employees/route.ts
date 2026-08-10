@@ -4,6 +4,7 @@ import { and, eq, asc, inArray } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { hashSecret } from '@/lib/server/crypto';
 import { ok, created, unauthorized, forbidden, notFound, badRequest, tooMany } from '@/lib/server/http';
+import { pgErrorCode } from '@/lib/server/dbErrors';
 import { parseBody, createEmployeeSchema, updateEmployeeSchema, MIN_PASSWORD_LENGTH } from '@/lib/server/validate';
 import { toCents } from '@/lib/server/money';
 import { checkWriteRateLimit, checkReadRateLimit } from '@/lib/server/rateLimit';
@@ -103,7 +104,7 @@ export async function POST(req: Request) {
       }
     });
   } catch (e) {
-    if ((e as { code?: string }).code === '23505') return badRequest('That phone number or email already has a login.');
+    if (pgErrorCode(e) === '23505') return badRequest('That phone number or email already has a login.');
     throw e;
   }
   return created({ id });
@@ -175,7 +176,7 @@ export async function PATCH(req: Request) {
           pinHash: pinHash ?? null, passwordHash: passwordHash ?? null,
         });
       } catch (e) {
-        if ((e as { code?: string }).code === '23505') return badRequest('That phone number or email already has a login.');
+        if (pgErrorCode(e) === '23505') return badRequest('That phone number or email already has a login.');
         throw e;
       }
     }

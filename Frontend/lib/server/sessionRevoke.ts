@@ -2,6 +2,7 @@ import 'server-only';
 import { db } from '@/db';
 import { revokedSessions } from '@/db/schemas';
 import { eq, lt } from 'drizzle-orm';
+import { pgErrorCode } from './dbErrors';
 
 /** Mark a session jti as revoked until its natural expiry (logout / remote kill). */
 export async function revokeSessionJti(jti: string, userId: string | undefined, exp: number): Promise<void> {
@@ -30,7 +31,9 @@ export async function isSessionRevoked(jti: string | undefined): Promise<boolean
     // login still works before the migration runs. Any other error (connection
     // drop, timeout, etc.) must fail closed — treating it as "not revoked" would
     // silently defeat logout/remote-kill on a transient DB blip.
-    if ((err as { code?: string })?.code === '42P01') return false;
+    // drizzle wraps the real postgres error in a DrizzleQueryError, so the
+    // SQLSTATE lives on err.cause.code, not err.code — see lib/server/dbErrors.ts.
+    if (pgErrorCode(err) === '42P01') return false;
     throw err;
   }
 }

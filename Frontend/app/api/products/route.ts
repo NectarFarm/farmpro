@@ -5,6 +5,7 @@ import { getSession } from '@/lib/server/session';
 import { createProductsForBatch } from '@/lib/server/products';
 import { hiddenFieldKeysFor, stripProductSaleUnitPrices } from '@/lib/server/fieldPermissions';
 import { ok, created, unauthorized, forbidden, badRequest } from '@/lib/server/http';
+import { pgErrorCode } from '@/lib/server/dbErrors';
 import { parseBody, productCreateSchema, productUpdateSchema } from '@/lib/server/validate';
 import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
 import { withErrorLogging } from '@/lib/server/apiErrorHandler';
@@ -48,7 +49,9 @@ async function deleteHandler(req: Request) {
     // actionable outcome, not a server failure: catch it specifically (never
     // a bare catch-all, which would mislabel unrelated failures) and steer
     // toward the existing soft-delete (`products.active = false`) instead.
-    if ((e as { code?: string }).code === '23503') {
+    // drizzle wraps the real postgres error in a DrizzleQueryError, so the
+    // SQLSTATE lives on e.cause.code, not e.code — see lib/server/dbErrors.ts.
+    if (pgErrorCode(e) === '23503') {
       return badRequest('This product has recorded production and cannot be deleted. Deactivate it instead.');
     }
     throw e;

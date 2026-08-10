@@ -6,6 +6,7 @@ import { sales, batches, productionUnits, products } from '@/db/schemas';
 import { and, eq } from 'drizzle-orm';
 import { sellableStock, liveWeightFor, checkWithdrawal } from './inventory';
 import { toCents } from './money';
+import { pgErrorCode } from './dbErrors';
 
 export type SaleInput = {
   tenantId: string;
@@ -186,7 +187,9 @@ export async function createSale(input: SaleInput): Promise<SaleResult> {
     // Postgres aborts one side of a serialization conflict with SQLSTATE 40001 —
     // translate that into the same "someone else just sold this" message a
     // locked-row conflict would produce, instead of a raw DB error string.
-    if ((e as { code?: string })?.code === '40001') {
+    // drizzle wraps the real postgres error in a DrizzleQueryError, so the
+    // SQLSTATE lives on e.cause.code, not e.code — see lib/server/dbErrors.ts.
+    if (pgErrorCode(e) === '40001') {
       return { ok: false, error: 'This sale conflicted with another concurrent sale on the same batch — please try again.' };
     }
     const msg = e instanceof Error ? e.message : 'Sale failed.';
