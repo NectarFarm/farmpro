@@ -172,12 +172,23 @@ export async function handleProduction(
       // #203: the product's own `field_key` (e.g. `collect_eggs`) is the
       // permission gate a worker profile carries for collecting THIS product
       // (see addCollectionPermissions in lib/server/products.ts, which is what
-      // put it there). Only gate when it resolves to a real product with a
-      // field_key — an unresolved/stale productId already falls back to NULL
-      // above and carries nothing to check here; that's the same defensive
-      // posture as the rest of this function, not a permissions bypass (a
-      // fabricated productId can't be used to dodge the check because it
-      // simply never resolves to a product at all).
+      // put it there).
+      //
+      // KNOWN GAP (#210), stated plainly because it is easy to misread as safe:
+      // this gate only runs when the client SENDS a resolvable productId, so
+      // enforcement is opt-in by the caller. An omitted or unresolvable
+      // productId is NOT gated — the record is still written, with product_id
+      // NULL. What is lost is the attribution, not the write. A worker whose
+      // collect_* permission is locked can therefore still land a quantity by
+      // leaving productId out.
+      //
+      // The row is inert: #23 excludes NULL product_id from costing rather than
+      // counting it as zero, and it matches no product for availability. But it
+      // does appear in the activity feed, so it is an unauthorised write, not a
+      // no-op. The NULL fallback itself is deliberate (#22) — it keeps an
+      // offline record whose product changed between capture and sync from
+      // being rejected outright — which is why closing #210 means gating on the
+      // claimed `type` instead of removing the fallback.
       if (prod.fieldKey) await assertWritable(session, [prod.fieldKey]);
     }
   }
