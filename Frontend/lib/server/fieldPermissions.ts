@@ -4,7 +4,7 @@ import 'server-only';
 // whose profile hides 'feed_unit_cost' never receives that property in the JSON.
 import { db } from '@/db';
 import { workerProfiles } from '@/db/schemas';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Session } from './session';
 import type { FieldConfig, Role } from '@/lib/types';
 
@@ -32,7 +32,12 @@ export async function hiddenFieldKeysFor(session: Session): Promise<Set<string>>
     const [profile] = await db
       .select({ fields: workerProfiles.fields })
       .from(workerProfiles)
-      .where(eq(workerProfiles.id, session.workerProfileId))
+      // Scoped by tenant as well as id. The id arrives on a signed session so
+      // this is not directly exploitable today, but these two functions decide
+      // what a user may read and write, and every other tenant-scoped query in
+      // the codebase carries the predicate — an unscoped lookup here is one
+      // session-forgery or id-reuse bug away from cross-tenant permission data.
+      .where(and(eq(workerProfiles.tenantId, session.tenantId), eq(workerProfiles.id, session.workerProfileId)))
       .limit(1);
     const fields = (profile?.fields ?? []) as FieldConfig[];
     const perm = new Map(fields.map((f) => [f.fieldKey, f.permission]));
@@ -97,7 +102,12 @@ export async function assertWritable(session: Session, fieldKeys: string[]): Pro
     const [profile] = await db
       .select({ fields: workerProfiles.fields })
       .from(workerProfiles)
-      .where(eq(workerProfiles.id, session.workerProfileId))
+      // Scoped by tenant as well as id. The id arrives on a signed session so
+      // this is not directly exploitable today, but these two functions decide
+      // what a user may read and write, and every other tenant-scoped query in
+      // the codebase carries the predicate — an unscoped lookup here is one
+      // session-forgery or id-reuse bug away from cross-tenant permission data.
+      .where(and(eq(workerProfiles.tenantId, session.tenantId), eq(workerProfiles.id, session.workerProfileId)))
       .limit(1);
     const fields = (profile?.fields ?? []) as FieldConfig[];
     const notEditable = new Set(fields.filter((f) => f.permission !== 'editable').map((f) => f.fieldKey));
