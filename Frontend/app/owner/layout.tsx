@@ -8,7 +8,6 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { SetupGuide } from '@/components/SetupGuide';
 import { TestingGuide } from '@/components/TestingGuide';
 import { AIAdvisor } from '@/components/AIAdvisor';
-import { ALL_FEATURE_KEYS } from '@/lib/features';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useBranding } from '@/lib/useBranding';
 import { LayoutDashboard, Tractor, Boxes, Wallet, Users, ClipboardList, Settings, BarChart3, Bell, Wheat, type LucideIcon } from 'lucide-react';
@@ -46,7 +45,11 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
   const { user, logout } = useAuthStore();
   const brand = useBranding();
   const { t } = useTranslation();
-  const [features, setFeatures] = useState<string[]>(ALL_FEATURE_KEYS);
+  // #29: start with NO features enabled (not ALL_FEATURE_KEYS) so a gated nav
+  // item / floating widget never flashes in before /api/me resolves and then
+  // disappears — better to briefly show fewer items than to show, then yank,
+  // something the tenant's plan doesn't actually include.
+  const [features, setFeatures] = useState<string[]>([]);
   const [alertCount, setAlertCount] = useState(0);
 
   useEffect(() => {

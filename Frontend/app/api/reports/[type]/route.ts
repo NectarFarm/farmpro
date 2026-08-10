@@ -1,6 +1,7 @@
-import { getSession } from '@/lib/server/session';
+import type { Session } from '@/lib/server/session';
 import { buildReport } from '@/lib/server/reports';
-import { ok, unauthorized, forbidden } from '@/lib/server/http';
+import { ok, forbidden } from '@/lib/server/http';
+import { withFeature } from '@/lib/server/entitlements';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager', 'auditor'];
@@ -8,9 +9,8 @@ const ALLOWED: Role[] = ['owner', 'manager', 'auditor'];
 const FINANCIAL = new Set(['pl', 'sales', 'batch_card', 'fcr', 'labor', 'baseline']);
 
 // GET /api/reports/<type>?from=YYYY-MM-DD&to=YYYY-MM-DD
-export async function GET(req: Request, ctx: { params: Promise<{ type: string }> }) {
-  const session = await getSession();
-  if (!session) return unauthorized();
+// #29: gated behind the `reports` feature ("Reports & Exports").
+async function getHandler(req: Request, session: Session, ctx: { params: Promise<{ type: string }> }) {
   if (!ALLOWED.includes(session.role)) return forbidden();
 
   const { type } = await ctx.params;
@@ -23,3 +23,5 @@ export async function GET(req: Request, ctx: { params: Promise<{ type: string }>
 
   return ok(await buildReport(session.tenantId, type, from, to, unitId));
 }
+
+export const GET = withFeature('GET /api/reports/[type]', getHandler);

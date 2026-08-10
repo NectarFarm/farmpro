@@ -1,8 +1,9 @@
 import { db } from '@/db';
 import { mortalityRecords, healthRecords, feedingRecords, productionRecords, closingStockCounts, photos, users, batches, inventoryItems, physicalCounts, weightSamples, observations } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
-import { getSession } from '@/lib/server/session';
-import { ok, unauthorized, forbidden } from '@/lib/server/http';
+import type { Session } from '@/lib/server/session';
+import { ok, forbidden } from '@/lib/server/http';
+import { withFeature } from '@/lib/server/entitlements';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
@@ -12,9 +13,9 @@ const MAX_LIMIT = 200;
 // GET /api/worker-activity[?workerId=&cursor=&limit=] — every field record, by worker,
 // for the farm. Paginated with cursor-based pagination for stable scrolling.
 // Cursor is the `capturedAt` ISO timestamp of the last item on the previous page.
-export async function GET(req: Request) {
-  const session = await getSession();
-  if (!session) return unauthorized();
+// #29: gated behind the `activity_log` feature (the farm-wide Worker Activity
+// Log page — /owner/activity in app/owner/layout.tsx's nav).
+async function getHandler(req: Request, session: Session) {
   if (!ALLOWED.includes(session.role)) return forbidden();
   const tid = session.tenantId;
   const url = new URL(req.url);
@@ -60,3 +61,5 @@ export async function GET(req: Request) {
   const nextCursor = page.length === limit ? page[page.length - 1].at : null;
   return ok({ data: page, nextCursor });
 }
+
+export const GET = withFeature('GET /api/worker-activity', getHandler);

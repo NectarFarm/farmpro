@@ -11,7 +11,7 @@ describe('subscription plans', () => {
     expect(PLANS.free.length).toBeLessThan(PLANS.pro.length);
   });
   it('every plan only references real feature keys', () => {
-    const keys = new Set(FEATURES.map((f) => f.key));
+    const keys: Set<string> = new Set(FEATURES.map((f) => f.key));
     for (const plan of Object.values(PLANS)) for (const f of plan) expect(keys.has(f)).toBe(true);
   });
 });

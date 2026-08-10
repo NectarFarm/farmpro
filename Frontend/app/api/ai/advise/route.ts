@@ -1,10 +1,11 @@
 import { db } from '@/db';
 import { batches, alerts, inventoryItems, inventoryLots, productionRecords } from '@/db/schemas';
 import { eq } from 'drizzle-orm';
-import { getSession } from '@/lib/server/session';
+import type { Session } from '@/lib/server/session';
+import { withFeature } from '@/lib/server/entitlements';
 import { computeDashboardKPIs } from '@/lib/server/costing';
 import { askAI, type ChatMessage } from '@/lib/server/ai';
-import { ok, unauthorized, forbidden, badRequest, serverError } from '@/lib/server/http';
+import { ok, forbidden, badRequest, serverError } from '@/lib/server/http';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
@@ -18,9 +19,9 @@ Rules:
 - You remember earlier messages in this conversation — build on them instead of repeating.`;
 
 // POST /api/ai/advise { messages: [{role,content}] } — grounded, multi-turn farm advice.
-export async function POST(req: Request) {
-  const session = await getSession();
-  if (!session) return unauthorized();
+// #29: gated behind the `ai_advisor` feature — this is a paid LLM call (#17
+// separately rate-limits it), not something a free-plan tenant should reach.
+async function postHandler(req: Request, session: Session) {
   if (!ALLOWED.includes(session.role)) return forbidden();
   const { messages } = (await req.json().catch(() => ({}))) as { messages?: ChatMessage[] };
   if (!Array.isArray(messages) || messages.length === 0) return badRequest('Ask a question first.');
@@ -72,3 +73,5 @@ export async function POST(req: Request) {
     return serverError((e as Error).message);
   }
 }
+
+export const POST = withFeature('POST /api/ai/advise', postHandler);
