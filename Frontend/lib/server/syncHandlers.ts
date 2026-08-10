@@ -36,7 +36,95 @@ async function batchName(tenantId: string, batchId: string, tx: DbClient): Promi
   return b?.name ?? batchId;
 }
 
-// ── Production (edit-conflict aware) ────────────────────────────────────────
+// ── Production (additive by default, edit-conflict aware on an explicit slot) ─
+//
+// #24: a second same-day production record used to be treated as a conflict
+// and the loser DELETEd — so two tea pluckers, or a morning and an evening
+// milking, destroyed each other. The fix makes the identity explicit via
+// `slot_key` (see db/schemas/index.ts): no explicit slot from the client →
+// the server defaults it to something globally unique to THIS submission
+// (day:product:clientUuid), which can never collide, so it is always
+// additive. An explicit slot (the collect-page equivalent of "editing the
+// same slot") is a genuine edit of that one logical event.
+
+type ProductionRow = typeof productionRecords.$inferInsert;
+
+// Shared by handleProduction and handleMorningRound's egg entry (the one case
+// the old dedupe intent was right about — see handleMorningRound below).
+// `explicitSlot` null/undefined means "no slot named by the client": the
+// default slot below folds in `row.clientUuid`, which is what makes that case
+// always additive.
+async function upsertProductionSlot(
+  tx: DbClient, tenantId: string, batchId: string, type: string, day: string,
+  row: Omit<ProductionRow, 'slotKey'>, explicitSlot?: string | null,
+): Promise<RouteResult> {
+  // Retry idempotency: offline sync replays records, so a record with a
+  // client_uuid already on disk is this exact submission landing again (a
+  // network retry, or the same sync batch resent) — not a new event and not
+  // an edit. No-op, same as every other handler's onConflictDoNothing target.
+  const [existingByUuid] = await tx.select({ clientUuid: productionRecords.clientUuid })
+    .from(productionRecords).where(eq(productionRecords.clientUuid, row.clientUuid)).limit(1);
+  if (existingByUuid) return { routed: true };
+
+  const productKey = row.productId ?? 'none';
+  const slotKey = `${day}:${productKey}:${explicitSlot ?? row.clientUuid}`;
+  const fullRow: ProductionRow = { ...row, slotKey };
+
+  const [slotRow] = await tx.select().from(productionRecords).where(
+    and(eq(productionRecords.tenantId, tenantId), eq(productionRecords.batchId, batchId), eq(productionRecords.slotKey, slotKey))
+  ).limit(1);
+
+  if (!slotRow) {
+    // First submission on this slot — always additive, never a conflict.
+    await tx.insert(productionRecords).values(fullRow).onConflictDoNothing({ target: productionRecords.clientUuid });
+    if (!explicitSlot) {
+      // Soft duplicate signal (not a mutation): the two-pluckers case is
+      // legitimate and must land as two rows, but if a THIRD same-day entry
+      // for this batch/type happens to carry the exact same quantity, that's
+      // more likely the same event recorded twice than two coincidentally
+      // identical harvests — warn the owner, don't block or merge it.
+      const sameDay = await tx.select().from(productionRecords).where(
+        and(eq(productionRecords.tenantId, tenantId), eq(productionRecords.batchId, batchId),
+            eq(productionRecords.type, type), like(productionRecords.capturedAt, `${day}%`))
+      );
+      const dup = sameDay.find((e) => e.clientUuid !== row.clientUuid && e.qty === row.qty);
+      if (dup) {
+        await raiseAlert(tenantId, {
+          id: `auto:dup_qty:${batchId}:${type}:${day}:${row.qty}`,
+          severity: 'info', type: 'possible_duplicate',
+          title: 'Possible duplicate collection',
+          message: `${await batchName(tenantId, batchId, tx)}: two ${type} entries of ${row.qty} landed on ${day} — worth checking these are genuinely separate collections.`,
+        }, tx);
+      }
+    }
+    return { routed: true };
+  }
+
+  // Something already occupies this slot under a DIFFERENT client_uuid (the
+  // retry check above already returned for a matching one) — a genuine edit.
+  if (slotRow.qty === row.qty) return { routed: true }; // identical resubmission: nothing to log or change
+
+  const incomingWins = row.capturedAt > slotRow.capturedAt;
+  await tx.insert(conflictLog).values({
+    id: crypto.randomUUID(), tenantId, recordType: 'production',
+    recordId: `${batchId}:${type}:${day}`,
+    myVersion: fullRow, serverVersion: slotRow,
+    capturedAtMine: row.capturedAt, capturedAtServer: slotRow.capturedAt,
+    resolution: incomingWins ? 'kept_mine' : 'kept_server',
+  });
+  if (incomingWins) {
+    // UPDATE in place — never DELETE. The surviving row keeps its ORIGINAL
+    // client_uuid (slotRow's, not the incoming one) so the offline client
+    // that owns that client_uuid still resolves its local copy, and so
+    // /api/conflicts (which looks records up by the client_uuid stashed on
+    // this very conflict_log row) keeps finding a real row either way.
+    await tx.update(productionRecords).set({
+      qty: row.qty, weightKg: row.weightKg ?? null, productId: row.productId ?? null,
+      baseUnit: row.baseUnit ?? null, recordedBy: row.recordedBy, capturedAt: row.capturedAt,
+    }).where(eq(productionRecords.clientUuid, slotRow.clientUuid));
+  }
+  return { routed: true, conflict: { clientUuid: row.clientUuid, recordType: 'production', resolution: incomingWins ? 'kept_mine' : 'kept_server' } };
+}
 
 export async function handleProduction(
   r: IncomingRecord, tenantId: string, userId: string, tx: DbClient,
@@ -86,33 +174,7 @@ export async function handleProduction(
     recordedBy: userId, capturedAt: r.capturedAt,
   };
 
-  const sameDay = await tx.select().from(productionRecords).where(
-    and(eq(productionRecords.tenantId, tenantId), eq(productionRecords.batchId, batchId),
-        eq(productionRecords.type, type), like(productionRecords.capturedAt, `${day}%`))
-  );
-
-  if (sameDay.some((e) => e.clientUuid === r.clientUuid)) return { routed: true };
-  const other = sameDay.find((e) => e.clientUuid !== r.clientUuid);
-
-  if (!other) {
-    await tx.insert(productionRecords).values(row).onConflictDoNothing({ target: productionRecords.clientUuid });
-    return { routed: true };
-  }
-  if (other.qty === qty) return { routed: true };
-
-  const incomingWins = r.capturedAt > other.capturedAt;
-  await tx.insert(conflictLog).values({
-    id: crypto.randomUUID(), tenantId, recordType: 'production',
-    recordId: `${batchId}:${type}:${day}`,
-    myVersion: row, serverVersion: other,
-    capturedAtMine: r.capturedAt, capturedAtServer: other.capturedAt,
-    resolution: incomingWins ? 'kept_mine' : 'kept_server',
-  });
-  if (incomingWins) {
-    await tx.delete(productionRecords).where(eq(productionRecords.clientUuid, other.clientUuid));
-    await tx.insert(productionRecords).values(row).onConflictDoNothing({ target: productionRecords.clientUuid });
-  }
-  return { routed: true, conflict: { clientUuid: r.clientUuid, recordType: 'production', resolution: incomingWins ? 'kept_mine' : 'kept_server' } };
+  return upsertProductionSlot(tx, tenantId, batchId, type, day, row, p.slot ?? null);
 }
 
 // ── Feeding ─────────────────────────────────────────────────────────────────
@@ -368,12 +430,20 @@ export async function handleMorningRound(
         .where(and(eq(products.tenantId, tenantId), eq(products.batchId, batchId),
           eq(products.baseUnit, 'piece'), ilike(products.name, '%egg%')))
         .limit(1);
-      await tx.insert(productionRecords).values({
+      // #24: an explicit 'morning_round' slot — one per batch per day — rather
+      // than the old `${r.clientUuid}:${batchId}:eggs` client_uuid, which
+      // changes on every resubmission (the morning-round page mints a fresh
+      // top-level clientUuid each submit — app/worker/record/morning-round/page.tsx),
+      // so a corrected resubmission used to land as a brand-new duplicate row
+      // instead of updating the day's total. This is the one case the old
+      // dedupe intent was right about: a resubmitted morning round should
+      // UPDATE the existing row in place, not create another one.
+      await upsertProductionSlot(tx, tenantId, batchId, 'eggs', r.capturedAt.slice(0, 10), {
         clientUuid: `${r.clientUuid}:${batchId}:eggs`, tenantId, batchId,
         type: 'eggs', qty: eggs, weightKg: null,
         productId: eggProduct?.id ?? null, baseUnit: eggProduct?.baseUnit ?? null,
         recordedBy: userId, capturedAt: r.capturedAt,
-      }).onConflictDoNothing({ target: productionRecords.clientUuid });
+      }, 'morning_round');
     }
     const feedItemId = e.feedItemId;
     const feedUsed = e.feedUsed;

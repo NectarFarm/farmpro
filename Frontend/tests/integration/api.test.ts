@@ -1100,19 +1100,32 @@ describe('sync conflicts surface to the owner and can be overridden', () => {
 
   const avail = async () => (await (await api(`/api/availability?batchId=${batchId}&productId=${eggId}`, owner)).json()).available;
 
-  it('two same-day egg records for one batch create a conflict; the later one is kept', async () => {
+  it('two same-day egg records for one batch are ADDITIVE — neither destroys the other (#24)', async () => {
     await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-record-a', type: 'production', capturedAt: '2026-03-15T08:00:00Z', payload: { batchId, type: 'eggs', qty: 100 } }] });
     await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-record-b', type: 'production', capturedAt: '2026-03-15T14:00:00Z', payload: { batchId, type: 'eggs', qty: 120 } }] });
-    expect(await avail()).toBe(120); // last-write-wins kept the 14:00 record
+    // Both collections stand. Before #24 the 14:00 record DELETEd the 08:00 one
+    // and availability read 120 — a morning and an afternoon pick wiping each
+    // other out. Neither record named a slot, so they occupy different slots and
+    // there is no disagreement to resolve.
+    expect(await avail()).toBe(220);
+    expect((await (await api('/api/conflicts', owner)).json()).length).toBe(0);
+  });
+
+  it('two submissions on the SAME named slot are an edit: it conflicts, and the owner can override (#24)', async () => {
+    const before = await avail();
+    await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-slot-a', type: 'production', capturedAt: '2026-03-16T08:00:00Z', payload: { batchId, type: 'eggs', qty: 90, slot: 'morning' } }] });
+    await json(owner, '/api/sync', { records: [{ clientUuid: 'cf-slot-b', type: 'production', capturedAt: '2026-03-16T09:00:00Z', payload: { batchId, type: 'eggs', qty: 95, slot: 'morning' } }] });
+    // Same day, same named slot, different quantity: a correction to one reading
+    // rather than a second collection. The later reading wins IN PLACE — the row
+    // is UPDATEd, never deleted — and the disagreement is logged for review.
+    expect(await avail()).toBe(before + 95);
     const conflicts = await (await api('/api/conflicts', owner)).json();
     expect(conflicts.length).toBe(1);
     expect(conflicts[0].recordType).toBe('production');
-  });
 
-  it('the owner can OVERRIDE to the other version, and it leaves the review list', async () => {
-    const c = (await (await api('/api/conflicts', owner)).json())[0];
+    const c = conflicts[0];
     expect((await json(owner, '/api/conflicts', { id: c.id, resolution: 'kept_server' })).status).toBe(200);
-    expect(await avail()).toBe(100); // overridden back to the 08:00 figure
+    expect(await avail()).toBe(before + 90); // overridden back to the 08:00 reading
     expect((await (await api('/api/conflicts', owner)).json()).length).toBe(0);
   });
 
