@@ -52,6 +52,7 @@ async function postHandler(req: Request) {
           session.tenantId,
           session.userId,
           tx,
+          session,
         );
       });
 

@@ -3,6 +3,13 @@ import { handleProduction, handleMorningRound, type IncomingRecord } from '@/lib
 import { productionPayloadSchema } from '@/lib/server/validate';
 import { products, productionRecords } from '@/db/schemas';
 import type { DbClient } from '@/db';
+import type { Session } from '@/lib/server/session';
+
+// These tests exercise handleProduction/handleMorningRound's own logic, not
+// #203's field-permission gate (see tests/unit/writePermissions.test.ts for
+// that) — an owner session makes assertWritable a no-op with zero extra `db`
+// calls, so it doesn't disturb any of the `select` call-count assertions below.
+const OWNER = { role: 'owner' } as Session;
 
 // Spy on the real `eq` (delegates to the actual implementation, so every
 // other call site in syncHandlers.ts — like/ilike/desc/and included — keeps
@@ -99,7 +106,7 @@ describe('handleProduction', () => {
       capturedAt: '2026-08-05T08:00:00Z',
     };
 
-    const result = await handleProduction(record, 't1', 'u1', tx);
+    const result = await handleProduction(record, 't1', 'u1', tx, OWNER);
     expect(result.routed).toBe(true);
     expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({
       clientUuid: 'c1', batchId: 'b1', type: 'Eggs', qty: 12,
@@ -126,7 +133,7 @@ describe('handleProduction', () => {
       capturedAt: '2026-08-05T08:00:00Z',
     };
 
-    await handleProduction(record, 't1', 'u1', tx);
+    await handleProduction(record, 't1', 'u1', tx, OWNER);
     expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({
       productId: null, baseUnit: null,
     }));
@@ -152,7 +159,7 @@ describe('handleProduction', () => {
       capturedAt: '2026-08-05T08:00:00Z',
     };
 
-    const result = await handleProduction(record, 't1', 'u1', tx);
+    const result = await handleProduction(record, 't1', 'u1', tx, OWNER);
 
     // The lookup issues eq(products.batchId, 'b1') — proves the fix is the
     // batchId predicate itself, not just that empty results happen to null out.
@@ -179,7 +186,7 @@ describe('handleProduction', () => {
       capturedAt: '2026-08-05T08:00:00Z',
     };
 
-    await handleProduction(record, 't1', 'u1', tx);
+    await handleProduction(record, 't1', 'u1', tx, OWNER);
     expect(select).toHaveBeenCalledTimes(3); // no product lookup query issued — just retry/slot/soft-dup
     expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({
       productId: null, baseUnit: null,
@@ -204,7 +211,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Tea leaves', qty: 30 },
       capturedAt: '2026-08-05T08:00:00Z',
     };
-    const result1 = await handleProduction(rec1, 't1', 'u1', tx1);
+    const result1 = await handleProduction(rec1, 't1', 'u1', tx1, OWNER);
     expect(result1.conflict).toBeUndefined();
     expect(insertChain1.values).toHaveBeenCalledWith(expect.objectContaining({ clientUuid: 'c-pluck-1', qty: 30 }));
 
@@ -220,7 +227,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Tea leaves', qty: 45 },
       capturedAt: '2026-08-05T09:00:00Z',
     };
-    const result2 = await handleProduction(rec2, 't1', 'u1', tx2);
+    const result2 = await handleProduction(rec2, 't1', 'u1', tx2, OWNER);
 
     expect(result2.conflict).toBeUndefined();
     expect(insertChain2.values).toHaveBeenCalledWith(expect.objectContaining({ clientUuid: 'c-pluck-2', qty: 45 }));
@@ -241,7 +248,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Tea leaves', qty: 30 },
       capturedAt: '2026-08-05T10:00:00Z',
     };
-    await handleProduction(rec, 't1', 'u1', tx);
+    await handleProduction(rec, 't1', 'u1', tx, OWNER);
 
     // First insert is the production row itself (unconditional); second is the alert.
     expect(insertChain.values).toHaveBeenNthCalledWith(1, expect.objectContaining({ clientUuid: 'c-new', qty: 30 }));
@@ -261,7 +268,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Tea leaves', qty: 45 },
       capturedAt: '2026-08-05T10:00:00Z',
     };
-    await handleProduction(rec, 't1', 'u1', tx);
+    await handleProduction(rec, 't1', 'u1', tx, OWNER);
     expect(insertChain.values).toHaveBeenCalledTimes(1); // production row only — no alert insert
   });
 
@@ -277,7 +284,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Tea leaves', qty: 30 },
       capturedAt: '2026-08-05T08:00:00Z',
     };
-    const result = await handleProduction(rec, 't1', 'u1', tx);
+    const result = await handleProduction(rec, 't1', 'u1', tx, OWNER);
     expect(result.routed).toBe(true);
     expect(insert).not.toHaveBeenCalled();
     expect(select).toHaveBeenCalledTimes(1); // stops at the retry check — never even looks at the slot
@@ -306,7 +313,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Milk', qty: 12, slot: 'morning' },
       capturedAt: '2026-08-05T07:00:00Z', // newer than the existing row
     };
-    const result = await handleProduction(rec, 't1', 'u1', tx);
+    const result = await handleProduction(rec, 't1', 'u1', tx, OWNER);
 
     expect(insert).toHaveBeenCalledTimes(1); // conflict_log only — the incoming row itself is never inserted
     expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({
@@ -338,7 +345,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Milk', qty: 8, slot: 'morning' },
       capturedAt: '2026-08-05T07:00:00Z', // OLDER than the existing row
     };
-    const result = await handleProduction(rec, 't1', 'u1', tx);
+    const result = await handleProduction(rec, 't1', 'u1', tx, OWNER);
 
     expect(update).not.toHaveBeenCalled();
     expect(insert).toHaveBeenCalledTimes(1); // conflict_log only
@@ -357,7 +364,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Milk', qty: 10, slot: 'morning' },
       capturedAt: '2026-08-05T07:00:00Z',
     };
-    const result = await handleProduction(rec, 't1', 'u1', tx);
+    const result = await handleProduction(rec, 't1', 'u1', tx, OWNER);
     expect(insert).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
     expect(result.conflict).toBeUndefined();
@@ -374,7 +381,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Eggs', qty: 5 },
       capturedAt: '2026-08-05T08:00:00Z',
     };
-    await handleProduction(rec, 't1', 'u1', tx);
+    await handleProduction(rec, 't1', 'u1', tx, OWNER);
     expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({ slotKey: '2026-08-05:none:unique-abc' }));
   });
 
@@ -390,7 +397,7 @@ describe('handleProduction', () => {
       payload: { batchId: 'b1', type: 'Milk', qty: 5, productId: 'prod-milk', slot: 'morning' },
       capturedAt: '2026-08-05T08:00:00Z',
     };
-    await handleProduction(rec, 't1', 'u1', tx);
+    await handleProduction(rec, 't1', 'u1', tx, OWNER);
     expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({ slotKey: '2026-08-05:prod-milk:morning' }));
   });
 });
@@ -411,7 +418,7 @@ describe('handleMorningRound', () => {
       capturedAt: '2026-08-05T08:00:00Z',
     };
 
-    await handleMorningRound(record, 't1', 'u1', tx);
+    await handleMorningRound(record, 't1', 'u1', tx, OWNER);
     // First insert call is the production_records row for this entry's eggs.
     expect(insertChain.values).toHaveBeenNthCalledWith(1, expect.objectContaining({
       type: 'eggs', qty: 10, productId: 'egg-prod-1', baseUnit: 'piece',
@@ -433,7 +440,7 @@ describe('handleMorningRound', () => {
       capturedAt: '2026-08-05T08:00:00Z',
     };
 
-    await handleMorningRound(record, 't1', 'u1', tx);
+    await handleMorningRound(record, 't1', 'u1', tx, OWNER);
     expect(insertChain.values).toHaveBeenNthCalledWith(1, expect.objectContaining({
       type: 'eggs', qty: 4, productId: null, baseUnit: null,
     }));
@@ -470,7 +477,7 @@ describe('handleMorningRound', () => {
       payload: { entries: [{ batchId: 'b1', eggsCollected: 14 }] },
       capturedAt: '2026-08-05T09:00:00Z',
     };
-    await handleMorningRound(record, 't1', 'u1', tx);
+    await handleMorningRound(record, 't1', 'u1', tx, OWNER);
 
     expect(update).toHaveBeenCalledWith(productionRecords);
     expect(updateChain.set).toHaveBeenCalledWith(expect.objectContaining({ qty: 14 }));
@@ -493,7 +500,7 @@ describe('handleMorningRound', () => {
       payload: { entries: [{ batchId: 'b1', eggsCollected: 10 }] },
       capturedAt: '2026-08-05T08:00:00Z',
     };
-    await handleMorningRound(record, 't1', 'u1', tx);
+    await handleMorningRound(record, 't1', 'u1', tx, OWNER);
     expect(update).not.toHaveBeenCalled();
   });
 });
