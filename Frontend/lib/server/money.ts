@@ -1,7 +1,13 @@
 import 'server-only';
-// Money helpers. Schema is migrating from doublePrecision (KSh) to integer
-// (cents) for all monetary columns. New code reads from _cents columns and
-// uses fromCents() for display; writes go to both columns during dual-write.
+// Money helpers. Schema is migrating from doublePrecision (KSh) to bigint
+// (cents, mode: 'number') for all monetary columns. New code reads from
+// _cents columns and uses fromCents() for display; writes go to both columns
+// during dual-write.
+//
+// bigint columns are declared with `{ mode: 'number' }` (see db/schemas/index.ts),
+// so drizzle maps them to plain JS numbers, not native BigInt — safe up to
+// Number.MAX_SAFE_INTEGER (2^53-1 ≈ 90 trillion KSh in cents), far beyond any
+// realistic farm/cooperative figure, so every helper below stays on `number`.
 //
 // 1 KSh = 100 cents.  e.g. KSh 1,500.50 = 150050 cents.
 
