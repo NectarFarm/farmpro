@@ -33,6 +33,32 @@ describe('productTemplates', () => {
       }
     });
 
+    // The costing denominator must be unambiguous per enterprise — a batch can
+    // never be costed against two different products at once. This is what
+    // createProductsForBatch persists as products.is_cost_driver, so no batch
+    // it creates can ever end up with more than one cost-driver product.
+    it('every enterprise has exactly one cost driver (never more than one)', () => {
+      for (const [enterprise, defs] of Object.entries(PRODUCT_TEMPLATES)) {
+        const drivers = defs.filter((d) => d.isCostDriver === true);
+        expect(drivers.length, `enterprise "${enterprise}" has ${drivers.length} cost drivers`).toBe(1);
+      }
+    });
+
+    it('the cost driver equals the main product except for layers, ducks, dairy, goats, and bees', () => {
+      // For these five, the batch's asset (the animal/colony) differs from the
+      // ongoing commodity a farmer actually costs feed against (eggs/milk/honey).
+      const divergent = new Set(['layers', 'ducks', 'dairy', 'goats', 'bees']);
+      for (const [enterprise, defs] of Object.entries(PRODUCT_TEMPLATES)) {
+        const main = defs.find((d) => d.isMainProduct)?.name;
+        const driver = defs.find((d) => d.isCostDriver)?.name;
+        if (divergent.has(enterprise)) {
+          expect(driver).not.toBe(main);
+        } else {
+          expect(driver).toBe(main);
+        }
+      }
+    });
+
     it('every sale unit price is in whole KES (no decimals)', () => {
       for (const defs of Object.values(PRODUCT_TEMPLATES)) {
         for (const d of defs) {

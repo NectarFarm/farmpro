@@ -5,9 +5,9 @@ import 'server-only';
 import type { DbClient } from '@/db';
 import {
   feedingRecords, mortalityRecords, productionRecords, healthRecords, conflictLog, closingStockCounts,
-  photos, batches, inventoryLots, physicalCounts, weightSamples, observations,
+  photos, batches, inventoryLots, physicalCounts, weightSamples, observations, products,
 } from '@/db/schemas';
-import { and, eq, like, desc } from 'drizzle-orm';
+import { and, eq, like, ilike, desc } from 'drizzle-orm';
 import { consumeFeedFIFO } from './inventory';
 import { raiseAlert } from './alertEngine';
 import { validatePhotoDataUrl } from './media';
@@ -56,9 +56,33 @@ export async function handleProduction(
   const type = p.type || 'eggs';
   const qty = p.qty ?? p.eggs ?? p.count ?? 0;
   const day = r.capturedAt.slice(0, 10);
+
+  // product_id is now a real FK (ON DELETE RESTRICT) — snapshot baseUnit from
+  // the product row rather than trusting the client for it, and verify the id
+  // actually resolves for this tenant *and this batch* before writing it. A
+  // stale id (product deleted in the narrow window between offline capture
+  // and sync — deletion itself is blocked once a record references it, but
+  // nothing stops it *before* that first record lands) must not turn into an
+  // FK violation that rejects the whole record; fall back to null, same as an
+  // unresolved backfill row, rather than losing the qty/type the worker
+  // actually reported. The batchId predicate matters just as much as the
+  // tenantId one: without it, a productId belonging to another batch of the
+  // same tenant resolves fine here but then matches no batch's cost driver in
+  // costing.ts, so the qty silently vanishes from output with no error and no
+  // unresolved-row count. Scoping the lookup to this batch makes a cross-batch
+  // id fail to resolve here instead, landing it in the same null fallback.
+  let productId: string | null = null;
+  let baseUnit: string | null = null;
+  if (p.productId) {
+    const [prod] = await tx.select({ baseUnit: products.baseUnit }).from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.batchId, batchId), eq(products.id, p.productId))).limit(1);
+    if (prod) { productId = p.productId; baseUnit = prod.baseUnit; }
+  }
+
   const row = {
     clientUuid: r.clientUuid, tenantId, batchId, type, qty,
     weightKg: p.weightKg ?? null,
+    productId, baseUnit,
     recordedBy: userId, capturedAt: r.capturedAt,
   };
 
@@ -261,7 +285,9 @@ export async function handleWeightSample(
       .where(and(eq(batches.tenantId, tenantId), eq(batches.id, batchId)));
     if (ins.length && prev && avg < prev.avg * 0.97) {
       await raiseAlert(tenantId, {
-        id: `auto:weightloss:${r.clientUuid}`, severity: 'warning', type: 'weight_loss',
+        // batchId embedded (not just clientUuid) so the owner's alert list can
+        // link straight to the batch instead of a generic page — see lib/alerts.ts.
+        id: `auto:weightloss:${batchId}:${r.clientUuid}`, severity: 'warning', type: 'weight_loss',
         title: 'Weight loss', message: `${await batchName(tenantId, batchId, tx)}: avg weight fell ${prev.avg}→${avg} kg`,
       }, tx);
     }
@@ -298,7 +324,8 @@ export async function handlePhysicalCount(
   }).onConflictDoNothing({ target: physicalCounts.clientUuid }).returning({ id: physicalCounts.clientUuid });
   if (ins.length && variance !== 0) {
     await raiseAlert(tenantId, {
-      id: `auto:variance:${r.clientUuid}`, severity: variance < 0 ? 'critical' : 'warning', type: 'stock_variance',
+      // batchId embedded so the alert list can link straight to the batch — see lib/alerts.ts.
+      id: `auto:variance:${batchId}:${r.clientUuid}`, severity: variance < 0 ? 'critical' : 'warning', type: 'stock_variance',
       title: 'Stock variance',
       message: `${await batchName(tenantId, batchId, tx)}: counted ${physical} vs system ${systemCount} (${variance > 0 ? '+' : ''}${variance})${reason ? ` — ${reason}` : ''}`,
     }, tx);
@@ -326,9 +353,26 @@ export async function handleMorningRound(
     const batchId = e.batchId;
     const eggs = e.eggsCollected;
     if (batchId && eggs > 0) {
+      // The morning-round form has no product picker (unlike the collect page)
+      // — it just writes the literal `type: 'eggs'` below. Resolve the batch's
+      // egg-collecting product the same way the 0039 backfill does for this
+      // exact case: base_unit = 'piece' and a name containing "egg", so this
+      // matches 'Eggs' (layers) and 'Eggs (duck)' (ducks) alike. Layers is the
+      // one enterprise whose costing already works end-to-end (#23 sums by
+      // productId) — leaving this NULL would silently drop every morning-round
+      // egg total once that lands. No match (custom/renamed product) falls
+      // back to NULL rather than throwing, same defensive posture as
+      // handleProduction.
+      const [eggProduct] = await tx.select({ id: products.id, baseUnit: products.baseUnit })
+        .from(products)
+        .where(and(eq(products.tenantId, tenantId), eq(products.batchId, batchId),
+          eq(products.baseUnit, 'piece'), ilike(products.name, '%egg%')))
+        .limit(1);
       await tx.insert(productionRecords).values({
         clientUuid: `${r.clientUuid}:${batchId}:eggs`, tenantId, batchId,
-        type: 'eggs', qty: eggs, weightKg: null, recordedBy: userId, capturedAt: r.capturedAt,
+        type: 'eggs', qty: eggs, weightKg: null,
+        productId: eggProduct?.id ?? null, baseUnit: eggProduct?.baseUnit ?? null,
+        recordedBy: userId, capturedAt: r.capturedAt,
       }).onConflictDoNothing({ target: productionRecords.clientUuid });
     }
     const feedItemId = e.feedItemId;

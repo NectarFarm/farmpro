@@ -4,8 +4,10 @@ import { useSyncStore } from '@/lib/stores/sync';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, WifiOff, Loader2, ArrowUp, Check } from 'lucide-react';
 
+const STALE_OUTBOX_MS = 24 * 60 * 60_000; // 24h — a device lost/destroyed before this syncs loses that data for good
+
 export function SyncBadge({ className }: { className?: string }) {
-  const { isOnline, status, pendingCount, rejectedCount } = useSyncStore();
+  const { isOnline, status, pendingCount, rejectedCount, oldestPendingCapturedAt } = useSyncStore();
 
   // Takes priority over every other state — data that failed to save needs the
   // worker's attention regardless of whether the rest of the queue is clean.
@@ -13,6 +15,15 @@ export function SyncBadge({ className }: { className?: string }) {
     return (
       <span className={cn('inline-flex items-center gap-1 bg-red-100 text-red-700 border border-red-300 rounded-full px-3 py-1 text-sm font-bold', className)}>
         <AlertTriangle className="w-3.5 h-3.5" /> {rejectedCount} failed to save
+      </span>
+    );
+  }
+
+  const stale = oldestPendingCapturedAt !== null && Date.now() - new Date(oldestPendingCapturedAt).getTime() > STALE_OUTBOX_MS;
+  if (stale) {
+    return (
+      <span className={cn('inline-flex items-center gap-1 bg-orange-100 text-orange-700 border border-orange-300 rounded-full px-3 py-1 text-sm font-bold', className)}>
+        <AlertTriangle className="w-3.5 h-3.5" /> {pendingCount} unsynced 24h+ — reconnect soon
       </span>
     );
   }

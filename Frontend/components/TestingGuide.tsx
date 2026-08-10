@@ -124,7 +124,7 @@ export function TestingGuide() {
         aria-label="Open acceptance testing"
         // Stacked above the AI Advisor button's default corner (same left side) so
         // the two don't sit on top of each other when both are visible at once.
-        className="fixed bottom-36 md:bottom-20 left-5 z-40 flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
+        className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] left-5 z-40 flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
         <FlaskConical className="w-5 h-5" />
         <span className="hidden sm:inline">Testing</span>
         {p && run?.status === 'in_progress' && <span className="bg-white/25 rounded-full px-2 py-0.5 text-xs">{p.done}/{p.total}</span>}
@@ -172,7 +172,7 @@ export function TestingGuide() {
                   {(previews[attachStep.id]?.length ?? 0) > 0 && (
                     <div className="flex gap-2 flex-wrap">
                       {(previews[attachStep.id] ?? []).map((src, i) => (
-                        // eslint-disable-next-line @next/next/no-img-element
+                         
                         <img key={i} src={src} alt={`screenshot ${i + 1}`} className="w-16 h-16 object-cover rounded border border-gray-200" />
                       ))}
                     </div>

@@ -7,6 +7,12 @@ export interface ReportData {
   meta: Record<string, string | number>;
   // Optional images appended after the table in the PDF (e.g. test screenshots).
   images?: { caption?: string; dataUrl: string }[];
+  // Optional PDF-only presentation extras — all optional so existing callers are unaffected.
+  subtitle?: string;
+  farmName?: string;
+  // True when the LAST row of `rows` is a totals/summary row that should be
+  // rendered as a visually distinct footer row in the PDF table.
+  hasTotalsRow?: boolean;
 }
 
 
@@ -41,26 +47,129 @@ export function downloadExcel(data: ReportData) {
   triggerDownload(new Blob([html], { type: 'application/vnd.ms-excel' }), `${slug(data.title)}.xls`);
 }
 
+// Number → "84,200" style thousands-separator string. Never applied to values
+// that are already strings (e.g. "3%", "—") — only to genuine JS numbers, since
+// this module has no idea whether a number is money, kg, or a count.
+const fmtNum = (n: number) => n.toLocaleString('en-US');
+const fmtCell = (v: string | number) => (typeof v === 'number' ? fmtNum(v) : v);
+
 export async function downloadPDF(data: ReportData) {
   const { jsPDF } = await import('jspdf');
   const autoTable = (await import('jspdf-autotable')).default;
   const doc = new jsPDF();
-  doc.setFontSize(16);
-  doc.setTextColor(22, 101, 52);
-  doc.text(data.title, 14, 18);
+  const pageW = doc.internal.pageSize.getWidth();
+
+  // ── Letterhead band ──────────────────────────────────────────────────────
+  doc.setFillColor(22, 101, 52);
+  doc.rect(0, 0, pageW, 30, 'F');
+  doc.setFillColor(15, 71, 37);
+  doc.rect(0, 28, pageW, 2, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(255, 255, 255);
+  doc.text(data.farmName ?? 'IFMS', 14, 14);
+  if (data.farmName) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(220, 236, 226);
+    doc.text('Integrated Farm Management System', 14, 20);
+  }
+
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  doc.setTextColor(120);
-  let y = 25;
-  for (const [k, v] of Object.entries(data.meta)) { doc.text(`${k}: ${v}`, 14, y); y += 5; }
+  doc.setTextColor(255, 255, 255);
+  doc.text(data.title.toUpperCase(), pageW - 14, 12, { align: 'right' });
+  if (data.subtitle) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(220, 236, 226);
+    doc.text(data.subtitle, pageW - 14, 18, { align: 'right' });
+  }
+
+  // ── Meta strip: horizontal grid of key/value columns ────────────────────
+  const metaEntries = Object.entries(data.meta);
+  const metaTop = 38;
+  const metaKeyY = metaTop, metaValY = metaTop + 6;
+  if (metaEntries.length > 0) {
+    const left = 14, right = pageW - 14;
+    const colW = (right - left) / metaEntries.length;
+    metaEntries.forEach(([k, v], i) => {
+      const x = left + i * colW;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(107, 114, 128);
+      doc.text(k.toUpperCase(), x, metaKeyY);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(17, 24, 39);
+      doc.text(String(v), x, metaValY);
+    });
+  }
+  const ruleY = metaTop + 12;
+  doc.setDrawColor(224, 224, 224);
+  doc.line(14, ruleY, pageW - 14, ruleY);
+
+  // ── Table ─────────────────────────────────────────────────────────────
+  // A column is "numeric" when every cell in it (across all data rows,
+  // including a totals row if present) is a JS number — detected from the
+  // ORIGINAL rows, before formatting turns numbers into display strings.
+  const numCols = new Set<number>();
+  data.columns.forEach((_, c) => {
+    if (data.rows.length > 0 && data.rows.every((r) => typeof r[c] === 'number')) numCols.add(c);
+  });
+  const columnStyles: Record<number, { halign: 'left' | 'right' }> = {};
+  data.columns.forEach((_, i) => { columnStyles[i] = { halign: numCols.has(i) ? 'right' : 'left' }; });
+
+  let body = data.rows.map((r) => r.map(fmtCell));
+  let foot: (string | number)[][] | undefined;
+  if (data.hasTotalsRow && body.length > 0) {
+    foot = [body[body.length - 1]];
+    body = body.slice(0, -1);
+  }
+
   autoTable(doc, {
-    startY: y + 2,
+    startY: ruleY + 6,
     head: [data.columns],
-    body: data.rows.map((r) => r.map((c) => String(c))),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [22, 101, 52] },
+    body,
+    foot,
+    theme: 'plain',
+    styles: { fontSize: 8, lineColor: [230, 230, 230], lineWidth: 0.1 },
+    headStyles: { fillColor: [22, 101, 52], textColor: [255, 255, 255], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [250, 250, 250] },
+    columnStyles,
+    ...(foot
+      ? {
+          footStyles: {
+            fillColor: [243, 244, 246],
+            textColor: [17, 24, 39],
+            fontStyle: 'bold',
+            // jspdf-autotable's LineWidths type supports per-side widths, so the
+            // green rule can be drawn on the top edge only (no faux "border" on
+            // the other three sides).
+            lineWidth: { top: 0.6, bottom: 0, left: 0, right: 0 },
+            lineColor: [15, 71, 37],
+          },
+        }
+      : {}),
   });
 
   embedImages(doc, data.images);
+
+  // ── Footer on every page (run LAST — embedImages can add pages) ─────────
+  const pageCount = doc.getNumberOfPages();
+  for (let p = 1; p <= pageCount; p++) {
+    doc.setPage(p);
+    const fw = doc.internal.pageSize.getWidth();
+    const fh = doc.internal.pageSize.getHeight();
+    doc.setDrawColor(224, 224, 224);
+    doc.line(14, fh - 16, fw - 14, fh - 16);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(130, 130, 130);
+    doc.text('Generated by IFMS · Confidential — for internal and authorized use only', 14, fh - 10);
+    doc.text(`Page ${p} of ${pageCount}`, fw - 14, fh - 10, { align: 'right' });
+  }
+
   doc.save(`${slug(data.title)}.pdf`);
 }
 

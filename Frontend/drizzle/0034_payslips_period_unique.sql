@@ -1,0 +1,1 @@
+ALTER TABLE "payslips" ADD CONSTRAINT "payslips_tenant_employee_period_unique" UNIQUE("tenant_id","employee_id","period");

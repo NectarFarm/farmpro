@@ -1,5 +1,6 @@
 'use client';
-import { Skull, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Skull, AlertTriangle } from 'lucide-react';
+import { RecordHeader, RecordSavedScreen } from '@/components/worker/RecordPageShell';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -99,26 +100,12 @@ export default function MortalityPage() {
   };
 
   if (saved) {
-    return (
-      <div className="p-4 flex flex-col gap-5">
-        <div className="bg-green-50 border border-green-300 rounded-2xl p-6 text-center">
-          <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
-          <h1 className="text-xl font-bold text-green-800">{t('savedWillSync')}</h1>
-        </div>
-        <button onClick={() => router.replace('/worker/home')}
-          className="w-full min-h-[56px] bg-green-600 text-white rounded-xl text-xl font-bold">
-          {t('backToHome')}
-        </button>
-      </div>
-    );
+    return <RecordSavedScreen message={t('savedWillSync')} doneLabel={t('backToHome')} onDone={() => router.replace('/worker/home')} />;
   }
 
   return (
-    <div className="p-4 flex flex-col gap-5">
-      {/* Header */}
-      <div className="bg-red-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Skull className="w-6 h-6 shrink-0" /><span>{t('recordMortality')}</span></h1>
-      </div>
+    <div className="p-4 flex flex-col gap-5 md:max-w-lg md:mx-auto">
+      <RecordHeader icon={Skull} title={t('recordMortality')} accent="red" />
 
       {/* Unit select */}
       <div className="flex flex-col gap-1">

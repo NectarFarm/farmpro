@@ -24,7 +24,13 @@ export function CumulativeChart({ data }: { data: { day: number; cost: number; r
       <AreaChart data={data} margin={{ top:5, right:10, bottom:0, left:0 }}>
         <XAxis dataKey="day" tick={{ fontSize:10 }} label={{ value:'Day', position:'insideBottom', offset:-2 }} />
         <YAxis tick={{ fontSize:10 }} tickFormatter={v=>`${(v/1000).toFixed(0)}K`} />
-        <Tooltip formatter={(v: number, n) => [fmtKES(v), n === 'cost' ? t('cost') : t('revenue')]} />
+        {/* Recharts passes `n` the Area's `name` prop below (already the
+            translated "Cost"/"Revenue" label), not the raw dataKey — so just
+            format the value and let each series' own `name` supply the label,
+            rather than re-deriving it here (a re-derivation that previously
+            compared against the untranslated 'cost' string, never matched,
+            and made every row show "Revenue"). */}
+        <Tooltip formatter={(v: number) => fmtKES(v)} />
         <Legend />
         <Area type="monotone" dataKey="cost" stroke="#ef4444" fill="#fee2e2" name={t('cost')} strokeWidth={2} />
         <Area type="monotone" dataKey="revenue" stroke="#16a34a" fill="#dcfce7" name={t('revenue')} strokeWidth={2} />

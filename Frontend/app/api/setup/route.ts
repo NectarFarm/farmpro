@@ -12,6 +12,7 @@ import { toCents } from '@/lib/server/money';
 import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
 import { defaultStages, STAGE_ENTERPRISES } from '@/lib/lifecycle';
 import { enterpriseFromSpecies } from '@/lib/server/productTemplates';
+import { normalizePhone } from '@/lib/phone';
 
 // Thrown for bad/ambiguous input so the outer handler can turn it into a 400
 // instead of the request silently dropping data or crashing with a 500.
@@ -220,17 +221,21 @@ export async function POST(req: Request) {
       }
 
       // Employees (+ login for workers who set a PIN) — idempotent by tenantId+phone.
+      // Dedup key and stored value both go through normalizePhone so
+      // "0712345678" and "254712345678" are recognized as the same person and
+      // remain reachable at login regardless of which format was typed here.
       const existingEmployees = await tx.select({ phone: employees.phone })
         .from(employees).where(eq(employees.tenantId, tid));
-      const employeePhones = new Set(existingEmployees.map(x => norm(x.phone)));
+      const employeePhones = new Set(existingEmployees.map(x => normalizePhone(x.phone) ?? norm(x.phone)));
       for (const e of b.employees ?? []) {
         if (!s(e.name) || !s(e.phone)) continue;
-        const phoneKey = norm(s(e.phone));
+        const phone = normalizePhone(s(e.phone)) ?? s(e.phone);
+        const phoneKey = normalizePhone(phone) ?? norm(phone);
         if (employeePhones.has(phoneKey)) continue; // already exists — skip, don't duplicate
         const role = s(e.role, 'worker');
         const salary = n(e.salary, `employee "${e.name}" salary`);
         await tx.insert(employees).values({
-          id: crypto.randomUUID(), tenantId: tid, name: s(e.name), phone: s(e.phone), role,
+          id: crypto.randomUUID(), tenantId: tid, name: s(e.name), phone, role,
           workerProfileId: role === 'worker' ? profileId : null, pinSet: role === 'worker' && !!s(e.pin), active: true,
           salary, salaryCents: toCents(salary), payDay: payDayOf(e.payDay),
         });
@@ -240,7 +245,7 @@ export async function POST(req: Request) {
           // `users.phone` is globally unique; onConflictDoNothing makes this
           // safe even if a retry races past the employeePhones check above.
           const ins = await tx.insert(users).values({
-            id: crypto.randomUUID(), tenantId: tid, name: s(e.name), phone: s(e.phone), role: 'worker',
+            id: crypto.randomUUID(), tenantId: tid, name: s(e.name), phone, role: 'worker',
             workerProfileId: profileId, language: 'en', pinHash: await hashSecret(s(e.pin)),
           }).onConflictDoNothing({ target: users.phone }).returning({ id: users.id });
           if (ins.length) summary.logins++;

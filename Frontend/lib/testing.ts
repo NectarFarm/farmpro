@@ -32,7 +32,7 @@ export const TEST_STEPS: TestStepDef[] = [
     instruction: 'Check the owner dashboard shows real numbers everywhere and the revenue period filter works.',
     checks: [
       'Active Batches, Total Animals, Mortality %, Avg FCR each show a real number',
-      'Gross Margin and Revenue show a KSh figure',
+      'Net Profit and Revenue show a KSh figure',
       'Task Completion and Pending Alerts show',
       'The production chart draws',
       'Revenue period toggle Month / Quarter / Year / All changes the amount (All-time is largest)',
@@ -250,6 +250,15 @@ export function addPhotoToStep(steps: readonly TestStep[], stepId: string, photo
 // Every photo id currently referenced by the run — for cleanup on reset/delete.
 export function allPhotoIds(steps: readonly TestStep[]): string[] {
   return steps.flatMap((s) => s.photoIds ?? []);
+}
+
+// Reset only the FAILED steps back to pending (clearing their note/screenshots);
+// passed and already-pending steps are untouched. Lets an admin ask a tester to
+// redo just what broke instead of the whole checklist. The reused
+// applyStepUpdate/TestingGuide flow needs no changes — it already just walks
+// whichever steps are 'pending', in checklist order.
+export function retestFailed(steps: readonly TestStep[]): TestStep[] {
+  return steps.map((s) => (s.status === 'fail' ? { ...s, status: 'pending' as StepStatus, note: undefined, photoIds: undefined } : s));
 }
 
 export interface Progress {

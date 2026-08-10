@@ -36,13 +36,13 @@ export interface SellableStock {
 }
 
 interface ProductLike { name: string; isAnimalProduct?: boolean | null; baseUnit?: string | null }
-interface BatchLike { id: string; currentQty: number; species?: string | null; avgWeightKg?: number | null }
+interface BatchLike { id: string; currentQty: number; species?: string | null; enterprise?: string | null; avgWeightKg?: number | null }
 
 // The avg live weight to value a weight-sold animal by: the batch's sampled weight,
 // else a sensible per-species default. 0 means "unknown" (no cap can be derived).
 export function liveWeightFor(batch: BatchLike): number {
   if (batch.avgWeightKg && batch.avgWeightKg > 0) return batch.avgWeightKg;
-  const d = batch.species ? defaultLiveWeightKg(batch.species) : null;
+  const d = batch.species ? defaultLiveWeightKg(batch.species, batch.enterprise) : null;
   return d && d > 0 ? d : 0;
 }
 

@@ -5,11 +5,12 @@ import { ok, unauthorized, badRequest, tooMany } from '@/lib/server/http';
 import { checkWriteRateLimit } from '@/lib/server/rateLimit';
 import { syncBodySchema } from '@/lib/server/validate';
 import { routeTyped, type IncomingRecord } from '@/lib/server/syncHandlers';
+import { withErrorLogging } from '@/lib/server/apiErrorHandler';
 
 // POST /api/sync  { records: IncomingRecord[] }
 // Idempotent by clientUuid (FR-M17-5). Production records additionally get true
 // edit-conflict detection (FR-M17-3); conflicts are returned for the client to surface.
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const session = await getSession();
   if (!session) return unauthorized();
 
@@ -66,3 +67,5 @@ export async function POST(req: Request) {
 
   return ok({ accepted, conflicts, rejected });
 }
+
+export const POST = withErrorLogging('POST /api/sync', postHandler);

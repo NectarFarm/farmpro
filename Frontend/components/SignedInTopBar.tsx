@@ -17,7 +17,7 @@ export function SignedInTopBar({ loginPath = '/owner/login' }: { loginPath?: str
       <button onClick={() => router.back()} aria-label="Back"
         className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100"><ChevronLeft className="w-5 h-5" /></button>
       {brand.logoUrl
-        // eslint-disable-next-line @next/next/no-img-element
+         
         ? <img src={brand.logoUrl} alt={brand.appName} className="w-7 h-7 object-contain" />
         : <Wheat className="w-6 h-6 text-green-700" />}
       <span className="font-bold text-green-800">{brand.appName}</span>

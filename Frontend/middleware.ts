@@ -52,10 +52,6 @@ async function readSession(token: string, secret: string): Promise<{ role: strin
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p + '/'))) return NextResponse.next();
-
-  const allowed = sectionRoles(pathname);
-  if (!allowed) return NextResponse.next();
 
   // Fail closed in production rather than sign/verify sessions with the fallback
   // secret sitting in plain text in this file — matches lib/env.ts's guard on the
@@ -63,10 +59,37 @@ export async function middleware(req: NextRequest) {
   // default), so a misconfigured deploy can't pass the edge gate on a forgeable
   // cookie while every real API route 500s on the same secret.
   const DEV_INSECURE_SECRET = 'dev-insecure-secret-change-me-please';
-  if ((!process.env.SESSION_SECRET || process.env.SESSION_SECRET === DEV_INSECURE_SECRET) && process.env.NODE_ENV === 'production') {
+  const secretMisconfigured =
+    (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === DEV_INSECURE_SECRET) && process.env.NODE_ENV === 'production';
+  const secret = process.env.SESSION_SECRET ?? DEV_INSECURE_SECRET;
+
+  if (pathname === '/') {
+    // Root splash: serve the login page immediately, server-side, for anyone without
+    // a valid session — no waiting on the client JS bundle to redirect. If the secret
+    // is misconfigured, treat this request as sessionless rather than hard-failing;
+    // '/' must never 500 (the protected sections below still fail closed as usual).
+    const token = req.cookies.get(SESSION_COOKIE)?.value;
+    const session = !secretMisconfigured && token ? await readSession(token, secret) : null;
+    if (!session) {
+      // REWRITE, not redirect: public/sw.js caches '/' as the offline app shell at
+      // install time. A cached *redirected* response breaks offline navigations in
+      // Chrome ("redirected response was used for a request whose redirect mode is
+      // not 'follow'"). Keep this a rewrite so '/' serves login content at a 200.
+      return NextResponse.rewrite(new URL('/login', req.url));
+    }
+    // Valid session: fall through to the client-side splash in app/page.tsx, which
+    // handles signed-in routing and doubles as the offline fallback shell.
+    return NextResponse.next();
+  }
+
+  if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p + '/'))) return NextResponse.next();
+
+  const allowed = sectionRoles(pathname);
+  if (!allowed) return NextResponse.next();
+
+  if (secretMisconfigured) {
     return new NextResponse('Server misconfigured: SESSION_SECRET is not set.', { status: 500 });
   }
-  const secret = process.env.SESSION_SECRET ?? DEV_INSECURE_SECRET;
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   const session = token ? await readSession(token, secret) : null;
 
@@ -83,5 +106,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/owner/:path*', '/manager/:path*', '/vet/:path*', '/auditor/:path*', '/worker/:path*'],
+  matcher: ['/', '/admin/:path*', '/owner/:path*', '/manager/:path*', '/vet/:path*', '/auditor/:path*', '/worker/:path*'],
 };

@@ -13,6 +13,7 @@ import {
 } from '@/lib/server/validate';
 import { toCents } from '@/lib/server/money';
 import { checkWriteRateLimit, checkReadRateLimit } from '@/lib/server/rateLimit';
+import { withErrorLogging } from '@/lib/server/apiErrorHandler';
 import type { Role, FieldConfig } from '@/lib/types';
 
 function toRecord<T extends object>(rows: T[]): Record<string, unknown>[] {
@@ -26,11 +27,11 @@ function toRecord<T extends object>(rows: T[]): Record<string, unknown>[] {
 // FR-M5-5 vet-scoping check below) are unreachable dead code kept only because
 // every other resource (sales, tasks, worker-profiles, alerts, items, lots,
 // health-records, etc.) still routes through here.
-export async function GET(req: Request, ctx: { params: Promise<{ resource: string }> }) {
+async function getHandler(req: Request, ctx: { params: Promise<{ resource: string }> }) {
   const session = await getSession();
   if (!session) return unauthorized();
   const readLimit = checkReadRateLimit(req);
-  if (!readLimit.allowed) return tooMany(`Too many requests.`, readLimit.retryAfter);
+  if (!readLimit.allowed) return tooMany('Too many requests.', readLimit.retryAfter);
 
   const { resource } = await ctx.params;
   const def = RESOURCES[resource];
@@ -85,11 +86,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ resource: strin
 }
 
 // POST — create handlers for resources NOT extracted to their own route files.
-export async function POST(req: Request, ctx: { params: Promise<{ resource: string }> }) {
+async function postHandler(req: Request, ctx: { params: Promise<{ resource: string }> }) {
   const session = await getSession();
   if (!session) return unauthorized();
   const writeLimit = checkWriteRateLimit(req);
-  if (!writeLimit.allowed) return tooMany(`Too many requests.`, writeLimit.retryAfter);
+  if (!writeLimit.allowed) return tooMany('Too many requests.', writeLimit.retryAfter);
   const { resource } = await ctx.params;
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -152,11 +153,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ resource: stri
 }
 
 // PATCH — update handlers for resources NOT extracted to their own route files.
-export async function PATCH(req: Request, ctx: { params: Promise<{ resource: string }> }) {
+async function patchHandler(req: Request, ctx: { params: Promise<{ resource: string }> }) {
   const session = await getSession();
   if (!session) return unauthorized();
   const writeLimit = checkWriteRateLimit(req);
-  if (!writeLimit.allowed) return tooMany(`Too many requests.`, writeLimit.retryAfter);
+  if (!writeLimit.allowed) return tooMany('Too many requests.', writeLimit.retryAfter);
   const { resource } = await ctx.params;
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return badRequest('id required');
@@ -255,3 +256,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ resource: str
   }
   return badRequest('resource not updatable');
 }
+
+export const GET = withErrorLogging('GET /api/data/[resource]', getHandler);
+export const POST = withErrorLogging('POST /api/data/[resource]', postHandler);
+export const PATCH = withErrorLogging('PATCH /api/data/[resource]', patchHandler);

@@ -7,6 +7,7 @@ import { audit, actorLabel } from '@/lib/server/audit';
 import { ok, unauthorized, forbidden, badRequest, notFound } from '@/lib/server/http';
 import { MIN_PASSWORD_LENGTH } from '@/lib/server/validate';
 import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
+import { normalizePhone } from '@/lib/phone';
 
 // Manage a farm's owner login (super_admin): fix typos, change email/phone, reset password.
 async function ownerOf(tenantId: string) {
@@ -42,7 +43,7 @@ export async function PATCH(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { name?: string; email?: string; phone?: string; newPassword?: string };
   const patch: Record<string, unknown> = {};
   if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim();
-  if (typeof body.phone === 'string' && body.phone.trim()) patch.phone = body.phone.trim();
+  if (typeof body.phone === 'string' && body.phone.trim()) patch.phone = normalizePhone(body.phone) ?? body.phone.trim();
   if (typeof body.email === 'string' && body.email.trim()) {
     const email = body.email.trim().toLowerCase();
     if (!email.includes('@')) return badRequest('Enter a valid email.');

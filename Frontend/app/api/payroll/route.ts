@@ -91,11 +91,15 @@ export async function POST(req: Request) {
         await db.update(payslips).set(slipVals)
           .where(eq(payslips.id, existing.id));
       } else {
+        // Two concurrent `run` requests can both see "no existing slip" and both
+        // reach this branch — the unique (tenantId, employeeId, period) constraint
+        // plus onConflictDoNothing makes only one INSERT win; the loser is a safe
+        // no-op instead of creating a duplicate payslip row.
         await db.insert(payslips).values({
           id: crypto.randomUUID(), tenantId, employeeId: e.id, period,
           ...slipVals,
           status: 'pending', paidAt: null, createdAt: now,
-        });
+        }).onConflictDoNothing({ target: [payslips.tenantId, payslips.employeeId, payslips.period] });
       }
       generated++;
     }
@@ -125,21 +129,38 @@ export async function POST(req: Request) {
     if (!validPeriod(period)) return badRequest('Invalid period.');
     if (!Number.isFinite(amount) || amount === 0) return badRequest('Enter an amount.');
     if (type !== 'adjustment' && amount < 0) return badRequest('Amount must be positive.');
+    const [emp] = await db.select({ id: employees.id }).from(employees)
+      .where(and(eq(employees.tenantId, tenantId), eq(employees.id, employeeId))).limit(1);
+    if (!emp) return badRequest('Unknown employee.');
     const slip = await slipFor(tenantId, employeeId, period);
     if (slip?.status === 'paid') return badRequest('That month is already paid and locked. Use the next month.');
     const row = { id: crypto.randomUUID(), tenantId, employeeId, type, amount, amountCents: toCents(amount), note, period, date: now.slice(0, 10), createdAt: now, clientUuid };
-    const inserted = clientUuid
-      ? await db.insert(employeeLedger).values(row).onConflictDoNothing({ target: employeeLedger.clientUuid }).returning({ id: employeeLedger.id })
-      : await db.insert(employeeLedger).values(row).returning({ id: employeeLedger.id });
-    if (slip) {
-      const b = computePayslip(slip.gross, asEntries(await ledgerFor(tenantId, employeeId, period)));
-      await db.update(payslips).set({
-        advances: b.advances, advancesCents: toCents(b.advances),
-        fines: b.fines, finesCents: toCents(b.fines),
-        bonuses: b.bonuses, bonusesCents: toCents(b.bonuses),
-        net: b.net, netCents: toCents(b.net),
-      }).where(eq(payslips.id, slip.id));
-    }
+    // Insert the ledger row and recompute the payslip atomically. When a payslip
+    // exists we lock its row FOR UPDATE first, so two concurrent ledger writes for
+    // the same employee/period serialize: the second transaction only re-reads the
+    // ledger (and recomputes) after the first has committed its insert, so neither
+    // contribution can be lost by a stale recompute overwriting the other. Reads and
+    // writes here MUST use `tx` (not `db`) so the re-read sees the just-inserted row.
+    const inserted = await db.transaction(async (tx) => {
+      const locked = slip
+        ? (await tx.select().from(payslips).where(eq(payslips.id, slip.id)).for('update').limit(1))[0] ?? null
+        : null;
+      const ins = clientUuid
+        ? await tx.insert(employeeLedger).values(row).onConflictDoNothing({ target: employeeLedger.clientUuid }).returning({ id: employeeLedger.id })
+        : await tx.insert(employeeLedger).values(row).returning({ id: employeeLedger.id });
+      if (locked) {
+        const rows = await tx.select().from(employeeLedger)
+          .where(and(eq(employeeLedger.tenantId, tenantId), eq(employeeLedger.employeeId, employeeId), eq(employeeLedger.period, period)));
+        const b = computePayslip(locked.gross, asEntries(rows));
+        await tx.update(payslips).set({
+          advances: b.advances, advancesCents: toCents(b.advances),
+          fines: b.fines, finesCents: toCents(b.fines),
+          bonuses: b.bonuses, bonusesCents: toCents(b.bonuses),
+          net: b.net, netCents: toCents(b.net),
+        }).where(eq(payslips.id, locked.id));
+      }
+      return ins;
+    });
     if (inserted.length) {
       await audit({ tenantId, actor: actorLabel(session), action: `payroll.${type}`, entity: employeeId, meta: { period, amount } });
     }
@@ -153,16 +174,27 @@ export async function POST(req: Request) {
     if (!entry) return ok({ ok: true });
     const slip = await slipFor(tenantId, entry.employeeId, entry.period);
     if (slip?.status === 'paid') return badRequest('That month is already paid and locked.');
-    await db.delete(employeeLedger).where(eq(employeeLedger.id, entry.id));
-    if (slip) {
-      const b = computePayslip(slip.gross, asEntries(await ledgerFor(tenantId, entry.employeeId, entry.period)));
-      await db.update(payslips).set({
-        advances: b.advances, advancesCents: toCents(b.advances),
-        fines: b.fines, finesCents: toCents(b.fines),
-        bonuses: b.bonuses, bonusesCents: toCents(b.bonuses),
-        net: b.net, netCents: toCents(b.net),
-      }).where(eq(payslips.id, slip.id));
-    }
+    // Delete the ledger row and recompute the payslip atomically — same locking
+    // rationale as the `ledger` action above: lock the payslip row FOR UPDATE so a
+    // concurrent ledger write/delete for this employee/period can't interleave
+    // between our re-read and payslip update and lose the recompute.
+    await db.transaction(async (tx) => {
+      const locked = slip
+        ? (await tx.select().from(payslips).where(eq(payslips.id, slip.id)).for('update').limit(1))[0] ?? null
+        : null;
+      await tx.delete(employeeLedger).where(eq(employeeLedger.id, entry.id));
+      if (locked) {
+        const rows = await tx.select().from(employeeLedger)
+          .where(and(eq(employeeLedger.tenantId, tenantId), eq(employeeLedger.employeeId, entry.employeeId), eq(employeeLedger.period, entry.period)));
+        const b = computePayslip(locked.gross, asEntries(rows));
+        await tx.update(payslips).set({
+          advances: b.advances, advancesCents: toCents(b.advances),
+          fines: b.fines, finesCents: toCents(b.fines),
+          bonuses: b.bonuses, bonusesCents: toCents(b.bonuses),
+          net: b.net, netCents: toCents(b.net),
+        }).where(eq(payslips.id, locked.id));
+      }
+    });
     return ok({ ok: true });
   }
 

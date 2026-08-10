@@ -24,12 +24,20 @@ export function useTranslation() {
     } catch { /* noop — might not exist in all contexts */ }
   }, []);
 
-  return {
-    t: (key: TranslationKey, params?: Record<string, string | number>) => translate(key, params),
-    lang,
-    setLang: changeLang,
-    isSw: lang === 'sw',
-  };
+  // Stable identity: `translate` itself reads the current language from module
+  // state on every call, so memoizing this wrapper never freezes it to a stale
+  // language — it only stops the function's REFERENCE from changing every
+  // render. Without this, any `useEffect(..., [t])` (a common, lint-driven
+  // pattern for effects that call t() in an error handler) re-fires on every
+  // render, since a fresh inline `t` used to compare as "changed" each time —
+  // silently wiping form state (e.g. resetting a record form's entries) right
+  // after the user interacts with it.
+  const t = useCallback(
+    (key: TranslationKey, params?: Record<string, string | number>) => translate(key, params),
+    []
+  );
+
+  return { t, lang, setLang: changeLang, isSw: lang === 'sw' };
 }
 
 // Direct function for non-hook contexts (server components, pure functions)

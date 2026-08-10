@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { cachePinHash, verifyPinOffline, hashPin } from '@/lib/offline/db';
+import { normalizePhone } from '@/lib/phone';
 import { useBranding } from '@/lib/useBranding';
 import type { User, Role } from '@/lib/types';
 import { Wheat } from 'lucide-react';
@@ -41,15 +42,24 @@ export default function LoginPage() {
         if (!res.ok) throw new Error(data.error || t('loginFailed'));
         user = data.user as User;
         login(user, 'session');
-        // Cache a PBKDF2 PIN hash so workers can unlock offline later.
+        // Cache a PBKDF2 PIN hash so workers can unlock offline later. Keyed by
+        // the server's stored phone (user.phone), not the raw typed identifier —
+        // the server accepts several formats for the same number (see lib/phone.ts)
+        // but always returns the one on file, so this stays consistent even if the
+        // worker types a different format each time.
         if (user.role === 'worker') {
-          try { await cachePinHash(identifier.trim(), user.id, await hashPin(identifier.trim(), secret), user.workerProfileId); } catch { /* ignore */ }
+          try { await cachePinHash(user.phone, user.id, await hashPin(user.phone, secret), user.workerProfileId); } catch { /* ignore */ }
         }
       } else {
         // Offline: only a worker who has signed in online before can unlock.
-        const cached = await verifyPinOffline(identifier.trim(), secret);
+        // No server round-trip is possible here, so try the canonicalized form
+        // first, then fall back to exactly what was typed (covers a cache entry
+        // written before this normalization existed, or a non-Kenyan test number).
+        const normalized = normalizePhone(identifier.trim());
+        const cached = (normalized ? await verifyPinOffline(normalized, secret) : null)
+          ?? await verifyPinOffline(identifier.trim(), secret);
         if (!cached) throw new Error(t('offlineUnlockError'));
-        user = { id: cached.userId, phone: identifier.trim(), role: 'worker' as Role, name: 'Worker', tenantId: '', language: 'en', workerProfileId: cached.workerProfileId } as User;
+        user = { id: cached.userId, phone: normalized ?? identifier.trim(), role: 'worker' as Role, name: 'Worker', tenantId: '', language: 'en', workerProfileId: cached.workerProfileId } as User;
         login(user, 'offline');
       }
       router.replace(HOME[user.role] ?? '/owner/dashboard');
@@ -70,8 +80,7 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white rounded-2xl p-8 shadow-xl">
-          <h2 className="text-xl font-bold text-gray-900 mb-1">{t('signIn')}</h2>
-          <p className="text-sm text-gray-500 mb-5">{t('signInDescription')}</p>
+          <h2 className="text-xl font-bold text-gray-900 mb-5">{t('signIn')}</h2>
 
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
@@ -102,9 +111,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="text-xs text-gray-400 text-center mt-5">
-            {t('noAccount')}
-          </p>
         </div>
 
         <p className="text-center text-green-200/50 text-xs mt-6">© {year} {brand.appName} · {t('secureSignIn')}</p>

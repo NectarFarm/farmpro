@@ -1,6 +1,8 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
+import { api } from '@/lib/api';
+import type { ProductionUnit } from '@/lib/types';
 import {
   LineChart, ShoppingCart, BarChart3, TrendingDown, Syringe, Package, Users,
   Wallet, Bird, Wheat, FileText, FileSpreadsheet, Table, ShieldCheck, Check,
@@ -44,20 +46,34 @@ export default function ReportsPage() {
   const [err, setErr] = useState('');
   const [dateFrom, setDateFrom] = useState(iso(new Date(Date.now() - 90 * 86400000)));
   const [dateTo, setDateTo] = useState(iso(new Date()));
+  const [units, setUnits] = useState<ProductionUnit[]>([]);
+  const [unitId, setUnitId] = useState('');
   const [linkEmail, setLinkEmail] = useState('');
   const [linkDays, setLinkDays] = useState(7);
   const [link, setLink] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    api.getUnits().then(setUnits).catch(() => setUnits([]));
+  }, []);
+
   const generateLink = async () => {
     setLinkBusy(true); setLink(''); setErr('');
     try {
       const res = await fetch('/api/auditor-link', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: linkEmail, days: linkDays }),
+        // Omit email entirely when blank rather than sending '' — belt-and-braces
+        // alongside the server's own preprocessing of '' to undefined.
+        body: JSON.stringify({ ...(linkEmail.trim() ? { email: linkEmail.trim() } : {}), days: linkDays }),
       });
-      if (!res.ok) throw new Error(res.status === 403 ? 'Owner only' : 'Failed to generate link');
+      if (!res.ok) {
+        // Surface the server's actual reason (e.g. "Invalid email") instead of a
+        // generic string — a validation error was previously indistinguishable
+        // from a real failure, which is what made this bug hard to diagnose.
+        const body = await res.json().catch(() => ({}));
+        throw new Error(res.status === 403 ? 'Owner only' : body.error || 'Failed to generate link');
+      }
       setLink((await res.json()).url);
     } catch (e) { setErr((e as Error).message); } finally { setLinkBusy(false); }
   };
@@ -65,19 +81,20 @@ export default function ReportsPage() {
   const runExport = async (id: string, fmt: 'PDF' | 'Excel' | 'CSV') => {
     setErr(''); setBusy(`${id}:${fmt}`);
     try {
-      const res = await fetch(`/api/reports/${id}?from=${dateFrom}&to=${dateTo}`, { credentials: 'include' });
+      const unitParam = unitId ? `&unitId=${encodeURIComponent(unitId)}` : '';
+      const res = await fetch(`/api/reports/${id}?from=${dateFrom}&to=${dateTo}${unitParam}`, { credentials: 'include' });
       if (!res.ok) throw new Error(res.status === 401 ? t('errorUnauthorized') : res.status === 403 ? t('notPermittedForRole') : t('reportFailed', { status: String(res.status) }));
       const data = await res.json();
       // Translate server-side report column headers for exported PDF/CSV/Excel
       const colMap: Record<string, string> = {
-        'Date': 'date', 'Batch': 'batch', 'Type': 'type', 'Qty': 'qty',
+        'Date': 'date', 'Batch': 'batch', 'Unit': 'unit', 'Type': 'type', 'Qty': 'qty',
         'Product': 'product', 'Unit Price': 'unitPrice', 'Total': 'total',
         'Buyer': 'buyer', 'Deaths': 'deaths', 'Cause': 'cause', 'Lot': 'lot',
         'Hours': 'hours', 'Rate': 'rate', 'Cost': 'cost', 'Feed kg': 'feedKg',
         'Line': 'line', 'Amount': 'amount', 'Info': 'details',
         'Feed': 'feedConsumed', 'Health': 'health', 'Labour': 'labour',
         'Salaries': 'salaries', 'Overhead': 'overhead', 'Acquisition': 'acquisition',
-        'Total Cost': 'totalCost', 'Revenue': 'revenue', 'Gross Margin': 'grossMargin',
+        'Total Cost': 'totalCost', 'Revenue': 'revenue', 'Net Profit': 'grossMargin',
         'Species': 'species',        'FCR': 'fcr', 'FCR basis': 'fcrBasis',
         'Mortality': 'mortalityRate', 'Feed Cost (KSh)': 'feedConsumed',
         'Stage': 'stage', 'Survived': 'survivors', 'Sold': 'sold',
@@ -108,7 +125,7 @@ export default function ReportsPage() {
         <p className="text-sm text-gray-500 leading-relaxed">{r.desc}</p>
 
         {generated === r.id && (
-          <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 text-green-700 text-xs font-semibold">
+          <div className="flex items-center gap-1.5 bg-success/10 border border-success/30 rounded-lg px-3 py-1.5 text-success text-xs font-semibold">
             <Check className="w-3.5 h-3.5 shrink-0" /> Generated — downloading…
           </div>
         )}
@@ -119,7 +136,7 @@ export default function ReportsPage() {
             const isBusy = busy === `${r.id}:${fmt}`;
             return (
               <button key={fmt} disabled={busy !== null} onClick={() => runExport(r.id, fmt)}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-50 hover:bg-green-50 hover:text-green-700 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 disabled:opacity-40 transition-colors">
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-50 hover:bg-primary/10 hover:text-primary border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 disabled:opacity-40 transition-colors">
                 {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FmtIcon className="w-3.5 h-3.5" />}
                 {fmt}
               </button>
@@ -135,17 +152,26 @@ export default function ReportsPage() {
 
   return (
     <div className="p-6 flex flex-col gap-8 max-w-5xl">
-      <div className="flex items-center gap-3">
-        <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-          <LineChart className="w-6 h-6 text-green-700" />
+      <div className="flex items-center gap-3 flex-wrap justify-between">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <LineChart className="w-6 h-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('reports')}</h1>
+            <p className="text-gray-500 text-sm">Export activity logs and batch economics for your records, a lender, or an investor.</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('reports')}</h1>
-          <p className="text-gray-500 text-sm">Export activity logs and batch economics for your records, a lender, or an investor.</p>
+        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Unit</span>
+          <select value={unitId} onChange={e => setUnitId(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1 text-sm bg-white min-w-[10rem]">
+            <option value="">All units</option>
+            {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
         </div>
       </div>
 
-      {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
+      {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 
       {/* ── Section 1: date-filtered ───────────────────────────────── */}
       <section className="flex flex-col gap-4">
@@ -186,7 +212,9 @@ export default function ReportsPage() {
         <div className="flex gap-3 flex-wrap">
           <input value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="Auditor email (optional)" className="flex-1 min-w-[180px] border border-blue-300 rounded-xl px-4 py-2 text-sm" />
           <select value={linkDays} onChange={e => setLinkDays(Number(e.target.value))} className="border border-blue-300 rounded-xl px-3 py-2 text-sm bg-white">
-            <option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option>
+            {/* Server caps at MAX_AUDITOR_LINK_DAYS = 14 (lib/server/auditorLinks.ts) —
+                these options previously went up to 90, which always failed. */}
+            <option value={1}>1 day</option><option value={7}>7 days</option><option value={14}>14 days</option>
           </select>
           <button onClick={generateLink} disabled={linkBusy} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-50">
             {linkBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}

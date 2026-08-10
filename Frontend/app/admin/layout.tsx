@@ -3,15 +3,20 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { LayoutDashboard, Tractor, ScrollText, Settings, Gauge, Shield, LogOut, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Tractor, ScrollText, Settings, Gauge, Shield, LogOut, AlertTriangle, type LucideIcon } from 'lucide-react';
 import { AppShell, type AppShellTheme } from '@/components/layout/AppShell';
+import { AdminGuide } from '@/components/admin/AdminGuide';
 
-const ADMIN_NAV: { href: string; Icon: LucideIcon; label: string }[] = [
-  { href: '/admin/dashboard', Icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/admin/farms',     Icon: Tractor,         label: 'Farms' },
-  { href: '/admin/audit',     Icon: ScrollText,      label: 'Audit' },
-  { href: '/admin/status',    Icon: Gauge,           label: 'Status' },
-  { href: '/admin/settings',  Icon: Settings,        label: 'Settings' },
+// Grouping only changes the mobile drawer (AppShell renders the desktop
+// sidebar flat regardless of `group`) — still worth doing since it's a
+// data-only change, but don't expect it to fix desktop findability alone.
+const ADMIN_NAV: { href: string; Icon: LucideIcon; label: string; group: string }[] = [
+  { href: '/admin/dashboard', Icon: LayoutDashboard, label: 'Dashboard', group: 'Overview' },
+  { href: '/admin/farms',     Icon: Tractor,         label: 'Farms', group: 'Farms & Records' },
+  { href: '/admin/audit',     Icon: ScrollText,      label: 'Audit', group: 'Farms & Records' },
+  { href: '/admin/status',    Icon: Gauge,           label: 'Status', group: 'System' },
+  { href: '/admin/errors',    Icon: AlertTriangle,   label: 'Errors', group: 'System' },
+  { href: '/admin/settings',  Icon: Settings,        label: 'Settings', group: 'System' },
 ];
 
 const ADMIN_THEME: AppShellTheme = {
@@ -41,6 +46,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <AppShell
       theme={ADMIN_THEME}
       navItems={navItems}
+      drawerTitle="IFMS Admin"
       homeHref="/admin/dashboard"
       homeLabel="Admin"
       showSectionIcon={false}
@@ -58,6 +64,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </>
       }
       headerRight={<span className="hidden sm:inline text-xs text-gray-400">{user?.email}</span>}
+      floatingContent={<AdminGuide />}
     >
       {children}
     </AppShell>

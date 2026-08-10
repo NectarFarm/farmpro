@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { ScrollText, RefreshCw, Filter } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/lib/i18n/useTranslation';
 import { Pager } from '@/components/Pager';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
 interface Entry {
   id: string; tenantId: string; farm: string; actor: string; action: string;
@@ -10,10 +11,10 @@ interface Entry {
 }
 
 const ACTION_TINT: Record<string, string> = {
-  'tenant.create': 'text-green-700 bg-green-50',
-  'tenant.delete': 'text-red-700 bg-red-50',
-  'tenant.suspend': 'text-amber-700 bg-amber-50',
-  'tenant.reactivate': 'text-green-700 bg-green-50',
+  'tenant.create': 'text-success bg-success/10',
+  'tenant.delete': 'text-destructive bg-destructive/10',
+  'tenant.suspend': 'text-warning-foreground bg-warning/15',
+  'tenant.reactivate': 'text-success bg-success/10',
   'branding.update': 'text-indigo-700 bg-indigo-50',
   'packages.update': 'text-purple-700 bg-purple-50',
 };
@@ -80,63 +81,61 @@ export default function AdminAuditPage() {
 
   const entriesTable = (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('date')}</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('farm')}</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('action')}</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('by')}</th>
-              <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('details')}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {paginatedEntries.map(e => (
-                  <React.Fragment key={e.id}>
-                    <tr
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => setExpanded(expanded === e.id ? null : e.id)}
-                    >
-                      <td className="py-3 px-4 text-gray-400 whitespace-nowrap text-xs">
-                        <span title={new Date(e.at).toLocaleString('en-KE')}>
-                          {new Date(e.at).toLocaleDateString('en-KE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 font-medium text-gray-700">{e.farm}</td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded font-mono text-[11px] font-semibold ${ACTION_TINT[e.action] ?? 'text-gray-600 bg-gray-100'}`}>
-                          {actionLabel(e.action, t)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-gray-600">{e.actor}</td>
-                      <td className="py-3 px-4 text-gray-500 text-xs max-w-xs truncate">{detail(e)}</td>
-                    </tr>
-                    {expanded === e.id && (
-                      <tr className="bg-gray-50">
-                        <td colSpan={5} className="px-4 py-3">
-                          <div className="text-xs font-mono text-gray-600 whitespace-pre-wrap bg-white border border-gray-200 rounded-lg p-3">
-                            <p className="text-gray-400 mb-1">Action: <span className="text-gray-700">{e.action}</span></p>
-                            <p className="text-gray-400 mb-1">Entity: <span className="text-gray-700">{e.entity ?? '—'}</span></p>
-                            <p className="text-gray-400 mb-1">Farm ID: <span className="text-gray-700">{e.tenantId}</span></p>
-                            <p className="text-gray-400 mb-1">Timestamp: <span className="text-gray-700">{new Date(e.at).toISOString()}</span></p>
-                            {metaJson(e) && (
-                              <>
-                                <p className="text-gray-400 mb-1 mt-2">Metadata:</p>
-                                <pre className="text-gray-700 bg-gray-100 rounded p-2 overflow-x-auto">{metaJson(e)}</pre>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      );
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-gray-50">
+            <TableHead className="font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('date')}</TableHead>
+            <TableHead className="font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('farm')}</TableHead>
+            <TableHead className="font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('action')}</TableHead>
+            <TableHead className="font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('by')}</TableHead>
+            <TableHead className="font-semibold text-gray-500 text-xs uppercase tracking-wider">{t('details')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {paginatedEntries.map(e => (
+            <React.Fragment key={e.id}>
+              <TableRow
+                className="cursor-pointer"
+                onClick={() => setExpanded(expanded === e.id ? null : e.id)}
+              >
+                <TableCell className="text-gray-400 text-xs">
+                  <span title={new Date(e.at).toLocaleString('en-KE')}>
+                    {new Date(e.at).toLocaleDateString('en-KE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </TableCell>
+                <TableCell className="font-medium text-gray-700">{e.farm}</TableCell>
+                <TableCell>
+                  <span className={`px-2 py-0.5 rounded font-mono text-[11px] font-semibold ${ACTION_TINT[e.action] ?? 'text-gray-600 bg-gray-100'}`}>
+                    {actionLabel(e.action, t)}
+                  </span>
+                </TableCell>
+                <TableCell className="text-gray-600">{e.actor}</TableCell>
+                <TableCell className="text-gray-500 text-xs max-w-xs truncate">{detail(e)}</TableCell>
+              </TableRow>
+              {expanded === e.id && (
+                <TableRow className="bg-gray-50">
+                  <TableCell colSpan={5} className="px-4 py-3 whitespace-normal">
+                    <div className="text-xs font-mono text-gray-600 whitespace-pre-wrap bg-white border border-gray-200 rounded-lg p-3">
+                      <p className="text-gray-400 mb-1">Action: <span className="text-gray-700">{e.action}</span></p>
+                      <p className="text-gray-400 mb-1">Entity: <span className="text-gray-700">{e.entity ?? '—'}</span></p>
+                      <p className="text-gray-400 mb-1">Farm ID: <span className="text-gray-700">{e.tenantId}</span></p>
+                      <p className="text-gray-400 mb-1">Timestamp: <span className="text-gray-700">{new Date(e.at).toISOString()}</span></p>
+                      {metaJson(e) && (
+                        <>
+                          <p className="text-gray-400 mb-1 mt-2">Metadata:</p>
+                          <pre className="text-gray-700 bg-gray-100 rounded p-2 overflow-x-auto">{metaJson(e)}</pre>
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </React.Fragment>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-6xl mx-auto">
@@ -190,9 +189,9 @@ export default function AdminAuditPage() {
       {!loading && error ? (
         <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-3">
           <ScrollText className="w-12 h-12 opacity-30" />
-          <p className="text-red-600 text-sm font-semibold">{t('errorLoadFailed')}</p>
+          <p className="text-destructive text-sm font-semibold">{t('errorLoadFailed')}</p>
           <button onClick={() => load(farm)}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition-colors">
+            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800 transition-colors">
             {t('retry')}
           </button>
         </div>

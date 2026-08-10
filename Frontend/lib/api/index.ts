@@ -93,6 +93,10 @@ const api = {
   },
   getCostSummary: (batchId: string) =>
     getJSON<BatchCostSummary>(`/api/cost-summary?batchId=${encodeURIComponent(batchId)}`),
+  // Every batch's cost summary in ONE request (bulk server-side roll-up) — avoids
+  // the N+1 of calling getCostSummary once per batch to render a whole-farm P&L list.
+  getCostSummaries: () =>
+    getJSON<BatchCostSummary[]>('/api/cost-summary/all'),
   getHealthRecords: async (batchId: string) =>
     (await getJSON<HealthRecord[]>('/api/data/health-records')).filter((h) => h.batchId === batchId),
   // Vet prescriptions have their own route (writes a healthRecords row + optionally

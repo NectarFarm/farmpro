@@ -44,7 +44,7 @@ export function AdminTesting() {
     }).catch(() => {});
   useEffect(() => { load(); }, []);
 
-  const act = async (tenantId: string, action: 'enable' | 'disable' | 'request') => {
+  const act = async (tenantId: string, action: 'enable' | 'disable' | 'request' | 'retest-failed') => {
     setBusy(`${tenantId}:${action}`); setErr('');
     try {
       const res = await fetch('/api/admin/testing', {
@@ -96,7 +96,9 @@ export function AdminTesting() {
       }
       const { exportReport } = await import('@/lib/export');
       await exportReport({
-        title: `${t('acceptanceTesting')} — ${f.name}`,
+        title: t('acceptanceTesting'),
+        subtitle: f.name,
+        farmName: f.name,
         columns: [t('step'), t('area'), t('result'), t('notes'), t('shots')],
         rows: f.run.results.map(r => [r.title, r.area, r.status.toUpperCase(), r.note, r.photos]),
         meta: {
@@ -202,7 +204,14 @@ export function AdminTesting() {
                 <button onClick={() => act(f.tenantId, 'request')} disabled={busy !== ''} className="px-3 py-1.5 bg-white border border-amber-300 text-amber-700 rounded-lg text-xs font-semibold disabled:opacity-50">
                   {busy === `${f.tenantId}:request` ? '…' : 'Request test'}
                 </button>
-                {f.run?.status === 'submitted' && (
+                {f.run && f.run.report.failed > 0 && (
+                  <button onClick={() => act(f.tenantId, 'retest-failed')} disabled={busy !== ''}
+                    title="Reset only the failed steps to pending — passed steps stay as-is, no need to redo the whole checklist"
+                    className="px-3 py-1.5 bg-white border border-red-300 text-red-700 rounded-lg text-xs font-semibold disabled:opacity-50">
+                    {busy === `${f.tenantId}:retest-failed` ? '…' : `Retest ${f.run.report.failed} failed`}
+                  </button>
+                )}
+                {f.run && (
                   <>
                     <button onClick={() => setOpenReport(openReport === f.tenantId ? null : f.tenantId)} className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold">
                       {openReport === f.tenantId ? 'Hide report' : 'View report'}
@@ -213,13 +222,34 @@ export function AdminTesting() {
               </div>
             </div>
 
-            {openReport === f.tenantId && f.run?.status === 'submitted' && (
+            {openReport === f.tenantId && f.run && (
               <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs">
-                <p className="text-gray-600 mb-1">
-                  Submitted {f.run.submittedAt ? new Date(f.run.submittedAt).toLocaleString('en-KE') : ''} · {f.run.report.passed} passed · {f.run.report.failed} failed.
+                <p className="text-gray-600 mb-2">
+                  {f.run.status === 'submitted' && f.run.submittedAt
+                    ? <>Submitted {new Date(f.run.submittedAt).toLocaleString('en-KE')} · {f.run.report.passed} passed · {f.run.report.failed} failed.</>
+                    : <>In progress · {f.run.progress.done}/{f.run.progress.total} done.</>}
                 </p>
+                <ul className="flex flex-col gap-1 mb-3">
+                  {f.run.results.map((r, i) => (
+                    <li key={i} className="flex items-center gap-2 flex-wrap">
+                      {r.status === 'pass'
+                        ? <Check className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                        : r.status === 'fail'
+                          ? <X className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                          : <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" title="Pending" />}
+                      <span className="font-semibold text-gray-800">{r.title}</span>
+                      <span className="text-gray-400">· {r.area}</span>
+                      {r.note && <span className="text-gray-500 italic">“{r.note}”</span>}
+                      {r.photos > 0 && (
+                        <span className="text-gray-400 flex items-center gap-0.5"><Camera className="w-3 h-3" /> {r.photos}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
                 {f.run.report.failures.length === 0
-                  ? <p className="text-green-700 font-semibold flex items-center gap-1.5"><PartyPopper className="w-4 h-4 shrink-0" /> No problems reported</p>
+                  ? (f.run.status === 'submitted' && (
+                    <p className="text-green-700 font-semibold flex items-center gap-1.5"><PartyPopper className="w-4 h-4 shrink-0" /> No problems reported</p>
+                  ))
                   : (
                     <ul className="flex flex-col gap-2">
                       {f.run.report.failures.map(x => (
@@ -231,7 +261,7 @@ export function AdminTesting() {
                               {x.photoIds.map(pid => (
                                 <div key={pid} className="relative">
                                   {photoData[pid]
-                                    // eslint-disable-next-line @next/next/no-img-element
+                                     
                                     ? <button type="button" onClick={() => setLightbox(photoData[pid])} title="Click to enlarge"><img src={photoData[pid]} alt="screenshot" className="w-20 h-20 object-cover rounded border border-gray-200 cursor-zoom-in" /></button>
                                     : <div className="w-20 h-20 rounded bg-gray-100 animate-pulse" />}
                                   <button onClick={() => deletePhoto(pid)} disabled={busy === `photo:${pid}`}
@@ -254,7 +284,7 @@ export function AdminTesting() {
       {/* Full-size screenshot preview (inline — data: URLs can't be opened in a tab). */}
       {lightbox && (
         <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-6" onClick={() => setLightbox(null)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          { }
           <img src={lightbox} alt="screenshot" className="max-w-full max-h-full rounded shadow-2xl" onClick={e => e.stopPropagation()} />
           <button onClick={() => setLightbox(null)} aria-label="Close" className="absolute top-4 right-5 text-white/90 hover:text-white"><X className="w-7 h-7" /></button>
         </div>

@@ -3,7 +3,7 @@
 // conversation is multi-turn + persisted to localStorage, so reloading keeps the
 // thread (no lost context, no re-asking). Degrades gracefully with no API key.
 import { useState, useEffect, useRef } from 'react';
-import { Bot, X } from 'lucide-react';
+import { Compass, X } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useDraggableFab } from './useDraggableFab';
 
@@ -72,8 +72,8 @@ export function AIAdvisor() {
         onPointerUp={fab.onPointerUp}
         onClick={() => { if (!fab.wasDragged()) setOpen(true); }}
         aria-label="AI advisor"
-        className="fixed bottom-20 md:bottom-5 left-5 z-40 flex items-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
-        <Bot className="w-5 h-5" /><span className="hidden sm:inline">AI Advisor</span>
+        className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] left-5 z-40 flex items-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
+        <Compass className="w-5 h-5" /><span className="hidden sm:inline">AI Advisor</span>
         {messages.length > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400" title="Saved conversation" />}
       </button>
 
@@ -83,7 +83,7 @@ export function AIAdvisor() {
           <div className="absolute left-0 bottom-0 sm:left-4 sm:bottom-4 w-full sm:max-w-md h-[82vh] sm:h-[72vh] bg-white sm:rounded-2xl shadow-2xl flex flex-col">
             <div className="bg-indigo-700 text-white px-5 py-4 sm:rounded-t-2xl flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Bot className="w-5 h-5" />
+                <Compass className="w-5 h-5" />
                 <div>
                   <h2 className="text-lg font-bold leading-tight">AI Farm Advisor</h2>
                   <p className="text-indigo-200 text-xs">Uses your live data · remembers this chat</p>

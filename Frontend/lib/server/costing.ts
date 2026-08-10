@@ -4,18 +4,19 @@ import 'server-only';
 import { db } from '@/db';
 import {
   batches, feedingRecords, mortalityRecords, productionRecords, sales, inventoryLots, alerts, tasks,
-  healthRecords, laborLogs, overheads, employees, payslips,
+  healthRecords, laborLogs, overheads, employees, payslips, products,
 } from '@/db/schemas';
 import { and, eq } from 'drizzle-orm';
-import { enterpriseFromSpecies } from './productTemplates';
+import { resolveEnterprise } from './productTemplates';
 import { labourByBatch } from '@/lib/payroll';
 import type { BatchCostSummary } from '@/lib/types';
 
-// ACTUAL labour cost per batch, from real payroll: each worker's total paid gross
-// (from their payslips) allocated across the batches they're assigned to by head
-// share. This is the disbursed wage, not a live-salary estimate — so a paid month
-// is permanent and changing a salary never rewrites a batch's historical labour.
-// Computed once per request and fed into computeBatchCost (keeps it query-stable).
+// ACTUAL labour cost per batch, from real payroll: each worker's total RUN payroll
+// gross (summed across their payslips, whichever period, whether paid or still
+// pending) allocated across the batches they're assigned to by head share. This is
+// the committed/run wage figure, not a live-salary estimate — a payslip's gross is
+// snapshotted at run time, so changing a salary never rewrites a batch's historical
+// labour. Computed once per request and fed into computeBatchCost (keeps it query-stable).
 export async function batchLabour(tenantId: string): Promise<Record<string, number>> {
   const [emps, bs, slips] = await Promise.all([
     db.select({ id: employees.id, assignedBatchIds: employees.assignedBatchIds }).from(employees).where(eq(employees.tenantId, tenantId)),
@@ -39,14 +40,46 @@ type BatchRow = {
   acquiredDate: string;
 };
 
+// How feed-conversion is expressed for a given enterprise, keyed EXPLICITLY per
+// enterprise — never inferred from a product's baseUnit or name. baseUnit alone
+// is ambiguous (maize's driver is also 'kg' but has no FCR concept at all; a duck
+// driver is 'piece' just like an egg driver but with the same per-dozen meaning).
+// See #23.
+export type FcrMode = 'PER_KG' | 'PER_BASE_UNIT' | 'PER_DOZEN' | 'NONE';
+
+const FCR_MODE_BY_ENTERPRISE: Record<string, FcrMode> = {
+  layers: 'PER_DOZEN',     // driver: Eggs (piece) — feed kg / dozen eggs
+  ducks: 'PER_DOZEN',      // driver: Eggs (duck) (piece) — feed kg / dozen eggs
+  broilers: 'NONE',        // driver: Live bird (head) — no mass without an optional weight sample
+  pig_fatten: 'PER_KG',    // driver: Pork (live weight) (kg)
+  pig_breed: 'NONE',       // driver: Piglets (head) — feed-per-piglet-born isn't a conversion ratio
+  tilapia: 'PER_KG',       // driver: Fish (kg)
+  catfish: 'PER_KG',       // driver: Fish (kg)
+  rabbits: 'PER_KG',       // driver: Rabbit meat (kg)
+  maize: 'NONE',           // driver: Maize grain (kg) — a crop; no feed-conversion concept at all
+  goats: 'PER_BASE_UNIT',  // driver: Milk (litre) — feed kg / litre milk
+  dairy: 'PER_BASE_UNIT',  // driver: Milk (litre) — feed kg / litre milk
+  bees: 'NONE',            // driver: Honey (kg) — forage-based, not a purchased-feed conversion animal
+};
+
+// Only 'kg' is a mass-dimensioned base unit among the ones products.ts uses
+// (piece | head | kg | litre) — litre is volume, not mass, and is deliberately
+// NOT treated as kg (no density conversion is stored anywhere).
+const MASS_BASE_UNIT = 'kg';
+
 type CostInputs = {
   lotCost: Map<string, number>;
   feedings: { quantityKg: number; lotId: string | null }[];
   morts: { count: number }[];
-  prod: { type: string; qty: number; weightKg: number | null }[];
+  prod: { type: string; qty: number; weightKg: number | null; productId: string | null; baseUnit: string | null }[];
   salesRows: { totalAmount: number; weightKg: number | null }[];
   healthRows: { quantity: number; productLotId: string | null }[];
   laborRows: { hours: number; ratePerHour: number }[];
+  // This batch's own products (from productTemplates.ts, one per batch). Exactly
+  // one is expected to have isCostDriver=true, but a batch predating #21, or a
+  // batch whose products were hand-edited, may have none — costPerUnit/fcr must
+  // then come back `undefined`, never a division against a driver that isn't there.
+  products: { id: string; baseUnit: string; isCostDriver: boolean }[];
   totalOverhead: number;
   totalActiveQty: number;
   batchLabourCost: number;
@@ -58,7 +91,7 @@ type CostInputs = {
  */
 export function summarizeBatchCost(batch: BatchRow, inputs: CostInputs): BatchCostSummary {
   const { lotCost, feedings, morts, prod, salesRows, healthRows, laborRows,
-    totalOverhead, totalActiveQty, batchLabourCost } = inputs;
+    products: batchProducts, totalOverhead, totalActiveQty, batchLabourCost } = inputs;
 
   let feedKg = 0, feedCost = 0;
   for (const f of feedings) {
@@ -70,10 +103,8 @@ export function summarizeBatchCost(batch: BatchRow, inputs: CostInputs): BatchCo
   const eggs = prod.filter((p) => p.type.toLowerCase().includes('egg')).reduce((s, p) => s + p.qty, 0);
   const totalRevenue = salesRows.reduce((s, x) => s + x.totalAmount, 0);
 
-  const enterprise = enterpriseFromSpecies(batch.species || '');
+  const enterprise = resolveEnterprise(batch);
   const isLayer = enterprise === 'layers';
-  const producedKg = prod.reduce((s, p) => s + (p.weightKg ?? 0), 0)
-    + salesRows.reduce((s, x) => s + (x.weightKg ?? 0), 0);
 
   const healthCost = healthRows.reduce((s, h) => s + h.quantity * (lotCost.get(h.productLotId ?? '') ?? 0), 0);
   const laborCost = laborRows.reduce((s, l) => s + l.hours * l.ratePerHour, 0);
@@ -86,12 +117,48 @@ export function summarizeBatchCost(batch: BatchRow, inputs: CostInputs): BatchCo
   const grossMargin = totalRevenue - totalCost;
   const mortalityPct = batch.initialQty ? (deaths / batch.initialQty) * 100 : 0;
 
-  const outputUnit = isLayer ? 'eggs' : 'kg';
-  const outputQty = isLayer ? eggs : producedKg;
-  const costPerUnit = outputQty > 0 ? totalCost / outputQty : 0;
-  const fcr = isLayer
-    ? (eggs > 0 ? (feedKg / eggs) * 12 : undefined)
-    : (producedKg > 0 ? feedKg / producedKg : undefined);
+  // The costing denominator: the batch's own cost-driver product (see #21 —
+  // products.isCostDriver, exactly one per batch). No driver configured (batches
+  // predating #21, or hand-edited products) → outputQty/costPerUnit/fcr all come
+  // back `undefined`, distinguishable from a driver that exists but has zero
+  // output recorded (outputQty === 0, also undefined costPerUnit/fcr, but NOT the
+  // same absence — see outputQty on the returned summary).
+  const driver = batchProducts.find((p) => p.isCostDriver);
+
+  // Sum ONLY rows that reference the driver product by id — a NULL product_id
+  // (unresolved legacy/backfill rows, or rows for a different product entirely)
+  // is excluded by this strict equality, never coerced to 0 or matched via `??`.
+  // Also guard against unit drift: production_records.baseUnit is a snapshot of
+  // the product's base unit AT CAPTURE TIME (see migration 0039); products.baseUnit
+  // is the CURRENT value. If a product's base unit was edited after some records
+  // were captured, those older qty values are not on the same scale as newer ones
+  // and must not be silently summed together — only rows whose snapshot still
+  // matches the driver's current base unit (or rows with no snapshot at all, i.e.
+  // pre-0039 legacy data) count toward output.
+  const driverRows = driver
+    ? prod.filter((p) => p.productId === driver.id && (p.baseUnit == null || p.baseUnit === driver.baseUnit))
+    : [];
+  const outputQty = driver ? driverRows.reduce((s, p) => s + p.qty, 0) : undefined;
+  const outputUnit = driver?.baseUnit ?? '';
+  const costPerUnit = outputQty !== undefined && outputQty > 0 ? totalCost / outputQty : undefined;
+
+  // producedKg exists only when the driver's OWN base unit is already mass
+  // (kg) — no unit-conversion table is maintained for turning head/piece/litre
+  // into kg, so anything else stays `undefined` rather than guessing a factor.
+  const producedKg = outputQty !== undefined && outputUnit === MASS_BASE_UNIT ? outputQty : undefined;
+
+  const fcrMode = FCR_MODE_BY_ENTERPRISE[enterprise ?? ''] ?? 'NONE';
+  let fcr: number | undefined;
+  if (feedKg > 0) {
+    if (fcrMode === 'PER_DOZEN' && outputQty !== undefined && outputQty > 0) fcr = feedKg / (outputQty / 12);
+    else if (fcrMode === 'PER_KG' && producedKg !== undefined && producedKg > 0) fcr = feedKg / producedKg;
+    else if (fcrMode === 'PER_BASE_UNIT' && outputQty !== undefined && outputQty > 0) fcr = feedKg / outputQty;
+    // fcrMode === 'NONE' → fcr stays undefined; meaningless for this enterprise
+    // (e.g. maize is a crop, not an animal converting feed into product).
+  }
+  // weightKg on production/sales rows is kept ONLY as an optional secondary
+  // measurement (e.g. a bag of maize that was also weighed) — it is never read
+  // here as the primary source of output. See #23.
 
   let henDayPct: number | undefined;
   let henHousedPct: number | undefined;
@@ -117,7 +184,17 @@ export function summarizeBatchCost(batch: BatchRow, inputs: CostInputs): BatchCo
     acquisitionCost: batch.acquisitionCost,
     feedCost: round(feedCost), healthCost: round(healthCost), laborCost: round(laborCost), salaryCost: round(salaryCost), overheadCost: round(overheadCost),
     totalCost: round(totalCost), totalRevenue: round(totalRevenue), grossMargin: round(grossMargin),
-    costPerUnit: round(costPerUnit), outputUnit,
+    costPerUnit: costPerUnit !== undefined ? round(costPerUnit) : undefined, outputUnit,
+    // Distinguishes the three states callers may need to react to differently:
+    // undefined = no cost-driver product configured for this batch at all;
+    // 0         = a driver exists but nothing has been recorded against it yet
+    //             (e.g. a "goats" batch run for meat, never milked);
+    // >0        = a real output figure. costPerUnit/fcr collapse the first two
+    // into `undefined` (both make a division meaningless), but outputQty keeps
+    // them distinguishable for any caller that wants to tell "not set up" apart
+    // from "set up, nothing recorded yet".
+    outputQty,
+    fcrMode,
     mortalityPct: round(mortalityPct),
     fcr: fcr !== undefined ? round(fcr) : undefined,
     henDayPct, henHousedPct,
@@ -162,15 +239,19 @@ export async function computeBatchCost(
   const activeBatches = await db.select({ id: batches.id, qty: batches.currentQty, status: batches.status })
     .from(batches).where(eq(batches.tenantId, tenantId));
   const totalActiveQty = activeBatches.filter((b) => b.status === 'ACTIVE').reduce((s, b) => s + b.qty, 0);
+  // This batch's own products — needed to find the cost-driver (see #23).
+  const batchProducts = await db.select({ id: products.id, baseUnit: products.baseUnit, isCostDriver: products.isCostDriver })
+    .from(products).where(and(eq(products.tenantId, tenantId), eq(products.batchId, batchId)));
 
   return summarizeBatchCost(batch, {
     lotCost,
     feedings: feedings.map((f) => ({ quantityKg: f.quantityKg, lotId: f.lotId })),
     morts: morts.map((m) => ({ count: m.count })),
-    prod: prod.map((p) => ({ type: p.type, qty: p.qty, weightKg: p.weightKg })),
+    prod: prod.map((p) => ({ type: p.type, qty: p.qty, weightKg: p.weightKg, productId: p.productId, baseUnit: p.baseUnit })),
     salesRows: salesRows.map((x) => ({ totalAmount: x.totalAmount, weightKg: x.weightKg })),
     healthRows: healthRows.map((h) => ({ quantity: h.quantity, productLotId: h.productLotId })),
     laborRows: laborRows.map((l) => ({ hours: l.hours, ratePerHour: l.ratePerHour })),
+    products: batchProducts,
     totalOverhead,
     totalActiveQty,
     batchLabourCost,
@@ -181,7 +262,7 @@ export async function computeBatchCost(
 // in memory — shared by the dashboard KPIs, reports, and admin analytics so none
 // of them fall back to N calls of computeBatchCost (one query round-trip per batch).
 export async function computeAllBatchCosts(tenantId: string): Promise<Map<string, BatchCostSummary>> {
-  const [allBatches, morts, salesRows, lots, feedings, allProd, healthRows, laborRows, overheadRows, alloc] =
+  const [allBatches, morts, salesRows, lots, feedings, allProd, healthRows, laborRows, overheadRows, allProducts, alloc] =
     await Promise.all([
       db.select().from(batches).where(eq(batches.tenantId, tenantId)),
       db.select().from(mortalityRecords).where(eq(mortalityRecords.tenantId, tenantId)),
@@ -192,6 +273,8 @@ export async function computeAllBatchCosts(tenantId: string): Promise<Map<string
       db.select().from(healthRecords).where(eq(healthRecords.tenantId, tenantId)),
       db.select().from(laborLogs).where(eq(laborLogs.tenantId, tenantId)),
       db.select().from(overheads).where(eq(overheads.tenantId, tenantId)),
+      db.select({ id: products.id, batchId: products.batchId, baseUnit: products.baseUnit, isCostDriver: products.isCostDriver })
+        .from(products).where(eq(products.tenantId, tenantId)),
       batchLabour(tenantId),
     ]);
 
@@ -205,6 +288,7 @@ export async function computeAllBatchCosts(tenantId: string): Promise<Map<string
   const salesByBatch = groupBy(salesRows, (s) => s.batchId);
   const healthByBatch = groupBy(healthRows, (h) => h.batchId);
   const laborByBatchMap = groupBy(laborRows, (l) => l.batchId ?? '');
+  const productsByBatch = groupBy(allProducts, (p) => p.batchId ?? '');
 
   const out = new Map<string, BatchCostSummary>();
   for (const b of allBatches) {
@@ -212,10 +296,11 @@ export async function computeAllBatchCosts(tenantId: string): Promise<Map<string
       lotCost,
       feedings: (feedByBatch.get(b.id) ?? []).map((f) => ({ quantityKg: f.quantityKg, lotId: f.lotId })),
       morts: (mortByBatch.get(b.id) ?? []).map((m) => ({ count: m.count })),
-      prod: (productionByBatch.get(b.id) ?? []).map((p) => ({ type: p.type, qty: p.qty, weightKg: p.weightKg })),
+      prod: (productionByBatch.get(b.id) ?? []).map((p) => ({ type: p.type, qty: p.qty, weightKg: p.weightKg, productId: p.productId, baseUnit: p.baseUnit })),
       salesRows: (salesByBatch.get(b.id) ?? []).map((x) => ({ totalAmount: x.totalAmount, weightKg: x.weightKg })),
       healthRows: (healthByBatch.get(b.id) ?? []).map((h) => ({ quantity: h.quantity, productLotId: h.productLotId })),
       laborRows: (laborByBatchMap.get(b.id) ?? []).map((l) => ({ hours: l.hours, ratePerHour: l.ratePerHour })),
+      products: (productsByBatch.get(b.id) ?? []).map((p) => ({ id: p.id, baseUnit: p.baseUnit, isCostDriver: p.isCostDriver })),
       totalOverhead,
       totalActiveQty,
       batchLabourCost: alloc[b.id] ?? 0,
@@ -270,7 +355,7 @@ export async function computeDashboardKPIs(tenantId: string) {
   const entDeaths: Record<string, number> = {};
   const entInitial: Record<string, number> = {};
   for (const b of allBatches) {
-    const ent = enterpriseFromSpecies(b.species || '') || 'other';
+    const ent = resolveEnterprise(b) || 'other';
     if (!enterpriseBreaks[ent]) enterpriseBreaks[ent] = { batches: 0, animals: 0, mortalityPct: 0 };
     if (b.status === 'ACTIVE') {
       enterpriseBreaks[ent].batches++;
@@ -281,7 +366,7 @@ export async function computeDashboardKPIs(tenantId: string) {
   for (const m of morts) {
     const batch = allBatches.find((b) => b.id === m.batchId);
     if (!batch) continue;
-    const ent = enterpriseFromSpecies(batch.species || '') || 'other';
+    const ent = resolveEnterprise(batch) || 'other';
     entDeaths[ent] = (entDeaths[ent] ?? 0) + m.count;
   }
   for (const ent of Object.keys(enterpriseBreaks)) {
@@ -293,6 +378,13 @@ export async function computeDashboardKPIs(tenantId: string) {
     totalBirds,
     mortalityPct: initial ? round((deaths / initial) * 100) : 0,
     avgFCR: fcrN ? round(fcrSum / fcrN) : 0,
+    // How many active batches actually contributed a real fcr to the average
+    // above. Since #23, fcr is legitimately `undefined` for whole enterprises
+    // (maize, pig breeding, bees…) and for any batch whose driver has zero
+    // output recorded — avgFCR alone can't tell "genuinely 0" apart from "no
+    // batch had FCR data at all". Consumers that must not present a 0 as a real
+    // figure (e.g. the AI Advisor prompt) should check this before trusting avgFCR.
+    avgFCRSampleSize: fcrN,
     grossMargin: Math.round(totalRevenue - totalCost),
     pendingAlerts: alertRows.filter((a) => !a.acknowledged).length,
     taskCompletionPct: taskRows.length

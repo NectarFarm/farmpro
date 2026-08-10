@@ -13,6 +13,7 @@ import { DEFAULT_LIST_LIMIT, MAX_LIMIT } from '@/lib/server/validate';
 import { ok, created, unauthorized, forbidden, badRequest } from '@/lib/server/http';
 import { MIN_PASSWORD_LENGTH } from '@/lib/server/validate';
 import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
+import { normalizePhone } from '@/lib/phone';
 
 const sid = (p: string) => `${p}_${crypto.randomUUID().slice(0, 8)}`;
 
@@ -60,7 +61,7 @@ export async function POST(req: Request) {
   const ownerEmail = typeof body.ownerEmail === 'string' ? body.ownerEmail.trim().toLowerCase() : '';
   const ownerPassword = typeof body.ownerPassword === 'string' ? body.ownerPassword : '';
   const ownerPhone = typeof body.ownerPhone === 'string' && body.ownerPhone.trim()
-    ? body.ownerPhone.trim()
+    ? (normalizePhone(body.ownerPhone) ?? body.ownerPhone.trim())
     : `+0${crypto.randomUUID().replace(/\D/g, '').slice(0, 11)}`;
 
   if (!farmName || !ownerName || !ownerEmail) return badRequest('Farm name, owner name and owner email are required.');

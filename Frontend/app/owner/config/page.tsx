@@ -3,14 +3,15 @@ import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { WorkerProfile, FieldConfig, FieldPermission } from '@/lib/types';
-import { Settings, Check, Lock } from 'lucide-react';
+import { Settings, Check, Lock, Download } from 'lucide-react';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
 export default function WorkerConfigPage() {
   const { t } = useTranslation();
   const permissionOptions: { value: FieldPermission; label: string; color: string }[] = [
-    { value: 'editable', label: t('editable'), color: 'bg-green-100 text-green-700 border-green-300' },
+    { value: 'editable', label: t('editable'), color: 'bg-success/10 text-success border-success/30' },
     { value: 'readonly', label: t('readOnly'), color: 'bg-blue-100 text-blue-700 border-blue-300' },
-    { value: 'hidden', label: t('hidden'), color: 'bg-red-100 text-red-700 border-red-300' },
+    { value: 'hidden', label: t('hidden'), color: 'bg-destructive/10 text-destructive border-destructive/30' },
   ];
   const permSubHeaders = [t('editable'), t('readOnly'), t('hidden')];
   const [profiles, setProfiles] = useState<WorkerProfile[]>([]);
@@ -23,6 +24,24 @@ export default function WorkerConfigPage() {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+
+  const downloadBackup = async () => {
+    setBackingUp(true); setErr('');
+    try {
+      const res = await fetch('/api/backup/export', { credentials: 'include' });
+      if (!res.ok) throw new Error(res.status === 403 ? 'Owner access required.' : 'Backup export failed.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = ''; // server's Content-Disposition filename wins
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { setErr((e as Error).message); } finally { setBackingUp(false); }
+  };
 
   const selectProfile = (p: WorkerProfile) => { setSelected(p); setEdited(p.fields); setPhotoThreshold(p.mortalityPhotoThreshold); setSaved(false); };
   const reload = (keepId?: string) => api.getWorkerProfiles().then(p => {
@@ -74,29 +93,34 @@ export default function WorkerConfigPage() {
   return (
     <div className="p-6 flex flex-col gap-6 max-w-4xl">
       <div className="flex items-center gap-3">
-        <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-          <Settings className="w-6 h-6 text-green-700" />
+        <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+          <Settings className="w-6 h-6 text-primary" />
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold text-gray-900">{t('config')}</h1>
           <p className="text-gray-500 text-sm">Control what each worker profile can see, edit, and must fill in.</p>
         </div>
+        <button onClick={downloadBackup} disabled={backingUp}
+          title="Download a JSON backup of your farm's data. Supplementary only — not a substitute for your own record-keeping."
+          className="shrink-0 px-4 py-2 rounded-xl font-semibold text-sm border-2 border-gray-300 text-gray-700 flex items-center gap-2 disabled:opacity-60">
+          <Download className="w-4 h-4" /> {backingUp ? 'Preparing…' : 'Download backup'}
+        </button>
       </div>
 
       {/* Profile selector */}
       <div className="flex gap-3 flex-wrap">
         {profiles.map(p => (
           <button key={p.id} onClick={() => selectProfile(p)}
-            className={`px-4 py-2 rounded-xl font-semibold text-sm border-2 ${selected?.id === p.id ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300'}`}>
+            className={`px-4 py-2 rounded-xl font-semibold text-sm border-2 ${selected?.id === p.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-white text-gray-700 border-gray-300'}`}>
             {p.name}
           </button>
         ))}
-        <button onClick={openNewProfile} className="px-4 py-2 rounded-xl font-semibold text-sm border-2 border-dashed border-green-400 text-green-600">+ {t('newProfile')}</button>
+        <button onClick={openNewProfile} className="px-4 py-2 rounded-xl font-semibold text-sm border-2 border-dashed border-primary/40 text-primary">+ {t('newProfile')}</button>
       </div>
 
       {/* New-profile inline form (replaces the old browser prompt) */}
       {showNew && (
-        <form onSubmit={submitNewProfile} className="bg-white border border-green-300 rounded-xl p-4 flex flex-col sm:flex-row gap-3 sm:items-end">
+        <form onSubmit={submitNewProfile} className="bg-white border border-primary/30 rounded-xl p-4 flex flex-col sm:flex-row gap-3 sm:items-end">
           <div className="flex-1">
             <label className="block text-xs font-semibold text-gray-500 mb-1">{t('profileName')}</label>
             <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
@@ -105,7 +129,7 @@ export default function WorkerConfigPage() {
           </div>
           <div className="flex gap-2">
             <button type="submit" disabled={creating || !newName.trim()}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 disabled:opacity-50">
               {creating ? t('saving') : t('createProfile')}
             </button>
             <button type="button" onClick={() => { setShowNew(false); setErr(''); }}
@@ -114,7 +138,7 @@ export default function WorkerConfigPage() {
         </form>
       )}
 
-      {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
+      {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
 
       {profiles.length === 0 && (
         <div className="text-center py-10 bg-white border border-dashed border-gray-200 rounded-xl">
@@ -131,44 +155,42 @@ export default function WorkerConfigPage() {
               <h2 className="font-bold text-gray-800">{t('fieldPermissions')} — {selected.name}</h2>
               <p className="text-xs text-gray-400 mt-0.5">Editable, read-only, or hidden — per field, for this profile.</p>
             </div>
-            <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-gray-500 text-xs font-semibold border-b">
-                <tr>
-                  <th className="px-5 py-3 text-left">{t('field')}</th>
-                  <th className="px-3 py-3 text-center" colSpan={3}>{t('permission')}</th>
-                  <th className="px-3 py-3 text-center">{t('required')}</th>
-                </tr>
-                <tr className="bg-gray-50 text-gray-400">
-                  <th className="px-5 pb-2"></th>
-                  <th className="px-2 pb-2 text-green-600">{permSubHeaders[0]}</th>
-                  <th className="px-2 pb-2 text-blue-600">{permSubHeaders[1]}</th>
-                  <th className="px-2 pb-2 text-red-500">{permSubHeaders[2]}</th>
-                  <th className="px-3 pb-2">{t('required')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+            <Table>
+              <TableHeader className="text-gray-500 text-xs font-semibold border-b">
+                <TableRow>
+                  <TableHead className="px-5 py-3 text-left">{t('field')}</TableHead>
+                  <TableHead className="px-3 py-3 text-center" colSpan={3}>{t('permission')}</TableHead>
+                  <TableHead className="px-3 py-3 text-center">{t('required')}</TableHead>
+                </TableRow>
+                <TableRow className="bg-gray-50 text-gray-400">
+                  <TableHead className="px-5 pb-2"></TableHead>
+                  <TableHead className="px-2 pb-2 text-success">{permSubHeaders[0]}</TableHead>
+                  <TableHead className="px-2 pb-2 text-blue-600">{permSubHeaders[1]}</TableHead>
+                  <TableHead className="px-2 pb-2 text-destructive">{permSubHeaders[2]}</TableHead>
+                  <TableHead className="px-3 pb-2">{t('required')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="divide-y divide-gray-100">
                 {edited.map(field => (
-                  <tr key={field.fieldKey} className="hover:bg-gray-50">
-                    <td className="px-5 py-3 font-medium text-gray-800">{field.label}</td>
+                  <TableRow key={field.fieldKey} className="hover:bg-gray-50">
+                    <TableCell className="px-5 py-3 font-medium text-gray-800 whitespace-normal">{field.label}</TableCell>
                     {permissionOptions.map(opt => (
-                      <td key={opt.value} className="px-2 py-3 text-center">
+                      <TableCell key={opt.value} className="px-2 py-3 text-center">
                         <button type="button" onClick={() => setFieldPerm(field.fieldKey, opt.value)}
                           className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${field.permission === opt.value ? opt.color + ' border-2' : 'bg-gray-50 border-gray-200'}`}>
                           {field.permission === opt.value && <Check className="w-4 h-4" />}
                         </button>
-                      </td>
+                      </TableCell>
                     ))}
-                    <td className="px-3 py-3 text-center">
+                    <TableCell className="px-3 py-3 text-center">
                       <input type="checkbox" checked={!!field.required} onChange={e => setFieldRequired(field.fieldKey, e.target.checked)}
                         disabled={field.permission === 'hidden'}
-                        className="w-4 h-4 accent-green-600 disabled:opacity-30" />
-                    </td>
-                  </tr>
+                        className="w-4 h-4 accent-primary disabled:opacity-30" />
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-            </div>
+              </TableBody>
+            </Table>
           </div>
 
           {/* Photo threshold */}
@@ -186,16 +208,16 @@ export default function WorkerConfigPage() {
           </div>
 
           {/* Save */}
-          {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
+          {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm font-semibold">{err}</p>}
           <button onClick={handleSave} disabled={saving}
-            className={`w-full min-h-[52px] rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 ${saved ? 'bg-green-100 text-green-700' : 'bg-green-600 text-white hover:bg-green-700'}`}>
+            className={`w-full min-h-[52px] rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 ${saved ? 'bg-success/10 text-success' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}>
             {saved && <Check className="w-5 h-5" />} {saving ? t('saving') : saved ? t('changesSaved') : t('saveProfile')}
           </button>
 
           {/* Security notice */}
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-            <p className="text-amber-800 font-semibold text-sm flex items-center gap-1.5"><Lock className="w-4 h-4" /> How hiding is enforced</p>
-            <p className="text-amber-700 text-xs mt-0.5">Hidden fields are stripped on the server (<span className="font-mono">lib/server/fieldPermissions</span>) before the response leaves the API, based on the worker&apos;s assigned profile — so they never reach the phone and can&apos;t be revealed by inspecting network traffic or editing the page. Covered by automated tests (<span className="font-mono">fieldPermissions</span>).</p>
+          <div className="bg-warning/15 border border-warning/40 rounded-xl px-4 py-3">
+            <p className="text-warning-foreground font-semibold text-sm flex items-center gap-1.5"><Lock className="w-4 h-4" /> A hidden field is truly gone</p>
+            <p className="text-warning-foreground/90 text-xs mt-0.5">A field marked Hidden never reaches the worker&apos;s phone at all — it&apos;s removed before the data leaves our servers, so it can&apos;t be seen or recovered by tampering with the app.</p>
           </div>
         </>
       )}

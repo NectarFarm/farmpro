@@ -1,4 +1,4 @@
-> **As-built revision — 2026-06-24.** Updated to match the implemented UI. The original inception version is preserved untouched at `docs/inception/DESIGN.md`. See `docs/AS_BUILT.md` for the full deviation list.
+> **As-built revision — 2026-07-14** (supersedes the 2026-06-24 revision below — §2.6 was rewritten to match the corporate UI redesign; the previous KPI-card visual language it described no longer ships). Updated to match the implemented UI. The original inception version is preserved untouched at `docs/inception/DESIGN.md`. See `docs/AS_BUILT.md` for the full deviation list.
 
 # IFMS — Design Document (UX/UI & Interaction Specification)
 
@@ -6,8 +6,8 @@
 |---|---|
 | **Product** | Integrated Farm Management System (IFMS) |
 | **Document type** | Design / Interaction Specification |
-| **Version** | 1.0 (Baseline, supersedes earlier draft) |
-| **Status** | For development — pilot |
+| **Version** | 1.1 (As-built, supersedes the 1.0 baseline) |
+| **Status** | Built — deployed to production, pilot in progress |
 | **Source of truth** | **SRS v1.0** — every screen here cites the `FR-`/`BR-`/`NFR-` it implements |
 | **Audience** | UI/UX designers, frontend engineers, QA, owner (Kutswa) |
 
@@ -68,12 +68,57 @@ Choosing the wrong control breaks the two-minute rule. The rule:
 - `DS-9` Body ≥ 16 sp; numeric entry fields ≥ 22 sp; labels never below 14 sp.
 - `DS-10` **Runtime EN/SW toggle** on the login screen and in settings, switchable offline (`NFR-L-2`).
 
-### 2.6 Visual language (as-built)
-The owner/manager web portal carries a deliberate **jungle-green** identity; the worker app stays large-touch and emoji-led for speed and low literacy.
-- **Owner sidebar**: dark **jungle-green** rail (`bg-green-950`) with the `🌾 IFMS` wordmark, the signed-in name + role pill, and **lucide vector nav icons** (not emoji): `LayoutDashboard`, `Tractor`, `Boxes`, `Wallet`, `Users`, `ClipboardList`, `Settings`, `BarChart3`, `Bell`. The active item is a filled green pill; the same icon repeats in the breadcrumb.
-- **KPI cards (redesigned)**: each card is `tinted icon chip + large value + label` — no fake repeated sparklines. The chip colour matches the metric (emerald, sky, violet, rose, amber, indigo, orange); values colour-shift on threshold (FCR turns emerald when ≤ 2.8, mortality red at ≥ 5%, gross margin green/red on sign).
-- **Status everywhere** still obeys §2.1 (colour + icon + text) via a shared `StatusChip`.
-- **Worker app** keeps emoji-titled screens and big primary buttons (red for mortality, green for routine) — the visual refresh above is owner-portal scope, by design.
+### 2.6 Visual language (as-built, revised 2026-07-14)
+
+> **Superseded.** The paragraph below (pastel tinted-icon-chip KPI cards, per-metric
+> rainbow chip colours) described the design that shipped through 2026-06-24. It was
+> replaced in a full corporate-redesign pass, triggered by direct user feedback that the
+> UI read as generic/templated. Kept here (struck through in spirit, not literally) only
+> so the history is legible; treat the bullets after it as current.
+>
+> ~~KPI cards: each card is `tinted icon chip + large value + label`... chip colour
+> matches the metric (emerald, sky, violet, rose, amber, indigo, orange)...~~
+
+The owner/manager web portal keeps its **green identity**, deepened and desaturated for a
+more institutional feel rather than replaced — the redesign's explicit brief was that
+*layout, navigation, and wording matter more than colour*. The worker app stays
+large-touch and icon-led for speed and low literacy, and now has a real desktop layout
+alongside the mobile one.
+
+- **Design tokens, not hardcoded classes.** `app/globals.css`'s oklch token system
+  (`--primary`, `--success`, `--warning`, and a new sparingly-used `--brand-accent`) now
+  actually drives the palette, replacing ~150 hardcoded `bg-green-*` occurrences. `--primary`
+  is a deepened, desaturated version of the previous green (`oklch(0.38 0.075 155)`, from
+  `#166534`) — a small, deliberate shift toward "ledger/institutional," not a rebrand.
+- **`StatPanel`** (`components/ui/stat-panel.tsx`) replaces the old pastel tinted-icon-chip
+  KPI card everywhere: hairline `border-border` card, a small neutral ink badge instead of
+  a coloured circle, tabular-numeral values, `tone: neutral|good|bad` for the rare cases a
+  value itself needs to read as good/bad (not the whole card).
+- **Navigation — corrects a real bug.** The owner mobile bottom-nav previously hard-cut to
+  6 of 11 items (`navItems.slice(0, 6)`) with no indication more existed. Replaced with a
+  grouped drawer (`components/layout/NavDrawer.tsx`, built on the existing shadcn `Sheet`)
+  opened from a header menu icon — every item reachable, grouped by function (Overview /
+  Farm / Money & People / Records / Setup). The desktop sidebar is unchanged (it already
+  showed everything). Admin uses the same drawer pattern (its 5 items, one group) so it
+  doesn't independently hit the same failure mode once it grows.
+- **Tables**: the previously-unused shadcn `Table` primitives (`components/ui/table.tsx`)
+  now back every data table across owner/admin, replacing 13 hand-rolled `<table>` blocks.
+- **Status everywhere** still obeys §2.1 (colour + icon + text) via the shared `StatusChip`.
+- **Worker app**: record types are now grouped by real operational cadence — "Every day"
+  (Morning Round, Feeding, Collect Products), "As needed" (Mortality, Health/Vaccination),
+  "Stock counts" (Weight Sampling, Physical Count, Closing Stock) — on both the record menu
+  and home screen, instead of one flat 8-tile list. The pastel icon-circle per tile was
+  replaced with the same neutral-badge language as `StatPanel`. Big primary buttons (red
+  for mortality, green for routine) are unchanged.
+- **Worker desktop (new)**: a real, distinct layout at `md:` and up — persistent sidebar
+  (same visual language as owner/admin, not routed through the shared `AppShell` component
+  to avoid any risk to the worker shell's offline-sync wiring), wider tile grid on Home,
+  centered/narrower single-column record forms (the linear, low-cognitive-load field-entry
+  flow is deliberately *not* reflowed into multiple columns just because there's room).
+- **Dark mode**: token infrastructure is wired (`next-themes`) but pinned to light — most
+  page markup still hardcodes light-mode Tailwind classes rather than the tokens that would
+  respond to `.dark`, so flipping the default now would mix correctly-dark shadcn
+  primitives against still-light page content.
 
 ---
 
@@ -187,6 +232,7 @@ This drives the plan-gating the owner portal reads from `/api/me`.
 | Saved locally | Bottom toast: "✓ Saved — will sync" |
 | Sync done | Toast: "✓ Synced to owner" |
 | **Conflict** (`FR-M17-3`) | Red badge on sync icon → **Resolve Conflict** screen showing *mine* vs *server* side-by-side, capture times, and "Keep mine / Keep server"; loser preserved in conflict log |
+| **Stale outbox** (`NFR-R-2`, as-built 2026-07-14) | Orange pill overrides the normal offline/pending state once the oldest unsynced record exceeds 24h: "⚠ N unsynced 24h+ — reconnect soon" (`SyncBadge`) — a lost/destroyed device before this syncs loses that data for good |
 
 ### 5.2 Empty / first-run states (added — pilot day 1 must not look broken)
 | Screen | Empty state |

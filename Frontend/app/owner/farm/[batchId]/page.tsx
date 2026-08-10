@@ -8,7 +8,11 @@ import type { Batch, BatchCostSummary, Sale, Product } from '@/lib/types';
 import dynamic from 'next/dynamic';
 import { ConfirmSheet } from '@/components/worker/ConfirmSheet';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { TableToolbar } from '@/components/TableToolbar';
+import { Pager } from '@/components/Pager';
+import { useTableFilter } from '@/hooks/useTableFilter';
 import { headNoun, groupNoun } from '@/lib/species';
 import {
   Sprout, Settings, X, AlertTriangle, Check, Skull, Syringe, Wheat, Egg, type LucideIcon,
@@ -62,6 +66,10 @@ export default function BatchDetailPage() {
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; body: string; danger?: boolean; onConfirm: () => void } | null>(null);
   const [deleteBatchTyped, setDeleteBatchTyped] = useState('');
   const [showDeleteBatch, setShowDeleteBatch] = useState(false);
+  const [showEditBatch, setShowEditBatch] = useState(false);
+  const [editBatchForm, setEditBatchForm] = useState({ name: '', species: '', breed: '', source: '', acquiredDate: '', acquisitionCost: '', ageAtAcquire: '' });
+  const [editBatchErr, setEditBatchErr] = useState('');
+  const [savingEditBatch, setSavingEditBatch] = useState(false);
 
   const reload = () => {
     setLoadError('');
@@ -196,6 +204,33 @@ export default function BatchDetailPage() {
     finally { setSavingBatch(false); setTimeout(() => setToast(''), 3500); }
   };
 
+  const openEditBatch = () => {
+    if (!batch) return;
+    setEditBatchForm({
+      name: batch.name, species: batch.species ?? '', breed: batch.breed ?? '', source: batch.source ?? '',
+      acquiredDate: batch.acquiredDate ?? '', acquisitionCost: String(batch.acquisitionCost ?? 0),
+      ageAtAcquire: String(batch.ageAtAcquire ?? 0),
+    });
+    setEditBatchErr(''); setShowEditBatch(true);
+  };
+  const saveEditBatch = async () => {
+    if (!batch) return;
+    setSavingEditBatch(true); setEditBatchErr('');
+    try {
+      const res = await fetch(`/api/data/batches?id=${encodeURIComponent(batch.id)}`, {
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editBatchForm.name, species: editBatchForm.species, breed: editBatchForm.breed || null,
+          source: editBatchForm.source, acquiredDate: editBatchForm.acquiredDate,
+          acquisitionCost: Number(editBatchForm.acquisitionCost) || 0, ageAtAcquire: Number(editBatchForm.ageAtAcquire) || 0,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Save failed');
+      setShowEditBatch(false); reload(); showToast(t('changesSaved'));
+    } catch (e) { setEditBatchErr((e as Error).message); }
+    finally { setSavingEditBatch(false); setTimeout(() => setToast(''), 3500); }
+  };
+
   const addProduct = async () => {
     setSavingProduct(true); setPErr('');
     try {
@@ -209,11 +244,20 @@ export default function BatchDetailPage() {
 
   useEffect(() => { if (batchId) { reload(); loadWithdrawal(); } }, [batchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Must run before the loadError/!batch early returns below — every hook in a
+  // component has to run on every render, in the same order, or React throws
+  // "Rendered more hooks than during the previous render" the first time `batch`
+  // flips from null to loaded (this crashed the whole page until fixed).
+  const { search: salesSearch, setSearch: setSalesSearch, page: salesPage, setPage: setSalesPage, totalPages: salesTotalPages, paged: pagedSales } = useTableFilter(sales, {
+    searchFields: (s) => `${s.productType} ${s.buyer}`,
+    sortFn: (a, b) => b.createdAt.localeCompare(a.createdAt),
+  });
+
   if (loadError) {
     return (
       <div className="p-6 flex flex-col items-center gap-3 text-center">
         <p className="text-red-600 font-semibold">{loadError}</p>
-        <button onClick={reload} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{t('retry')}</button>
+        <button onClick={reload} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">{t('retry')}</button>
       </div>
     );
   }
@@ -291,7 +335,7 @@ export default function BatchDetailPage() {
             {batch.status === 'ACTIVE' && (
               <>
                 <button onClick={() => setShowSaleModal(true)}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700">
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">
                   {t('recordSale')}
                 </button>
                 <DropdownMenu>
@@ -301,6 +345,11 @@ export default function BatchDetailPage() {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-[200px] p-0">
+                    <DropdownMenuItem onClick={openEditBatch} disabled={savingBatch}
+                      className="px-4 py-2.5 text-sm text-gray-700 font-semibold disabled:opacity-50 rounded-none flex-col items-start gap-0">
+                      Edit details
+                      <span className="block text-xs text-gray-400 font-normal">Fix a wrong species, breed, source, date, or purchase cost</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={closeBatch} disabled={savingBatch}
                       className="px-4 py-2.5 text-sm text-gray-700 font-semibold disabled:opacity-50 rounded-none flex-col items-start gap-0">
                       {t('closeBatch')}
@@ -331,7 +380,7 @@ export default function BatchDetailPage() {
             ].map(k => (
               <div key={k.label} className="text-center">
                 <p className="text-xs text-gray-400">{k.label}</p>
-                <p className={`text-lg font-bold ${k.bad ? 'text-red-600' : k.good ? 'text-green-700' : 'text-gray-900'}`}>{k.value}</p>
+                <p className={`text-lg font-bold ${k.bad ? 'text-destructive' : k.good ? 'text-success' : 'text-gray-900'}`}>{k.value}</p>
               </div>
             ))}
           </div>
@@ -375,14 +424,14 @@ export default function BatchDetailPage() {
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
             <p className="text-xs text-gray-400">{t('revenueReceivedSoFar')}</p>
-            <p className="text-2xl font-bold text-green-700">{fmtKES(cost.totalRevenue)}</p>
+            <p className="text-2xl font-bold text-success">{fmtKES(cost.totalRevenue)}</p>
             <p className="text-xs text-gray-400">{cost.soldHead ?? 0} {headNoun(batch.species)} {t('sold')}</p>
           </div>
-          <div className={`bg-white border rounded-xl p-4 text-center ${cost.grossMargin < 0 ? 'border-amber-300' : 'border-green-200'}`}>
+          <div className={`bg-white border rounded-xl p-4 text-center ${cost.grossMargin < 0 ? 'border-warning/40' : 'border-success/30'}`}>
             <p className="text-xs text-gray-400">
               {cost.grossMargin < 0 ? `${t('breakEven')} per ${headNoun(batch.species, 1)}` : t('alreadyInProfit')}
             </p>
-            <p className={`text-2xl font-bold ${cost.grossMargin < 0 ? 'text-amber-700' : 'text-green-700'}`}>
+            <p className={`text-2xl font-bold ${cost.grossMargin < 0 ? 'text-warning-foreground' : 'text-success'}`}>
               {cost.grossMargin < 0
                 ? fmtKES(cost.breakEvenPricePerRemaining ?? 0)
                 : `+${fmtKES(cost.grossMargin)}`}
@@ -422,7 +471,12 @@ export default function BatchDetailPage() {
               <p className={`text-lg font-bold ${cost.fcr && cost.fcr > 2.8 ? 'text-amber-600' : 'text-gray-900'}`}>
                 {cost.fcr ?? '—'}
               </p>
-              <p className="text-xs text-gray-400">{cost.outputUnit === 'eggs' ? t('fcrPerDozen') : t('fcrPerKg')}</p>
+              <p className="text-xs text-gray-400">
+                {cost.fcrMode === 'PER_DOZEN' ? t('fcrPerDozen')
+                  : cost.fcrMode === 'PER_BASE_UNIT' ? t('fcrPerUnit', { unit: cost.outputUnit || 'unit' })
+                  : cost.fcrMode === 'PER_KG' ? t('fcrPerKg')
+                  : ''}
+              </p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3 text-center">
               <p className="text-xs text-gray-400">{t('onFarmNow')}</p>
@@ -444,7 +498,7 @@ export default function BatchDetailPage() {
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold text-gray-800">{t('productsThisBatchYields')}</h2>
-          <button onClick={() => setShowProduct(v => !v)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">+ {t('addProduct')}</button>
+          <button onClick={() => setShowProduct(v => !v)} className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:bg-primary/90">+ {t('addProduct')}</button>
         </div>
 
         {showProduct && (
@@ -475,9 +529,9 @@ export default function BatchDetailPage() {
                 {pForm.units.length > 1 && <button type="button" onClick={() => setPForm(f => ({ ...f, units: f.units.filter((_, j) => j !== i) }))} className="px-2 text-gray-400 hover:text-red-600"><X className="w-4 h-4" /></button>}
               </div>
             ))}
-            <button type="button" onClick={() => setPForm(f => ({ ...f, units: [...f.units, { name: '', perBase: '1', price: '' }] }))} className="text-xs text-green-600 font-semibold self-start">{t('addSaleUnit')}</button>
+            <button type="button" onClick={() => setPForm(f => ({ ...f, units: [...f.units, { name: '', perBase: '1', price: '' }] }))} className="text-xs text-primary font-semibold self-start">{t('addSaleUnit')}</button>
             <div className="flex gap-2">
-              <button onClick={addProduct} disabled={savingProduct} className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">{savingProduct ? t('saving') : t('saveProduct')}</button>
+              <button onClick={addProduct} disabled={savingProduct} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:bg-primary/90 disabled:opacity-50">{savingProduct ? t('saving') : t('saveProduct')}</button>
               <button onClick={() => setShowProduct(false)} className="px-4 py-2 bg-gray-200 rounded-lg text-xs font-semibold">{t('cancel')}</button>
             </div>
           </div>
@@ -536,7 +590,7 @@ export default function BatchDetailPage() {
       {life && life.stages.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <h2 className="font-bold text-gray-800 flex items-center gap-1.5"><Sprout className="w-4 h-4 text-green-700" /> {t('lifecycle')}</h2>
+            <h2 className="font-bold text-gray-800 flex items-center gap-1.5"><Sprout className="w-4 h-4 text-primary" /> {t('lifecycle')}</h2>
             <div className="flex items-center gap-2 text-sm">
               <span className="text-gray-500">Age <span className="font-bold text-gray-800">{life.age}d</span></span>
               <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-semibold">{life.stage}</span>
@@ -552,14 +606,14 @@ export default function BatchDetailPage() {
               const next = life.stages[i + 1];
               const isCurrent = s.name === life.stage;
               return (
-                <div key={i} className={`px-2.5 py-1 rounded-lg text-xs border ${isCurrent ? 'bg-green-600 text-white border-green-600' : life.age >= s.startDay ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                <div key={i} className={`px-2.5 py-1 rounded-lg text-xs border ${isCurrent ? 'bg-primary text-primary-foreground border-primary' : life.age >= s.startDay ? 'bg-success/10 text-success border-success/30' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
                   {s.name} <span className="opacity-70">{next ? `d${s.startDay}–${next.startDay}` : `d${s.startDay}+`}</span>
                 </div>
               );
             })}
           </div>
 
-          <button onClick={openAdvance} className="self-start px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{t('advancedStageOrMove')}</button>
+          <button onClick={openAdvance} className="self-start px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">{t('advancedStageOrMove')}</button>
 
           {life.events.length > 0 && (
             <div className="border-t border-gray-100 pt-2">
@@ -605,7 +659,7 @@ export default function BatchDetailPage() {
               <input type="number" min="0" value={adv.newQty} onChange={e => setAdv({ ...adv, newQty: e.target.value })} placeholder={`${batch?.currentQty ?? ''} ${t('now')}`} className="mt-1 w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </label>              <input value={adv.note} onChange={e => setAdv({ ...adv, note: e.target.value })} placeholder={t('noteOptional')} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
             <div className="flex gap-2">
-              <button onClick={submitAdvance} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm">{t('save')}</button>
+              <button onClick={submitAdvance} className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">{t('save')}</button>
               <button onClick={() => setShowAdvance(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">{t('cancel')}</button>
             </div>
           </div>
@@ -626,7 +680,7 @@ export default function BatchDetailPage() {
                   <span className="text-gray-500"> · {t('systemLabel', { count: c.systemCount })} · {t('varianceLabel', { variance: (c.variance > 0 ? '+' : '') + c.variance })}</span>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => resolveCount(c.clientUuid, 'apply')} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">{t('applyCount', { count: c.physicalCount })}</button>
+                  <button onClick={() => resolveCount(c.clientUuid, 'apply')} className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:bg-primary/90">{t('applyCount', { count: c.physicalCount })}</button>
                   <button onClick={() => resolveCount(c.clientUuid, 'dismiss')} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold">{t('dismissLabel')}</button>
                 </div>
               </div>
@@ -677,31 +731,37 @@ export default function BatchDetailPage() {
         {sales.length === 0
           ? <p className="text-gray-400 text-sm">{t('noSales')}</p>
           : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-gray-500 text-xs font-semibold border-b">
-                  <tr><th className="text-left pb-2">{t('date')}</th><th className="text-left">{t('product')}</th><th className="text-right">{t('qty')}</th><th className="text-right">{t('amount')}</th><th className="text-left">{t('buyer')}</th><th className="text-center">{t('status')}</th></tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {sales.map(s => (
-                    <tr key={s.id} className="py-2">
-                      <td className="py-2 text-gray-400">{new Date(s.createdAt).toLocaleDateString('en-KE')}</td>
-                      <td className="py-2 text-gray-700">{s.productType}</td>
-                      <td className="py-2 text-right">{s.quantity}</td>
-                      <td className="py-2 text-right font-semibold text-gray-900">{fmtKES(s.totalAmount)}</td>
-                      <td className="py-2 text-gray-600">{s.buyer}</td>
-                      <td className="py-2 text-center"><StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? t('clearedLabel') : t('blockedLabel')} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <TableToolbar search={salesSearch} onSearchChange={setSalesSearch} placeholder="Search product or buyer…" className="mb-3" />
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="text-gray-500 text-xs font-semibold border-b">
+                    <TableRow><TableHead className="text-left pb-2">{t('date')}</TableHead><TableHead className="text-left">{t('product')}</TableHead><TableHead className="text-right">{t('qty')}</TableHead><TableHead className="text-right">{t('amount')}</TableHead><TableHead className="text-left">{t('buyer')}</TableHead><TableHead className="text-center">{t('status')}</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody className="divide-y divide-gray-50">
+                    {pagedSales.map(s => (
+                      <TableRow key={s.id} className="py-2">
+                        <TableCell className="py-2 text-gray-400">{new Date(s.createdAt).toLocaleDateString('en-KE')}</TableCell>
+                        <TableCell className="py-2 text-gray-700">{s.productType}</TableCell>
+                        <TableCell className="py-2 text-right">{s.quantity}</TableCell>
+                        <TableCell className="py-2 text-right font-semibold text-gray-900">{fmtKES(s.totalAmount)}</TableCell>
+                        <TableCell className="py-2 text-gray-600">{s.buyer}</TableCell>
+                        <TableCell className="py-2 text-center"><StatusChip status={s.withdrawalCheck === 'cleared' ? 'ok' : 'critical'} size="sm" label={s.withdrawalCheck === 'cleared' ? t('clearedLabel') : t('blockedLabel')} /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="mt-3">
+                <Pager page={salesPage} totalPages={salesTotalPages} onPageChange={setSalesPage} />
+              </div>
+            </>
           )
         }
       </div>
 
       {toast && (
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 text-white px-5 py-3 rounded-xl font-semibold shadow-lg ${toastWarn ? 'bg-amber-600' : 'bg-green-700'}`}>
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-5 py-3 rounded-xl font-semibold shadow-lg ${toastWarn ? 'bg-warning text-warning-foreground' : 'bg-success text-white'}`}>
           {toastWarn ? <AlertTriangle className="w-4 h-4 shrink-0" /> : <Check className="w-4 h-4 shrink-0" />} {toast}
         </div>
       )}
@@ -726,10 +786,10 @@ export default function BatchDetailPage() {
               <p className="text-gray-500 text-sm">{t('loading')}</p>
             </div>
           ) : (
-            <div className={`rounded-xl px-4 py-3 border-2 ${wdCheck.cleared ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-500'}`}>
+            <div className={`rounded-xl px-4 py-3 border-2 ${wdCheck.cleared ? 'bg-success/10 border-success/40' : 'bg-destructive/10 border-destructive/50'}`}>
               {wdCheck.cleared
-                ? <p className="text-green-800 font-semibold text-sm flex items-center gap-1.5"><Check className="w-4 h-4 shrink-0" /> {t('clearedForSale')}</p>
-                : <><p className="text-red-800 font-bold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0" /> {t('blockedWithdrawal', { date: wdCheck.until ?? '', days: wdCheck.daysLeft })}</p><p className="text-red-700 text-xs">{t('saleUnsafe')}</p></>
+                ? <p className="text-success font-semibold text-sm flex items-center gap-1.5"><Check className="w-4 h-4 shrink-0" /> {t('clearedForSale')}</p>
+                : <><p className="text-destructive font-bold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0" /> {t('blockedWithdrawal', { date: wdCheck.until ?? '', days: wdCheck.daysLeft })}</p><p className="text-destructive text-xs">{t('saleUnsafe')}</p></>
               }
             </div>
           )}
@@ -759,16 +819,61 @@ export default function BatchDetailPage() {
         </div>
       </ConfirmSheet>
 
+      {/* Edit batch details — correct a data-entry mistake (wrong species/breed/
+          source/date/purchase cost) without touching quantity, unit, or stage,
+          which each have their own dedicated flow that keeps other numbers in sync. */}
+      {showEditBatch && batch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowEditBatch(false)} />
+          <div className="relative bg-white rounded-2xl w-full max-w-md mx-4 p-5 flex flex-col gap-3 shadow-2xl">
+            <h3 className="font-bold text-gray-900">Edit batch details</h3>
+            {editBatchErr && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-sm font-semibold">{editBatchErr}</p>}
+            <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">{t('name')}
+              <input value={editBatchForm.name} onChange={e => setEditBatchForm({ ...editBatchForm, name: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">{t('species')}
+                <input value={editBatchForm.species} onChange={e => setEditBatchForm({ ...editBatchForm, species: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Breed
+                <input value={editBatchForm.breed} onChange={e => setEditBatchForm({ ...editBatchForm, breed: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">{t('source')}
+                <input value={editBatchForm.source} onChange={e => setEditBatchForm({ ...editBatchForm, source: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Acquired date
+                <input type="date" value={editBatchForm.acquiredDate} onChange={e => setEditBatchForm({ ...editBatchForm, acquiredDate: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">{t('acquisitionCost')} (KSh)
+                <input type="number" min="0" value={editBatchForm.acquisitionCost} onChange={e => setEditBatchForm({ ...editBatchForm, acquisitionCost: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+              <label className="text-xs font-semibold text-gray-500 flex flex-col gap-1">Age at acquire (days)
+                <input type="number" min="0" value={editBatchForm.ageAtAcquire} onChange={e => setEditBatchForm({ ...editBatchForm, ageAtAcquire: e.target.value })} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </label>
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button onClick={saveEditBatch} disabled={savingEditBatch || !editBatchForm.name.trim()}
+                className="flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary/90 disabled:opacity-50">
+                {savingEditBatch ? t('saving') : t('saveChanges')}
+              </button>
+              <button onClick={() => setShowEditBatch(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">
+                {t('cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Generic styled confirm dialog — replaces window.confirm for delete-product / close-batch */}
       {confirmDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDialog(null)} />
           <div className="relative bg-white rounded-2xl w-full max-w-sm mx-4 p-5 flex flex-col gap-3 shadow-2xl">
-            <h3 className={`font-bold ${confirmDialog.danger ? 'text-red-700' : 'text-gray-900'}`}>{confirmDialog.title}</h3>
+            <h3 className={`font-bold ${confirmDialog.danger ? 'text-destructive' : 'text-gray-900'}`}>{confirmDialog.title}</h3>
             <p className="text-sm text-gray-600">{confirmDialog.body}</p>
             <div className="flex gap-2 mt-2">
               <button onClick={confirmDialog.onConfirm}
-                className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white ${confirmDialog.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}>
+                className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm text-white ${confirmDialog.danger ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'}`}>
                 {t('confirm')}
               </button>
               <button onClick={() => setConfirmDialog(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm">

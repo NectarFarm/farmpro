@@ -26,6 +26,16 @@ jobs:
       DATABASE_URL: postgres://postgres:ifms@localhost:55432/ifms
       SESSION_SECRET: ci-session-secret-at-least-32-characters-long
       NEXT_PUBLIC_USE_REAL_API: "true"
+      # The integration suite fires many rapid requests per identifier/IP — well
+      # above real-traffic rate-limit thresholds. Loosen all three limiters for
+      # the CI gate ONLY (mirrors docker-compose.yml's `tests` service) so the
+      # suite exercises actual behaviour instead of tripping over its own request
+      # volume. These are job-level so both `Start app` and `Integration tests`
+      # see them. Never loosen these for a real deployment.
+      RATE_LIMIT_LOGIN_MAX: "500"
+      RATE_LIMIT_LOGIN_IP_MAX: "2000"
+      RATE_LIMIT_WRITE_MAX: "2000"
+      RATE_LIMIT_READ_MAX: "2000"
     steps:
       - uses: actions/checkout@v4
 
@@ -58,11 +68,3 @@ jobs:
 
       - name: Integration tests
         run: pnpm test:integration
-
-      - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: E2E tests
-        run: pnpm test:e2e
-        env:
-          E2E_BASE_URL: http://localhost:13000

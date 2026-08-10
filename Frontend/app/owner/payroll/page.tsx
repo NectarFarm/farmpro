@@ -2,7 +2,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { currentPeriod, periodLabel } from '@/lib/payslip';
 import { useTranslation } from '@/lib/i18n/useTranslation';
-import { Wallet, Lock, X } from 'lucide-react';
+import { Wallet, Lock, X, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { StatPanel } from '@/components/ui/stat-panel';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { TableToolbar } from '@/components/TableToolbar';
+import { Pager } from '@/components/Pager';
+import { useTableFilter } from '@/hooks/useTableFilter';
 
 const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 type Slip = { gross: number; advances: number; fines: number; bonuses: number; net: number; status: 'pending' | 'paid'; paidAt: string | null } | null;
@@ -22,6 +27,11 @@ export default function PayrollPage() {
   const [err, setErr] = useState('');
   const [addFor, setAddFor] = useState<string | null>(null);
   const [entry, setEntry] = useState({ type: 'advance', amount: '', note: '' });
+  // Generated once per logical entry attempt (when the add-advance/fine row opens for
+  // an employee) and reused across any retry of that SAME attempt — so a manual retry
+  // after a lost response can't create a duplicate via a fresh idempotency key. Only
+  // regenerated when the form is (re)opened, or cleared after a successful submit.
+  const [entryUuid, setEntryUuid] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setErr('');
@@ -54,8 +64,9 @@ export default function PayrollPage() {
       setErr(entry.type === 'adjustment' ? 'Enter a non-zero amount.' : 'Enter an amount greater than 0.');
       return;
     }
-    if (await post({ action: 'ledger', employeeId, period, type: entry.type, amount, note: entry.note, clientUuid: crypto.randomUUID() }, `add:${employeeId}`)) {
-      setAddFor(null); setEntry({ type: 'advance', amount: '', note: '' });
+    const clientUuid = entryUuid ?? crypto.randomUUID();
+    if (await post({ action: 'ledger', employeeId, period, type: entry.type, amount, note: entry.note, clientUuid }, `add:${employeeId}`)) {
+      setAddFor(null); setEntry({ type: 'advance', amount: '', note: '' }); setEntryUuid(null);
     }
   };
   const delEntry = (ledgerId: string) => post({ action: 'deleteLedger', ledgerId }, `del:${ledgerId}`);
@@ -64,7 +75,8 @@ export default function PayrollPage() {
     const b = row.payslip ?? row.preview;
     const { exportReport } = await import('@/lib/export');
     await exportReport({
-      title: `${t('payslip')} — ${row.name}`,
+      title: t('payslip'),
+      subtitle: row.name,
       columns: [t('line'), `${t('amount')} (KSh)`],
       rows: [
         [t('grossSalary'), b.gross], [t('advances'), -b.advances], [t('fines'), -b.fines], [t('bonuses'), b.bonuses],
@@ -83,24 +95,31 @@ export default function PayrollPage() {
       const d = await r.json();
       const { exportReport } = await import('@/lib/export');
       await exportReport({
-        title: `${year} ${t('payStatement')} — ${row.name}`,
+        title: `${year} ${t('payStatement')}`,
+        subtitle: row.name,
         columns: [t('month'), t('gross'), t('advances'), t('fines'), t('bonuses'), t('net'), t('status')],
         rows: [
           ...d.payslips.map((p: { period: string; gross: number; advances: number; fines: number; bonuses: number; net: number; status: string }) =>
             [periodLabel(p.period), p.gross, p.advances, p.fines, p.bonuses, p.net, p.status.toUpperCase()]),
           [t('total'), d.totals.gross, d.totals.advances, d.totals.fines, d.totals.bonuses, d.totals.net, `${d.totals.paidMonths} ${t('paid')}`],
         ],
+        hasTotalsRow: true,
         meta: { [t('employee')]: row.name, [t('year')]: year, [t('paidMonths')]: d.totals.paidMonths },
       }, 'PDF');
     } catch { setErr(t('couldNotBuildStatement')); } finally { setBusy(''); }
   };
 
+  const { search: payrollSearch, setSearch: setPayrollSearch, page: payrollPage, setPage: setPayrollPage, totalPages: payrollTotalPages, paged: pagedRows } = useTableFilter(rows, {
+    searchFields: (r) => r.name,
+    pageSize: 20,
+  });
+
   return (
     <div className="p-6 flex flex-col gap-5 max-w-5xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <Wallet className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Wallet className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('payroll')}</h1>
@@ -109,59 +128,64 @@ export default function PayrollPage() {
         </div>
         <div className="flex items-center gap-2">
           <input type="month" value={period} onChange={e => setPeriod(e.target.value)} className="border-2 border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          <button onClick={runPayroll} disabled={busy !== ''} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50">{busy === 'run' ? t('saving') : t('runPayroll')}</button>
+          <button onClick={runPayroll} disabled={busy !== ''} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 disabled:opacity-50">{busy === 'run' ? t('saving') : t('runPayroll')}</button>
         </div>
       </div>
 
-      {err && <p className="text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
+      {err && <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-sm font-semibold">{err}</p>}
 
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {([['gross', t('gross'), summary.gross], ['net', t('netProfit'), summary.net], ['fines', t('fines'), summary.fines], ['paid', t('paid'), summary.paid]] as const).map(([id, label, val]) => (
-            <div key={id} className="bg-white border border-gray-200 rounded-xl p-3 text-center">
-              <p className="text-xs text-gray-500">{label}</p>
-              <p className="text-lg font-bold text-gray-900">{id === 'paid' ? `${val}/${summary.withSlip}` : fmtKES(val)}</p>
-            </div>
+          {([
+            ['gross', t('gross'), summary.gross, Wallet, 'neutral'] as const,
+            ['net', t('netProfit'), summary.net, TrendingUp, summary.net >= 0 ? 'good' : 'bad'] as const,
+            ['fines', t('fines'), summary.fines, AlertTriangle, summary.fines > 0 ? 'bad' : 'neutral'] as const,
+            ['paid', t('paid'), summary.paid, CheckCircle2, 'neutral'] as const,
+          ]).map(([id, label, val, Icon, tone]) => (
+            <StatPanel key={id} label={label} icon={Icon} tone={tone}
+              value={id === 'paid' ? `${val}/${summary.withSlip}` : fmtKES(val)} />
           ))}
         </div>
       )}
 
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
+        <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between flex-wrap gap-2">
           <span className="font-bold text-gray-800 text-sm">{periodLabel(period)}</span>
           <button onClick={payAll} disabled={busy !== ''} className="text-xs font-semibold text-green-700 hover:underline">{t('markPaid')}</button>
         </div>
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-gray-500 text-xs font-semibold border-b">
-            <tr><th className="px-3 py-2 text-left">{t('name')}</th><th className="px-2 py-2 text-right">{t('gross')}</th><th className="px-2 py-2 text-right">{t('adv')}</th><th className="px-2 py-2 text-right">{t('fines')}</th><th className="px-2 py-2 text-right">{t('netProfit')}</th><th className="px-2 py-2 text-center">{t('status')}</th><th className="px-2 py-2"></th></tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {rows.map(row => {
+        <div className="px-4 py-3 border-b">
+          <TableToolbar search={payrollSearch} onSearchChange={setPayrollSearch} placeholder="Search name…" />
+        </div>
+        <Table>
+          <TableHeader className="text-gray-500 text-xs font-semibold border-b">
+            <TableRow><TableHead className="px-3 py-2 text-left">{t('name')}</TableHead><TableHead className="px-2 py-2 text-right">{t('gross')}</TableHead><TableHead className="px-2 py-2 text-right">{t('adv')}</TableHead><TableHead className="px-2 py-2 text-right">{t('fines')}</TableHead><TableHead className="px-2 py-2 text-right">{t('netProfit')}</TableHead><TableHead className="px-2 py-2 text-center">{t('status')}</TableHead><TableHead className="px-2 py-2"></TableHead></TableRow>
+          </TableHeader>
+          <TableBody className="divide-y divide-gray-100">
+            {pagedRows.map(row => {
               const b = row.payslip ?? row.preview;
               const locked = row.payslip?.status === 'paid';
               return (
                 <React.Fragment key={row.id}>
-                  <tr className="hover:bg-gray-50">
-                    <td className="px-3 py-2"><span className="font-semibold text-gray-900">{row.name}</span> {!row.eligible && <span className="text-[10px] text-gray-400">(not eligible)</span>}</td>
-                    <td className="px-2 py-2 text-right">{fmtKES(b.gross)}</td>
-                    <td className="px-2 py-2 text-right text-amber-700">{b.advances ? `−${fmtKES(b.advances)}` : '—'}</td>
-                    <td className="px-2 py-2 text-right text-red-600">{b.fines ? `−${fmtKES(b.fines)}` : '—'}</td>
-                    <td className="px-2 py-2 text-right font-bold">{fmtKES(b.net)}</td>
-                    <td className="px-2 py-2 text-center">
+                  <TableRow className="hover:bg-gray-50">
+                    <TableCell className="px-3 py-2 whitespace-normal"><span className="font-semibold text-gray-900">{row.name}</span> {!row.eligible && <span className="text-[10px] text-gray-400">(not eligible)</span>}</TableCell>
+                    <TableCell className="px-2 py-2 text-right">{fmtKES(b.gross)}</TableCell>
+                    <TableCell className="px-2 py-2 text-right text-amber-700">{b.advances ? `−${fmtKES(b.advances)}` : '—'}</TableCell>
+                    <TableCell className="px-2 py-2 text-right text-red-600">{b.fines ? `−${fmtKES(b.fines)}` : '—'}</TableCell>
+                    <TableCell className="px-2 py-2 text-right font-bold">{fmtKES(b.net)}</TableCell>
+                    <TableCell className="px-2 py-2 text-center">
                       {locked ? <span className="flex items-center justify-center gap-1 text-xs font-semibold text-green-700"><Lock className="w-3 h-3" /> {t('paid')}</span>
                         : row.payslip ? <span className="text-xs font-semibold text-amber-600">{t('pending')}</span>
                         : <span className="text-xs text-gray-400">{t('notRun')}</span>}
-                    </td>
-                    <td className="px-2 py-2 text-right whitespace-nowrap">
-                      {!locked && <button onClick={() => setAddFor(addFor === row.id ? null : row.id)} className="text-xs font-semibold text-gray-600 hover:underline mr-2">{t('addAdvFine')}</button>}
+                    </TableCell>
+                    <TableCell className="px-2 py-2 text-right whitespace-nowrap">
+                      {!locked && <button onClick={() => { const opening = addFor !== row.id; setAddFor(opening ? row.id : null); setEntryUuid(opening ? crypto.randomUUID() : null); }} className="text-xs font-semibold text-gray-600 hover:underline mr-2">{t('addAdvFine')}</button>}
                       {row.payslip && !locked && <button onClick={() => pay(row.id)} disabled={busy !== ''} className="text-xs font-semibold text-green-700 hover:underline mr-2">{t('pay')}</button>}
                       <button onClick={() => payslipPdf(row)} className="text-xs font-semibold text-gray-500 hover:underline mr-2">{t('payslip')}</button>
                       <button onClick={() => yearPdf(row)} disabled={busy !== ''} className="text-xs font-semibold text-gray-500 hover:underline">{busy === `year:${row.id}` ? '…' : t('yearStatement')}</button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                   {addFor === row.id && !locked && (
-                    <tr className="bg-gray-50/70"><td colSpan={7} className="px-3 py-3">
+                    <TableRow className="bg-gray-50/70 hover:bg-gray-50/70"><TableCell colSpan={7} className="px-3 py-3 whitespace-normal">
                       <div className="flex flex-wrap items-end gap-2">
                         <select value={entry.type} onChange={e => setEntry({ ...entry, type: e.target.value })} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
                           <option value="advance">{t('advance')}</option><option value="fine">{t('fines')}</option><option value="bonus">{t('bonus')}</option><option value="adjustment">{t('adjustment')}</option>
@@ -180,16 +204,16 @@ export default function PayrollPage() {
                           ))}
                         </ul>
                       )}
-                    </td></tr>
+                    </TableCell></TableRow>
                   )}
                 </React.Fragment>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-400">No employees. Add staff with a salary on the People page.</td></tr>}
-          </tbody>
-        </table>
-        </div>
+            {pagedRows.length === 0 && <TableRow><TableCell colSpan={7} className="px-3 py-6 text-center text-gray-400 whitespace-normal">No employees. Add staff with a salary on the People page.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
       </div>
+      <Pager page={payrollPage} totalPages={payrollTotalPages} onPageChange={setPayrollPage} />
       <p className="text-xs text-gray-400">Tip: add advances/fines first, then “Run payroll”, check the nets, then “Pay”. A paid month is locked — changing a salary only affects future months.</p>
     </div>
   );

@@ -19,6 +19,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ type: string }>
   const url = new URL(req.url);
   const from = url.searchParams.get('from') ?? '2000-01-01';
   const to = url.searchParams.get('to') ?? '2999-12-31';
+  const unitId = url.searchParams.get('unitId') || null;
 
-  return ok(await buildReport(session.tenantId, type, from, to));
+  return ok(await buildReport(session.tenantId, type, from, to, unitId));
 }

@@ -15,18 +15,18 @@ import { LayoutDashboard, Tractor, Boxes, Wallet, Users, ClipboardList, Settings
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { AppShell, type AppShellTheme } from '@/components/layout/AppShell';
 
-const ALL_NAV: { href: string; Icon: LucideIcon; label: string; feature?: string }[] = [
-  { href: '/owner/dashboard', Icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/owner/farm',      Icon: Tractor,         label: 'Farm' },
-  { href: '/owner/inventory', Icon: Boxes,           label: 'Inventory' },
-  { href: '/owner/finance',   Icon: Wallet,          label: 'Finance', feature: 'finance' },
-  { href: '/owner/people',    Icon: Users,           label: 'People' },
-  { href: '/owner/tasks',     Icon: ClipboardList,   label: 'Tasks' },
-  { href: '/owner/payroll',   Icon: Wallet,          label: 'Payroll', feature: 'finance' },
-  { href: '/owner/activity',  Icon: ClipboardList,   label: 'Activity', feature: 'activity_log' },
-  { href: '/owner/config',    Icon: Settings,        label: 'Config' },
-  { href: '/owner/reports',   Icon: BarChart3,       label: 'Reports', feature: 'reports' },
-  { href: '/owner/alerts',    Icon: Bell,            label: 'Alerts', feature: 'alerts' },
+const ALL_NAV: { href: string; Icon: LucideIcon; label: string; feature?: string; group: string }[] = [
+  { href: '/owner/dashboard', Icon: LayoutDashboard, label: 'Dashboard', group: 'Overview' },
+  { href: '/owner/alerts',    Icon: Bell,            label: 'Alerts', feature: 'alerts', group: 'Overview' },
+  { href: '/owner/farm',      Icon: Tractor,         label: 'Farm', group: 'Farm' },
+  { href: '/owner/tasks',     Icon: ClipboardList,   label: 'Tasks', group: 'Farm' },
+  { href: '/owner/inventory', Icon: Boxes,           label: 'Inventory', group: 'Farm' },
+  { href: '/owner/finance',   Icon: Wallet,          label: 'Finance', feature: 'finance', group: 'Money & People' },
+  { href: '/owner/payroll',   Icon: Wallet,          label: 'Payroll', feature: 'finance', group: 'Money & People' },
+  { href: '/owner/people',    Icon: Users,           label: 'People', group: 'Money & People' },
+  { href: '/owner/activity',  Icon: ClipboardList,   label: 'Activity', feature: 'activity_log', group: 'Records' },
+  { href: '/owner/reports',   Icon: BarChart3,       label: 'Reports', feature: 'reports', group: 'Records' },
+  { href: '/owner/config',    Icon: Settings,        label: 'Config', group: 'Setup' },
 ];
 
 const OWNER_THEME: AppShellTheme = {
@@ -70,7 +70,7 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
     <AppShell
       theme={OWNER_THEME}
       navItems={navItems}
-      mobileNavItems={navItems.slice(0, 6)}
+      drawerTitle={brand.appName}
       homeHref="/owner/dashboard"
       homeLabel={t('home')}
       detailLabel={t('details')}

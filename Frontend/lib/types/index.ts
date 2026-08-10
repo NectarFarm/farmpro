@@ -24,7 +24,7 @@ export interface ProductionUnit {
 
 export interface Batch {
   id: string; tenantId: string; unitId: string; name: string;
-  species: string; breed?: string; source: BatchSource;
+  species: string; enterprise?: string | null; breed?: string; source: BatchSource;
   acquiredDate: string; ageAtAcquire: number; initialQty: number; currentQty: number;
   stage: BatchStage; acquisitionCost: number; status: 'ACTIVE'|'CLOSED'|'ARCHIVED';
   parentBatchIds?: string[];
@@ -90,7 +90,11 @@ export interface Task {
 
 export interface Alert {
   id: string; severity: AlertSeverity; title: string; message: string;
-  type: 'low_stock'|'mortality_spike'|'overdue_vaccine'|'water_quality'|'feed_variance'|'withdrawal_violation'|'task_missed'|'expiry';
+  // 'stage_due'|'weight_loss'|'stock_variance'|'abnormal' are the types actually
+  // raised by lib/server/alertEngine.ts and lib/server/syncHandlers.ts today;
+  // the rest are reserved for planned rule types not yet implemented.
+  type: 'low_stock'|'mortality_spike'|'overdue_vaccine'|'water_quality'|'feed_variance'|'withdrawal_violation'|'task_missed'|'expiry'
+    |'stage_due'|'weight_loss'|'stock_variance'|'abnormal';
   createdAt: string; acknowledged: boolean;
 }
 
@@ -131,7 +135,17 @@ export interface BatchCostSummary {
   batchId: string; acquisitionCost: number; feedCost: number;
   healthCost: number; laborCost: number; salaryCost?: number; overheadCost: number;
   totalCost: number; totalRevenue: number; grossMargin: number;
-  costPerUnit: number; outputUnit: string; breakEvenAge?: number;
+  // undefined = no cost-driver product configured for this batch; a number
+  // (including 0, via outputQty) means a driver exists. See outputQty below —
+  // costPerUnit alone cannot tell "no driver" apart from "driver, zero output".
+  costPerUnit?: number; outputUnit: string; breakEvenAge?: number;
+  // undefined = no driver configured; 0 = driver exists but nothing recorded
+  // against it yet; >0 = real output. See lib/server/costing.ts summarizeBatchCost.
+  outputQty?: number;
+  // How `fcr` (when defined) should be read — per kg / per base unit (e.g.
+  // litre milk) / per dozen (eggs) — or 'NONE' where FCR is meaningless
+  // (e.g. maize). Explicit per enterprise; never inferred from outputUnit.
+  fcrMode?: 'PER_KG' | 'PER_BASE_UNIT' | 'PER_DOZEN' | 'NONE';
   fcr?: number; henDayPct?: number; henHousedPct?: number; adg?: number; mortalityPct?: number;
   currentQty: number; costPerBird?: number; breakEvenPricePerRemaining?: number; remainingQty?: number;
   // Headcount fates: survivors = initial − died; soldHead left the farm; deaths = died.

@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import type { Batch, BatchCostSummary } from '@/lib/types';
 import { StatusChip } from '@/components/worker/StatusChip';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { groupNoun } from '@/lib/species';
 import { BarChart3 } from 'lucide-react';
 
@@ -81,7 +82,7 @@ export default function BatchComparePage() {
   if (loadErr) {
     return (
       <div className="p-6 flex flex-col items-center gap-3 text-center">
-        <p className="text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm font-semibold">{loadErr}</p>
+        <p className="text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-4 py-3 text-sm font-semibold">{loadErr}</p>
         <button
           onClick={() => { setLoaded(false); setReloadKey(k => k + 1); }}
           className="px-4 py-2 bg-gray-800 text-white rounded-lg font-semibold text-sm"
@@ -96,8 +97,8 @@ export default function BatchComparePage() {
     <div className="p-6 flex flex-col gap-6 max-w-7xl">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <BarChart3 className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <BarChart3 className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('batchComparison')}</h1>
@@ -123,10 +124,10 @@ export default function BatchComparePage() {
                 disabled={!isOn && selected.length >= 6}
                 className={`px-3 py-2 rounded-xl border text-sm font-semibold transition-all ${
                   isOn
-                    ? 'bg-green-600 text-white border-green-600 shadow-sm'
+                    ? 'bg-primary text-primary-foreground border-primary shadow-sm'
                     : selected.length >= 6
                     ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
-                    : 'bg-white text-gray-700 border-gray-200 hover:border-green-300 hover:bg-green-50'
+                    : 'bg-white text-gray-700 border-gray-200 hover:border-primary/30 hover:bg-primary/10'
                 }`}
               >
                 {b.name} <span className="opacity-70">· {b.species} · D{days}</span>
@@ -140,49 +141,49 @@ export default function BatchComparePage() {
       {/* Comparison table */}
       {selectedBatches.length >= 2 && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-gray-500">{t('metric')}</th>
+          <Table>
+            <TableHeader className="bg-gray-50 border-b border-gray-200">
+              <TableRow>                        <TableHead className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-gray-500">{t('metric')}</TableHead>
                 {selectedBatches.map(b => {
                   const c = costs[b.id];
                   return (
-                    <th key={b.id} className="px-3 py-3 text-center">
-                      <Link href={`/owner/farm/${b.id}`} className="font-bold text-gray-900 hover:text-green-700 hover:underline">
+                    <TableHead key={b.id} className="px-3 py-3 text-center">
+                      <Link href={`/owner/farm/${b.id}`} className="font-bold text-gray-900 hover:text-primary hover:underline">
                         {b.name}
                       </Link>
                       <p className="text-[10px] text-gray-400 font-normal">
                         {b.species} · {b.stage} · {groupNoun(b.species)}
                       </p>
                       {c && (
-                        <span className={`text-xs font-semibold ${c.grossMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        <span className={`text-xs font-semibold ${c.grossMargin >= 0 ? 'text-success' : 'text-destructive'}`}>
                           {c.grossMargin >= 0 ? '+' : ''}{fmtKES(c.grossMargin)}
                         </span>
                       )}
-                    </th>
+                    </TableHead>
                   );
                 })}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
+              </TableRow>
+            </TableHeader>
+            <TableBody className="divide-y divide-gray-100">
               {metrics.map(m => (
-                <tr key={m.key} className="hover:bg-gray-50">
-                  <td className="px-4 py-2.5 text-xs font-semibold text-gray-600 whitespace-nowrap">{m.label}</td>
+                <TableRow key={m.key} className="hover:bg-gray-50">
+                  <TableCell className="px-4 py-2.5 text-xs font-semibold text-gray-600 whitespace-nowrap">{m.label}</TableCell>
                   {selectedBatches.map(b => {
                     const c = costs[b.id];
                     const val = getVal(c, m.key);
                     let color = '';
-                    if (val != null && m.bad && m.bad(val)) color = 'text-red-600 font-bold';
-                    else if (val != null && m.good && m.good(val)) color = 'text-green-600 font-bold';
+                    if (val != null && m.bad && m.bad(val)) color = 'text-destructive font-bold';
+                    else if (val != null && m.good && m.good(val)) color = 'text-success font-bold';
                     return (
-                      <td key={b.id} className={`px-3 py-2.5 text-center text-sm ${color}`}>
+                      <TableCell key={b.id} className={`px-3 py-2.5 text-center text-sm ${color}`}>
                         {m.fmt(val)}
-                      </td>
+                      </TableCell>
                     );
                   })}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 

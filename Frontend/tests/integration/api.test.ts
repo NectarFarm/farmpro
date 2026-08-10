@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { normalizePhone } from '@/lib/phone';
 
 // Hits a RUNNING app (the dev server, or the app service in docker compose).
 const BASE = process.env.TEST_BASE_URL ?? 'http://localhost:13000';
+
+// Phones are stored/returned in canonical form (e.g. "+254766…" → "254766…"),
+// so match on the normalized value rather than the exact string a test typed.
+const samePhone = (a: string, b: string) =>
+  (normalizePhone(a) ?? a.trim()) === (normalizePhone(b) ?? b.trim());
 
 async function rawLogin(identifier: string, secret: string) {
   return fetch(`${BASE}/api/auth/login`, {
@@ -409,6 +415,22 @@ describe('dashboard + reports data integrity', () => {
     expect(map['Stock acquired']).toBe(50000);        // batch acquired today, in range
     expect(map['Net for period']).toBe(map['Revenue'] - map['Total expenses']);
   });
+
+  it('baseline salaries use REAL payroll where it was run, and only estimate a genuine gap; fines count as revenue', async () => {
+    const currentPeriod = today.slice(0, 7); // 'YYYY-MM'
+    const [y, m] = currentPeriod.split('-').map(Number);
+    const nextMonthFirstDay = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10); // m is 1-indexed → Date.UTC's 0-indexed next month
+
+    const empId = (await (await json(owner, '/api/data/employees', { name: 'Payroll Test', phone: `+254797${String(Date.now()).slice(-6)}`, role: 'worker', salary: 20000 })).json()).id;
+    expect((await json(owner, '/api/payroll', { action: 'run', period: currentPeriod })).status).toBe(200);
+    expect((await json(owner, '/api/payroll', { action: 'ledger', employeeId: empId, type: 'fine', period: currentPeriod, amount: 500 })).status).toBe(201);
+
+    // Range spans this month (has a real, RUN payslip) and next month (no payslip at all).
+    const wide = await report('baseline', `${currentPeriod}-01`, nextMonthFirstDay);
+    const map = Object.fromEntries(wide.rows as [string, number][]);
+    expect(map['Salaries']).toBe(40000);              // 20,000 real gross (this month) + 20,000 estimate (next month gap)
+    expect(map['Revenue']).toBe(18000 + 500);          // the sale + this month's staff fine, counted as income
+  });
 });
 
 describe('guided acceptance testing (UAT)', () => {
@@ -728,7 +750,7 @@ describe('employee logins, worker profiles & task assignment', () => {
   it('adding a worker WITH a PIN creates a login that can actually sign in', async () => {
     const res = await json(owner, '/api/data/employees', { name: 'Field Hand', phone: wPhone, role: 'worker', salary: 12000, pin: '4321', workerProfileId: profileId });
     expect(res.status).toBe(201);
-    const emp = (await (await api('/api/data/employees', owner)).json()).find((e: { phone: string }) => e.phone === wPhone);
+    const emp = (await (await api('/api/data/employees', owner)).json()).find((e: { phone: string }) => samePhone(e.phone, wPhone));
     expect(emp.pinSet).toBe(true);
     expect(emp.workerProfileId).toBe(profileId);
     const signIn = await rawLogin(wPhone, '4321');
@@ -744,7 +766,7 @@ describe('employee logins, worker profiles & task assignment', () => {
 
   it('owner assigns a task and the worker sees ONLY their own tasks', async () => {
     const workers = await (await api('/api/workers', owner)).json();
-    const w = workers.find((x: { phone: string }) => x.phone === wPhone);
+    const w = workers.find((x: { phone: string }) => samePhone(x.phone, wPhone));
     expect(w).toBeTruthy();
     const t = await json(owner, '/api/data/tasks', { title: 'Vaccinate Batch A', type: 'vaccination', assignedTo: w.id, dueAt: new Date().toISOString(), scheduledFor: new Date().toISOString() });
     expect(t.status).toBe(201);

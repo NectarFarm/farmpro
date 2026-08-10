@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
+import { reportError } from '@/lib/errorReporter';
 
 export default function ManagerError({
   error,
@@ -13,6 +14,7 @@ export default function ManagerError({
 }) {
   useEffect(() => {
     console.error('Manager page error:', error);
+    reportError(error, 'manager');
   }, [error]);
 
   return (

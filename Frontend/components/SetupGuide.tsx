@@ -24,11 +24,11 @@ const PHASES: { phase: string; subtitle: string; steps: Step[] }[] = [
     subtitle: 'Do this once, in order. ~20 minutes.',
     steps: [
       {
-        id: 'wizard', Icon: Zap, title: 'Or take the fast path — the Setup Wizard', href: '/owner/setup',
+        id: 'wizard', Icon: Zap, title: 'Fastest way in: the Setup Wizard (optional)', href: '/owner/setup',
         how: [
           'One guided flow that captures your farm, units, batches, opening inventory, employees and alert thresholds in about 10 minutes.',
           'Good for getting running fast. You can still fine-tune anything afterwards using the steps below — worker permissions, lifecycle stages, product prices.',
-          'Prefer to go step by step instead? Skip this and work through the checklist below.',
+          'Prefer to go step by step instead? Skip this one and work through the checklist below, starting with step 2.',
         ],
       },
       {
@@ -192,7 +192,7 @@ export function SetupGuide() {
         onPointerUp={fab.onPointerUp}
         onClick={() => { if (!fab.wasDragged()) setOpen(true); }}
         aria-label="Open setup guide"
-        className="fixed bottom-20 md:bottom-5 right-5 z-40 flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
+        className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-5 z-40 flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm cursor-grab active:cursor-grabbing">
         <BookOpen className="w-5 h-5" />
         <span className="hidden sm:inline">Setup Guide</span>
         {completed < ALL.length && (

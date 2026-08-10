@@ -1,4 +1,4 @@
-> **As-built revision — 2026-06-24.** Updated to match the implemented system. The original inception version is preserved untouched at `docs/inception/SRS.md`. See `docs/AS_BUILT.md` for the full deviation list.
+> **As-built revision — 2026-07-14** (supersedes the 2026-06-24 revision below — see the `FR-M3-1b`, `NFR-R-2`, `NFR-S-1`/`S-2`, `NFR-SEC-1`, `NFR-M-1`, and `NFR-U-3` as-built notes for what changed, and `docs/AS_BUILT.md` for the full picture including production deployment, the UI redesign, and the 2026-07-14 NFR audit remediation). Updated to match the implemented system. The original inception version is preserved untouched at `docs/inception/SRS.md`. See `docs/AS_BUILT.md` for the full deviation list.
 
 # Software Requirements Specification (SRS)
 ## Integrated Farm Management System (IFMS)
@@ -8,10 +8,10 @@
 |---|---|
 | **Product** | Integrated Farm Management System (IFMS) |
 | **Document type** | Software Requirements Specification |
-| **Version** | 1.1 (As-built) |
+| **Version** | 1.3 (As-built) |
 | **Owner** | Kutswa |
-| **Date** | June 2026 (as-built revision 2026-06-24) |
-| **Status** | Phase-1 built & proven — pilot release |
+| **Date** | June 2026 (as-built revisions 2026-06-24, 2026-07-14) |
+| **Status** | Phase-1 built & proven — deployed to production, pilot in progress |
 | **Audience** | Engineering, product, pilot farm, investors/technical due-diligence |
 
 > **How to read this document.** Every requirement has a stable ID (`FR-xx-nn` functional, `NFR-xx` non-functional, `BR-nn` business rule). IDs never change once assigned — they are referenced by tests, the traceability matrix (§16), and the release plan (§12). Priority uses **MoSCoW**: **M**ust (MVP), **S**hould, **C**ould, **W**on't-yet (backlog).
@@ -296,6 +296,7 @@ SOW: OPEN ─►(service)─► SERVED ─►(preg check)─► PREGNANT ─►(
 ### M3 — Batch & Livestock Lifecycle
 - `FR-M3-1` (M) Create batch from source (purchased/hatched/born/transferred); auto-track age-in-days and current quantity from movement events.
 - `FR-M3-1a` (M) **As-built — product auto-provisioning on batch creation** (`lib/server/products.ts`). Creating a batch **auto-creates the enterprise's default `products`** (each with priced sale units, a collection frequency, and a `flow`), **auto-adds a `collect_*` permission field** to every worker profile for each product, and **raises an "Assign a collector" alert** so the owner assigns who collects each product. (See M7 / M16.)
+- `FR-M3-1b` (M) **As-built (2026-07-14) — enterprise classification is a stored field, not inferred.** The batch's `enterprise` (layers/broilers/tilapia/…) is captured directly from the creation-time picker and persisted (`batches.enterprise`), not re-derived later from the free-text `species` field. This corrects a real defect where species auto-fill (from tile description text) produced values the enterprise-matching logic couldn't recognize for 6 of 12 enterprise types, and silently misclassified Tilapia as Catfish — both broke enterprise-dependent costing, lifecycle auto-advance, and default live-weight lookups for affected batches. `resolveEnterprise()` (`lib/server/productTemplates.ts`) is now the single resolution path, preferring the stored column and falling back to text-matching only for batches predating the column.
 - `FR-M3-2` (M) **Split** a batch across units and **merge** compatible batches, preserving lineage and apportioning cost. **AC:** splitting 100 birds into 60+40 produces two batches whose costs sum to the original; lineage links retained.
 - `FR-M3-3` (M) **Transfer** a batch between units (e.g., brooder → grower house) as a dated event.
 - `FR-M3-4` (M) Record **stage transitions** (§4.3); age-based suggestions prompted.
@@ -485,21 +486,67 @@ On final sale/cull, batch closes → generates performance card: FCR, mortality 
 - `NFR-R-1` (M) No data loss across offline→online transitions (idempotent, queued, audited).
 - `NFR-R-2` (S) Backend ≥ 99.5% monthly availability; nightly backups; point-in-time restore.
 
+> **As-built (2026-07-14):** `GET /api/health` now actually checks the database
+> (`select 1`, 3s timeout, 503 on failure) instead of a static 200 — an external
+> uptime monitor can now be pointed at it meaningfully (not wired to one yet, that's
+> an account-creation step outside this pass). Nightly backups and point-in-time
+> restore are **Neon's own responsibility** (verify retention in the Neon
+> dashboard) — a supplementary, owner-triggered `GET /api/backup/export` (JSON,
+> 14 core tables, `passwordHash`/`pinHash` excluded) was added as a safety net,
+> alongside a device-side "reconnect soon" warning when a worker's unsynced
+> outbox exceeds 24h old. See `docs/AS_BUILT.md` §20.
+
 **Scalability (SaaS)**
 - `NFR-S-1` (M) Multi-tenant; horizontal scale; tenant data isolation (`NFR-AR-1`).
 - `NFR-S-2` (S) Add a new species/crop via configuration (no schema change) — proven by adding "goats" without a deploy.
+
+> **As-built (2026-07-14):** closed a schema/DB drift — `db/schemas/index.ts` had
+> zero `index()` declarations despite ~36 indexes already live in Postgres via
+> earlier raw-SQL migrations, which would have made future `drizzle-kit generate`
+> runs blind to them. Migration `0036_*` mirrors them all plus two genuinely new
+> ones. A short-TTL (45s) in-memory cache (`lib/server/ttlCache.ts`) now smooths
+> the single most expensive on-read query (`/api/dashboard/kpis`) — same
+> per-instance caveat as the login/read/write rate limiter (`docs/ARCHITECTURE.md`
+> §8): resets on cold start, not shared across serverless instances.
 
 **Usability & accessibility**
 - `NFR-U-1` (M) Worker flows usable by low-literacy users: icon-led, minimal typing, large targets, EN/SW.
 - `NFR-U-2` (M) Two-minute rule: each routine entry achievable in < 2 minutes.
 - `NFR-U-3` (S) Works on low-end Android (≤ 2 GB RAM) without crashing.
 
+> **As-built (2026-07-14):** `NFR-U-1`–`NFR-U-3` were hardened with a dedicated pass: an offline read-cache (`lib/offline/refCache.ts`) so record-form dropdowns stay populated when a worker is out of coverage (previously they went empty, since only queued *writes* worked offline, not cached *reads*); exponential backoff on sync retries instead of hammering every 30s; safe-area-aware layout (bottom nav no longer sits under the Android gesture bar); `recharts` lazy-loaded off the dashboard's initial bundle (~100KB gz saved per route); and the app is now genuinely installable (manifest + icons + Service Worker in production) and packaged as a sideloadable **Android APK** (Bubblewrap TWA) — see `docs/AS_BUILT.md` §11–14.
+>
+> **As-built (2026-07-14) — battery & iOS:** `NFR-U-3` also covered a battery-drain
+> audit. Only one real issue found: the sync poll loop (`lib/offline/sync.ts`)
+> was doing a local Dexie read every 30s tick even while exponential backoff had
+> already suppressed the actual network attempt — fixed with a 3-line guard. GPS
+> (one-shot `getCurrentPosition`) and camera (native `<input capture>`, no
+> `getUserMedia`) were already efficient. Separately, the GPS/camera/PWA code
+> paths were audited for iOS Safari compatibility and no blocking API was found —
+> stated honestly as **code-audited, never device-tested**, since no physical
+> iOS device or simulator was available to confirm.
+
 **Security & privacy** (detail in §11)
 - `NFR-SEC-1` (M) Encryption in transit (TLS) and at rest (DB + local store + photos).
 - `NFR-SEC-2` (M) Field-level RBAC enforced server-side and mirrored client-side offline.
 - `NFR-SEC-3` (S) Regional data residency where available; tenant data export & delete on request.
 
-> **As-built (security):** `NFR-SEC-1` is met in transit (TLS) and field-level RBAC (`NFR-SEC-2`) is enforced server-side with default-deny financials (`FR-M16-5`). At-rest encryption of the local store/photos and tenant export/delete remain to harden. The **scheduled/background tier** (`NFR-AR-3` materialised read-models, cron alert evaluation, heavy async reports) is **deferred** — on-read compute covers pilot scale.
+> **As-built (security):** `NFR-SEC-1` is met in transit (TLS) and field-level RBAC (`NFR-SEC-2`) is enforced server-side with default-deny financials (`FR-M16-5`). Tenant export/delete remains to harden. The **scheduled/background tier** (`NFR-AR-3` materialised read-models, cron alert evaluation, heavy async reports) is **deferred** — on-read compute covers pilot scale.
+>
+> **As-built (2026-07-14) — at-rest encryption, local store:** `NFR-SEC-1`'s
+> local-store gap is now closed. `lib/offline/crypto.ts` encrypts the worker
+> device's Dexie/IndexedDB queue (`pending`) and read-cache (`refCache`) with a
+> non-extractable, device-bound **AES-256-GCM** key — not PIN-derived, since the
+> worker's session never re-prompts for the PIN after first login. **Threat model,
+> stated plainly:** protects a lost/stolen device that's locked or logged out;
+> does **not** protect a device that's unlocked and already logged in (the running
+> page can decrypt itself at that point, same as any client-side scheme). Found
+> and fixed a real offline-breaking bug during real-device verification (not
+> caught by the build or test suite): a dynamic `import('./crypto')` forced a
+> network chunk fetch that failed offline, breaking record submission entirely —
+> fixed by making the import static. Photos remain unencrypted at rest (stored as
+> data-URLs in Postgres, protected by the DB's own encryption-at-rest, not
+> client-side) — see `docs/AS_BUILT.md` §20 for the full verification method.
 
 **Data retention, aggregation & archiving**
 - `NFR-DATA-1` (M) **Rollups by design.** Daily transactional detail (feedings, egg counts, mortality events, readings) is continuously aggregated into daily/weekly/monthly **summary read-models** that power dashboards and reports. Live analytics query the aggregates, never the raw event stream — so performance stays flat as a farm accumulates years of records (a 1,000-bird farm generates ~1M+ rows over a few years). Raw detail is retained for audit/drill-down but is not on the dashboard hot path.
@@ -509,6 +556,18 @@ On final sale/cull, batch closes → generates performance card: FCR, mortality 
 **Maintainability & observability**
 - `NFR-M-1` (S) Structured logging, error tracking, sync-health metrics per tenant.
 - `NFR-M-2` (C) Feature flags per tenant for staged rollout.
+
+> **As-built (2026-07-14):** `NFR-M-1`'s error-tracking gap is closed — client
+> error boundaries were previously catching crashes but reporting nowhere beyond
+> `console.error`. All 7 boundaries (`app/{global-error,error}.tsx` and the 5
+> section-level `app/*/error.tsx` files) now POST to `/api/errors`
+> (`lib/errorReporter.ts`, best-effort, deliberately no session required — a
+> broken session is exactly one of the cases this needs to survive), landing in a
+> new `error_logs` table. `GET /api/admin/errors` (super_admin-gated) is a
+> route-only viewer this pass, most-recent-first, capped at 200 rows — no
+> dedicated admin UI page yet. Structured logging and sync-health metrics remain
+> unbuilt; feature flags (`NFR-M-2`) exist only as the pre-existing
+> `tenants.features` entitlement toggles, not staged-rollout flags.
 
 **Localization**
 - `NFR-L-1` (M) Currency KES (multi-currency-ready); metric units; EN/SW; East Africa time; configurable date formats.
@@ -642,4 +701,4 @@ On final sale/cull, batch closes → generates performance card: FCR, mortality 
 
 ---
 
-*End of SRS v1.1 (as-built). IDs are stable; extend modules with new `FR-Mxx-nn` IDs rather than renumbering. The model in §4 is the contract; §5 is what we build; §13 is how we know it works. See `docs/AS_BUILT.md` for the full deviation list.*
+*End of SRS v1.3 (as-built, 2026-07-14). IDs are stable; extend modules with new `FR-Mxx-nn` IDs rather than renumbering. The model in §4 is the contract; §5 is what we build; §13 is how we know it works. See `docs/AS_BUILT.md` for the full deviation list.*

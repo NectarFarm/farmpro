@@ -10,6 +10,12 @@ export interface ProductDef {
   saleUnits: { name: string; perBase: number; price: number }[];
   isAnimalProduct?: boolean;
   isMainProduct?: boolean;
+  // The costing denominator for this enterprise — exactly one per enterprise.
+  // Usually the same product as isMainProduct, EXCEPT where the batch's asset
+  // (the animal itself) differs from the ongoing commodity a farmer actually
+  // costs feed/effort against (layers: spent hen vs eggs; dairy/goats: the
+  // animal vs milk; ducks: the animal vs duck eggs; bees: the colony vs honey).
+  isCostDriver?: boolean;
 }
 
 // Common byproduct most poultry/pig/livestock enterprises sell.
@@ -18,14 +24,21 @@ const MANURE: ProductDef = {
   saleUnits: [{ name: 'Sack (50kg)', perBase: 50, price: 300 }, { name: 'Kg', perBase: 1, price: 8 }],
 };
 
+// Cost driver for both dairy and goats: the animal (mature cow / live goat) is
+// the main product (the asset sold once), but milk is the ongoing commodity a
+// farmer actually costs feed/effort against.
 const MILK: ProductDef = {
   name: 'Milk', baseUnit: 'litre', collectFrequency: 'daily', flow: 'sale',
   saleUnits: [{ name: 'Litre', perBase: 1, price: 60 }, { name: 'Jersey (5L)', perBase: 5, price: 280 }],
+  isCostDriver: true,
 };
 
+// Cost driver for bees: the colony/nuc is the main product (the asset, rarely
+// sold), but honey is what a beekeeper actually costs against.
 const HONEY: ProductDef = {
   name: 'Honey', baseUnit: 'kg', collectFrequency: 'per_cycle', flow: 'sale',
   saleUnits: [{ name: 'Kg', perBase: 1, price: 800 }, { name: 'Jar (500g)', perBase: 0.5, price: 450 }],
+  isCostDriver: true,
 };
 
 // Each enterprise's default products. Exactly ONE is the main product (the animal
@@ -34,25 +47,25 @@ const HONEY: ProductDef = {
 // its Eggs product automatically — not just the spent hen.
 export const PRODUCT_TEMPLATES: Record<string, ProductDef[]> = {
   layers: [
-    { name: 'Eggs', baseUnit: 'piece', collectFrequency: 'daily', saleUnits: [{ name: 'Tray (30)', perBase: 30, price: 360 }, { name: 'Piece', perBase: 1, price: 13 }] },
+    { name: 'Eggs', baseUnit: 'piece', collectFrequency: 'daily', saleUnits: [{ name: 'Tray (30)', perBase: 30, price: 360 }, { name: 'Piece', perBase: 1, price: 13 }], isCostDriver: true },
     MANURE,
     { name: 'Spent hen', baseUnit: 'head', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Bird', perBase: 1, price: 400 }], isAnimalProduct: true, isMainProduct: true },
   ],
   broilers: [
-    { name: 'Live bird', baseUnit: 'head', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Bird', perBase: 1, price: 600 }], isAnimalProduct: true, isMainProduct: true },
+    { name: 'Live bird', baseUnit: 'head', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Bird', perBase: 1, price: 600 }], isAnimalProduct: true, isMainProduct: true, isCostDriver: true },
     MANURE,
   ],
   pig_fatten: [
-    { name: 'Pork (live weight)', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 350 }], isAnimalProduct: true, isMainProduct: true },
+    { name: 'Pork (live weight)', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 350 }], isAnimalProduct: true, isMainProduct: true, isCostDriver: true },
     MANURE,
   ],
   pig_breed: [
-    { name: 'Piglets', baseUnit: 'head', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Piglet', perBase: 1, price: 3500 }], isAnimalProduct: true, isMainProduct: true },
+    { name: 'Piglets', baseUnit: 'head', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Piglet', perBase: 1, price: 3500 }], isAnimalProduct: true, isMainProduct: true, isCostDriver: true },
     MANURE,
   ],
-  tilapia: [{ name: 'Fish', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 400 }], isAnimalProduct: true, isMainProduct: true }],
-  catfish: [{ name: 'Fish', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 400 }], isAnimalProduct: true, isMainProduct: true }],
-  maize: [{ name: 'Maize grain', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Bag (90kg)', perBase: 90, price: 3500 }, { name: 'Kg', perBase: 1, price: 45 }], isMainProduct: true }],
+  tilapia: [{ name: 'Fish', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 400 }], isAnimalProduct: true, isMainProduct: true, isCostDriver: true }],
+  catfish: [{ name: 'Fish', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 400 }], isAnimalProduct: true, isMainProduct: true, isCostDriver: true }],
+  maize: [{ name: 'Maize grain', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Bag (90kg)', perBase: 90, price: 3500 }, { name: 'Kg', perBase: 1, price: 45 }], isMainProduct: true, isCostDriver: true }],
   goats: [
     { name: 'Live goat', baseUnit: 'head', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Head', perBase: 1, price: 5000 }, { name: 'Kg live weight', perBase: 1, price: 350 }], isAnimalProduct: true, isMainProduct: true },
     MILK,
@@ -65,12 +78,12 @@ export const PRODUCT_TEMPLATES: Record<string, ProductDef[]> = {
     MANURE,
   ],
   ducks: [
-    { name: 'Eggs (duck)', baseUnit: 'piece', collectFrequency: 'daily', saleUnits: [{ name: 'Tray (30)', perBase: 30, price: 450 }, { name: 'Piece', perBase: 1, price: 18 }] },
+    { name: 'Eggs (duck)', baseUnit: 'piece', collectFrequency: 'daily', saleUnits: [{ name: 'Tray (30)', perBase: 30, price: 450 }, { name: 'Piece', perBase: 1, price: 18 }], isCostDriver: true },
     { name: 'Live duck', baseUnit: 'head', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Bird', perBase: 1, price: 800 }], isAnimalProduct: true, isMainProduct: true },
     MANURE,
   ],
   rabbits: [
-    { name: 'Rabbit meat', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 600 }, { name: 'Whole rabbit (2kg)', perBase: 2, price: 1100 }], isAnimalProduct: true, isMainProduct: true },
+    { name: 'Rabbit meat', baseUnit: 'kg', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Kg', perBase: 1, price: 600 }, { name: 'Whole rabbit (2kg)', perBase: 2, price: 1100 }], isAnimalProduct: true, isMainProduct: true, isCostDriver: true },
     { name: 'Breeding stock', baseUnit: 'head', collectFrequency: 'per_cycle', saleUnits: [{ name: 'Buck', perBase: 1, price: 2000 }, { name: 'Doe', perBase: 1, price: 2500 }], isAnimalProduct: true },
     MANURE,
   ],
@@ -100,6 +113,15 @@ export function enterpriseFromSpecies(species: string): string | null {
   return null;
 }
 
+// Single source of truth for "what enterprise is this batch": the persisted
+// column, set unambiguously from the creation-time picker, wins whenever it's
+// present. Falls back to the free-text species matcher above only for batches
+// created before the `enterprise` column existed, or via free-text species
+// entry (setup wizard) with no picker involved.
+export function resolveEnterprise(batch: { enterprise?: string | null; species?: string | null }): string | null {
+  return batch.enterprise || enterpriseFromSpecies(batch.species ?? '');
+}
+
 export const ENTERPRISE_LABELS: Record<string, string> = {
   layers: 'Layers (eggs)', broilers: 'Broilers (meat)', pig_fatten: 'Pig fattening',
   pig_breed: 'Pig breeding', tilapia: 'Tilapia', catfish: 'Catfish', maize: 'Maize',
@@ -121,7 +143,7 @@ const DEFAULT_LIVE_WEIGHT_KG: Record<string, number> = {
   rabbits: 2,
 };
 
-export function defaultLiveWeightKg(species: string): number | null {
-  const ent = enterpriseFromSpecies(species);
+export function defaultLiveWeightKg(species: string, enterprise?: string | null): number | null {
+  const ent = enterprise || enterpriseFromSpecies(species);
   return ent && DEFAULT_LIVE_WEIGHT_KG[ent] != null ? DEFAULT_LIVE_WEIGHT_KG[ent] : null;
 }

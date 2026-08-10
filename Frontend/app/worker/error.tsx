@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n/useTranslation';
+import { reportError } from '@/lib/errorReporter';
 
 export default function WorkerError({
   error,
@@ -16,6 +17,7 @@ export default function WorkerError({
 
   useEffect(() => {
     console.error('Worker page error:', error);
+    reportError(error, 'worker');
   }, [error]);
 
   return (

@@ -74,11 +74,11 @@ export async function POST(req: Request) {
         const id = crypto.randomUUID();
         await tx.insert(batches).values({
           id, tenantId: session.tenantId, unitId: a.unitId, name: body.name,
-          species: body.species, breed: body.breed ?? null, source: body.source,
+          species: body.species, enterprise, breed: body.breed ?? null, source: body.source,
           acquiredDate, ageAtAcquire: body.ageAtAcquire ?? 0,
           initialQty: a.qty, currentQty: a.qty, stage: initialStage, stageEnteredAt: acquiredDate,
           acquisitionCost: shareCost, acquisitionCostCents: shareCents,
-          status: 'ACTIVE', avgWeightKg: defaultLiveWeightKg(body.species),
+          status: 'ACTIVE', avgWeightKg: defaultLiveWeightKg(body.species, enterprise),
           deliveryGroupId: groupId,
         });
         await tx.update(productionUnits).set({ currentQty: Math.max(0, (unit.currentQty ?? 0) + a.qty) })

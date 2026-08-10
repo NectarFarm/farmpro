@@ -30,7 +30,7 @@ export const EN = {
   hide: 'Hide',
   emailPlaceholder: 'you@farm.com  \u00b7  +2547\u2026',
   signInDescription: 'Owners, workers and admins all sign in here \u2014 we\'ll take you to the right place.',
-  noAccount: "No account\u003F Ask your farm owner or administrator to add you.",
+  noAccount: 'No account\u003F Ask your farm owner or administrator to add you.',
   secureSignIn: 'Secure sign-in',
   loginFailed: 'Login failed',
   offlineUnlockError: 'You are offline and this PIN is not saved yet. Connect to the internet once to sign in.',
@@ -229,7 +229,11 @@ export const EN = {
   surplus: 'Surplus',
   deficit: 'Deficit',
   loss: 'Loss',
-  grossMargin: 'Gross margin',
+  // The field/value here is revenue minus EVERY cost (feed, health, labour,
+  // salaries, overhead, acquisition) — that's net profit, not gross margin in
+  // the accounting sense (revenue minus COGS only, before operating expenses).
+  // Renamed the label, not the underlying calculation, which is correct as-is.
+  grossMargin: 'Net profit',
   breakEven: 'Break-even',
   costPerUnit: 'Cost per unit',
   costPerHead: 'Cost/head',
@@ -501,6 +505,9 @@ export const EN = {
   todaysRecords: 'Today’s records',
   noRecordsToday: 'No records captured yet today.',
   recordMenuSubtitle: 'Choose what to record',
+  recordGroupEveryDay: 'Every day',
+  recordGroupAsNeeded: 'As needed',
+  recordGroupStockCounts: 'Stock counts',
 
   // Additional Phase 6 strings found while wiring pages
   batchFedPickNext: '{batch} fed — pick the next batch or finish',
@@ -773,6 +780,7 @@ export const EN = {
   initialPurchasePrice: 'Initial purchase price',
   fcrPerDozen: 'kg feed \/ dozen eggs',
   fcrPerKg: 'kg feed \/ kg output',
+  fcrPerUnit: 'kg feed \/ {unit} output',
   ofCountDied: '{count} of {total} died',
   ofCountSurvived: '{count} of {total} survived',
   countSoldAndDied: '{sold} sold \u00b7 {died} died',
@@ -1197,7 +1205,7 @@ export const SW: Record<TranslationKey, string> = {
   surplus: 'Ziada',
   deficit: 'Upungufu',
   loss: 'Hasara',
-  grossMargin: 'Faida ya jumla',
+  grossMargin: 'Faida halisi',
   breakEven: 'Kuvunja hata',
   costPerUnit: 'Gharama kwa kila',
   costPerHead: 'Gharama kwa kila kichwa',
@@ -1468,6 +1476,9 @@ export const SW: Record<TranslationKey, string> = {
   todaysRecords: 'Rekodi za Leo',
   noRecordsToday: 'Hakuna rekodi zilizonaswa leo bado.',
   recordMenuSubtitle: 'Chagua utakalorekodi',
+  recordGroupEveryDay: 'Kila siku',
+  recordGroupAsNeeded: 'Inapohitajika',
+  recordGroupStockCounts: 'Hesabu za akiba',
 
   // Maneno ya ziada ya Awamu ya 6 yaliyopatikana wakati wa kuunganisha kurasa
   batchFedPickNext: '{batch} kimelishwa — chagua kundi lifuatalo au maliza',
@@ -1738,6 +1749,7 @@ export const SW: Record<TranslationKey, string> = {
   initialPurchasePrice: 'Bei ya awali ya ununuzi',
   fcrPerDozen: 'kg malisho \/ dazeni za mayai',
   fcrPerKg: 'kg malisho \/ kg pato',
+  fcrPerUnit: 'kg malisho \/ {unit} pato',
   ofCountDied: '{count} kati ya {total} wamekufa',
   ofCountSurvived: '{count} kati ya {total} walionusurika',
   countSoldAndDied: '{sold} wameuzwa \u00b7 {died} wamekufa',

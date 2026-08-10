@@ -5,15 +5,17 @@ import { getSession } from '@/lib/server/session';
 import { createProductsForBatch } from '@/lib/server/products';
 import { hiddenFieldKeysFor, stripProductSaleUnitPrices } from '@/lib/server/fieldPermissions';
 import { ok, created, unauthorized, forbidden, badRequest } from '@/lib/server/http';
+import { pgErrorCode } from '@/lib/server/dbErrors';
 import { parseBody, productCreateSchema, productUpdateSchema } from '@/lib/server/validate';
 import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
+import { withErrorLogging } from '@/lib/server/apiErrorHandler';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
 
 // GET /api/products?batchId=...  — price stripped for any role without financial
 // access (same default-deny rule as every other resource, via fieldPermissions.ts).
-export async function GET(req: Request) {
+async function getHandler(req: Request) {
   const limited = readRateLimited(req);
   if (limited) return limited;
   const session = await getSession();
@@ -30,7 +32,7 @@ export async function GET(req: Request) {
 }
 
 // DELETE /api/products?id=...  — delete a product (owner/manager).
-export async function DELETE(req: Request) {
+async function deleteHandler(req: Request) {
   const limited = writeRateLimited(req);
   if (limited) return limited;
   const session = await getSession();
@@ -38,12 +40,27 @@ export async function DELETE(req: Request) {
   if (!ALLOWED.includes(session.role)) return forbidden();
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return badRequest('id required');
-  await db.delete(products).where(and(eq(products.tenantId, session.tenantId), eq(products.id, id)));
+  try {
+    await db.delete(products).where(and(eq(products.tenantId, session.tenantId), eq(products.id, id)));
+  } catch (e) {
+    // production_records.product_id is a real FK with ON DELETE RESTRICT
+    // (migration 0039) — Postgres raises SQLSTATE 23503 when production has
+    // already been recorded against this product. That's an expected, user-
+    // actionable outcome, not a server failure: catch it specifically (never
+    // a bare catch-all, which would mislabel unrelated failures) and steer
+    // toward the existing soft-delete (`products.active = false`) instead.
+    // drizzle wraps the real postgres error in a DrizzleQueryError, so the
+    // SQLSTATE lives on e.cause.code, not e.code — see lib/server/dbErrors.ts.
+    if (pgErrorCode(e) === '23503') {
+      return badRequest('This product has recorded production and cannot be deleted. Deactivate it instead.');
+    }
+    throw e;
+  }
   return ok({ id, deleted: true });
 }
 
 // POST /api/products — add a custom product to a batch (owner/manager).
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const limited = writeRateLimited(req);
   if (limited) return limited;
   const session = await getSession();
@@ -63,7 +80,7 @@ export async function POST(req: Request) {
 }
 
 // PATCH /api/products?id=...  — edit units/price/frequency/name (owner/manager).
-export async function PATCH(req: Request) {
+async function patchHandler(req: Request) {
   const limited = writeRateLimited(req);
   if (limited) return limited;
   const session = await getSession();
@@ -84,3 +101,8 @@ export async function PATCH(req: Request) {
   await db.update(products).set(patch).where(and(eq(products.tenantId, session.tenantId), eq(products.id, id)));
   return ok({ id });
 }
+
+export const GET = withErrorLogging('GET /api/products', getHandler);
+export const DELETE = withErrorLogging('DELETE /api/products', deleteHandler);
+export const POST = withErrorLogging('POST /api/products', postHandler);
+export const PATCH = withErrorLogging('PATCH /api/products', patchHandler);

@@ -31,28 +31,47 @@ export function groupNoun(species: string | undefined): string {
 }
 
 // Enterprise → icon + display label for the visual species picker.
+export type EnterpriseGroup = 'Poultry' | 'Fish' | 'Livestock' | 'Other';
+
 export interface EnterpriseOption {
   key: string;
   Icon: LucideIcon;
   label: string;
   desc: string;
-  color: string;
+  group: EnterpriseGroup;
+  // The species value auto-filled on the batch when this tile is picked.
+  // Deliberately NOT derived from `desc` (marketing copy like "Eggs + manure"
+  // doesn't identify a species) — each value here is chosen to read correctly
+  // as species text AND match lib/server/productTemplates.ts's
+  // enterpriseFromSpecies() regex, so costing/lifecycle/alerts resolve
+  // correctly even for the rare batch that predates the `enterprise` column.
+  defaultSpecies: string;
 }
 
 export const ENTERPRISE_OPTIONS: EnterpriseOption[] = [
-  { key: 'layers', Icon: Egg, label: 'Layers', desc: 'Eggs + manure + spent hen', color: 'bg-amber-50 border-amber-200 hover:bg-amber-100' },
-  { key: 'broilers', Icon: Drumstick, label: 'Broilers', desc: 'Meat birds + manure', color: 'bg-orange-50 border-orange-200 hover:bg-orange-100' },
-  { key: 'pig_fatten', Icon: PawPrint, label: 'Pigs (meat)', desc: 'Pork production + manure', color: 'bg-pink-50 border-pink-200 hover:bg-pink-100' },
-  { key: 'pig_breed', Icon: PawPrint, label: 'Pigs (breeding)', desc: 'Piglets + manure', color: 'bg-rose-50 border-rose-200 hover:bg-rose-100' },
-  { key: 'tilapia', Icon: Fish, label: 'Tilapia', desc: 'Fish for harvest', color: 'bg-cyan-50 border-cyan-200 hover:bg-cyan-100' },
-  { key: 'catfish', Icon: Fish, label: 'Catfish', desc: 'Fish for harvest', color: 'bg-sky-50 border-sky-200 hover:bg-sky-100' },
-  { key: 'goats', Icon: PawPrint, label: 'Goats', desc: 'Meat + milk + manure', color: 'bg-teal-50 border-teal-200 hover:bg-teal-100' },
-  { key: 'dairy', Icon: Milk, label: 'Dairy cattle', desc: 'Milk + calves + manure', color: 'bg-blue-50 border-blue-200 hover:bg-blue-100' },
-  { key: 'ducks', Icon: Bird, label: 'Ducks', desc: 'Duck eggs + meat + manure', color: 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100' },
-  { key: 'rabbits', Icon: Rabbit, label: 'Rabbits', desc: 'Meat + breeding stock + manure', color: 'bg-violet-50 border-violet-200 hover:bg-violet-100' },
-  { key: 'bees', Icon: Bug, label: 'Bees', desc: 'Honey + wax + colonies', color: 'bg-amber-50 border-amber-200 hover:bg-amber-100' },
-  { key: 'maize', Icon: Wheat, label: 'Maize / crops', desc: 'Grain harvest', color: 'bg-green-50 border-green-200 hover:bg-green-100' },
+  { key: 'layers', Icon: Egg, label: 'Layers', desc: 'Eggs + manure + spent hen', group: 'Poultry', defaultSpecies: 'Layer hens' },
+  { key: 'broilers', Icon: Drumstick, label: 'Broilers', desc: 'Meat birds + manure', group: 'Poultry', defaultSpecies: 'Broiler chickens' },
+  { key: 'ducks', Icon: Bird, label: 'Ducks', desc: 'Duck eggs + meat + manure', group: 'Poultry', defaultSpecies: 'Ducks' },
+  { key: 'tilapia', Icon: Fish, label: 'Tilapia', desc: 'Fish for harvest', group: 'Fish', defaultSpecies: 'Tilapia' },
+  { key: 'catfish', Icon: Fish, label: 'Catfish', desc: 'Fish for harvest', group: 'Fish', defaultSpecies: 'Catfish' },
+  { key: 'pig_fatten', Icon: PawPrint, label: 'Pigs (meat)', desc: 'Pork production + manure', group: 'Livestock', defaultSpecies: 'Pigs (fattening)' },
+  { key: 'pig_breed', Icon: PawPrint, label: 'Pigs (breeding)', desc: 'Piglets + manure', group: 'Livestock', defaultSpecies: 'Breeding pigs' },
+  { key: 'goats', Icon: PawPrint, label: 'Goats', desc: 'Meat + milk + manure', group: 'Livestock', defaultSpecies: 'Goats' },
+  { key: 'dairy', Icon: Milk, label: 'Dairy cattle', desc: 'Milk + calves + manure', group: 'Livestock', defaultSpecies: 'Dairy cattle' },
+  { key: 'rabbits', Icon: Rabbit, label: 'Rabbits', desc: 'Meat + breeding stock + manure', group: 'Livestock', defaultSpecies: 'Rabbits' },
+  { key: 'bees', Icon: Bug, label: 'Bees', desc: 'Honey + wax + colonies', group: 'Other', defaultSpecies: 'Bees' },
+  { key: 'maize', Icon: Wheat, label: 'Maize / crops', desc: 'Grain harvest', group: 'Other', defaultSpecies: 'Maize' },
 ];
+
+// Enterprise options bucketed by animal family, in display order — the shape
+// the visual picker actually renders (heading + tile grid per group), rather
+// than one flat undifferentiated 12-tile grid.
+export function groupedEnterpriseOptions(): { group: EnterpriseGroup; options: EnterpriseOption[] }[] {
+  const order: EnterpriseGroup[] = ['Poultry', 'Fish', 'Livestock', 'Other'];
+  return order
+    .map((group) => ({ group, options: ENTERPRISE_OPTIONS.filter((o) => o.group === group) }))
+    .filter((g) => g.options.length > 0);
+}
 
 // Map enterprise key to icon for the batch table and units.
 export function enterpriseIcon(key: string): LucideIcon {

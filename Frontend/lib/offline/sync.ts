@@ -8,7 +8,8 @@
 // are idempotent (FR-M17-5); true edit clashes come back as `conflicts`.
 
 import { useEffect, useRef } from 'react';
-import { getDB, getPendingCount, getRejectedCount, type PendingRecord } from './db';
+import { getDB, getPendingCount, getRejectedCount, getOldestPendingCapturedAt, type PendingRecord } from './db';
+import { decryptString } from './crypto';
 import { useSyncStore } from '@/lib/stores/sync';
 
 // Exponential backoff (module scope — shared across every useSync() mount).
@@ -73,12 +74,14 @@ export async function flushPendingRecords(): Promise<{ synced: number; conflicts
   await Promise.all(pending.map((r) => db.pending.update(r.id!, { status: 'syncing' })));
 
   try {
-    const records = pending.map((r: PendingRecord) => ({
+    const records = await Promise.all(pending.map(async (r: PendingRecord) => ({
       clientUuid: r.clientUuid,
       type: r.type,
-      payload: JSON.parse(r.payload),
+      // r.enc === 1: payload is an EncryptedEnvelope JSON string, decrypt first.
+      // Absent (legacy pre-encryption rows): payload is plain JSON, as before.
+      payload: JSON.parse(r.enc === 1 ? await decryptString(JSON.parse(r.payload)) : r.payload),
       capturedAt: r.capturedAt,
-    }));
+    })));
 
     const res = await postSync(records);
     const conflictUuids = new Set(
@@ -144,20 +147,27 @@ export function useSync(intervalMs = 30_000) {
   const setPendingCount = useSyncStore((s) => s.setPendingCount);
   const setRejectedCount = useSyncStore((s) => s.setRejectedCount);
   const setSynced = useSyncStore((s) => s.setSynced);
+  const setOldestPendingCapturedAt = useSyncStore((s) => s.setOldestPendingCapturedAt);
   const running = useRef(false);
 
   useEffect(() => {
     const run = async (opts?: { force?: boolean }) => {
       if (running.current) return;
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        setPendingCount(await getPendingCount());
+        const count = await getPendingCount();
+        setPendingCount(count);
+        setOldestPendingCapturedAt(count > 0 ? await getOldestPendingCapturedAt() : null);
         return;
       }
-      // Backoff gate: skip the actual flush attempt while still under the
-      // cooldown from a recent failure, but still keep the badge's pending
-      // count fresh (e.g. new records enqueued while backing off).
+      // Backoff gate: skip the flush attempt while still under the cooldown
+      // from a recent failure — and skip even the local Dexie pendingCount
+      // read too (battery: this branch fires every interval tick, up to
+      // every 30s, for the full 15-minute backoff cap). The badge doesn't go
+      // stale from this: every record-submission page already calls
+      // setPendingCount itself right after enqueueing, and a real flush
+      // attempt (cooldown ending, reconnect, or the SW's ifms-synced
+      // message) refreshes it the moment one actually happens.
       if (!opts?.force && Date.now() < nextAttemptAt) {
-        setPendingCount(await getPendingCount());
         return;
       }
       running.current = true;
@@ -174,12 +184,16 @@ export function useSync(intervalMs = 30_000) {
           // avoids a circular-import risk with db.ts.
           void import('./refCache').then(m => m.warmRefCache()).catch(() => {});
         }
-        setPendingCount(await getPendingCount());
+        const after = await getPendingCount();
+        setPendingCount(after);
+        setOldestPendingCapturedAt(after > 0 ? await getOldestPendingCapturedAt() : null);
         setRejectedCount(await getRejectedCount());
       } catch {
         recordFlushFailure();
         setStatus('error');
-        setPendingCount(await getPendingCount());
+        const after = await getPendingCount();
+        setPendingCount(after);
+        setOldestPendingCapturedAt(after > 0 ? await getOldestPendingCapturedAt() : null);
       } finally {
         running.current = false;
       }
@@ -207,5 +221,5 @@ export function useSync(intervalMs = 30_000) {
       window.clearInterval(id);
       if (hasSW) navigator.serviceWorker.removeEventListener('message', onMessage);
     };
-  }, [intervalMs, setStatus, setPendingCount, setRejectedCount, setSynced]);
+  }, [intervalMs, setStatus, setPendingCount, setRejectedCount, setSynced, setOldestPendingCapturedAt]);
 }

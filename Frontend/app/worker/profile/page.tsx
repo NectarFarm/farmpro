@@ -29,7 +29,7 @@ const RECORD_STATUS_CHIP: Record<TodayRecordSummary['status'], { status: 'ok' | 
 
 export default function WorkerProfilePage() {
   const { t } = useTranslation();
-  const { user, logout } = useAuthStore();
+  const { user, hasHydrated, logout } = useAuthStore();
   const { isOnline, pendingCount, status } = useSyncStore();
   const { lang, setLang, highContrast, toggleHighContrast, profile } = useWorkerProfileStore();
   const router = useRouter();
@@ -37,13 +37,20 @@ export default function WorkerProfilePage() {
   const [dbPending, setDbPending] = useState(0);
   const [staleAt, setStaleAt] = useState<string | null>(null);
   const [todayRecords, setTodayRecords] = useState<TodayRecordSummary[]>([]);
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setGaveUp(true), 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
+    // See app/owner/dashboard/page.tsx — same hydration-race guard.
+    if (!hasHydrated && !gaveUp) return;
     if (!user) { router.replace('/worker/login'); return; }
     cachedApi.getTasks(user.id).then(t => { setTasks(t.data.filter(t => t.status === 'DONE')); setStaleAt(t.cachedAt); });
     getPendingCount().then(setDbPending).catch(() => {});
     getTodayRecords().then(setTodayRecords).catch(() => {});
-  }, [user, router]);
+  }, [user, hasHydrated, gaveUp, router]);
 
   const handleLogout = () => { logout(); router.replace('/worker/login'); };
 
@@ -76,7 +83,7 @@ export default function WorkerProfilePage() {
         </div>
         <div className="flex items-center justify-between mb-2">
           <span className="text-gray-600">{t('pendingRecords')}</span>
-          <span className="font-bold text-amber-600">{dbPending || pendingCount}</span>
+          <span className="font-bold text-warning-foreground [font-variant-numeric:tabular-nums]">{dbPending || pendingCount}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-gray-600">{t('status')}</span>

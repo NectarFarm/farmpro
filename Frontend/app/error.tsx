@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
+import { reportError } from '@/lib/errorReporter';
 
 // Root-segment error boundary: catches crashes in any route under app/ that
 // doesn't have its own closer error.tsx (e.g. app/page.tsx, app/login).
@@ -27,6 +28,7 @@ export default function RootError({
 }) {
   useEffect(() => {
     console.error('Root page error:', error);
+    reportError(error, 'root');
   }, [error]);
 
   return (

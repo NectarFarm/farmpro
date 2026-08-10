@@ -6,6 +6,7 @@ import { ok, created, unauthorized, forbidden, notFound, badRequest } from '@/li
 import { parseBody, purchaseSchema, purchasePaymentSchema } from '@/lib/server/validate';
 import { toCents, sumMoney } from '@/lib/server/money';
 import { readRateLimited, writeRateLimited } from '@/lib/server/rateLimit';
+import { withErrorLogging } from '@/lib/server/apiErrorHandler';
 import type { Role } from '@/lib/types';
 
 const ALLOWED: Role[] = ['owner', 'manager'];
@@ -24,7 +25,7 @@ function parseDateOrToday(v: string | undefined | null, field: string, today: st
 // GET /api/purchases — list (tenant-scoped). ?owed=1 returns the total still
 // owed to suppliers instead of the full list (a lightweight read, not a
 // stored aggregate — computed fresh from every purchase with amountPaid < totalCost).
-export async function GET(req: Request) {
+async function getHandler(req: Request) {
   const limited = readRateLimited(req);
   if (limited) return limited;
   const session = await getSession();
@@ -45,7 +46,7 @@ export async function GET(req: Request) {
 }
 
 // POST /api/purchases — record a delivery: creates an inventory LOT (stock in) + a purchase (expense).
-export async function POST(req: Request) {
+async function postHandler(req: Request) {
   const limited = writeRateLimited(req);
   if (limited) return limited;
   const session = await getSession();
@@ -117,7 +118,7 @@ export async function POST(req: Request) {
 // PATCH /api/purchases?id= — record a later/partial payment against an
 // already-recorded purchase (e.g. settling a credit delivery via M-Pesa weeks
 // after receipt). Locked so two concurrent settlements can't race each other.
-export async function PATCH(req: Request) {
+async function patchHandler(req: Request) {
   const limited = writeRateLimited(req);
   if (limited) return limited;
   const session = await getSession();
@@ -149,3 +150,7 @@ export async function PATCH(req: Request) {
   }
   return ok({ id });
 }
+
+export const GET = withErrorLogging('GET /api/purchases', getHandler);
+export const POST = withErrorLogging('POST /api/purchases', postHandler);
+export const PATCH = withErrorLogging('PATCH /api/purchases', patchHandler);

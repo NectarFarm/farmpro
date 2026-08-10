@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { ENTERPRISE_OPTIONS, enterpriseIcon as enterpriseIconFor } from '@/lib/species';
+import { StatPanel } from '@/components/ui/stat-panel';
 
 const ProductionChart = dynamic(() => import('./ProductionChart'), {
   ssr: false,
@@ -22,8 +23,13 @@ const fmtKES = (n: number) => `KSh ${n.toLocaleString('en-KE')}`;
 const PRODUCT_COLORS = ['#10b981', '#6366f1', '#06b6d4', '#ec4899', '#8b5cf6', '#f97316'];
 
 export default function OwnerDashboardPage() {
-  const { user } = useAuthStore();
+  const { user, hasHydrated } = useAuthStore();
   const router = useRouter();
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setGaveUp(true), 3000);
+    return () => clearTimeout(timer);
+  }, []);
   const [kpis, setKpis] = useState({
     activeBatches: 0, totalBirds: 0, mortalityPct: 0, avgFCR: 0,
     grossMargin: 0, pendingAlerts: 0, taskCompletionPct: 0,
@@ -52,24 +58,28 @@ export default function OwnerDashboardPage() {
   }, []);
 
   useEffect(() => {
+    // The persisted session hasn't been read from localStorage yet on this
+    // very first pass — deciding before hydration finishes would bounce an
+    // already-signed-in owner to login on every hard refresh/deep link.
+    if (!hasHydrated && !gaveUp) return;
     if (!user) { router.replace('/owner/login'); return; }
     fetchDashboardData();
-  }, [user, router, fetchDashboardData]);
+  }, [user, hasHydrated, gaveUp, router, fetchDashboardData]);
 
-  const groups: { heading: string; cards: { label: string; value: string; Icon: typeof Layers; tint: string; sub?: string; good?: boolean; bad?: boolean }[] }[] = [
+  const groups: { heading: string; cards: { label: string; value: string; Icon: typeof Layers; sub?: string; good?: boolean; bad?: boolean }[] }[] = [
     { heading: t('livestockHealth'), cards: [
-      { label: t('activeBatches'), value: String(kpis.activeBatches), Icon: Layers, tint:'text-emerald-600 bg-emerald-50' },
-      { label: t('totalAnimals'), value: fmt(kpis.totalBirds), Icon: Bird, tint:'text-sky-600 bg-sky-50' },
-      { label: t('mortalityRate'), value: `${kpis.mortalityPct}%`, Icon: HeartPulse, tint:'text-rose-600 bg-rose-50', bad:kpis.mortalityPct >= 5 },
-      { label: t('averageFCR'), value: String(kpis.avgFCR), Icon: Wheat, tint:'text-violet-600 bg-violet-50', sub:`${t('target')} ≤ 2.8`, good:kpis.avgFCR > 0 && kpis.avgFCR <= 2.8 },
+      { label: t('activeBatches'), value: String(kpis.activeBatches), Icon: Layers },
+      { label: t('totalAnimals'), value: fmt(kpis.totalBirds), Icon: Bird },
+      { label: t('mortalityRate'), value: `${kpis.mortalityPct}%`, Icon: HeartPulse, bad:kpis.mortalityPct >= 5 },
+      { label: t('averageFCR'), value: String(kpis.avgFCR), Icon: Wheat, sub:`${t('target')} ≤ 2.8`, good:kpis.avgFCR > 0 && kpis.avgFCR <= 2.8 },
     ] },
     { heading: t('finance'), cards: [
-      { label: t('grossMargin'), value: fmtKES(kpis.grossMargin), Icon: Wallet, tint:'text-emerald-600 bg-emerald-50', good:kpis.grossMargin > 0, bad:kpis.grossMargin < 0 },
-      { label: `${t('revenue')} (${t(revPeriod as TranslationKey)})`, value: fmtKES(REV[revPeriod]), Icon: TrendingUp, tint:'text-amber-600 bg-amber-50' },
+      { label: t('grossMargin'), value: fmtKES(kpis.grossMargin), Icon: Wallet, good:kpis.grossMargin > 0, bad:kpis.grossMargin < 0 },
+      { label: `${t('revenue')} (${t(revPeriod as TranslationKey)})`, value: fmtKES(REV[revPeriod]), Icon: TrendingUp },
     ] },
     { heading: t('operations'), cards: [
-      { label: t('taskCompletion'), value: `${kpis.taskCompletionPct}%`, Icon: CheckCircle2, tint:'text-indigo-600 bg-indigo-50', sub:t('today') },
-      { label: t('pendingAlerts'), value: String(kpis.pendingAlerts), Icon: BellRing, tint:'text-orange-600 bg-orange-50', bad:kpis.pendingAlerts > 0 },
+      { label: t('taskCompletion'), value: `${kpis.taskCompletionPct}%`, Icon: CheckCircle2, sub:t('today') },
+      { label: t('pendingAlerts'), value: String(kpis.pendingAlerts), Icon: BellRing, bad:kpis.pendingAlerts > 0 },
     ] },
   ];
 
@@ -79,8 +89,8 @@ export default function OwnerDashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
-            <LayoutDashboard className="w-6 h-6 text-green-700" />
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <LayoutDashboard className="w-6 h-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t('farmDashboard')}</h1>
@@ -88,30 +98,30 @@ export default function OwnerDashboardPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <a href="/owner/setup" className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700">+ {t('setupWizard')}</a>
+          <a href="/owner/setup" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90">+ {t('setupWizard')}</a>
           <a href="/owner/reports" className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm hover:bg-gray-200">{t('reports')}</a>
         </div>
       </div>
 
       {/* Error banner — a failed fetch must never look like "no data" */}
       {loadError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-5 flex items-center justify-between flex-wrap gap-3">
+        <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-5 flex items-center justify-between flex-wrap gap-3">
           <div>
-            <p className="font-semibold text-red-800">{t('failedToLoadFarmData')}</p>
-            <p className="text-red-700 text-sm">{t('loadFormDataFailed')}</p>
+            <p className="font-semibold text-destructive">{t('failedToLoadFarmData')}</p>
+            <p className="text-destructive/90 text-sm">{t('loadFormDataFailed')}</p>
           </div>
-          <button onClick={fetchDashboardData} className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold text-sm shrink-0">{t('retry')}</button>
+          <button onClick={fetchDashboardData} className="px-4 py-2 bg-destructive text-white rounded-lg font-semibold text-sm shrink-0">{t('retry')}</button>
         </div>
       )}
 
       {/* Empty state — only after data has loaded successfully, and never blocks the dashboard */}
       {loaded && !loadError && kpis.activeBatches === 0 && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-5 flex items-center justify-between flex-wrap gap-3">
+        <div className="bg-success/10 border border-success/30 rounded-xl p-5 flex items-center justify-between flex-wrap gap-3">
           <div>
-            <p className="font-semibold text-green-800">{t('noActiveBatchesYet')}</p>
-            <p className="text-green-700 text-sm">{t('setupGuideHint')}</p>
+            <p className="font-semibold text-success">{t('noActiveBatchesYet')}</p>
+            <p className="text-success/90 text-sm">{t('setupGuideHint')}</p>
           </div>
-          <Link href="/owner/farm" className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm shrink-0">{t('goToFarm')} →</Link>
+          <Link href="/owner/farm" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm shrink-0">{t('goToFarm')} →</Link>
         </div>
       )}
 
@@ -129,20 +139,10 @@ export default function OwnerDashboardPage() {
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {group.cards.map(card => (
-              <div key={card.label} className="rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${card.tint}`}>
-                    <card.Icon className="w-[18px] h-[18px]" strokeWidth={2} />
-                  </span>
-                  {card.sub && <span className="text-[11px] text-gray-400">{card.sub}</span>}
-                </div>
-                <div>
-                  <p className={`text-2xl font-bold tracking-tight ${card.bad ? 'text-rose-600' : card.good ? 'text-emerald-600' : 'text-gray-900'}`}>{card.value}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{card.label}</p>
-                </div>
-              </div>
+              <StatPanel key={card.label} label={card.label} value={card.value} icon={card.Icon} sub={card.sub}
+                tone={card.bad ? 'bad' : card.good ? 'good' : 'neutral'} />
             ))}
           </div>
         </div>

@@ -1,5 +1,6 @@
 'use client';
 import { Wheat, Plus, X, Check, AlertTriangle } from 'lucide-react';
+import { RecordHeader } from '@/components/worker/RecordPageShell';
 import { uuid } from '@/lib/uuid';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -89,11 +90,8 @@ export default function FeedingPage() {
   };
 
   return (
-    <div className="p-4 flex flex-col gap-5">
-      <div className="bg-green-700 text-white rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Wheat className="w-6 h-6 shrink-0" /><span>{t('feedingLog')}</span></h1>
-        <p className="text-green-200 text-sm">{t('feedingLogSubtitle')}</p>
-      </div>
+    <div className="p-4 flex flex-col gap-5 md:max-w-lg md:mx-auto">
+      <RecordHeader icon={Wheat} title={t('feedingLog')} subtitle={t('feedingLogSubtitle')} accent="green" />
 
       {loadError && <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 font-semibold">{loadError}</p>}
       <StaleDataNotice cachedAt={staleAt} />

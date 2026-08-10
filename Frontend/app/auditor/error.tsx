@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
+import { reportError } from '@/lib/errorReporter';
 
 export default function AuditorError({
   error,
@@ -13,6 +14,7 @@ export default function AuditorError({
 }) {
   useEffect(() => {
     console.error('Auditor page error:', error);
+    reportError(error, 'auditor');
   }, [error]);
 
   return (

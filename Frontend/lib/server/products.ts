@@ -33,6 +33,8 @@ export async function createProductsForBatch(tenantId: string, batchId: string, 
       id, tenantId, batchId, name: d.name, baseUnit: d.baseUnit, saleUnits: d.saleUnits,
       collectFrequency: d.collectFrequency, flow: d.flow ?? 'sale', fieldKey, active: true,
       isAnimalProduct: d.isAnimalProduct ?? false,
+      isMainProduct: d.isMainProduct ?? false,
+      isCostDriver: d.isCostDriver ?? false,
     });
     created.push({ id, name: d.name, fieldKey, frequency: d.collectFrequency });
   }

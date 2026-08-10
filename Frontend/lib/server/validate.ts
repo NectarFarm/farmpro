@@ -101,6 +101,22 @@ export const createBatchSchema = z.object({
   stage: z.string().optional(),
 });
 
+// PATCH /api/data/batches?id= — corrects mistyped data-entry fields after
+// creation (e.g. a wrong acquisition price). Deliberately excludes unitId,
+// qty/quantity, and stage — those change via the dedicated move/adjust/
+// advance-stage flows, which also update unit occupancy and history/audit
+// entries that a plain field edit here would bypass.
+export const updateBatchSchema = z.object({
+  name: zNonEmpty.optional(),
+  species: z.string().optional(),
+  enterprise: z.string().optional().nullable(),
+  breed: z.string().optional().nullable(),
+  source: z.string().optional(),
+  acquiredDate: z.string().optional(),
+  acquisitionCost: zNonNegNumberCoerced.optional(),
+  ageAtAcquire: zNonNegNumberCoerced.optional(),
+});
+
 // POST /api/batches/split-delivery — one delivery (e.g. 3600 fries), received
 // as a single lot but stocked across several units in one action (e.g. 1200
 // into each of 3 tanks). Creates one normal single-unit batch per allocation,
@@ -383,6 +399,10 @@ export const productionPayloadSchema = z.object({
   eggs: zCoercedNum().finite().min(0).optional(),
   count: zCoercedNum().finite().min(0).optional(),
   weightKg: zCoercedNum().optional().nullable(),
+  // The client (app/worker/record/collect/page.tsx) already sends this — it
+  // was previously stripped here (unknown key) and never reached the DB,
+  // forcing costing to substring-match on the free-text `type` instead. See #22.
+  productId: z.string().optional().nullable(),
 });
 
 export const weightSamplePayloadSchema = z.object({
@@ -449,7 +469,10 @@ export const physicalCountSchema = z.object({
 });
 
 export const auditorLinkSchema = z.object({
-  email: z.string().email().optional(),
+  // The client always sends the `email` key (never omits it), so a blank
+  // "optional" field arrives as '' — treat that the same as not provided,
+  // rather than failing z.string().email()'s format check on an empty string.
+  email: z.preprocess((v) => (v === '' ? undefined : v), z.string().email().optional()),
   days: z.number().int().min(1).max(14).optional(),
 });
 
