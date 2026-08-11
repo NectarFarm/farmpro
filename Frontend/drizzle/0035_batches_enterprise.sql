@@ -3,4 +3,10 @@
 -- species string, which was unreliable for several enterprise types. Nullable
 -- so existing batches remain valid; server code falls back to guessing from
 -- species for rows created before this column existed.
-ALTER TABLE "batches" ADD COLUMN "enterprise" text;
+-- `IF NOT EXISTS`: production reached this column via an out-of-band schema
+-- sync (drizzle-kit push or a manual ALTER) without a journal row, so a plain
+-- ADD COLUMN aborts the whole migration run with SQLSTATE 42701 and every
+-- later migration is blocked. The column it creates is identical (text, NULL),
+-- so skipping it when present is a no-op, not a divergence. See 0036/0037,
+-- which already guard every statement this way.
+ALTER TABLE "batches" ADD COLUMN IF NOT EXISTS "enterprise" text;
