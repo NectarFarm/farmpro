@@ -106,16 +106,17 @@ function sessionRole(raw: unknown): Role | null {
 export default function Home() {
   const [authState, setAuthState] = useState<AuthState>("booting");
   const [role, setRole] = useState<Role>("owner");
+  const [tenantId, setTenantId] = useState<string | null>(null);
 
   // Real session bootstrap (issue #220): GET /api/auth/session on load. 200 with a
-  // known role -> authenticated shell; anything else (401, or the endpoint not yet
-  // present on the new in-branch backend) -> login screen, where the mock accounts
-  // still work until the real session backend lands.
+  // known role -> authenticated shell; anything else (401, network failure, unknown
+  // role) -> login screen. The real backend landed in #221, so sessions persist
+  // across refresh via the httpOnly cookie.
   React.useEffect(() => {
     let cancelled = false;
     // Timeout race mirrors the logout pattern (issue #220): a session endpoint
     // that hangs must not leave the shell stuck on the boot screen forever.
-    const boot = apiClient.get<{ role?: string }>("/api/auth/session");
+    const boot = apiClient.get<{ role?: string; tenantId?: string | null }>("/api/auth/session");
     const timeout = new Promise<{ success: false }>((resolve) =>
       setTimeout(() => resolve({ success: false }), 3000)
     );
@@ -123,8 +124,10 @@ export default function Home() {
       .then((res) => {
         if (cancelled) return;
         const r = res.success ? sessionRole(res.data?.role) : null;
+        const tenant = res.success && typeof res.data?.tenantId === "string" ? res.data.tenantId : null;
         if (r) {
           setRole(r);
+          setTenantId(tenant);
           setAuthState("app");
         } else {
           // 401, endpoint absent on the new backend, timeout, or unknown role ->
@@ -138,8 +141,9 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
-  function handleLogin(r: Role) {
+  function handleLogin(r: Role, tenant: string | null = null) {
     setRole(r);
+    setTenantId(tenant);
     setAuthState("app");
   }
 
@@ -202,7 +206,7 @@ export default function Home() {
                 )}
 
                 {authState === "app" && (
-                  <NavProvider initialRole={role}>
+                  <NavProvider initialRole={role} initialTenantId={tenantId ?? undefined}>
                     <ScreenRouter onLogout={handleLogout} />
                   </NavProvider>
                 )}

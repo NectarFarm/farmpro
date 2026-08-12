@@ -51,9 +51,9 @@ export interface NavContext {
   unreadNotifs: number;
 }
 
-/* Provisional tenant scope (issue #219): the new in-branch backend has no session
- * system yet — that's #220's session-bootstrap work — so /api/farms scopes per
- * request. This placeholder becomes `session.tenantId` once #220 lands. */
+/* Tenant scope for /api/farms. With real sessions (issue #221) NavProvider gets
+ * the session's tenantId from the bootstrap; this env value is only the fallback
+ * for standalone mock mode (no backend running). */
 const PROVISIONAL_TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "t1";
 
 const NavCtx = createContext<NavContext>({
@@ -112,7 +112,7 @@ function startScreenForRole(role: Role): ScreenId {
   return "dashboard"; // owner / manager
 }
 
-export function NavProvider({ children, initialRole = "owner" }: { children: React.ReactNode; initialRole?: NavContext["role"] }) {
+export function NavProvider({ children, initialRole = "owner", initialTenantId }: { children: React.ReactNode; initialRole?: NavContext["role"]; initialTenantId?: string }) {
   const [role, setRole] = useState<NavContext["role"]>(initialRole);
   const startScreen: ScreenId = startScreenForRole(initialRole);
   const [current, setCurrent] = useState<ScreenId>(startScreen);
@@ -129,7 +129,7 @@ export function NavProvider({ children, initialRole = "owner" }: { children: Rea
   useEffect(() => {
     let cancelled = false;
     apiClient.get<{ id: string; code: string; name: string; location: string }[]>(
-      `/api/farms?tenantId=${PROVISIONAL_TENANT_ID}`
+      `/api/farms?tenantId=${initialTenantId ?? PROVISIONAL_TENANT_ID}`
     ).then(res => {
       if (cancelled) return;
       // Empty (valid) responses keep the mock set — the standalone app isn't seeded.

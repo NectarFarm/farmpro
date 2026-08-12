@@ -9,6 +9,7 @@ import { ENTERPRISE_REGISTRY, type OnboardRequest } from "./data";
 import { Eye, EyeOff, Check, ChevronRight, AlertTriangle, Phone, Mail } from "./icons";
 import { useToast } from "./ui-shared";
 import { type Role } from "./navigation";
+import { apiClient } from "@/lib/request";
 
 /* ── Shared GPS + Map block ──────────────────────────────────────────────── */
 export function GpsMapBlock({
@@ -108,12 +109,16 @@ export function useReverseGeocode(lat: string, lng: string, onResult: (addr: str
   }, [lat, lng]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-/* ── Demo credentials (simulated auth) ── */
-const DEMO_USERS = [
-  { email: "james@nakurufarm.com", password: "farm2026", role: "owner" as const,  name: "James Kamau",   pin: null  },
-  { email: "peter@nakurufarm.com", password: "mgr123",   role: "manager" as const, name: "Peter Njoroge", pin: null  },
-  { email: "john@nakurufarm.com",  password: "", pin: "1234", role: "worker" as const, name: "John Kamau", email2: "worker" },
-  { email: "admin@ifms.co",        password: "admin2026", role: "super_admin" as const, name: "IFMS Admin", pin: null  },
+/* ── Real demo accounts (seeded via `pnpm db:seed`, issue #221) ──
+ * Login is backed by POST /api/auth/login against the `users` table — these
+ * credentials are real seeded rows, listed here for the demo hints box. */
+const DEMO_ACCOUNTS = [
+  { label: "👑 Owner",      cred: "james@nakurufarm.com / farm2026" },
+  { label: "🧑‍💼 Manager",   cred: "peter@nakurufarm.com / mgr123" },
+  { label: "👷 Worker PIN",  cred: "1234" },
+  { label: "🩺 Vet",        cred: "vet@nakurufarm.com / vet123" },
+  { label: "🔍 Auditor",    cred: "auditor@ifms.co / aud123" },
+  { label: "⚙️ Super Admin", cred: "admin@ifms.co / admin2026" },
 ];
 
 /* ── Shared gradient header ── */
@@ -128,7 +133,7 @@ function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
 }
 
 /* ── LOGIN SCREEN ── */
-export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role) => void; onRegister?: () => void }) {
+export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, tenantId?: string | null) => void; onRegister?: () => void }) {
   const [tab, setTab] = useState<"email" | "pin">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -139,17 +144,28 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role) => 
   const [resetEmail, setResetEmail] = useState("");
   const [resetError, setResetError] = useState("");
   const { showToast } = useToast();
+  const [busy, setBusy] = useState(false);
+
+  async function doLogin(payload: { email?: string; password?: string; pin?: string }) {
+    setBusy(true); setError("");
+    const res = await apiClient.post<{ role: Role; tenantId: string | null }>("/api/auth/login", payload);
+    setBusy(false);
+    if (res.success && res.data?.role) {
+      onLogin(res.data.role, res.data.tenantId);
+    } else {
+      setError(res.success ? "Sign-in failed — try the seeded demo accounts below." : (res.error || "Sign-in failed"));
+      if (payload.pin) setTimeout(() => setPin(""), 600);
+    }
+  }
 
   function handleEmailLogin() {
-    const user = DEMO_USERS.find(u => u.email === email.trim() && u.password === password && u.password !== "");
-    if (user) { setError(""); onLogin(user.role); }
-    else setError("Invalid email or password. Try james@nakurufarm.com / farm2026");
+    if (!email.trim() || !password) { setError("Enter your email and password."); return; }
+    void doLogin({ email: email.trim(), password });
   }
 
   function handlePinLogin() {
-    const user = DEMO_USERS.find(u => u.pin === pin);
-    if (user) { setError(""); onLogin(user.role); }
-    else setError("Wrong PIN. Try 1234 for worker demo.");
+    if (!pin) { setError("Enter your 4-digit PIN."); return; }
+    void doLogin({ pin });
   }
 
   function handlePinKey(digit: string) {
@@ -158,9 +174,8 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role) => 
     if (next.length <= 4) {
       setPin(next);
       if (next.length === 4) {
-        const user = DEMO_USERS.find(u => u.pin === next);
-        if (user) { setError(""); setTimeout(() => onLogin(user.role), 200); }
-        else { setError("Wrong PIN"); setTimeout(() => setPin(""), 600); }
+        setError("");
+        void doLogin({ pin: next });
       }
     }
   }
@@ -241,8 +256,8 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role) => 
             Forgot password?
           </button>
           {error && <div style={{ padding: "10px 12px", background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, fontSize: 12, color: "var(--status-critical)", marginBottom: 14 }}>{error}</div>}
-          <button className="btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={handleEmailLogin}>
-            Sign In →
+          <button className="btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={handleEmailLogin} disabled={busy}>
+            {busy ? "Signing in…" : "Sign In →"}
           </button>
         </div>
       ) : (
@@ -276,12 +291,7 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role) => 
       <div style={{ marginTop: 20, padding: "12px 14px", background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: 12 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: "var(--primary-green)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Demo Accounts</div>
         <div style={{ display: "grid", gap: 4 }}>
-          {[
-            { label: "👑 Owner", cred: "james@nakurufarm.com / farm2026" },
-            { label: "🧑‍💼 Manager", cred: "peter@nakurufarm.com / mgr123" },
-            { label: "👷 Worker PIN", cred: "1234" },
-            { label: "⚙️ Super Admin", cred: "admin@ifms.co / admin2026" },
-          ].map(d => (
+          {DEMO_ACCOUNTS.map(d => (
             <div key={d.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
               <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>{d.label}</span>
               <span style={{ color: "var(--text-dim)", fontFamily: "monospace" }}>{d.cred}</span>

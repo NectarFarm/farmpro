@@ -3,6 +3,8 @@
 // shape the reference backend designs toward (issue #219).
 import { pgTable, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
+export * from './auth'
+
 // A tenant's farms. One tenant owns several farms; each farm carries its own
 // production units. The farm switcher in the shell reads these via GET /api/farms.
 export const farms = pgTable('farms', {
