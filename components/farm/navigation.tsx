@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, createContext, useContext, useCallback } from "react";
+import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
 import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut } from "./icons";
-import { NOTIFICATIONS_DATA } from "./data";
+import { FARMS_DATA, NOTIFICATIONS_DATA } from "./data";
+import { apiClient } from "@/lib/request";
 
 /* ── Screen registry ── */
 export type ScreenId =
@@ -26,13 +27,22 @@ export type ScreenId =
  * never silently into the worker/owner tab set. */
 export type Role = "owner" | "manager" | "worker" | "vet" | "auditor" | "super_admin";
 
+/* A farm as the shell needs it: identity + display fields. Rows from the backend
+ * GET /api/farms map onto this; the mock FARMS_DATA do too. */
+export interface FarmSummary {
+  id: string;
+  code: string;
+  name: string;
+  location: string;
+}
+
 export interface NavContext {
   current: ScreenId;
   history: ScreenId[];
   role: Role;
   params: Record<string, string>;
-  activeFarm: string; // Tenant farm code. One tenant = one farm in the real schema,
-  // so this is NOT user-switchable — the farm switcher UI was removed (issue #219).
+  activeFarm: string; // Code of the farm currently in view — switchable (multi-farm, issue #219).
+  farms: FarmSummary[]; // The tenant's farms (from GET /api/farms; mock FARMS_DATA fallback).
   navigate: (to: ScreenId, params?: Record<string, string>) => void;
   goBack: () => void;
   setActiveFarm: (code: string) => void;
@@ -44,6 +54,7 @@ export interface NavContext {
 const NavCtx = createContext<NavContext>({
   current: "dashboard", history: [], role: "owner", params: {},
   activeFarm: "FRM-KMU-001",
+  farms: [],
   navigate: () => {}, goBack: () => {}, setActiveFarm: () => {},
   alertCount: 3, pendingApprovals: 2, unreadNotifs: 3,
 });
@@ -104,6 +115,23 @@ export function NavProvider({ children, initialRole = "owner" }: { children: Rea
   const [params, setParams] = useState<Record<string, string>>({});
   const [activeFarm, setActiveFarm] = useState("FRM-KMU-001");
 
+  // The tenant's farms for the switcher: prefer the real backend (GET /api/farms),
+  // fall back to the mock FARMS_DATA when running standalone without the API
+  // (the mock app has no /api/farms route, so the fetch 404s and the fallback holds).
+  const [farms, setFarms] = useState<FarmSummary[]>(() =>
+    FARMS_DATA.map(f => ({ id: f.code, code: f.code, name: f.name, location: f.location }))
+  );
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<{ id: string; code: string; name: string; location: string }[]>("/api/farms").then(res => {
+      if (cancelled) return;
+      if (res.success && Array.isArray(res.data) && res.data.length) {
+        setFarms(res.data.map(f => ({ id: f.id, code: f.code || f.id, name: f.name, location: f.location ?? "" })));
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   const navigate = useCallback((to: ScreenId, p?: Record<string, string>) => {
     setCurrent((prev) => { setHistory((h) => [...h, prev]); return to; });
     setParams(p ?? {});
@@ -120,7 +148,7 @@ export function NavProvider({ children, initialRole = "owner" }: { children: Rea
   const unreadNotifs = NOTIFICATIONS_DATA.filter(n => !n.read).length;
 
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarm, navigate, goBack, setActiveFarm, alertCount: 3, pendingApprovals: 2, unreadNotifs }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, navigate, goBack, setActiveFarm, alertCount: 3, pendingApprovals: 2, unreadNotifs }}>
       <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       {children}
     </NavCtx.Provider>

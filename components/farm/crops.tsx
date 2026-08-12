@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNav, TopNav } from "./navigation";
 import { FARMS_DATA, BATCHES_DATA, ENTERPRISE_REGISTRY, type Batch } from "./data";
 import { Plus, ChevronRight, Activity, X, Check, Calendar, MapPin, Users, Download, Upload, ArrowRight } from "./icons";
@@ -87,11 +87,18 @@ function LivestockBatchCard({ batch, navigate }: { batch: Batch; navigate: (id: 
 }
 
 export function CropsScreen() {
-  const { navigate, activeFarm } = useNav();
+  const { navigate, activeFarm, farms } = useNav();
   const [tab, setTab] = useState<"livestock" | "crops" | "units">("livestock");
   const [filter, setFilter] = useState("All");
   const [farmFilter, setFarmFilter] = useState(activeFarm === "ALL" ? "All" : activeFarm);
   const [showEnterpriseSelector, setShowEnterpriseSelector] = useState(false);
+
+  // Keep the in-screen farm filter in sync with the shell's active farm so that
+  // switching farms re-scopes this screen too (issue #219). In the "All Farms"
+  // aggregate view the chips below take over instead.
+  useEffect(() => {
+    if (activeFarm !== "ALL") setFarmFilter(activeFarm)
+  }, [activeFarm])
 
   const farmBatches = farmFilter === "All" ? BATCHES_DATA : BATCHES_DATA.filter(b => b.farmCode === farmFilter);
   const livestockBatches = farmBatches.filter(b => ENTERPRISE_REGISTRY.find(e => e.subtype === b.enterprise)?.type === "livestock");
@@ -111,7 +118,17 @@ export function CropsScreen() {
         }
       />
 
-      {/* Farm filter removed — one tenant = one farm, no multi-farm view (issue #219) */}
+      {/* Farm filter — shown in the "All Farms" aggregate view (multi-farm owners, issue #219) */}
+      {activeFarm === "ALL" && (
+        <div className="px-screen" style={{ paddingTop: 8 }}>
+          <div className="chip-row" style={{ marginBottom: 6 }}>
+            <button onClick={() => setFarmFilter("All")} className={`filter-chip ${farmFilter === "All" ? "active" : ""}`}>All Farms</button>
+            {farms.map(f => (
+              <button key={f.code} onClick={() => setFarmFilter(f.code)} className={`filter-chip ${farmFilter === f.code ? "active" : ""}`}>{f.name}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Summary strip */}
       <div className="px-screen" style={{ paddingTop: 8 }}>
