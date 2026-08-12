@@ -7,6 +7,7 @@ import {
   checkLoginThrottle,
   clearLoginThrottle,
   createSession,
+  isTenantActive,
   MAX_PIN_GLOBAL_ATTEMPTS,
   pinPrefilter,
   recordLoginFailure,
@@ -89,6 +90,12 @@ export async function POST(req: Request) {
   }
   if (user.status !== 'ACTIVE') {
     return json({ success: false, error: 'This account is not active — contact support' }, 403)
+  }
+  // Suspended-tenant gate (issue #223): a tenant-scoped account at an inactive
+  // tenant must not get a session. Correct credentials, so no failure is
+  // recorded against the throttle — this is a policy denial, not a bad attempt.
+  if (user.tenantId && !(await isTenantActive(user.tenantId))) {
+    return json({ success: false, error: 'This account is suspended — contact support' }, 403)
   }
 
   await clearLoginThrottle(identifier)

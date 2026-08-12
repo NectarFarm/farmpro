@@ -2,11 +2,24 @@
 // session bootstrap (GET /api/auth/session). The UI role set mirrors the backend
 // roles exactly — owner | manager | worker | vet | auditor | super_admin
 // (issue #219): platform roles (super_admin) have no tenant; farm-scoped roles do.
-import { pgTable, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, integer, index, uniqueIndex } from 'drizzle-orm/pg-core'
+
+// A tenant is the account/billing scope. `active` gates logins for every
+// tenant-scoped role (issue #223): workers and owners at a suspended tenant
+// must not receive a session.
+export const tenants = pgTable('tenants', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+})
 
 export const users = pgTable('users', {
   id: text('id').primaryKey(),
   // Farm-scoped roles carry their tenant; platform roles (super_admin) are null.
+  // Logical reference to tenants.id (no DB FK): an ALTER-added FK would fail on
+  // pre-existing rows whose tenant is only seeded after migrate, and gating is a
+  // lookup (isTenantActive), not a join. Seed inserts tenants before users.
   tenantId: text('tenant_id'),
   name: text('name').notNull(),
   email: text('email').notNull(),

@@ -8,7 +8,7 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { and, eq, gt } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { loginThrottle, sessions, users } from '@/db/schemas'
+import { loginThrottle, sessions, tenants, users } from '@/db/schemas'
 
 export const SESSION_COOKIE = 'ifms_session'
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
@@ -96,6 +96,16 @@ export async function recordLoginFailure(identifier: string, base: number = MAX_
 
 export async function clearLoginThrottle(identifier: string): Promise<void> {
   await db.delete(loginThrottle).where(eq(loginThrottle.identifier, identifier))
+}
+
+/* ── Tenant gating (issue #223) ──
+ * Tenant-scoped accounts (owner/manager/worker/vet/auditor) may only receive a
+ * session while their tenant is active. Platform roles (super_admin) have no
+ * tenant and are unaffected. The login route calls this before issuing a
+ * session — a worker at a suspended farm must not be able to log in. */
+export async function isTenantActive(tenantId: string): Promise<boolean> {
+  const rows = await db.select({ active: tenants.active }).from(tenants).where(eq(tenants.id, tenantId)).limit(1)
+  return rows[0]?.active === true
 }
 
 /* ── Sessions ── */
