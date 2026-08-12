@@ -12,6 +12,7 @@
     "lint": "eslint --fix",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:seed": "node db/seed.mjs",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {

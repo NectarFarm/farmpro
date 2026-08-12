@@ -1,16 +1,16 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { farms } from '@/db/schemas'
+import { getSessionUser } from '@/lib/auth'
 import { eq, asc } from 'drizzle-orm'
 
 // ── Farms API (issue #219) ─────────────────────────────────────────────────
 // New-backend routes powering the shell's farm switcher. Built fresh in this
 // project per the review on #266 — NOT against the old Frontend/ backend.
 //
-// Tenant scoping is PROVISIONAL: the new backend has no session system yet
-// (that's the #220 session-bootstrap issue), so these routes take the tenant id
-// per request. When #220 lands real sessions, swap `tenantId` below for
-// `session.tenantId` and enforce the owner/manager gate there.
+// Tenant scoping: with real sessions (issue #221) the tenant comes from the
+// authenticated session when present; the per-request `tenantId` stays as the
+// fallback for standalone mock mode (no active session).
 //
 // Response envelope matches app/api/health/route.ts and lib/api-response.ts
 // ({ success, data | error }), which lib/request.ts's parseApiResponse already
@@ -36,7 +36,8 @@ function isUniqueViolation(err: unknown): boolean {
 
 // GET /api/farms?tenantId=... — list a tenant's farms (oldest first).
 export async function GET(req: Request) {
-  const tenantId = new URL(req.url).searchParams.get('tenantId')?.trim()
+  const session = await getSessionUser()
+  const tenantId = session?.tenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim()
   if (!tenantId) return badRequest('tenantId is required')
   const rows = await db
     .select()
@@ -56,7 +57,8 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const tenantId = typeof b.tenantId === 'string' ? b.tenantId.trim() : ''
+  const session = await getSessionUser()
+  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
   const name = typeof b.name === 'string' ? b.name.trim() : ''
   if (!tenantId) return badRequest('tenantId is required')
   if (!name) return badRequest('name is required')
