@@ -51,6 +51,11 @@ export interface NavContext {
   unreadNotifs: number;
 }
 
+/* Provisional tenant scope (issue #219): the new in-branch backend has no session
+ * system yet — that's #220's session-bootstrap work — so /api/farms scopes per
+ * request. This placeholder becomes `session.tenantId` once #220 lands. */
+const PROVISIONAL_TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "t1";
+
 const NavCtx = createContext<NavContext>({
   current: "dashboard", history: [], role: "owner", params: {},
   activeFarm: "FRM-KMU-001",
@@ -123,8 +128,11 @@ export function NavProvider({ children, initialRole = "owner" }: { children: Rea
   );
   useEffect(() => {
     let cancelled = false;
-    apiClient.get<{ id: string; code: string; name: string; location: string }[]>("/api/farms").then(res => {
+    apiClient.get<{ id: string; code: string; name: string; location: string }[]>(
+      `/api/farms?tenantId=${PROVISIONAL_TENANT_ID}`
+    ).then(res => {
       if (cancelled) return;
+      // Empty (valid) responses keep the mock set — the standalone app isn't seeded.
       if (res.success && Array.isArray(res.data) && res.data.length) {
         setFarms(res.data.map(f => ({ id: f.id, code: f.code || f.id, name: f.name, location: f.location ?? "" })));
       }
