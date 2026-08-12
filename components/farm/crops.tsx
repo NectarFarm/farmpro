@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useNav, TopNav } from "./navigation";
-import { FARMS_DATA, BATCHES_DATA, ENTERPRISE_REGISTRY, type Batch } from "./data";
+import { BATCHES_DATA, ENTERPRISE_REGISTRY, type Batch } from "./data";
 import { Plus, ChevronRight, Activity, X, Check, Calendar, MapPin, Users, Download, Upload, ArrowRight } from "./icons";
 
 function genCode(prefix: string, farmCode: string, n: number) {
