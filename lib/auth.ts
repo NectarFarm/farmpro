@@ -4,7 +4,7 @@
 // imported only by route handlers (server side), never by client components.
 import 'server-only'
 import { cookies } from 'next/headers'
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { and, eq, gt } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
@@ -54,6 +54,9 @@ export async function destroySession(token: string | undefined): Promise<void> {
 }
 
 // Resolve the cookie's session row to a user, or null when absent/expired.
+// NOTE: does NOT re-check users.status === 'ACTIVE' here — a user suspended after
+// login keeps a working session until expiry. The suspended-tenant login edge is
+// issue #223's scope; when that lands, add the status gate in this lookup too.
 export async function getSessionUser(): Promise<SessionUser | null> {
   const store = await cookies()
   const token = store.get(SESSION_COOKIE)?.value
@@ -69,9 +72,6 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   return { id: u.id, name: u.name, email: u.email, role: u.role, tenantId: u.tenantId }
 }
 
-export function userId(): string {
-  return randomUUID()
-}
 
 /* ── Cookie attach/clear on the outgoing response ── */
 export function attachSessionCookie(res: NextResponse, token: string): NextResponse {
