@@ -1,7 +1,7 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNav, TopNav } from "./navigation";
-import { FARMS_DATA, BATCHES_DATA, ENTERPRISE_REGISTRY, type Batch } from "./data";
+import { BATCHES_DATA, ENTERPRISE_REGISTRY, type Batch } from "./data";
 import { Plus, ChevronRight, Activity, X, Check, Calendar, MapPin, Users, Download, Upload, ArrowRight } from "./icons";
 
 function genCode(prefix: string, farmCode: string, n: number) {
@@ -87,11 +87,18 @@ function LivestockBatchCard({ batch, navigate }: { batch: Batch; navigate: (id: 
 }
 
 export function CropsScreen() {
-  const { navigate, activeFarm } = useNav();
+  const { navigate, activeFarm, farms } = useNav();
   const [tab, setTab] = useState<"livestock" | "crops" | "units">("livestock");
   const [filter, setFilter] = useState("All");
   const [farmFilter, setFarmFilter] = useState(activeFarm === "ALL" ? "All" : activeFarm);
   const [showEnterpriseSelector, setShowEnterpriseSelector] = useState(false);
+
+  // Keep the in-screen farm filter in sync with the shell's active farm so that
+  // switching farms re-scopes this screen too (issue #219). In the "All Farms"
+  // aggregate view the chips below take over instead.
+  useEffect(() => {
+    if (activeFarm !== "ALL") setFarmFilter(activeFarm)
+  }, [activeFarm])
 
   const farmBatches = farmFilter === "All" ? BATCHES_DATA : BATCHES_DATA.filter(b => b.farmCode === farmFilter);
   const livestockBatches = farmBatches.filter(b => ENTERPRISE_REGISTRY.find(e => e.subtype === b.enterprise)?.type === "livestock");
@@ -111,12 +118,12 @@ export function CropsScreen() {
         }
       />
 
-      {/* Farm filter (only visible for multi-farm owners) */}
+      {/* Farm filter — shown in the "All Farms" aggregate view (multi-farm owners, issue #219) */}
       {activeFarm === "ALL" && (
         <div className="px-screen" style={{ paddingTop: 8 }}>
           <div className="chip-row" style={{ marginBottom: 6 }}>
             <button onClick={() => setFarmFilter("All")} className={`filter-chip ${farmFilter === "All" ? "active" : ""}`}>All Farms</button>
-            {FARMS_DATA.map(f => (
+            {farms.map(f => (
               <button key={f.code} onClick={() => setFarmFilter(f.code)} className={`filter-chip ${farmFilter === f.code ? "active" : ""}`}>{f.name}</button>
             ))}
           </div>
@@ -215,7 +222,7 @@ export function CropsScreen() {
 
 /* ── Batch Detail ── */
 export function BatchDetailScreen() {
-  const { goBack, params, navigate } = useNav();
+  const { goBack, params, navigate, farms } = useNav();
   const bCode = params.code ?? "BRO-KMU-022";
   const batch = BATCHES_DATA.find(b => b.code === bCode) ?? BATCHES_DATA[0];
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === batch.enterprise)!;
@@ -252,7 +259,7 @@ export function BatchDetailScreen() {
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 10, color: "var(--text-muted)" }}>Farm</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>{FARMS_DATA.find(f => f.code === batch.farmCode)?.name}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>{farms.find(f => f.code === batch.farmCode)?.name}</div>
             </div>
           </div>
 
@@ -443,7 +450,7 @@ export function BatchDetailScreen() {
 
 /* ── Batch / Enterprise Creation Wizard ── */
 export function CropScheduleScreen() {
-  const { goBack, params } = useNav();
+  const { goBack, params, farms } = useNav();
   const subtype = params.subtype ?? "broiler";
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === subtype) ?? ENTERPRISE_REGISTRY[0];
   const isCrop = cfg.type === "crop";
@@ -489,7 +496,7 @@ export function CropScheduleScreen() {
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Farm</label>
               <select className="farm-input">
-                {FARMS_DATA.map(f => <option key={f.code} value={f.code}>{f.name} ({f.code})</option>)}
+                {farms.map(f => <option key={f.code} value={f.code}>{f.name} ({f.code})</option>)}
               </select>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>

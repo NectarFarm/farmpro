@@ -128,7 +128,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         { label: "🛡️ Governance", desc: "Approvals, roles & audit", action: () => navigate("governance"), badge: "2 pending" },
         { label: "📊 Reports", desc: "Export, share & auditor links", action: () => navigate("reports") },
         { label: "🤖 AI Farm Assistant", desc: "Smart farm advisor chatbot", action: () => navigate("ai-chat") },
-        ...(role === "admin" || role === "owner" ? [{ label: "🎨 UI Customise", desc: "Module toggles & farm branding", action: () => navigate("ui-customise") }] : []),
+        ...(role === "super_admin" || role === "owner" ? [{ label: "🎨 UI Customise", desc: "Module toggles & farm branding", action: () => navigate("ui-customise") }] : []),
       ],
     },
     {
@@ -176,7 +176,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-primary)" }}>James Kamau</div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-              {role === "owner" ? "Owner" : role === "manager" ? "Manager" : role === "worker" ? "Worker" : "Platform Admin"} · Nakuru Farm
+              {role === "owner" ? "Owner" : role === "manager" ? "Manager" : role === "worker" ? "Worker" : role === "super_admin" ? "Platform Admin" : "Staff"} · Nakuru Farm
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
               <span className="chip chip-warning" style={{ fontSize: 9 }}>{role.toUpperCase()}</span>

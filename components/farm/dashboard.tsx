@@ -4,7 +4,7 @@
 //   DashboardScreen reads BATCHES_DATA filtered by activeFarm (from NavProvider)
 //   Notification bell badge = NOTIFICATIONS_DATA.filter(!read).length
 //   QuickActions navigate to relevant screens
-//   FarmSwitcherSheet updates activeFarm in NavProvider → all screens re-filter
+//   FarmSwitcherSheet switches activeFarm (multi-farm, issue #219) → all screens re-filter
 // ============================================================
 "use client";
 import React, { useState } from "react";
@@ -22,9 +22,14 @@ const PROD_BARS = [
 ];
 const maxV = Math.max(...PROD_BARS.map((b) => b.v));
 
-/* ── Farm Switcher Sheet ── */
+/* ── Farm Switcher Sheet ──
+ * Multi-farm is a first-class feature (issue #219): an owner/manager with several
+ * farms under their tenant switches between them here, and every screen re-filters
+ * to the selected farm (or the "All Farms" aggregate view). Farms come from the
+ * real GET /api/farms when the backend is wired, else the mock set.
+ */
 function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
-  const { activeFarm, setActiveFarm } = useNav();
+  const { activeFarm, setActiveFarm, farms } = useNav()
   return (
     <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "flex-end", zIndex: 100 }} onClick={onClose}>
       <div style={{ background: "var(--surface)", borderRadius: "24px 24px 0 0", padding: 20, width: "100%", border: "1px solid var(--border-subtle)", maxHeight: "60%" }} onClick={e => e.stopPropagation()}>
@@ -32,7 +37,7 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
           <div style={{ fontWeight: 700, fontSize: 16 }}>Switch Farm</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
-        <button onClick={() => { setActiveFarm("ALL"); onClose(); }}
+        <button onClick={() => { setActiveFarm("ALL"); onClose() }}
           style={{ width: "100%", padding: "12px 14px", marginBottom: 10, borderRadius: 14, textAlign: "left", cursor: "pointer",
             background: activeFarm === "ALL" ? "rgba(74,222,128,0.12)" : "var(--card)",
             border: activeFarm === "ALL" ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
@@ -40,12 +45,12 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
           <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🌐</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>All Farms</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Aggregated view · {FARMS_DATA.length} farms</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Aggregated view · {farms.length} farms</div>
           </div>
           {activeFarm === "ALL" && <Check size={16} color="var(--primary-green)" />}
         </button>
-        {FARMS_DATA.map(farm => (
-          <button key={farm.code} onClick={() => { setActiveFarm(farm.code); onClose(); }}
+        {farms.map(farm => (
+          <button key={farm.code} onClick={() => { setActiveFarm(farm.code); onClose() }}
             style={{ width: "100%", padding: "12px 14px", marginBottom: 10, borderRadius: 14, textAlign: "left", cursor: "pointer",
               background: activeFarm === farm.code ? "rgba(74,222,128,0.12)" : "var(--card)",
               border: activeFarm === farm.code ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
@@ -53,27 +58,24 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
             <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🌾</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>{farm.name}</div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{farm.code} · {farm.location} · {farm.size}</div>
-              <div style={{ display: "flex", gap: 6, marginTop: 3 }}>
-                <span className={`chip ${farm.plan === "Pro" ? "chip-ok" : "chip-info"}`} style={{ fontSize: 8, padding: "1px 6px" }}>{farm.plan}</span>
-                <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{farm.employees}/{farm.maxEmployees} staff</span>
-              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{farm.code} · {farm.location}</div>
             </div>
             {activeFarm === farm.code && <Check size={16} color="var(--primary-green)" />}
           </button>
         ))}
       </div>
     </div>
-  );
+  )
 }
+
 
 /* ── Dashboard Screen ── */
 export function DashboardScreen() {
-  const { navigate, role, activeFarm } = useNav();
+  const { navigate, role, activeFarm, farms } = useNav();
   const [period, setPeriod] = useState<"month" | "quarter" | "year">("month");
   const [showFarmSwitcher, setShowFarmSwitcher] = useState(false);
 
-  const farm = activeFarm === "ALL" ? null : FARMS_DATA.find(f => f.code === activeFarm) ?? FARMS_DATA[0];
+  const farm = activeFarm === "ALL" ? null : farms.find(f => f.code === activeFarm) ?? farms[0];
   const farmBatches = activeFarm === "ALL" ? BATCHES_DATA : BATCHES_DATA.filter(b => b.farmCode === activeFarm);
   const activeBatches = farmBatches.filter(b => b.status === "ACTIVE").length;
 
@@ -113,7 +115,7 @@ export function DashboardScreen() {
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Good morning,</div>
           <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>James Kamau 🌾</div>
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, textTransform: "capitalize" }}>
-            {role === "owner" ? "Farm Owner" : role === "manager" ? "Farm Manager" : role === "worker" ? "Farm Worker" : "Platform Admin"}
+            {role === "owner" ? "Farm Owner" : role === "manager" ? "Farm Manager" : role === "worker" ? "Farm Worker" : role === "super_admin" ? "Platform Admin" : "Staff"}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -127,13 +129,13 @@ export function DashboardScreen() {
         </div>
       </div>
 
-      {/* Farm badge / switcher */}
+      {/* Farm badge / switcher — owners & managers with 2+ farms switch here (issue #219) */}
       {(role === "owner" || role === "manager") && (
         <button onClick={() => setShowFarmSwitcher(true)} style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: "var(--card)", border: "1px solid rgba(74,222,128,0.25)", borderRadius: 12, cursor: "pointer", width: "100%" }}>
           <span style={{ fontSize: 18 }}>🌾</span>
           <div style={{ flex: 1, textAlign: "left" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)" }}>{activeFarm === "ALL" ? "All Farms" : farm?.name ?? "Select Farm"}</div>
-            <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{activeFarm === "ALL" ? `${FARMS_DATA.length} farms · aggregated` : `${farm?.code} · ${farm?.location}`}</div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{activeFarm === "ALL" ? `${farms.length} farms · aggregated` : `${farm?.code} · ${farm?.location}`}</div>
           </div>
           <div style={{ fontSize: 10, color: "var(--primary-green)", fontWeight: 700 }}>Switch ›</div>
         </button>
@@ -212,7 +214,7 @@ export function DashboardScreen() {
             <button onClick={() => navigate("finance")} style={{ fontSize: 11, color: "var(--primary-green)", fontWeight: 600, background: "none", border: "none", cursor: "pointer" }}>Manage ›</button>
           </div>
           <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4 }}>
-            {PRODUCTS_DATA.filter(p => p.farmCode === "FRM-KMU-001").map(p => {
+            {PRODUCTS_DATA.filter(p => activeFarm === "ALL" || p.farmCode === activeFarm).map(p => {
               const price = getCurrentPrice(p);
               return price ? (
                 <button key={p.id} onClick={() => navigate("finance")}

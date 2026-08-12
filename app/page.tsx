@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, createContext, useContext } from "react";
-import { NavProvider, useNav, BottomNav, StatusBar, setGlobalLogout } from "@/components/farm/navigation";
+import { NavProvider, useNav, BottomNav, StatusBar, setGlobalLogout, RoleNoticeScreen, type Role } from "@/components/farm/navigation";
 import { DashboardScreen } from "@/components/farm/dashboard";
 import { CropsScreen, BatchDetailScreen, CropScheduleScreen } from "@/components/farm/crops";
 import { InventoryScreen, InventoryDetailScreen } from "@/components/farm/inventory";
@@ -30,7 +30,8 @@ import { LoginScreen, RegisterScreen } from "@/components/farm/auth";
 export const LogoutCtx = createContext<() => void>(() => {});
 export function useLogout() { return useContext(LogoutCtx); }
 
-type Role = "owner" | "manager" | "worker" | "admin";
+// Role is shared with navigation.tsx and mirrors the backend's 6 roles exactly
+// (UI "admin" → backend "super_admin"; vet/auditor → explicit deny — see issue #219).
 
 const TAB_SCREENS = new Set([
   "dashboard","crops","finance","tasks","settings",
@@ -69,6 +70,7 @@ function ScreenRouter({ onLogout }: { onLogout: () => void }) {
       case "admin-onboarding":  return <AdminOnboardingScreen />;
       case "ai-chat":           return <AIChatScreen />;
       case "ui-customise":      return <UICustomiseScreen />;
+      case "role-notice":       return <RoleNoticeScreen />;
       default:                  return <DashboardScreen />;
     }
   })();
