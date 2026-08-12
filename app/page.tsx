@@ -113,18 +113,28 @@ export default function Home() {
   // still work until the real session backend lands.
   React.useEffect(() => {
     let cancelled = false;
-    apiClient.get<{ role?: string }>("/api/auth/session").then((res) => {
-      if (cancelled) return;
-      const r = res.success ? sessionRole(res.data?.role) : null;
-      if (r) {
-        setRole(r);
-        setAuthState("app");
-      } else {
-        // 401, or the endpoint not yet present on the new backend -> login. Any
-        // failure (including network errors) is treated as logged-out: safe default.
-        setAuthState("login");
-      }
-    });
+    // Timeout race mirrors the logout pattern (issue #220): a session endpoint
+    // that hangs must not leave the shell stuck on the boot screen forever.
+    const boot = apiClient.get<{ role?: string }>("/api/auth/session");
+    const timeout = new Promise<{ success: false }>((resolve) =>
+      setTimeout(() => resolve({ success: false }), 3000)
+    );
+    Promise.race([boot, timeout])
+      .then((res) => {
+        if (cancelled) return;
+        const r = res.success ? sessionRole(res.data?.role) : null;
+        if (r) {
+          setRole(r);
+          setAuthState("app");
+        } else {
+          // 401, endpoint absent on the new backend, timeout, or unknown role ->
+          // login. Any failure is treated as logged-out: safe default.
+          setAuthState("login");
+        }
+      })
+      // apiClient resolves { success:false } on network errors today, but a
+      // defensive catch keeps the "any failure -> login" contract honest.
+      .catch(() => { if (!cancelled) setAuthState("login"); });
     return () => { cancelled = true; };
   }, []);
 

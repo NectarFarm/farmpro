@@ -96,18 +96,6 @@
   }
 }
 
-/* ── Android navigation shell ── */
-.farm-app {
-  max-width: 430px;
-  min-height: 100dvh;
-  margin: 0 auto;
-  background: var(--background);
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 /* ── App shell (issue #220): fluid, no phone graphic ──
  * The fixed 390x844 device frame is gone. The app is full-bleed on phones,
  * a centered column on tablets, and a sidebar layout on desktop. */
