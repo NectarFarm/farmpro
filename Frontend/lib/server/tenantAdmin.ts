@@ -2,7 +2,7 @@ import 'server-only';
 import { db } from '@/db';
 import { eq } from 'drizzle-orm';
 import {
-  users, workerProfiles, employees, productionUnits, batches, inventoryItems, inventoryLots,
+  users, workerProfiles, employees, farms, productionUnits, batches, inventoryItems, inventoryLots,
   tasks, alerts, sales, purchases, records, conflictLog, feedingRecords, mortalityRecords,
   productionRecords, healthRecords, laborLogs, overheads, alertRules, products, photos,
   closingStockCounts, feedFormulas, testRuns, testPhotos, auditorLinks, payslips, employeeLedger,
@@ -16,7 +16,7 @@ import {
 const TENANT_TABLES = [
   feedingRecords, mortalityRecords, productionRecords, healthRecords, laborLogs, closingStockCounts,
   feedFormulas, records, conflictLog, alerts, alertRules, tasks, sales, purchases,
-  products, photos, inventoryLots, inventoryItems, overheads, batches, productionUnits,
+  products, photos, inventoryLots, inventoryItems, overheads, batches, productionUnits, farms,
   employees, workerProfiles, testRuns, testPhotos, users, auditorLinks, payslips, employeeLedger,
   physicalCounts, weightSamples, observations, lifecycleStages, batchStageEvents,
 ];

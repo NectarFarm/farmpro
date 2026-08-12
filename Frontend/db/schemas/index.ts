@@ -150,10 +150,25 @@ export const employeeLedger = pgTable('employee_ledger', {
   index('idx_employee_ledger_tenant_emp').on(t.tenantId, t.employeeId),
 ]);
 
+// A tenant's farms. Tenant stays the account/billing scope; `farms` sits BELOW it,
+// exactly like productionUnits — one tenant owns several farms, each with its own
+// production units (issue #219). Before this table existed, production_units.farm_id
+// was a required text column with nothing behind it.
+export const farms = pgTable('farms', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  name: text('name').notNull(),
+  location: text('location').notNull().default(''),
+  code: text('code').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => [
+  index('idx_farms_tenant').on(t.tenantId),
+]);
+
 export const productionUnits = pgTable('production_units', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
-  farmId: text('farm_id').notNull(),
+  farmId: text('farm_id').notNull().references(() => farms.id),
   zoneId: text('zone_id'),
   type: text('type').notNull(),
   name: text('name').notNull(),

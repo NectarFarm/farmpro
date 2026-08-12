@@ -4,6 +4,7 @@ import { and, eq, asc } from 'drizzle-orm';
 import { getSession } from '@/lib/server/session';
 import { ok, created, unauthorized, forbidden, notFound, badRequest, tooMany } from '@/lib/server/http';
 import { parseBody, createUnitSchema } from '@/lib/server/validate';
+import { ensureFarm } from '@/lib/server/farms';
 import { checkWriteRateLimit, checkReadRateLimit } from '@/lib/server/rateLimit';
 import { audit, actorLabel } from '@/lib/server/audit';
 import { hiddenFieldKeysFor, stripForRead } from '@/lib/server/fieldPermissions';
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
 
   const id = crypto.randomUUID();
   await db.insert(productionUnits).values({
-    id, tenantId: session.tenantId, farmId: 'f1', type: body.type, name: body.name,
+    id, tenantId: session.tenantId, farmId: await ensureFarm(session.tenantId), type: body.type, name: body.name,
     code: body.name.slice(0, 10), capacity: body.capacity, status: 'ACTIVE', currentQty: 0,
     species: body.species ?? null,
   });

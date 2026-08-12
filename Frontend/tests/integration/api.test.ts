@@ -1121,3 +1121,54 @@ describe('sync conflicts surface to the owner and can be overridden', () => {
     expect((await api('/api/conflicts', worker)).status).toBe(403);
   });
 });
+
+describe('real multi-farm support (issue #219)', () => {
+  let admin = '', owner = '', tenant = '';
+  const email = `farms+${Date.now()}@example.test`;
+
+  beforeAll(async () => {
+    admin = await login('admin@ifms.app', 'demo1234');
+    const res = await json(admin, '/api/admin/tenants', { farmName: 'Multi Farm Test', ownerName: 'MF', ownerEmail: email, ownerPassword: 'mfarm1234', plan: 'pro' });
+    tenant = (await res.json()).id;
+    owner = await login(email, 'mfarm1234');
+  });
+  afterAll(async () => { if (tenant) await api(`/api/admin/tenants?id=${tenant}`, admin, { method: 'DELETE' }); });
+
+  it('POST /api/farms creates farms and GET /api/farms returns all of them (2+)', async () => {
+    const a = await json(owner, '/api/farms', { name: 'Nakuru Main Farm', location: 'Nakuru' });
+    const b = await json(owner, '/api/farms', { name: 'Eldoret Satellite', location: 'Eldoret' });
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+
+    const list = await (await api('/api/farms', owner)).json() as { name: string }[];
+    expect(list.length).toBeGreaterThanOrEqual(2);
+    const names = list.map(f => f.name);
+    expect(names).toContain('Nakuru Main Farm');
+    expect(names).toContain('Eldoret Satellite');
+  });
+
+  it('production units always resolve to a real farms row (FK invariant)', async () => {
+    // The unit route auto-ensures a farm, so a freshly created unit's farmId must
+    // exist in /api/farms — the migration-time backfill made this true for rows
+    // that predate the farms table, and ensureFarm keeps it true for new ones.
+    const unitRes = await json(owner, '/api/data/units', { name: 'FarmA House', type: 'HOUSE', capacity: 50, species: 'broiler' });
+    expect(unitRes.status).toBe(201);
+    const unitId = (await unitRes.json()).id;
+
+    const farmIds = (await (await api('/api/farms', owner)).json() as { id: string }[]).map(f => f.id);
+    const unit = await (await api(`/api/data/units?id=${unitId}`, owner)).json() as { farmId: string };
+    expect(farmIds).toContain(unit.farmId);
+  });
+
+  it('farms are owner/manager scoped — a worker gets 403', async () => {
+    const worker = await login('+254700333444', '1234');
+    expect((await api('/api/farms', worker)).status).toBe(403);
+    expect((await json(worker, '/api/farms', { name: 'Nope' })).status).toBe(403);
+  });
+
+  it('/api/me returns the caller\'s farms for the switcher', async () => {
+    const me = await (await api('/api/me', owner)).json() as { farms: { id: string; code: string }[] };
+    expect(Array.isArray(me.farms)).toBe(true);
+    expect(me.farms.length).toBeGreaterThanOrEqual(2);
+  });
+});

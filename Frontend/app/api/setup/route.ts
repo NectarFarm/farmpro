@@ -13,6 +13,7 @@ import { DEFAULT_WORKER_FIELDS as DEFAULT_FIELDS } from '@/lib/workerFields';
 import { defaultStages, STAGE_ENTERPRISES } from '@/lib/lifecycle';
 import { enterpriseFromSpecies } from '@/lib/server/productTemplates';
 import { normalizePhone } from '@/lib/phone';
+import { ensureFarm } from '@/lib/server/farms';
 
 // Thrown for bad/ambiguous input so the outer handler can turn it into a 400
 // instead of the request silently dropping data or crashing with a 500.
@@ -79,6 +80,11 @@ export async function POST(req: Request) {
 
       if (s(b.farmName)) await tx.update(tenants).set({ name: s(b.farmName) }).where(eq(tenants.id, tid));
 
+      // A real farms row backs every unit's farmId (FK — issue #219): create or
+      // resolve the tenant's farm INSIDE this transaction so the wizard's units
+      // always reference a row that exists.
+      const farmId = await ensureFarm(tid, s(b.farmName, 'Main Farm'), tx);
+
       // Units — idempotent by tenantId+name.
       const existingUnits = await tx.select({ id: productionUnits.id, name: productionUnits.name })
         .from(productionUnits).where(eq(productionUnits.tenantId, tid));
@@ -89,7 +95,7 @@ export async function POST(req: Request) {
         if (unitIdByName.has(key)) continue; // already exists — skip, don't duplicate
         const id = crypto.randomUUID();
         await tx.insert(productionUnits).values({
-          id, tenantId: tid, farmId: 'f1', type: s(u.type, 'HOUSE'), name: s(u.name),
+          id, tenantId: tid, farmId, type: s(u.type, 'HOUSE'), name: s(u.name),
           code: s(u.name).slice(0, 10), capacity: n(u.capacity, `unit "${u.name}" capacity`), status: 'ACTIVE', currentQty: 0,
         });
         unitIdByName.set(key, id);

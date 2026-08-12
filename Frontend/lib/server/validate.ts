@@ -528,3 +528,11 @@ export const setupSchema = z.object({
   lowStockKg: z.string().optional(),
   mortalityPhotoThreshold: z.string().optional(),
 });
+
+// Issue #219 — a tenant's farms. `code` is the short human/machine-facing farm
+// code (defaults to a name-derived slug in the route when omitted).
+export const farmCreateSchema = z.object({
+  name: zNonEmpty.max(120, 'Farm name is too long.'),
+  location: z.string().trim().max(200).optional().default(''),
+  code: z.string().trim().min(1).max(32).optional(),
+});
