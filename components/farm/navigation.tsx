@@ -12,16 +12,27 @@ export type ScreenId =
   | "admin-dashboard" | "admin-farms" | "admin-settings" | "admin-onboarding"
   | "batch-detail" | "crop-schedule" | "inventory-detail" | "finance-gl"
   | "payroll" | "approvals" | "people-detail" | "reports-export"
-  | "farm-switcher" | "enterprise-detail" | "process-config"
+  | "enterprise-detail" | "process-config"
   | "role-builder" | "task-detail" | "notification-settings"
-  | "ui-customise";
+  | "ui-customise" | "role-notice";
+
+/* ── Session role contract (issue #219) ──
+ * The UI role set mirrors the backend exactly (backend: `lib/types/index.ts`):
+ *   "owner" | "manager" | "worker" | "vet" | "auditor" | "super_admin"
+ * The mock UI's old "admin" role maps to the backend's "super_admin" — there is
+ * no "admin" role in the backend and we must not invent one.
+ * vet/auditor are real backend roles but have no dedicated screens in this mobile
+ * pass: they are routed to RoleNoticeScreen (explicit deny with a clear message),
+ * never silently into the worker/owner tab set. */
+export type Role = "owner" | "manager" | "worker" | "vet" | "auditor" | "super_admin";
 
 export interface NavContext {
   current: ScreenId;
   history: ScreenId[];
-  role: "owner" | "manager" | "worker" | "admin";
+  role: Role;
   params: Record<string, string>;
-  activeFarm: string; // FRM code
+  activeFarm: string; // Tenant farm code. One tenant = one farm in the real schema,
+  // so this is NOT user-switchable — the farm switcher UI was removed (issue #219).
   navigate: (to: ScreenId, params?: Record<string, string>) => void;
   goBack: () => void;
   setActiveFarm: (code: string) => void;
@@ -69,14 +80,25 @@ const ADMIN_TABS = [
 
 function getTabsForRole(role: NavContext["role"]) {
   if (role === "worker") return WORKER_TABS;
-  if (role === "admin") return ADMIN_TABS;
+  if (role === "super_admin") return ADMIN_TABS; // UI "admin" → backend "super_admin"
   if (role === "manager") return MANAGER_TABS;
+  // vet / auditor: explicit deny — no tabs; the shell shows RoleNoticeScreen instead.
+  if (role === "vet" || role === "auditor") return [];
   return OWNER_TABS;
+}
+
+/* Where each role lands on login (issue #219 role decisions). */
+function startScreenForRole(role: Role): ScreenId {
+  if (role === "worker") return "worker-home";
+  if (role === "super_admin") return "admin-dashboard";
+  // vet / auditor get an explicit "not supported yet" notice, not a silent fallback.
+  if (role === "vet" || role === "auditor") return "role-notice";
+  return "dashboard"; // owner / manager
 }
 
 export function NavProvider({ children, initialRole = "owner" }: { children: React.ReactNode; initialRole?: NavContext["role"] }) {
   const [role, setRole] = useState<NavContext["role"]>(initialRole);
-  const startScreen: ScreenId = initialRole === "worker" ? "worker-home" : initialRole === "admin" ? "admin-dashboard" : "dashboard";
+  const startScreen: ScreenId = startScreenForRole(initialRole);
   const [current, setCurrent] = useState<ScreenId>(startScreen);
   const [history, setHistory] = useState<ScreenId[]>([]);
   const [params, setParams] = useState<Record<string, string>>({});
@@ -99,7 +121,7 @@ export function NavProvider({ children, initialRole = "owner" }: { children: Rea
 
   return (
     <NavCtx.Provider value={{ current, history, role, params, activeFarm, navigate, goBack, setActiveFarm, alertCount: 3, pendingApprovals: 2, unreadNotifs }}>
-      <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(r === "owner" ? "dashboard" : r === "worker" ? "worker-home" : r === "admin" ? "admin-dashboard" : "dashboard"); setHistory([]); }} />
+      <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       {children}
     </NavCtx.Provider>
   );
@@ -113,8 +135,38 @@ function RoleSelector({ role, setRole }: { role: NavContext["role"]; setRole: (r
         <option value="owner">👑 Owner</option>
         <option value="manager">🧑‍💼 Manager</option>
         <option value="worker">👷 Worker</option>
-        <option value="admin">⚙️ Admin</option>
+        <option value="vet">🩺 Vet</option>
+        <option value="auditor">🔍 Auditor</option>
+        <option value="super_admin">⚙️ Super Admin</option>
       </select>
+    </div>
+  );
+}
+
+/* ── Role notice (vet / auditor) ──
+ * vet and auditor are real backend roles but have no dedicated screens in this
+ * mobile pass. Instead of silently landing them in the worker/owner tab set, the
+ * shell shows this explicit notice (decision documented in issue #219). */
+export function RoleNoticeScreen() {
+  const { role } = useNav();
+  const roleLabel = role === "vet" ? "Veterinarian" : "Auditor";
+  return (
+    <div className="screen-content" style={{ padding: "0 20px" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "72%", textAlign: "center", paddingTop: 10 }}>
+        <div style={{ width: 72, height: 72, borderRadius: "50%", background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, marginBottom: 18 }}>
+          {role === "vet" ? "🩺" : "🔍"}
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text-primary)", marginBottom: 8 }}>Role not yet supported</div>
+        <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.55, maxWidth: 300 }}>
+          You&apos;re signed in as a <strong style={{ color: "var(--text-secondary)" }}>{roleLabel}</strong>. This mobile app doesn&apos;t support the {roleLabel.toLowerCase()} role yet — please use the desktop web app. You can sign out below.
+        </div>
+        <button
+          onClick={() => { if (_globalLogout) _globalLogout(); }}
+          style={{ marginTop: 22, padding: "13px 34px", borderRadius: 14, fontSize: 14, fontWeight: 700, cursor: "pointer",
+            background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)", color: "var(--status-critical)", display: "flex", alignItems: "center", gap: 8 }}>
+          <LogOut size={14} /> Sign Out
+        </button>
+      </div>
     </div>
   );
 }
@@ -125,7 +177,7 @@ export function BottomNav() {
   const tabs = getTabsForRole(role);
   const SUB_SCREENS: Record<string, string[]> = {
     settings: ["people","governance","reports","inventory","weather","role-builder","process-config","notification-settings","ui-customise","ai-chat"],
-    crops: ["batch-detail","crop-schedule","enterprise-detail","farm-switcher"],
+    crops: ["batch-detail","crop-schedule","enterprise-detail"],
     tasks: ["task-detail","approvals"],
     finance: ["finance-gl","payroll"],
     "admin-onboarding": ["admin-onboarding"],

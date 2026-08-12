@@ -8,6 +8,7 @@ import React, { useState, useEffect } from "react";
 import { ENTERPRISE_REGISTRY, type OnboardRequest } from "./data";
 import { Eye, EyeOff, Check, ChevronRight, AlertTriangle, Phone, Mail } from "./icons";
 import { useToast } from "./ui-shared";
+import { type Role } from "./navigation";
 
 /* ── Shared GPS + Map block ──────────────────────────────────────────────── */
 export function GpsMapBlock({
@@ -112,7 +113,7 @@ const DEMO_USERS = [
   { email: "james@nakurufarm.com", password: "farm2026", role: "owner" as const,  name: "James Kamau",   pin: null  },
   { email: "peter@nakurufarm.com", password: "mgr123",   role: "manager" as const, name: "Peter Njoroge", pin: null  },
   { email: "john@nakurufarm.com",  password: "", pin: "1234", role: "worker" as const, name: "John Kamau", email2: "worker" },
-  { email: "admin@ifms.co",        password: "admin2026", role: "admin" as const,   name: "IFMS Admin",    pin: null  },
+  { email: "admin@ifms.co",        password: "admin2026", role: "super_admin" as const, name: "IFMS Admin", pin: null  },
 ];
 
 /* ── Shared gradient header ── */
@@ -127,7 +128,7 @@ function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
 }
 
 /* ── LOGIN SCREEN ── */
-export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: "owner"|"manager"|"worker"|"admin") => void; onRegister?: () => void }) {
+export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role) => void; onRegister?: () => void }) {
   const [tab, setTab] = useState<"email" | "pin">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -279,7 +280,7 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: "owner"|"
             { label: "👑 Owner", cred: "james@nakurufarm.com / farm2026" },
             { label: "🧑‍💼 Manager", cred: "peter@nakurufarm.com / mgr123" },
             { label: "👷 Worker PIN", cred: "1234" },
-            { label: "⚙️ Admin", cred: "admin@ifms.co / admin2026" },
+            { label: "⚙️ Super Admin", cred: "admin@ifms.co / admin2026" },
           ].map(d => (
             <div key={d.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
               <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>{d.label}</span>
