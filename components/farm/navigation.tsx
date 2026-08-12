@@ -134,7 +134,11 @@ export function NavProvider({ children, initialRole = "owner" }: { children: Rea
       if (cancelled) return;
       // Empty (valid) responses keep the mock set — the standalone app isn't seeded.
       if (res.success && Array.isArray(res.data) && res.data.length) {
-        setFarms(res.data.map(f => ({ id: f.id, code: f.code || f.id, name: f.name, location: f.location ?? "" })));
+        const real = res.data.map(f => ({ id: f.id, code: f.code || f.id, name: f.name, location: f.location ?? "" }));
+        setFarms(real);
+        // The shell starts on the mock default code; if real farms replace the
+        // mock set, land on the first real farm so the badge/filters stay coherent.
+        setActiveFarm(prev => (real.some(f => f.code === prev) ? prev : real[0].code));
       }
     });
     return () => { cancelled = true; };

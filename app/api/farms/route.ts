@@ -37,7 +37,7 @@ export async function GET(req: Request) {
     .select()
     .from(farms)
     .where(eq(farms.tenantId, tenantId))
-    .orderBy(asc(farms.createdAt))
+    .orderBy(asc(farms.createdAt), asc(farms.id))
   return ok(rows)
 }
 

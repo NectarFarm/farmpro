@@ -19,4 +19,5 @@ CREATE TABLE "production_units" (
 --> statement-breakpoint
 ALTER TABLE "production_units" ADD CONSTRAINT "production_units_farm_id_farms_id_fk" FOREIGN KEY ("farm_id") REFERENCES "public"."farms"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_farms_tenant" ON "farms" USING btree ("tenant_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_farms_tenant_code" ON "farms" USING btree ("tenant_id","code");--> statement-breakpoint
 CREATE INDEX "idx_production_units_tenant_farm" ON "production_units" USING btree ("tenant_id","farm_id");
