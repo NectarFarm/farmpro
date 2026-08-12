@@ -29,6 +29,11 @@ const created = <T>(data: T) =>
 const badRequest = (msg: string) =>
   NextResponse.json({ success: false, error: msg }, { status: 400, headers: corsHeaders })
 
+// Postgres unique-violation (23505) — surfaced as a clean envelope, not a bare 500.
+function isUniqueViolation(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === '23505'
+}
+
 // GET /api/farms?tenantId=... — list a tenant's farms (oldest first).
 export async function GET(req: Request) {
   const tenantId = new URL(req.url).searchParams.get('tenantId')?.trim()
@@ -67,7 +72,17 @@ export async function POST(req: Request) {
   )
   if (taken.has(code)) code = `${code}-${id.slice(0, 4).toUpperCase()}`
 
-  await db.insert(farms).values({ id, tenantId, name, location, code })
+  // The per-tenant SELECT above generates a friendly non-colliding code; the DB's
+  // unique index (idx_farms_tenant_code) is the real guard for the concurrent case.
+  // Either way, a failure here must return the app's error envelope, not a bare 500.
+  try {
+    await db.insert(farms).values({ id, tenantId, name, location, code })
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return NextResponse.json({ success: false, error: 'A farm with this code already exists — retry' }, { status: 409, headers: corsHeaders })
+    }
+    return NextResponse.json({ success: false, error: 'Failed to create farm' }, { status: 500, headers: corsHeaders })
+  }
   return created({ id, code })
 }
 

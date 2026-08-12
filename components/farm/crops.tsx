@@ -222,7 +222,7 @@ export function CropsScreen() {
 
 /* ── Batch Detail ── */
 export function BatchDetailScreen() {
-  const { goBack, params, navigate } = useNav();
+  const { goBack, params, navigate, farms } = useNav();
   const bCode = params.code ?? "BRO-KMU-022";
   const batch = BATCHES_DATA.find(b => b.code === bCode) ?? BATCHES_DATA[0];
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === batch.enterprise)!;
@@ -259,7 +259,7 @@ export function BatchDetailScreen() {
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 10, color: "var(--text-muted)" }}>Farm</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>{FARMS_DATA.find(f => f.code === batch.farmCode)?.name}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>{farms.find(f => f.code === batch.farmCode)?.name}</div>
             </div>
           </div>
 
@@ -450,7 +450,7 @@ export function BatchDetailScreen() {
 
 /* ── Batch / Enterprise Creation Wizard ── */
 export function CropScheduleScreen() {
-  const { goBack, params } = useNav();
+  const { goBack, params, farms } = useNav();
   const subtype = params.subtype ?? "broiler";
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === subtype) ?? ENTERPRISE_REGISTRY[0];
   const isCrop = cfg.type === "crop";
@@ -496,7 +496,7 @@ export function CropScheduleScreen() {
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Farm</label>
               <select className="farm-input">
-                {FARMS_DATA.map(f => <option key={f.code} value={f.code}>{f.name} ({f.code})</option>)}
+                {farms.map(f => <option key={f.code} value={f.code}>{f.name} ({f.code})</option>)}
               </select>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>

@@ -144,10 +144,14 @@ export function NavProvider({ children, initialRole = "owner" }: { children: Rea
     return () => { cancelled = true; };
   }, []);
 
+  // vet/auditor have no screens in this pass — funnel every navigation attempt to
+  // the role notice (single enforcement point; startScreenForRole handles the
+  // initial screen, this guard covers deep links / back / any future caller).
   const navigate = useCallback((to: ScreenId, p?: Record<string, string>) => {
-    setCurrent((prev) => { setHistory((h) => [...h, prev]); return to; });
+    const dest = role === "vet" || role === "auditor" ? "role-notice" : to;
+    setCurrent((prev) => { setHistory((h) => [...h, prev]); return dest; });
     setParams(p ?? {});
-  }, []);
+  }, [role]);
   const goBack = useCallback(() => {
     setHistory((h) => {
       if (!h.length) return h;
