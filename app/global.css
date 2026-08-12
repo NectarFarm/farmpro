@@ -96,10 +96,16 @@
   }
 }
 
-/* ── Android navigation shell ── */
-.farm-app {
-  max-width: 430px;
+/* ── App shell (issue #220): fluid, no phone graphic ──
+ * The fixed 390x844 device frame is gone. The app is full-bleed on phones,
+ * a centered column on tablets, and a sidebar layout on desktop. */
+.farm-viewport {
   min-height: 100dvh;
+  background: #050805;
+}
+.farm-device-frame {
+  width: 100%;
+  height: 100dvh;
   margin: 0 auto;
   background: var(--background);
   position: relative;
@@ -108,45 +114,22 @@
   overflow: hidden;
 }
 
-/* Viewport simulator for desktop */
-@media (min-width: 768px) {
-  .farm-viewport {
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    min-height: 100dvh;
-    background: #050805;
-    padding: 24px 0;
-  }
-  .farm-device-frame {
-    width: 390px;
-    height: 844px;
-    border-radius: 44px;
-    border: 1.5px solid rgba(255,255,255,0.1);
-    overflow: hidden;
-    box-shadow: 0 60px 120px rgba(0,0,0,0.8), inset 0 0 0 1px rgba(255,255,255,0.05);
-    position: relative;
-    background: var(--background);
-    flex-shrink: 0;
-  }
-}
-@media (max-width: 767px) {
-  .farm-viewport { min-height: 100dvh; }
-  .farm-device-frame {
-    width: 100%;
-    height: 100dvh;
-    border-radius: 0;
-  }
-}
-
-.screen-scroll {
+/* Shell row: column on mobile, sidebar + main on desktop */
+.farm-shell {
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  overflow: hidden;
 }
-.screen-scroll::-webkit-scrollbar { display: none; }
+.farm-sidebar { display: none; }
+.shell-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
 
 /* ── Top status bar ── */
 .status-bar {
@@ -162,19 +145,10 @@
   color: var(--text-primary);
 }
 
-/* ── Top navigation bar ── */
-.top-nav {
-  height: var(--nav-height);
-  display: flex;
-  align-items: center;
-  padding: 0 20px;
-  background: var(--background);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-  gap: 12px;
-}
-
-/* ── Bottom tab bar ── */
+/* ── Bottom tab bar ──
+ * Base rules live BEFORE the responsive overrides below: both this and the
+ * @media (min-width: 1024px) display:none have equal specificity, so the later
+ * rule in the file wins — base styles first, responsive overrides last. */
 .bottom-nav {
   height: var(--bottom-nav-height);
   display: flex;
@@ -187,6 +161,63 @@
   position: relative;
   z-index: 50;
 }
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .farm-device-frame {
+    max-width: 760px;
+    border-left: 1px solid var(--border-subtle);
+    border-right: 1px solid var(--border-subtle);
+  }
+}
+
+@media (min-width: 1024px) {
+  .farm-device-frame { max-width: 1440px; }
+  .farm-shell { flex-direction: row; }
+  .farm-sidebar {
+    display: flex;
+    flex-direction: column;
+    width: 250px;
+    flex-shrink: 0;
+    height: 100%;
+    background: var(--surface);
+    border-right: 1px solid var(--border-subtle);
+  }
+  .farm-sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+  .bottom-nav { display: none; }
+  .status-bar { display: none; }
+}
+
+.screen-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.screen-scroll::-webkit-scrollbar { display: none; }
+
+
+/* ── Top navigation bar ── */
+.top-nav {
+  height: var(--nav-height);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  background: var(--background);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+
+/* ── Bottom tab bar items ── */
 .bottom-nav-item {
   flex: 1;
   display: flex;
