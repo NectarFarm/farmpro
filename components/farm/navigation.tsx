@@ -219,24 +219,13 @@ export function RoleNoticeScreen() {
 export function BottomNav() {
   const { current, navigate, role, pendingApprovals, unreadNotifs } = useNav();
   const tabs = getTabsForRole(role);
-  const SUB_SCREENS: Record<string, string[]> = {
-    settings: ["people","governance","reports","inventory","weather","role-builder","process-config","notification-settings","ui-customise","ai-chat"],
-    crops: ["batch-detail","crop-schedule","enterprise-detail"],
-    tasks: ["task-detail","approvals"],
-    finance: ["finance-gl","payroll"],
-    "admin-onboarding": ["admin-onboarding"],
-  };
 
   return (
     <nav className="bottom-nav">
       {tabs.map((tab) => {
         const Icon = tab.icon;
-        const isActive = current === tab.id || (SUB_SCREENS[tab.id] ?? []).includes(current);
-        const badge = tab.id === "governance" && pendingApprovals > 0 ? pendingApprovals
-          : tab.id === "tasks" && 2 > 0 ? 2
-          : tab.id === "dashboard" && unreadNotifs > 0 ? unreadNotifs
-          : tab.id === "admin-onboarding" && 2 > 0 ? 2
-          : null;
+        const isActive = tabIsActive(current, tab.id);
+        const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs);
         return (
           <button key={tab.id} className={`bottom-nav-item ${isActive ? "active" : ""}`} onClick={() => navigate(tab.id)}>
             <Icon className="nav-icon" size={22} />
@@ -246,6 +235,71 @@ export function BottomNav() {
         );
       })}
     </nav>
+  );
+}
+
+/* Badge counts shared by BottomNav (mobile) and AppSidebar (desktop). */
+function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs: number): number | null {
+  if (tabId === "governance" && pendingApprovals > 0) return pendingApprovals;
+  if (tabId === "tasks") return 2;
+  if (tabId === "dashboard" && unreadNotifs > 0) return unreadNotifs;
+  if (tabId === "admin-onboarding") return 2;
+  return null;
+}
+
+/* Active-tab detection shared by BottomNav (mobile) and AppSidebar (desktop). */
+function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
+  const SUB_SCREENS: Record<string, ScreenId[]> = {
+    settings: ["people","governance","reports","inventory","weather","role-builder","process-config","notification-settings","ui-customise","ai-chat"],
+    crops: ["batch-detail","crop-schedule","enterprise-detail"],
+    tasks: ["task-detail","approvals"],
+    finance: ["finance-gl","payroll"],
+    "admin-onboarding": ["admin-onboarding"],
+  };
+  return current === tabId || (SUB_SCREENS[tabId] ?? []).includes(current);
+}
+
+/* ── Desktop Sidebar (issue #220) ──
+ * Same tab set BottomNav drives (getTabsForRole). Shown >=1024px via CSS, where
+ * BottomNav is hidden; rendered on all sizes so the tab set lives in one place. */
+export function AppSidebar() {
+  const { current, navigate, role, pendingApprovals, unreadNotifs, activeFarm, farms } = useNav();
+  const tabs = getTabsForRole(role);
+  return (
+    <aside className="farm-sidebar">
+      <div className="farm-sidebar-brand">
+        <span style={{ fontSize: 26 }}>🌾</span>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>IFMS</div>
+          <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Farm OS</div>
+        </div>
+      </div>
+      <nav style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = tabIsActive(current, tab.id);
+          const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs);
+          return (
+            <button key={tab.id} onClick={() => navigate(tab.id)}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 2,
+                borderRadius: 10, cursor: "pointer", textAlign: "left", position: "relative",
+                background: active ? "rgba(74,222,128,0.12)" : "transparent",
+                border: active ? "1px solid rgba(74,222,128,0.3)" : "1px solid transparent",
+                color: active ? "var(--primary-green)" : "var(--text-muted)", fontWeight: active ? 700 : 500, fontSize: 13 }}>
+              <Icon size={18} />
+              <span style={{ flex: 1 }}>{tab.label}</span>
+              {badge !== null && <span className="nav-badge">{badge}</span>}
+            </button>
+          );
+        })}
+      </nav>
+      <div style={{ padding: "12px 14px", borderTop: "1px solid var(--border-subtle)", flexShrink: 0 }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>
+          {activeFarm === "ALL" ? "🌐 All Farms" : `🌾 ${farms.find(f => f.code === activeFarm)?.name ?? activeFarm}`}
+        </div>
+        <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "capitalize" }}>{role}</div>
+      </div>
+    </aside>
   );
 }
 
