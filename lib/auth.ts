@@ -8,7 +8,7 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { and, eq, gt } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { loginThrottle, sessions, users } from '@/db/schemas'
+import { loginThrottle, sessions, tenants, users } from '@/db/schemas'
 
 export const SESSION_COOKIE = 'ifms_session'
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
@@ -98,6 +98,16 @@ export async function clearLoginThrottle(identifier: string): Promise<void> {
   await db.delete(loginThrottle).where(eq(loginThrottle.identifier, identifier))
 }
 
+/* ── Tenant gating (issue #223) ──
+ * Tenant-scoped accounts (owner/manager/worker/vet/auditor) may only receive a
+ * session while their tenant is active. Platform roles (super_admin) have no
+ * tenant and are unaffected. The login route calls this before issuing a
+ * session — a worker at a suspended farm must not be able to log in. */
+export async function isTenantActive(tenantId: string): Promise<boolean> {
+  const rows = await db.select({ active: tenants.active }).from(tenants).where(eq(tenants.id, tenantId)).limit(1)
+  return rows[0]?.active === true
+}
+
 /* ── Sessions ── */
 export function newSessionToken(): string {
   return randomBytes(32).toString('base64url')
@@ -120,9 +130,11 @@ export async function destroySession(token: string | undefined): Promise<void> {
 }
 
 // Resolve the cookie's session row to a user, or null when absent/expired.
-// NOTE: does NOT re-check users.status === 'ACTIVE' here — a user suspended after
-// login keeps a working session until expiry. The suspended-tenant login edge is
-// issue #223's scope; when that lands, add the status gate in this lookup too.
+// Session-time enforcement (issue #223): the login route gates on account and
+// tenant status when issuing a session; this lookup enforces the same at
+// refresh time, so a user whose account or tenant is suspended loses the
+// session on the next bootstrap (401 -> login) instead of keeping it until
+// cookie expiry.
 export async function getSessionUser(): Promise<SessionUser | null> {
   const store = await cookies()
   const token = store.get(SESSION_COOKIE)?.value
@@ -135,6 +147,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     .limit(1)
   const u = rows[0]?.user
   if (!u) return null
+  if (u.status !== 'ACTIVE') return null
+  if (u.tenantId && !(await isTenantActive(u.tenantId))) return null
   return { id: u.id, name: u.name, email: u.email, role: u.role, tenantId: u.tenantId }
 }
 
