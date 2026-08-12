@@ -1,19 +1,23 @@
 // ── IFMS demo seed (issue #221) ────────────────────────────────────────────
-// Real accounts + farms for the shell verification. Idempotent: ON CONFLICT DO
-// NOTHING, so `pnpm db:seed` is safe to re-run. Run after `pnpm db:migrate`.
+// Real accounts + farms for the shell verification. Idempotent: workers get
+// pin_prefilter upserted, everything else ON CONFLICT DO NOTHING, so
+// `pnpm db:seed` is safe to re-run. Run after `pnpm db:migrate`.
 //
 //   pnpm db:seed
 //
-// The password/PIN hashing matches lib/auth.ts (scrypt, 64-byte, per-user salt),
-// so the same scheme verifies logins at runtime.
+// The password/PIN hashing matches lib/auth.ts (scrypt, 64-byte, per-user salt)
+// and pinPrefilter matches lib/auth.ts pinPrefilter (same HMAC pepper + dev
+// fallback), so the same schemes verify logins at runtime.
 import postgres from 'postgres'
-import { randomBytes, randomUUID, scryptSync } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID, scryptSync } from 'node:crypto'
 
 const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://postgres:ifms@localhost:55433/ifms'
 const sql = postgres(DATABASE_URL, { prepare: false })
 
 const hash = (secret, salt) => scryptSync(secret, salt, 64).toString('hex')
 const saltFor = () => randomBytes(16).toString('hex')
+// Keep in sync with lib/auth.ts pinPrefilter (same env var, same dev fallback).
+const pinPrefilter = (pin) => createHmac('sha256', process.env.AUTH_PIN_PEPPER ?? 'ifms-dev-pepper').update(pin).digest('hex')
 
 const USERS = [
   { email: 'james@nakurufarm.com', password: 'farm2026', pin: null, role: 'owner', name: 'James Kamau', tenantId: 't1' },
@@ -34,10 +38,11 @@ try {
   for (const u of USERS) {
     const salt = saltFor()
     const res = await sql`
-      INSERT INTO users (id, tenant_id, name, email, role, password_hash, password_salt, pin_hash, status)
+      INSERT INTO users (id, tenant_id, name, email, role, password_hash, password_salt, pin_hash, pin_prefilter, status)
       VALUES (${randomUUID()}, ${u.tenantId}, ${u.name}, ${u.email}, ${u.role},
-              ${hash(u.password, salt)}, ${salt}, ${u.pin ? hash(u.pin, salt) : null}, 'ACTIVE')
-      ON CONFLICT (email) DO NOTHING
+              ${hash(u.password, salt)}, ${salt}, ${u.pin ? hash(u.pin, salt) : null},
+              ${u.pin ? pinPrefilter(u.pin) : null}, 'ACTIVE')
+      ON CONFLICT (email) DO UPDATE SET pin_prefilter = EXCLUDED.pin_prefilter
     `
     if (res.count > 0) inserted += 1
   }

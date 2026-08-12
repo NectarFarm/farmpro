@@ -5,21 +5,13 @@ import { getSessionUser } from '@/lib/auth'
 // The shell's bootstrap calls this on load. 200 + the session user
 // ({ id, name, email, role, tenantId }) when the cookie is valid, otherwise the
 // standard 401 envelope — the shell treats any non-200 as logged-out.
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
+// Same-origin SPA only (the shell calls it from its own origin), so this
+// endpoint sets no CORS headers (issue #221 review).
 
 export async function GET() {
   const user = await getSessionUser()
   if (!user) {
-    return NextResponse.json({ success: false, error: 'No active session' }, { status: 401, headers: corsHeaders })
+    return NextResponse.json({ success: false, error: 'No active session' }, { status: 401 })
   }
-  return NextResponse.json({ success: true, data: user }, { status: 200, headers: corsHeaders })
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders })
+  return NextResponse.json({ success: true, data: user }, { status: 200 })
 }

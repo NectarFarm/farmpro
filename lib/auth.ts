@@ -4,11 +4,11 @@
 // imported only by route handlers (server side), never by client components.
 import 'server-only'
 import { cookies } from 'next/headers'
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { and, eq, gt } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { sessions, users } from '@/db/schemas'
+import { loginThrottle, sessions, users } from '@/db/schemas'
 
 export const SESSION_COOKIE = 'ifms_session'
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
@@ -30,6 +30,72 @@ export function verifySecret(secret: string, salt: string, expectedHash: string)
   const candidate = scryptSync(secret, salt, 64)
   const expected = Buffer.from(expectedHash, 'hex')
   return candidate.length === expected.length && timingSafeEqual(candidate, expected)
+}
+
+/* ── PIN lookup prefilter (issue #221 review) ──
+ * Worker PINs are only 4 digits, so a per-row scrypt scan on every attempt is
+ * both slow and, without throttling, a CPU-exhaustion vector. Each worker row
+ * therefore stores HMAC-SHA256(pepper, pin) in `pin_prefilter` for an indexed,
+ * O(1) lookup; the real verification still runs scrypt on that single candidate
+ * row. The key comes from AUTH_PIN_PEPPER (env) — without it the digest is not
+ * recoverable (unlike a plain hash of a 10k-space PIN). The dev fallback below
+ * only exists so the demo runs without env setup; production must set it. */
+const PIN_PEPPER_DEV_FALLBACK = 'ifms-dev-pepper'
+export function pinPrefilter(pin: string): string {
+  return createHmac('sha256', process.env.AUTH_PIN_PEPPER ?? PIN_PEPPER_DEV_FALLBACK).update(pin).digest('hex')
+}
+
+/* ── Login throttling / lockout (issue #221 review) ──
+ * DB-backed counters with escalating lockout (5 → 15 min, 10 → 30 min,
+ * 15 → 60 min). Checked before any credential work, so a locked identifier
+ * costs nothing; cleared on success.
+ *
+ * Identifiers:
+ *  - `email:<addr>` — per-account lockout for password attempts
+ *  - `pin:<pin>`    — per-PIN lockout (guesses against a specific worker PIN)
+ *  - `pin:global`   — ONE shared counter across ALL PIN attempts. A 4-digit PIN
+ *    space (10k) can't be meaningfully protected by per-PIN locks alone (an
+ *    attacker would just move to the next PIN), so this bounds the whole PIN
+ *    space to MAX_PIN_GLOBAL_ATTEMPTS per lock window before every PIN login is
+ *    rejected. When a lock window expires the counter is reset (decay), so a
+ *    window that has passed starts fresh. */
+export const MAX_LOGIN_ATTEMPTS = 5
+export const MAX_PIN_GLOBAL_ATTEMPTS = 20
+
+function lockoutSecondsFor(failures: number, base: number): number {
+  const tiers = [15 * 60, 30 * 60, 60 * 60]
+  const idx = Math.min(Math.floor(Math.max(failures - base, 0) / base), tiers.length - 1)
+  return tiers[idx]
+}
+
+export async function checkLoginThrottle(identifier: string): Promise<{ locked: boolean; retryAfterSeconds: number }> {
+  const rows = await db.select().from(loginThrottle).where(eq(loginThrottle.identifier, identifier)).limit(1)
+  const row = rows[0]
+  if (!row?.lockedUntil) return { locked: false, retryAfterSeconds: 0 }
+  const remainMs = row.lockedUntil.getTime() - Date.now()
+  if (remainMs <= 0) {
+    // Lock window over — reset so the next window starts fresh.
+    await db.delete(loginThrottle).where(eq(loginThrottle.identifier, identifier))
+    return { locked: false, retryAfterSeconds: 0 }
+  }
+  return { locked: true, retryAfterSeconds: Math.ceil(remainMs / 1000) }
+}
+
+export async function recordLoginFailure(identifier: string, base: number = MAX_LOGIN_ATTEMPTS): Promise<void> {
+  const rows = await db.select({ failedCount: loginThrottle.failedCount }).from(loginThrottle).where(eq(loginThrottle.identifier, identifier)).limit(1)
+  const next = (rows[0]?.failedCount ?? 0) + 1
+  const lockSeconds = next >= base ? lockoutSecondsFor(next, base) : 0
+  await db
+    .insert(loginThrottle)
+    .values({ identifier, failedCount: next, lockedUntil: lockSeconds ? new Date(Date.now() + lockSeconds * 1000) : null, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: loginThrottle.identifier,
+      set: { failedCount: next, lockedUntil: lockSeconds ? new Date(Date.now() + lockSeconds * 1000) : null, updatedAt: new Date() },
+    })
+}
+
+export async function clearLoginThrottle(identifier: string): Promise<void> {
+  await db.delete(loginThrottle).where(eq(loginThrottle.identifier, identifier))
 }
 
 /* ── Sessions ── */
@@ -71,7 +137,6 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!u) return null
   return { id: u.id, name: u.name, email: u.email, role: u.role, tenantId: u.tenantId }
 }
-
 
 /* ── Cookie attach/clear on the outgoing response ── */
 export function attachSessionCookie(res: NextResponse, token: string): NextResponse {
