@@ -130,9 +130,11 @@ export async function destroySession(token: string | undefined): Promise<void> {
 }
 
 // Resolve the cookie's session row to a user, or null when absent/expired.
-// NOTE: does NOT re-check users.status === 'ACTIVE' here — a user suspended after
-// login keeps a working session until expiry. The suspended-tenant login edge is
-// issue #223's scope; when that lands, add the status gate in this lookup too.
+// Session-time enforcement (issue #223): the login route gates on account and
+// tenant status when issuing a session; this lookup enforces the same at
+// refresh time, so a user whose account or tenant is suspended loses the
+// session on the next bootstrap (401 -> login) instead of keeping it until
+// cookie expiry.
 export async function getSessionUser(): Promise<SessionUser | null> {
   const store = await cookies()
   const token = store.get(SESSION_COOKIE)?.value
@@ -145,6 +147,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     .limit(1)
   const u = rows[0]?.user
   if (!u) return null
+  if (u.status !== 'ACTIVE') return null
+  if (u.tenantId && !(await isTenantActive(u.tenantId))) return null
   return { id: u.id, name: u.name, email: u.email, role: u.role, tenantId: u.tenantId }
 }
 
