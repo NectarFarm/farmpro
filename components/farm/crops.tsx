@@ -111,17 +111,7 @@ export function CropsScreen() {
         }
       />
 
-      {/* Farm filter (only visible for multi-farm owners) */}
-      {activeFarm === "ALL" && (
-        <div className="px-screen" style={{ paddingTop: 8 }}>
-          <div className="chip-row" style={{ marginBottom: 6 }}>
-            <button onClick={() => setFarmFilter("All")} className={`filter-chip ${farmFilter === "All" ? "active" : ""}`}>All Farms</button>
-            {FARMS_DATA.map(f => (
-              <button key={f.code} onClick={() => setFarmFilter(f.code)} className={`filter-chip ${farmFilter === f.code ? "active" : ""}`}>{f.name}</button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Farm filter removed — one tenant = one farm, no multi-farm view (issue #219) */}
 
       {/* Summary strip */}
       <div className="px-screen" style={{ paddingTop: 8 }}>
