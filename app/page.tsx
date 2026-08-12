@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, createContext, useContext } from "react";
-import { NavProvider, useNav, BottomNav, StatusBar, setGlobalLogout, RoleNoticeScreen, type Role } from "@/components/farm/navigation";
+import { NavProvider, useNav, BottomNav, AppSidebar, StatusBar, setGlobalLogout, RoleNoticeScreen, type Role } from "@/components/farm/navigation";
 import { DashboardScreen } from "@/components/farm/dashboard";
 import { CropsScreen, BatchDetailScreen, CropScheduleScreen } from "@/components/farm/crops";
 import { InventoryScreen, InventoryDetailScreen } from "@/components/farm/inventory";
@@ -25,6 +25,7 @@ import { AIChatScreen } from "@/components/farm/ai-chat";
 import { AdminOnboardingScreen } from "@/components/farm/admin-onboarding";
 import { UICustomiseScreen } from "@/components/farm/ui-customise";
 import { LoginScreen, RegisterScreen } from "@/components/farm/auth";
+import { apiClient } from "@/lib/request";
 
 /* ── App-level logout context so any screen can trigger logout ── */
 export const LogoutCtx = createContext<() => void>(() => {});
@@ -78,19 +79,54 @@ function ScreenRouter({ onLogout }: { onLogout: () => void }) {
   const showTabs = TAB_SCREENS.has(current);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <StatusBar />
-      <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-        {screen}
+    <div className="farm-shell">
+      <AppSidebar />
+      <div className="shell-main">
+        <StatusBar />
+        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+          {screen}
+        </div>
+        {showTabs && <BottomNav />}
       </div>
-      {showTabs && <BottomNav />}
     </div>
   );
 }
 
+type AuthState = "booting" | "login" | "register" | "app";
+
+/* The backend's real role set (issue #220 session bootstrap). Unknown roles are
+ * treated as unauthenticated — the shell only admits known roles. */
+function sessionRole(raw: unknown): Role | null {
+  if (typeof raw !== "string") return null;
+  return (["owner", "manager", "worker", "vet", "auditor", "super_admin"] as const).includes(raw as Role)
+    ? (raw as Role)
+    : null;
+}
+
 export default function Home() {
-  const [authState, setAuthState] = useState<"login" | "register" | "app">("login");
+  const [authState, setAuthState] = useState<AuthState>("booting");
   const [role, setRole] = useState<Role>("owner");
+
+  // Real session bootstrap (issue #220): GET /api/auth/session on load. 200 with a
+  // known role -> authenticated shell; anything else (401, or the endpoint not yet
+  // present on the new in-branch backend) -> login screen, where the mock accounts
+  // still work until the real session backend lands.
+  React.useEffect(() => {
+    let cancelled = false;
+    apiClient.get<{ role?: string }>("/api/auth/session").then((res) => {
+      if (cancelled) return;
+      const r = res.success ? sessionRole(res.data?.role) : null;
+      if (r) {
+        setRole(r);
+        setAuthState("app");
+      } else {
+        // 401, or the endpoint not yet present on the new backend -> login. Any
+        // failure (including network errors) is treated as logged-out: safe default.
+        setAuthState("login");
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   function handleLogin(r: Role) {
     setRole(r);
@@ -98,8 +134,15 @@ export default function Home() {
   }
 
   function handleLogout() {
-    setRole("owner");
-    setAuthState("login");
+    // Real logout endpoint fires first (visible in the network tab); always return
+    // to login, even while the endpoint doesn't exist yet (standalone mock mode) or
+    // the request hangs — a 3s race guarantees the UI never blocks on logout.
+    const settled = apiClient.post("/api/auth/logout", {});
+    const timeout = new Promise((resolve) => setTimeout(resolve, 3000));
+    Promise.race([settled, timeout]).finally(() => {
+      setRole("owner");
+      setAuthState("login");
+    });
   }
 
   // Register globally so TopNav logout button can reach it
@@ -112,6 +155,17 @@ export default function Home() {
           <LogoutCtx.Provider value={handleLogout}>
             <div className="farm-viewport">
               <div className="farm-device-frame">
+
+                {authState === "booting" && (
+                  <div className="farm-shell">
+                    <div className="shell-main">
+                      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+                        <div style={{ fontSize: 40 }}>🌾</div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading your session…</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {authState === "login" && (
                   <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
