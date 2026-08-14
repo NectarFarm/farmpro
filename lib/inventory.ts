@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { inventoryItems, inventoryLots, purchases, auditLog } from '@/db/schemas'
+import { postPurchaseJournal } from '@/lib/finance'
 
 // A lot is "expiring" once its expiry date is within this many days (this
 // includes lots that have already expired — a negative "days until expiry"
@@ -187,6 +188,12 @@ export async function recordPurchase(input: {
         createdAt: receivedDate,
       })
       .returning()
+
+    // Issue #239 task 3: a purchase posts Dr Purchases Expense, Cr Cash
+    // (amount paid) / Cr Accounts Payable (amount owed) — posted in the same
+    // transaction as the purchase itself so a purchase can never exist
+    // without its journal entry. See lib/finance.ts's postPurchaseJournal.
+    await postPurchaseJournal(tx, purchase)
 
     return { item, lot, purchase }
   })
