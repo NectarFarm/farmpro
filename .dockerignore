@@ -1,5 +1,7 @@
 .git
 .gitignore
+.env
+.env.local
 .next
 .open-next
 .pnpm-store
