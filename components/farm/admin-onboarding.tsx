@@ -1,12 +1,57 @@
 "use client";
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useNav, TopNav } from "./navigation";
 import {
-  Check, X, Clock, ChevronRight, Plus, MessageSquare,
+  Check, X, Clock, ChevronRight, MessageSquare,
   UserSingle as User, MapPin, Phone, Mail, Building2, AlertTriangle, CheckCircle2
 } from "./icons";
-import { ONBOARD_REQUESTS, ENTERPRISE_REGISTRY, type OnboardRequest } from "./data";
+import { ENTERPRISE_REGISTRY, type OnboardRequest } from "./data";
 import { GpsMapBlock, useReverseGeocode } from "./auth";
+import { apiClient } from "@/lib/request";
+
+// ── Real backend wiring (issue #252) ────────────────────────────────────────
+// GET/PATCH /api/onboard-requests[/:id] already exist and work (issue #251,
+// merged) — this screen used to render the mock request list from data.ts; it
+// now loads the real queue and posts real approve/reject/info-needed decisions.
+// The API doesn't return `address`/`lat`/`lng` (no such columns on
+// onboard_requests — db/schemas/onboarding.ts) or a `plan` concept (no plans
+// table anywhere in this backend), so LocationEditor's map stays client-local
+// exactly as before, and the old "Plan to Assign" selector — which never
+// posted anywhere real — has been removed rather than left wired to nothing.
+interface ApiOnboardRequest {
+  id: string;
+  farmerName: string;
+  email: string;
+  phone: string;
+  farmName: string;
+  location: string;
+  enterprises: string[];
+  status: OnboardRequest["status"];
+  notes: string | null;
+  requestedAt: string;
+  tenantId: string | null;
+}
+
+function formatRequestedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-GB", { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function toOnboardRequest(row: ApiOnboardRequest): OnboardRequest {
+  return {
+    id: row.id,
+    farmerName: row.farmerName,
+    email: row.email,
+    phone: row.phone,
+    farmName: row.farmName,
+    location: row.location,
+    enterprises: row.enterprises,
+    requestedAt: formatRequestedAt(row.requestedAt),
+    status: row.status,
+    notes: row.notes ?? undefined,
+  };
+}
 
 const STATUS_CONFIG: Record<OnboardRequest["status"], { color: string; bg: string; label: string }> = {
   pending:      { color: "var(--status-warning)", bg: "rgba(251,191,36,0.1)", label: "Pending" },
@@ -107,11 +152,22 @@ function RequestDetail({
   onClose,
 }: {
   req: OnboardRequest;
-  onAction: (id: string, action: OnboardRequest["status"]) => void;
+  onAction: (id: string, action: OnboardRequest["status"], notes?: string) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [infoNote, setInfoNote] = useState(req.notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState("");
   const s = STATUS_CONFIG[req.status];
+
+  async function handle(action: OnboardRequest["status"]) {
+    setSaving(true);
+    setActionError("");
+    const ok = await onAction(req.id, action, infoNote.trim() || undefined);
+    setSaving(false);
+    if (ok) onClose();
+    else setActionError("Failed to update this request. Try again.");
+  }
 
   const enterpriseLabels = req.enterprises.map((e) => {
     const cfg = ENTERPRISE_REGISTRY.find((r) => r.subtype === e);
@@ -189,30 +245,24 @@ function RequestDetail({
           />
         </div>
 
-        {/* Plan selection for approval */}
-        {req.status === "pending" && (
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>Plan to Assign</label>
-            <select className="farm-input">
-              <option>Trial (14 days, 1 user, 3 batches)</option>
-              <option>Basic (5 users, unlimited batches)</option>
-              <option>Pro (15 users, payroll, GL, multi-farm)</option>
-            </select>
-          </div>
+        {actionError && (
+          <div style={{ fontSize: 12, color: "var(--status-critical)", marginBottom: 10 }}>{actionError}</div>
         )}
 
         {/* Action buttons */}
         {req.status === "pending" && (
           <div style={{ display: "flex", gap: 8 }}>
             <button
-              onClick={() => { onAction(req.id, "approved"); onClose(); }}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 13, fontWeight: 700, background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.35)", color: "var(--status-ok)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              disabled={saving}
+              onClick={() => handle("approved")}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 13, fontWeight: 700, background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.35)", color: "var(--status-ok)", cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
             >
               <Check size={14} /> Approve & Onboard
             </button>
             <button
-              onClick={() => { onAction(req.id, "rejected"); onClose(); }}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 13, fontWeight: 700, background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)", color: "var(--status-critical)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              disabled={saving}
+              onClick={() => handle("rejected")}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 13, fontWeight: 700, background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)", color: "var(--status-critical)", cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
             >
               <X size={14} /> Reject
             </button>
@@ -220,8 +270,9 @@ function RequestDetail({
         )}
         {req.status === "pending" && (
           <button
-            onClick={() => { onAction(req.id, "info-needed"); onClose(); }}
-            style={{ width: "100%", marginTop: 8, padding: 11, borderRadius: 12, fontSize: 13, fontWeight: 700, background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.3)", color: "var(--accent-blue)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            disabled={saving}
+            onClick={() => handle("info-needed")}
+            style={{ width: "100%", marginTop: 8, padding: 11, borderRadius: 12, fontSize: 13, fontWeight: 700, background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.3)", color: "var(--accent-blue)", cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
           >
             <MessageSquare size={14} /> Request More Info
           </button>
@@ -232,12 +283,39 @@ function RequestDetail({
 }
 
 export function AdminOnboardingScreen() {
-  const [requests, setRequests] = useState<OnboardRequest[]>(ONBOARD_REQUESTS);
+  const [requests, setRequests] = useState<OnboardRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<OnboardRequest | null>(null);
+  const [actionError, setActionError] = useState("");
 
-  function act(id: string, action: OnboardRequest["status"]) {
-    setRequests((rs) => rs.map((r) => r.id === id ? { ...r, status: action } : r));
+  const load = useCallback(async () => {
+    setLoading(true);
+    const res = await apiClient.get<ApiOnboardRequest[]>("/api/onboard-requests");
+    if (res.success) {
+      setRequests(res.data.map(toOnboardRequest));
+      setLoadError("");
+    } else {
+      setLoadError(res.error || "Failed to load onboarding requests.");
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function act(id: string, action: OnboardRequest["status"], notes?: string): Promise<boolean> {
+    const res = await apiClient.patch<ApiOnboardRequest>(`/api/onboard-requests/${id}`, {
+      status: action,
+      ...(notes !== undefined ? { notes } : {}),
+    });
+    if (!res.success) {
+      setActionError(res.error || "Failed to update this request.");
+      return false;
+    }
+    setActionError("");
+    setRequests((rs) => rs.map((r) => (r.id === id ? toOnboardRequest(res.data) : r)));
+    return true;
   }
 
   const filtered = filter === "all" ? requests : requests.filter((r) => r.status === filter);
@@ -247,15 +325,27 @@ export function AdminOnboardingScreen() {
     <div className="screen-content">
       <TopNav
         title="Onboarding Requests"
-        subtitle={`${pending} pending review`}
-        rightEl={
-          <button className="btn-fab" style={{ width: 36, height: 36, borderRadius: 10 }}>
-            <Plus size={16} />
-          </button>
-        }
+        subtitle={loading ? "Loading…" : `${pending} pending review`}
       />
 
       <div className="px-screen" style={{ paddingTop: 12 }}>
+        {loadError && (
+          <div className="farm-card" style={{ padding: 14, marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+            <AlertTriangle size={16} color="var(--status-critical)" />
+            <span style={{ fontSize: 12, color: "var(--status-critical)" }}>{loadError}</span>
+          </div>
+        )}
+        {loading && !loadError && (
+          <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)", fontSize: 13 }}>Loading requests…</div>
+        )}
+        {actionError && (
+          <div className="farm-card" style={{ padding: 12, marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+            <AlertTriangle size={16} color="var(--status-critical)" />
+            <span style={{ fontSize: 12, color: "var(--status-critical)" }}>{actionError}</span>
+          </div>
+        )}
+        {!loading && !loadError && (
+        <>
         {/* Summary */}
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           {[
@@ -350,13 +440,13 @@ export function AdminOnboardingScreen() {
                   {req.status === "pending" && (
                     <div style={{ display: "flex", gap: 6, marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={(e) => { e.stopPropagation(); act(req.id, "approved"); }}
+                        onClick={(e) => { e.stopPropagation(); void act(req.id, "approved"); }}
                         style={{ flex: 1, padding: "7px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.3)", color: "var(--status-ok)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
                       >
                         <Check size={12} /> Approve
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); act(req.id, "rejected"); }}
+                        onClick={(e) => { e.stopPropagation(); void act(req.id, "rejected"); }}
                         style={{ flex: 1, padding: "7px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)", color: "var(--status-critical)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
                       >
                         <X size={12} /> Reject
@@ -374,6 +464,8 @@ export function AdminOnboardingScreen() {
             })
           )}
         </div>
+        </>
+        )}
       </div>
 
       {selected && (
