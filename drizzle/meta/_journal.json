@@ -71,6 +71,13 @@
       "when": 1786739432366,
       "tag": "0009_brave_silver_samurai",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786741510734,
+      "tag": "0010_panoramic_white_tiger",
+      "breakpoints": true
     }
   ]
 }
