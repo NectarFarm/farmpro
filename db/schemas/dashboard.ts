@@ -34,15 +34,28 @@ export const products = pgTable('products', {
 ])
 
 // A tenant's work items. `dueAt` null means "no due date" — excluded from any
-// due-today query. `status` is a free-form string for now (PENDING / DONE /
-// CANCELLED at minimum); the fuller lifecycle/approvals state machine belongs
-// to Epic: Tasks & Governance (#243).
+// due-today query. `status` is a free-form string (PENDING / DONE /
+// PENDING_APPROVAL / APPROVED / REJECTED / OVERDUE / CANCELLED at minimum —
+// see app/api/tasks/[id]/route.ts for the completion->approval transition).
+//
+// `priority`, `requiresApproval`, `notes` land here from Epic: Tasks &
+// Governance (issue #243) — extending this existing table in place per the
+// issue's branch-correction note, not forking a second one. `priority`
+// mirrors the UI's Task.priority ("high" | "medium" | "low" —
+// components/farm/data.ts) as free text, same "loose text, validated in the
+// route" choice this codebase already makes for users.role/status and
+// onboardRequests.status. `requiresApproval` gates whether marking a task
+// DONE routes through an approval_requests row instead of completing
+// directly (see the v1 approval-scope decision in db/schemas/governance.ts).
 export const tasks = pgTable('tasks', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
   title: text('title').notNull(),
   dueAt: timestamp('due_at'),
   status: text('status').notNull().default('PENDING'),
+  priority: text('priority').notNull().default('medium'),
+  requiresApproval: boolean('requires_approval').notNull().default(false),
+  notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_tasks_tenant').on(t.tenantId),

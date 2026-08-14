@@ -57,6 +57,13 @@
       "when": 1786737559571,
       "tag": "0007_superb_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786738453765,
+      "tag": "0008_gorgeous_turbo",
+      "breakpoints": true
     }
   ]
 }
