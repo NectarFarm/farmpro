@@ -1,26 +1,55 @@
 // ============================================================
 // dashboard.tsx — Role-aware dashboard + Notifications + NotificationSettings
-// Data flow:
-//   DashboardScreen reads BATCHES_DATA filtered by activeFarm (from NavProvider)
-//   Notification bell badge = NOTIFICATIONS_DATA.filter(!read).length
-//   QuickActions navigate to relevant screens
-//   FarmSwitcherSheet switches activeFarm (multi-farm, issue #219) → all screens re-filter
+// Data flow (issue #228 rewire — replaces the old all-mock version):
+//   KPI strip, product price strip, today's-tasks strip and the notification
+//   bell/badge/list are now real data from GET /api/dashboard/kpis,
+//   GET /api/products/current-prices, GET /api/tasks?due=today and
+//   GET/PATCH /api/notifications respectively (see fetch effects below).
+//   Batch/enterprise summary cards and the farm switcher below them are still
+//   BATCHES_DATA-driven mock UI — there is no `batches` table yet
+//   (Epic: Crops & Batches hasn't landed) and this issue didn't scope
+//   rebuilding that screen, only the KPI/price/task/notification/weather
+//   surfaces called out in issue #228.
+//   QuickActions navigate to relevant screens.
+//   FarmSwitcherSheet switches activeFarm (multi-farm, issue #219) → all screens re-filter.
 // ============================================================
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNav, TopNav } from "./navigation";
-import { FARMS_DATA, BATCHES_DATA, ENTERPRISE_REGISTRY, NOTIFICATIONS_DATA, PRODUCTS_DATA, getCurrentPrice } from "./data";
+import { BATCHES_DATA, ENTERPRISE_REGISTRY } from "./data";
 import {
-  TrendingUp, AlertTriangle, CheckCircle2, Leaf, CloudRain,
-  Droplets, Activity, Package, Users, ChevronRight, Bell, ArrowUp,
-  Clock, Building2, X, Check, Settings,
+  AlertTriangle, CheckCircle2, Package, ChevronRight, Bell,
+  Clock, X, Check, Settings, Info,
 } from "./icons";
+import { apiClient } from "@/lib/request";
 
-const PROD_BARS = [
-  { day: "Mon", v: 820 }, { day: "Tue", v: 855 }, { day: "Wed", v: 790 },
-  { day: "Thu", v: 900 }, { day: "Fri", v: 870 }, { day: "Sat", v: 830 }, { day: "Sun", v: 760 },
-];
-const maxV = Math.max(...PROD_BARS.map((b) => b.v));
+// ── Real backend shapes (issue #228) ────────────────────────────────────────
+// KPI fields that are real today, computed from tables that exist on this
+// branch (tasks/notifications/products). `activeBatches`/`mortalityPct`/
+// `avgFCR`/`revenue` come back `null` from the API — no `batches`/`sales`
+// table exists yet (Epic: Crops & Batches / Epic: Finance) — and are never
+// rendered as fabricated numbers, only as an explicit "not yet tracked" note.
+interface KpiData {
+  activeTasksCount: number;
+  overdueTasksCount: number;
+  unreadNotifications: number;
+  productCount: number;
+  activeBatches: number | null;
+  mortalityPct: number | null;
+  avgFCR: number | null;
+  revenue: number | null;
+}
+interface PriceRow { id: string; type: string; name: string; currentPrice: number }
+interface TaskRow { id: string; title: string; dueAt: string | null; status: string }
+interface NotificationRow {
+  id: string;
+  sourceType: string;
+  sourceId: string | null;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string | null;
+}
 
 /* ── Farm Switcher Sheet ──
  * Multi-farm is a first-class feature (issue #219): an owner/manager with several
@@ -71,15 +100,16 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
 
 /* ── Dashboard Screen ── */
 export function DashboardScreen() {
-  const { navigate, role, activeFarm, farms } = useNav();
-  const [period, setPeriod] = useState<"month" | "quarter" | "year">("month");
+  const { navigate, role, activeFarm, farms, tenantId } = useNav();
   const [showFarmSwitcher, setShowFarmSwitcher] = useState(false);
 
   const farm = activeFarm === "ALL" ? null : farms.find(f => f.code === activeFarm) ?? farms[0];
   const farmBatches = activeFarm === "ALL" ? BATCHES_DATA : BATCHES_DATA.filter(b => b.farmCode === activeFarm);
-  const activeBatches = farmBatches.filter(b => b.status === "ACTIVE").length;
 
-  // Enterprise summary cards
+  // Enterprise summary cards — still BATCHES_DATA-driven mock UI. No `batches`
+  // table exists yet (Epic: Crops & Batches hasn't landed); this issue only
+  // scoped the KPI/price/task/notification/weather surfaces below, not a
+  // rebuild of this section.
   const enterpriseMap = new Map<string, { count: number; qty: number; emoji: string; label: string; type: string }>();
   farmBatches.filter(b => b.status === "ACTIVE").forEach(b => {
     const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === b.enterprise);
@@ -92,10 +122,38 @@ export function DashboardScreen() {
   const livestock = enterprises.filter(([, v]) => v.type === "livestock");
   const crops = enterprises.filter(([, v]) => v.type === "crop");
 
-  const revenue = period === "month" ? "KSh 184,200" : period === "quarter" ? "KSh 542,800" : "KSh 2.1M";
-  const margin = period === "month" ? "34%" : period === "quarter" ? "31%" : "33%";
-  const unread = NOTIFICATIONS_DATA.filter(n => !n.read).length;
-  const pendingApprovals = 2;
+  // ── Real data fetches (issue #228) ──
+  // Each of these hits a real endpoint scoped to the session's tenant (the
+  // `tenantId` query param is only the standalone-mock-mode fallback — see
+  // GET /api/dashboard/kpis and friends). `null` here means "still loading",
+  // never "no data" — an empty real response is `{ ...counts: 0 }` or `[]`,
+  // which the render below treats as a genuine, honest empty state.
+  const [kpis, setKpis] = useState<KpiData | null>(null);
+  const [kpisFailed, setKpisFailed] = useState(false);
+  const [prices, setPrices] = useState<PriceRow[] | null>(null);
+  const [tasksToday, setTasksToday] = useState<TaskRow[] | null>(null);
+  const [notifs, setNotifs] = useState<NotificationRow[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<KpiData>(`/api/dashboard/kpis?tenantId=${tenantId}`).then(res => {
+      if (cancelled) return;
+      if (res.success) setKpis(res.data);
+      else setKpisFailed(true);
+    });
+    apiClient.get<PriceRow[]>(`/api/products/current-prices?tenantId=${tenantId}`).then(res => {
+      if (!cancelled && res.success) setPrices(res.data);
+    });
+    apiClient.get<TaskRow[]>(`/api/tasks?tenantId=${tenantId}&due=today`).then(res => {
+      if (!cancelled && res.success) setTasksToday(res.data);
+    });
+    apiClient.get<NotificationRow[]>(`/api/notifications?tenantId=${tenantId}`).then(res => {
+      if (!cancelled && res.success) setNotifs(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  const unread = notifs?.filter(n => !n.read).length ?? 0;
 
   // Quick actions vary by role
   const quickActions = [
@@ -141,68 +199,74 @@ export function DashboardScreen() {
         </button>
       )}
 
-      {/* Active alert strip */}
-      {NOTIFICATIONS_DATA.filter(n => !n.read && n.type === "alert").slice(0, 1).map(a => (
+      {/* Active alert strip — sourced from real notifications (sourceType "alert").
+          No `alerts` table exists yet (#227's TODO), so this list is always
+          empty today; the strip simply doesn't render rather than showing a
+          fabricated warning. */}
+      {(notifs ?? []).filter(n => !n.read && n.sourceType === "alert").slice(0, 1).map(a => (
         <button key={a.id} onClick={() => navigate("notifications")}
           style={{ width: "100%", marginBottom: 14, padding: "10px 12px", background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 12, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", textAlign: "left" }}>
           <AlertTriangle size={14} color="var(--status-critical)" style={{ flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "var(--status-critical)" }}>{a.title}</div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 1 }}>{a.body}</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 1 }}>{a.message}</div>
           </div>
           <ChevronRight size={12} color="var(--text-muted)" />
         </button>
       ))}
 
-      {/* KPI strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-        {[
-          { label: "Active Batches", value: activeBatches, icon: Leaf, color: "var(--primary-green)", delta: "+2", action: "crops" as const },
-          { label: "Pending Approvals", value: pendingApprovals, icon: CheckCircle2, color: "var(--status-warning)", delta: "→ Review", action: "governance" as const },
-          { label: "Livestock Units", value: livestock.length, icon: Activity, color: "var(--accent-blue)", delta: `${livestock.reduce((s,[,v])=>s+v.qty,0)}`, action: "crops" as const },
-          { label: "Crop Batches", value: crops.length, icon: Package, color: "var(--accent-amber)", delta: `${crops.length} active`, action: "crops" as const },
-        ].map((k) => {
-          const Icon = k.icon;
-          return (
-            <button key={k.label} className="farm-card" style={{ padding: 12, textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => navigate(k.action)}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                <Icon size={16} color={k.color} />
-                <span style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600 }}>{k.delta}</span>
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: k.color }}>{k.value}</div>
-              <div className="kpi-label" style={{ marginTop: 2 }}>{k.label}</div>
-            </button>
-          );
-        })}
+      {/* KPI strip — real numbers from GET /api/dashboard/kpis (issue #228).
+          "Pending Approvals" is hidden entirely (Epic: Tasks & Governance's
+          approvals table doesn't exist yet — issue #228 task 4), rather than
+          shown with a fake count. */}
+      {kpisFailed ? (
+        <div className="farm-card" style={{ padding: 14, marginBottom: 14, textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>
+          Couldn&apos;t load dashboard metrics.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          {[
+            { label: "Active Tasks", value: kpis?.activeTasksCount, icon: CheckCircle2, color: "var(--primary-green)", action: "tasks" as const },
+            { label: "Overdue Tasks", value: kpis?.overdueTasksCount, icon: AlertTriangle, color: (kpis?.overdueTasksCount ?? 0) > 0 ? "var(--status-critical)" : "var(--text-muted)", action: "tasks" as const },
+            { label: "Unread Notifications", value: kpis?.unreadNotifications, icon: Bell, color: "var(--accent-blue)", action: "notifications" as const },
+            { label: "Products Tracked", value: kpis?.productCount, icon: Package, color: "var(--accent-amber)", action: "finance" as const },
+          ].map((k) => {
+            const Icon = k.icon;
+            return (
+              <button key={k.label} className="farm-card" style={{ padding: 12, textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => navigate(k.action)}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                  <Icon size={16} color={k.color} />
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: k.color }}>{k.value ?? "–"}</div>
+                <div className="kpi-label" style={{ marginTop: 2 }}>{k.label}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Pending-epic KPIs (issue #228): the reference dashboard also wants
+          active-batch counts, mortality % and FCR, but no `batches` table
+          exists yet (Epic: Crops & Batches). Named honestly instead of shown
+          as fabricated tiles. */}
+      <div style={{ marginBottom: 14, padding: "8px 12px", border: "1px dashed var(--border-subtle)", borderRadius: 12, fontSize: 10, color: "var(--text-dim)", display: "flex", alignItems: "center", gap: 6 }}>
+        <Info size={12} color="var(--text-dim)" style={{ flexShrink: 0 }} />
+        <span>Active batches, mortality % and FCR aren&apos;t tracked yet — pending Epic: Crops &amp; Batches.</span>
       </div>
 
-      {/* Revenue chart — owner/manager only */}
+      {/* Revenue — owner/manager only. No `sales` table exists yet
+          (Epic: Finance), so there is no real revenue/margin figure to show;
+          this is an honest "not available" card, not a fabricated chart. */}
       {(role === "owner" || role === "manager") && (
-        <button onClick={() => navigate("finance")} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 14, width: "100%", textAlign: "left", cursor: "pointer" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <button onClick={() => navigate("finance")} className="farm-card" style={{ padding: 14, marginBottom: 14, width: "100%", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Info size={16} color="var(--text-muted)" />
+          </div>
+          <div style={{ flex: 1 }}>
             <div className="section-eyebrow">Revenue</div>
-            <div style={{ display: "flex", gap: 3 }}>
-              {(["month","quarter","year"] as const).map(p => (
-                <button key={p} onClick={e => { e.stopPropagation(); setPeriod(p); }}
-                  style={{ padding: "2px 8px", borderRadius: 100, fontSize: 9, fontWeight: 700, cursor: "pointer",
-                    background: period === p ? "rgba(74,222,128,0.2)" : "transparent",
-                    border: period === p ? "1px solid rgba(74,222,128,0.4)" : "1px solid transparent",
-                    color: period === p ? "var(--primary-green)" : "var(--text-muted)", textTransform: "capitalize" }}>{p}</button>
-              ))}
-            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Not available yet — pending Epic: Finance (no sales data recorded).</div>
           </div>
-          <div style={{ display: "flex", gap: 20, alignItems: "flex-end", marginBottom: 12 }}>
-            <div><div className="kpi-value">{revenue}</div><div className="kpi-label" style={{ marginTop: 2 }}>Revenue</div></div>
-            <div><div style={{ fontSize: 22, fontWeight: 700, color: "var(--status-ok)" }}>{margin}</div><div className="kpi-label" style={{ marginTop: 2 }}>Margin</div></div>
-          </div>
-          <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 44 }}>
-            {PROD_BARS.map((b, i) => (
-              <div key={b.day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                <div style={{ width: "100%", borderRadius: 3, height: Math.round((b.v / maxV) * 36), background: i === 6 ? "var(--gradient-primary)" : "rgba(74,222,128,0.22)", transition: "height 0.3s" }} />
-                <div style={{ fontSize: 8, color: "var(--text-dim)", fontWeight: 600 }}>{b.day[0]}</div>
-              </div>
-            ))}
-          </div>
+          <ChevronRight size={14} color="var(--text-dim)" />
         </button>
       )}
 
@@ -213,19 +277,25 @@ export function DashboardScreen() {
             <div className="section-eyebrow">📦 Current Product Prices</div>
             <button onClick={() => navigate("finance")} style={{ fontSize: 11, color: "var(--primary-green)", fontWeight: 600, background: "none", border: "none", cursor: "pointer" }}>Manage ›</button>
           </div>
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4 }}>
-            {PRODUCTS_DATA.filter(p => activeFarm === "ALL" || p.farmCode === activeFarm).map(p => {
-              const price = getCurrentPrice(p);
-              return price ? (
+          {prices === null ? (
+            <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Loading prices…</div>
+          ) : prices.length === 0 ? (
+            <div className="farm-card" style={{ padding: 12, fontSize: 11, color: "var(--text-muted)" }}>No products priced yet.</div>
+          ) : (
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4 }}>
+              {prices.map(p => (
                 <button key={p.id} onClick={() => navigate("finance")}
                   style={{ flexShrink: 0, padding: "9px 12px", background: "var(--card)", border: "1px solid var(--border-subtle)", borderRadius: 12, textAlign: "left", cursor: "pointer", minWidth: 90 }}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>{p.emoji}</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-primary)" }}>KSh {price.price}</div>
-                  <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 1 }}>/{price.unit}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-primary)" }}>{p.name}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--primary-green)", marginTop: 3 }}>KSh {p.currentPrice.toLocaleString()}</div>
+                  {/* No unit-of-measure column exists yet on `products` (Epic:
+                      Crops & Batches) — "/unit" is a generic label, not a
+                      fabricated specific unit like "tray" or "kg". */}
+                  <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 1 }}>/unit</div>
                 </button>
-              ) : null;
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -268,50 +338,56 @@ export function DashboardScreen() {
         </div>
       )}
 
-      {/* Today's tasks */}
+      {/* Today's tasks — real rows from GET /api/tasks?due=today (issue #228) */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
           <div className="section-eyebrow">Tasks Today</div>
           <button onClick={() => navigate("tasks")} style={{ fontSize: 11, color: "var(--primary-green)", fontWeight: 600, background: "none", border: "none", cursor: "pointer" }}>All tasks ›</button>
         </div>
-        <div className="farm-card" style={{ overflow: "hidden" }}>
-          {[
-            { code: "TSK-KMU-0081", title: "Egg Collection – Pen B01", due: "07:30", done: false, overdue: false },
-            { code: "TSK-KMU-0082", title: "BRO Feeding – House A01", due: "08:00", done: false, overdue: true },
-            { code: "TSK-KMU-0083", title: "Milking – Morning Round", due: "06:00", done: true, overdue: false },
-          ].map((t, i) => (
-            <button key={t.code} onClick={() => navigate("tasks")}
-              style={{ width: "100%", padding: "11px 14px", display: "flex", alignItems: "center", gap: 10, borderBottom: i < 2 ? "1px solid var(--border-subtle)" : "none", background: "none", border: i < 2 ? "none" : "none", borderTop: "none", borderLeft: "none", borderRight: "none", borderBottomColor: i < 2 ? "var(--border-subtle)" : "transparent", cursor: "pointer", textAlign: "left" }}>
-              <div style={{ width: 20, height: 20, borderRadius: "50%",
-                background: t.done ? "rgba(74,222,128,0.2)" : t.overdue ? "rgba(248,113,113,0.15)" : "var(--card)",
-                border: `1px solid ${t.done ? "var(--primary-green)" : t.overdue ? "var(--status-critical)" : "var(--border-subtle)"}`,
-                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                {t.done && <CheckCircle2 size={12} color="var(--primary-green)" />}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.done ? "var(--text-muted)" : t.overdue ? "var(--status-critical)" : "var(--text-primary)", textDecoration: t.done ? "line-through" : "none" }}>{t.title}</div>
-                <div style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "monospace" }}>{t.code}</div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <Clock size={10} color={t.overdue ? "var(--status-critical)" : "var(--text-muted)"} />
-                <span style={{ fontSize: 10, color: t.overdue ? "var(--status-critical)" : "var(--text-muted)" }}>{t.due}</span>
-              </div>
-            </button>
-          ))}
-        </div>
+        {tasksToday === null ? (
+          <div className="farm-card" style={{ padding: 14, fontSize: 11, color: "var(--text-dim)" }}>Loading today&apos;s tasks…</div>
+        ) : tasksToday.length === 0 ? (
+          <div className="farm-card" style={{ padding: 14, fontSize: 12, color: "var(--text-muted)" }}>No tasks due today.</div>
+        ) : (
+          <div className="farm-card" style={{ overflow: "hidden" }}>
+            {tasksToday.map((t, i) => {
+              const done = t.status === "DONE" || t.status === "CANCELLED";
+              const overdue = !done && t.dueAt !== null && new Date(t.dueAt) < new Date();
+              const dueLabel = t.dueAt ? new Date(t.dueAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
+              return (
+                <button key={t.id} onClick={() => navigate("tasks")}
+                  style={{ width: "100%", padding: "11px 14px", display: "flex", alignItems: "center", gap: 10, borderBottom: i < tasksToday.length - 1 ? "1px solid var(--border-subtle)" : "none", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+                  <div style={{ width: 20, height: 20, borderRadius: "50%",
+                    background: done ? "rgba(74,222,128,0.2)" : overdue ? "rgba(248,113,113,0.15)" : "var(--card)",
+                    border: `1px solid ${done ? "var(--primary-green)" : overdue ? "var(--status-critical)" : "var(--border-subtle)"}`,
+                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {done && <CheckCircle2 size={12} color="var(--primary-green)" />}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: done ? "var(--text-muted)" : overdue ? "var(--status-critical)" : "var(--text-primary)", textDecoration: done ? "line-through" : "none" }}>{t.title}</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <Clock size={10} color={overdue ? "var(--status-critical)" : "var(--text-muted)"} />
+                    <span style={{ fontSize: 10, color: overdue ? "var(--status-critical)" : "var(--text-muted)" }}>{dueLabel}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Weather mini */}
-      <button onClick={() => navigate("weather")} className="farm-card" style={{ padding: 14, width: "100%", textAlign: "left", marginBottom: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <div className="section-eyebrow" style={{ marginBottom: 4 }}>⛅ {farm?.location ?? "All farms"}</div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ fontSize: 32, fontWeight: 200 }}>24°C</span>
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Partly Cloudy</span>
+      {/* Weather mini — honest "not available" state (issue #228 task 5). The
+          backend was intentionally not built in #227 (provider decision still
+          pending) — no fake forecast. */}
+      <button onClick={() => navigate("weather")} className="farm-card" style={{ padding: 14, width: "100%", textAlign: "left", marginBottom: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Info size={16} color="var(--text-muted)" />
           </div>
-          <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 3 }}><Droplets size={11} color="var(--accent-blue)" />68%</span>
-            <span style={{ display: "flex", alignItems: "center", gap: 3 }}><CloudRain size={11} color="var(--accent-blue)" />Rain Sat</span>
+          <div>
+            <div className="section-eyebrow" style={{ marginBottom: 4 }}>{farm?.location ?? "All farms"}</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Weather not available yet</div>
           </div>
         </div>
         <ChevronRight size={16} color="var(--text-dim)" />
@@ -338,26 +414,53 @@ export function DashboardScreen() {
 
 /* ── Notifications Screen ── */
 export function NotificationsScreen() {
-  const { goBack, navigate } = useNav();
-  const [notifs, setNotifs] = useState(NOTIFICATIONS_DATA);
+  const { navigate, tenantId } = useNav();
+  const [notifs, setNotifs] = useState<NotificationRow[] | null>(null);
 
-  const typeIcon: Record<string, string> = { weather: "⛅", approval: "✅", task: "📋", alert: "⚠️", system: "🔔" };
-  const typeColor: Record<string, string> = { weather: "var(--accent-blue)", approval: "var(--status-warning)", task: "var(--primary-green)", alert: "var(--status-critical)", system: "var(--text-muted)" };
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<NotificationRow[]>(`/api/notifications?tenantId=${tenantId}`).then(res => {
+      if (!cancelled && res.success) setNotifs(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  // Only sourceTypes the backend actually produces today (issue #227/#228):
+  // "task" (synced from overdue/due-today tasks) and "approval"/"alert"
+  // (schema supports them, but no approvals/alerts table feeds them yet —
+  // see app/api/notifications/route.ts). Falls back to a generic bell icon
+  // for anything else rather than guessing.
+  const typeIcon: Record<string, string> = { task: "📋", alert: "⚠️", approval: "✅" };
+  const typeColor: Record<string, string> = { task: "var(--primary-green)", alert: "var(--status-critical)", approval: "var(--status-warning)" };
+
+  const markRead = useCallback((id: string) => {
+    setNotifs(ns => ns ? ns.map(n => n.id === id ? { ...n, read: true } : n) : ns);
+    apiClient.patch(`/api/notifications/${id}?tenantId=${tenantId}`, { read: true });
+  }, [tenantId]);
 
   function markAllRead() {
-    setNotifs(ns => ns.map(n => ({ ...n, read: true })));
+    const unreadIds = (notifs ?? []).filter(n => !n.read).map(n => n.id);
+    setNotifs(ns => ns ? ns.map(n => ({ ...n, read: true })) : ns);
+    unreadIds.forEach(id => apiClient.patch(`/api/notifications/${id}?tenantId=${tenantId}`, { read: true }));
   }
 
-  function handleNotifTap(n: typeof notifs[0]) {
-    setNotifs(ns => ns.map(x => x.id === n.id ? { ...x, read: true } : x));
-    // Deep link based on source
-    if (n.type === "approval" && n.sourceCode?.startsWith("APR")) navigate("governance");
-    else if (n.type === "task" && n.sourceCode?.startsWith("TSK")) navigate("tasks");
-    else if (n.type === "weather") navigate("weather");
-    else if (n.type === "alert") navigate("inventory");
+  function handleNotifTap(n: NotificationRow) {
+    markRead(n.id);
+    if (n.sourceType === "task") navigate("tasks");
+    else if (n.sourceType === "approval") navigate("governance");
+    else if (n.sourceType === "alert") navigate("inventory");
   }
 
-  const unread = notifs.filter(n => !n.read).length;
+  const unread = (notifs ?? []).filter(n => !n.read).length;
+
+  function isToday(iso: string | null): boolean {
+    if (!iso) return false;
+    return new Date(iso).toDateString() === new Date().toDateString();
+  }
+  function formatWhen(iso: string | null): string {
+    if (!iso) return "";
+    return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
 
   return (
     <div className="screen-content">
@@ -385,39 +488,46 @@ export function NotificationsScreen() {
             {unread} unread notification{unread > 1 ? "s" : ""}
           </div>
         )}
-        {["Today", "Earlier"].map(group => {
-          const items = group === "Today" ? notifs.slice(0, 4) : notifs.slice(4);
-          if (!items.length) return null;
-          return (
-            <div key={group} style={{ marginBottom: 16 }}>
-              <div className="section-eyebrow" style={{ marginBottom: 8 }}>{group}</div>
-              {items.map((n) => (
-                <button key={n.id} onClick={() => handleNotifTap(n)}
-                  style={{ width: "100%", padding: 14, marginBottom: 8, borderRadius: 14, textAlign: "left", cursor: "pointer",
-                    background: n.read ? "var(--card)" : "rgba(74,222,128,0.05)",
-                    border: `1px solid ${n.read ? "var(--border-subtle)" : "rgba(74,222,128,0.2)"}` }}>
-                  <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 10, background: `${typeColor[n.type]}15`, border: `1px solid ${typeColor[n.type]}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 16 }}>
-                      {typeIcon[n.type]}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <div style={{ fontSize: 13, fontWeight: n.read ? 500 : 700, color: "var(--text-primary)", lineHeight: 1.3, flex: 1 }}>{n.title}</div>
-                        {!n.read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--primary-green)", flexShrink: 0, marginLeft: 8, marginTop: 4 }} />}
+        {notifs === null ? (
+          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Loading notifications…</div>
+        ) : notifs.length === 0 ? (
+          <div className="farm-card" style={{ padding: 16, fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>
+            No notifications yet.
+          </div>
+        ) : (
+          ["Today", "Earlier"].map(group => {
+            const items = notifs.filter(n => (group === "Today") === isToday(n.createdAt));
+            if (!items.length) return null;
+            return (
+              <div key={group} style={{ marginBottom: 16 }}>
+                <div className="section-eyebrow" style={{ marginBottom: 8 }}>{group}</div>
+                {items.map((n) => {
+                  const color = typeColor[n.sourceType] ?? "var(--text-muted)";
+                  return (
+                    <button key={n.id} onClick={() => handleNotifTap(n)}
+                      style={{ width: "100%", padding: 14, marginBottom: 8, borderRadius: 14, textAlign: "left", cursor: "pointer",
+                        background: n.read ? "var(--card)" : "rgba(74,222,128,0.05)",
+                        border: `1px solid ${n.read ? "var(--border-subtle)" : "rgba(74,222,128,0.2)"}` }}>
+                      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 10, background: `${color}15`, border: `1px solid ${color}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 16 }}>
+                          {typeIcon[n.sourceType] ?? "🔔"}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                            <div style={{ fontSize: 13, fontWeight: n.read ? 500 : 700, color: "var(--text-primary)", lineHeight: 1.3, flex: 1 }}>{n.title}</div>
+                            {!n.read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--primary-green)", flexShrink: 0, marginLeft: 8, marginTop: 4 }} />}
+                          </div>
+                          {n.message && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.4 }}>{n.message}</div>}
+                          <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 5 }}>{formatWhen(n.createdAt)}</div>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.4 }}>{n.body}</div>
-                      <div style={{ display: "flex", gap: 8, marginTop: 5, alignItems: "center" }}>
-                        <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{n.time}</span>
-                        {n.farmCode && <span style={{ fontSize: 9, padding: "1px 6px", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: 100, color: "var(--primary-green)", fontWeight: 600 }}>{n.farmCode}</span>}
-                        {n.sourceCode && <span style={{ fontSize: 9, color: "var(--text-dim)", fontFamily: "monospace" }}>{n.sourceCode}</span>}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          );
-        })}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })
+        )}
         <div style={{ paddingBottom: 80 }} />
       </div>
     </div>

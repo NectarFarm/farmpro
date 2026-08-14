@@ -43,6 +43,8 @@ export interface NavContext {
   params: Record<string, string>;
   activeFarm: string; // Code of the farm currently in view — switchable (multi-farm, issue #219).
   farms: FarmSummary[]; // The tenant's farms (from GET /api/farms; mock FARMS_DATA fallback).
+  tenantId: string; // Resolved tenant scope for tenant-scoped GETs (issue #228) — same
+                     // session-tenant-wins / PROVISIONAL_TENANT_ID fallback as the farms fetch below.
   navigate: (to: ScreenId, params?: Record<string, string>) => void;
   goBack: () => void;
   setActiveFarm: (code: string) => void;
@@ -60,6 +62,7 @@ const NavCtx = createContext<NavContext>({
   current: "dashboard", history: [], role: "owner", params: {},
   activeFarm: "FRM-KMU-001",
   farms: [],
+  tenantId: PROVISIONAL_TENANT_ID,
   navigate: () => {}, goBack: () => {}, setActiveFarm: () => {},
   alertCount: 3, pendingApprovals: 2, unreadNotifs: 3,
 });
@@ -119,6 +122,7 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
   const [history, setHistory] = useState<ScreenId[]>([]);
   const [params, setParams] = useState<Record<string, string>>({});
   const [activeFarm, setActiveFarm] = useState("FRM-KMU-001");
+  const tenantId = initialTenantId ?? PROVISIONAL_TENANT_ID;
 
   // The tenant's farms for the switcher: prefer the real backend (GET /api/farms),
   // fall back to the mock FARMS_DATA when running standalone without the API
@@ -129,7 +133,7 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
   useEffect(() => {
     let cancelled = false;
     apiClient.get<{ id: string; code: string; name: string; location: string }[]>(
-      `/api/farms?tenantId=${initialTenantId ?? PROVISIONAL_TENANT_ID}`
+      `/api/farms?tenantId=${tenantId}`
     ).then(res => {
       if (cancelled) return;
       // Empty (valid) responses keep the mock set — the standalone app isn't seeded.
@@ -164,7 +168,7 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
   const unreadNotifs = NOTIFICATIONS_DATA.filter(n => !n.read).length;
 
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, navigate, goBack, setActiveFarm, alertCount: 3, pendingApprovals: 2, unreadNotifs }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, tenantId, navigate, goBack, setActiveFarm, alertCount: 3, pendingApprovals: 2, unreadNotifs }}>
       <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       {children}
     </NavCtx.Provider>

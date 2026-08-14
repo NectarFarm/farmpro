@@ -29,9 +29,12 @@ import { startOfUtcDay } from '@/app/api/tasks/route'
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
-const DONE_STATUSES = ['DONE', 'CANCELLED']
+// Exported so GET /api/dashboard/kpis (issue #228) can reuse the same
+// "what counts as done" definition and lazy-sync step instead of forking a
+// second copy of this logic.
+export const DONE_STATUSES = ['DONE', 'CANCELLED']
 
-async function syncTaskNotifications(tenantId: string): Promise<void> {
+export async function syncTaskNotifications(tenantId: string): Promise<void> {
   const endOfToday = new Date(startOfUtcDay(new Date()).getTime() + 24 * 60 * 60 * 1000)
 
   // `dueAt < endOfToday` on a nullable column already excludes tasks with no
