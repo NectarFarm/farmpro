@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { batches } from '@/db/schemas'
+import { batches, productionUnits } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
 
@@ -47,9 +47,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // PATCH /api/batches/[id] — partial update. Every field is optional; only
 // fields present in the body are changed. Supported fields:
 //   stage, status, currentQty, initialQty, acquisitionCostCents, name,
-//   species, endDate, harvestDate
+//   species, endDate, harvestDate, unitId
 // "Advance stage" is just this endpoint with a new `stage` value (and
 // typically a new `currentQty` alongside it, e.g. after a mortality count).
+// "Unit Transfer" (issue #232 task 5) is just this endpoint with a new
+// `unitId` — there is no separate transfer/lifecycle endpoint or a
+// transfers/history table; the batch's unit assignment simply moves in place,
+// same as POST /api/batches validates `unitId` against the caller's tenant
+// before accepting it (400/404 instead of a bare FK-violation 500 for a
+// bad/foreign unit id).
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const session = await getSessionUser()
@@ -80,6 +86,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   if (typeof b.endDate === 'string') patch.endDate = b.endDate ? new Date(b.endDate) : null
   if (typeof b.harvestDate === 'string') patch.harvestDate = b.harvestDate ? new Date(b.harvestDate) : null
+
+  if (typeof b.unitId === 'string' && b.unitId.trim()) {
+    const newUnitId = b.unitId.trim()
+    const unitRows = await db
+      .select()
+      .from(productionUnits)
+      .where(and(eq(productionUnits.id, newUnitId), eq(productionUnits.tenantId, tenantId)))
+    if (!unitRows[0]) return notFound()
+    patch.unitId = newUnitId
+  }
 
   if (Object.keys(patch).length === 0) return badRequest('No updatable fields provided')
 

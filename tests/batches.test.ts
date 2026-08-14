@@ -51,6 +51,7 @@ run('batches: CRUD + code generation + cost-breakdown (issue #231)', () => {
   const farmAId = `f-${randomUUID()}`
   const farmBId = `f-${randomUUID()}`
   const unitAId = `u-${randomUUID()}`
+  const unitA2Id = `u-${randomUUID()}`
   const unitBId = `u-${randomUUID()}`
 
   beforeAll(async () => {
@@ -64,6 +65,7 @@ run('batches: CRUD + code generation + cost-breakdown (issue #231)', () => {
     ])
     await db.insert(productionUnits).values([
       { id: unitAId, tenantId: tenantAId, farmId: farmAId, type: 'house', name: 'House A01', code: 'HSE-KMU-A01' },
+      { id: unitA2Id, tenantId: tenantAId, farmId: farmAId, type: 'house', name: 'House A02', code: 'HSE-KMU-A02' },
       { id: unitBId, tenantId: tenantBId, farmId: farmBId, type: 'house', name: 'House B01', code: 'HSE-ELD-B01' },
     ])
   })
@@ -208,6 +210,61 @@ run('batches: CRUD + code generation + cost-breakdown (issue #231)', () => {
         { params: Promise.resolve({ id: created.id }) }
       )
       expect(patchRes.status).toBe(404)
+    })
+  })
+
+  describe('PATCH /api/batches/[id] — unit transfer (issue #232)', () => {
+    it('moves a batch to a different unit belonging to the same tenant', async () => {
+      const createRes = await batchesPOST(
+        postRequest('http://localhost/api/batches', {
+          tenantId: tenantAId,
+          unitId: unitAId,
+          name: 'Broilers Jan Run',
+          enterprise: 'broiler',
+          initialQty: 600,
+        })
+      )
+      const created = (await createRes.json()).data
+      expect(created.unitId).toBe(unitAId)
+
+      const patchRes = await batchPATCH(
+        patchRequest(`http://localhost/api/batches/${created.id}?tenantId=${tenantAId}`, { unitId: unitA2Id }),
+        { params: Promise.resolve({ id: created.id }) }
+      )
+      expect(patchRes.status).toBe(200)
+      const patched = (await patchRes.json()).data
+      expect(patched.unitId).toBe(unitA2Id)
+
+      // Persists on re-read, same as a page reload would see.
+      const readRes = await batchGET(getRequest(`http://localhost/api/batches/${created.id}?tenantId=${tenantAId}`), {
+        params: Promise.resolve({ id: created.id }),
+      })
+      expect((await readRes.json()).data.unitId).toBe(unitA2Id)
+    })
+
+    it('rejects moving a batch to a unit belonging to a different tenant', async () => {
+      const createRes = await batchesPOST(
+        postRequest('http://localhost/api/batches', {
+          tenantId: tenantAId,
+          unitId: unitAId,
+          name: 'Broilers Feb Run',
+          enterprise: 'broiler',
+          initialQty: 400,
+        })
+      )
+      const created = (await createRes.json()).data
+
+      const patchRes = await batchPATCH(
+        patchRequest(`http://localhost/api/batches/${created.id}?tenantId=${tenantAId}`, { unitId: unitBId }),
+        { params: Promise.resolve({ id: created.id }) }
+      )
+      expect(patchRes.status).toBe(404)
+
+      // The batch's unit assignment is unchanged after the rejected transfer.
+      const readRes = await batchGET(getRequest(`http://localhost/api/batches/${created.id}?tenantId=${tenantAId}`), {
+        params: Promise.resolve({ id: created.id }),
+      })
+      expect((await readRes.json()).data.unitId).toBe(unitAId)
     })
   })
 

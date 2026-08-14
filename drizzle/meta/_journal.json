@@ -64,6 +64,13 @@
       "when": 1786738453765,
       "tag": "0008_gorgeous_turbo",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786739432366,
+      "tag": "0009_brave_silver_samurai",
+      "breakpoints": true
     }
   ]
 }

@@ -27,6 +27,13 @@ export const farms = pgTable('farms', {
 // Production units live under a farm — farm_id is a real FK into `farms`
 // (production_units.farm_id → farms.id), the relationship the reference system
 // models. Minimal for now; the screen epics add the remaining columns.
+//
+// `idx_production_units_tenant_code` (issue #232): GET/POST /api/units is the
+// first route to create rows here — same per-tenant-unique-code guard shape as
+// idx_farms_tenant_code / idx_batches_tenant_code, and exactly what
+// lib/codes.ts's own comment says a units-create route should add ("callers
+// must still check per-tenant collisions ... and rely on a DB unique index for
+// the real concurrent-insert race").
 export const productionUnits = pgTable('production_units', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
@@ -37,6 +44,7 @@ export const productionUnits = pgTable('production_units', {
   status: text('status').notNull().default('ACTIVE'),
 }, (t) => [
   index('idx_production_units_tenant_farm').on(t.tenantId, t.farmId),
+  uniqueIndex('idx_production_units_tenant_code').on(t.tenantId, t.code),
 ])
 
 // A tenant's production batches (issue #231) — one cohort of animals or a
