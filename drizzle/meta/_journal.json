@@ -50,6 +50,13 @@
       "when": 1786711172015,
       "tag": "0006_amusing_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786737559571,
+      "tag": "0007_superb_black_queen",
+      "breakpoints": true
     }
   ]
 }
