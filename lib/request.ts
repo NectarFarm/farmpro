@@ -130,6 +130,14 @@ export const apiClient = {
     request<T>(url, { ...options, method: 'POST', body: JSON.stringify(body) }),
   put: <T>(url: string, body: unknown, options?: RequestInit) =>
     request<T>(url, { ...options, method: 'PUT', body: JSON.stringify(body) }),
+  // Added for issue #228: PATCH /api/notifications/[id] (mark read) is the
+  // first client caller of a partial-update route.
+  patch: <T>(url: string, body?: unknown, options?: RequestInit) =>
+    request<T>(url, {
+      ...options,
+      method: 'PATCH',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
   delete: <T>(url: string, options?: RequestInit) =>
     request<T>(url, { ...options, method: 'DELETE' }),
 }
