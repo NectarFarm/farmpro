@@ -199,7 +199,6 @@ export default function Home() {
                     <div style={{ flex: 1, overflowY: "auto" }}>
                       <RegisterScreen
                         onBack={() => setAuthState("login")}
-                        onSubmit={() => setAuthState("login")}
                       />
                     </div>
                   </div>
