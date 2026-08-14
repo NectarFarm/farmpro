@@ -5,9 +5,8 @@
 // ============================================================
 "use client";
 import React, { useState, useEffect } from "react";
-import { ENTERPRISE_REGISTRY, type OnboardRequest } from "./data";
+import { ENTERPRISE_REGISTRY } from "./data";
 import { Eye, EyeOff, Check, ChevronRight, AlertTriangle, Phone, Mail } from "./icons";
-import { useToast } from "./ui-shared";
 import { type Role } from "./navigation";
 import { apiClient } from "@/lib/request";
 
@@ -140,10 +139,6 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
   const [pin, setPin] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState("");
-  const [screen, setScreen] = useState<"login" | "forgot">("login");
-  const [resetEmail, setResetEmail] = useState("");
-  const [resetError, setResetError] = useState("");
-  const { showToast } = useToast();
   const [busy, setBusy] = useState(false);
 
   async function doLogin(payload: { email?: string; password?: string; pin?: string }) {
@@ -178,40 +173,6 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
         void doLogin({ pin: next });
       }
     }
-  }
-
-  function handleResetLink() {
-    if (!resetEmail.trim()) {
-      setResetError("Please enter your email address.");
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resetEmail.trim())) {
-      setResetError("Please enter a valid email address.");
-      return;
-    }
-    setResetError("");
-    showToast(`Reset link sent to ${resetEmail.trim()} ✓`, "success");
-    setTimeout(() => setScreen("login"), 1800);
-  }
-
-  if (screen === "forgot") {
-    return (
-      <div className="screen-content px-screen" style={{ paddingTop: 48 }}>
-        <AuthHeader title="Reset Password" subtitle="We'll send a reset link to your email" />
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Email Address</label>
-          <div style={{ position: "relative" }}>
-            <Mail size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
-            <input className="farm-input" style={{ paddingLeft: 34 }} placeholder="your@email.com" value={resetEmail}
-              onChange={e => { setResetEmail(e.target.value); setResetError(""); }}
-              onKeyDown={e => e.key === "Enter" && handleResetLink()} />
-          </div>
-          {resetError && <div style={{ fontSize: 11, color: "var(--status-critical)", marginTop: 6, paddingLeft: 2 }}>{resetError}</div>}
-        </div>
-        <button className="btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={handleResetLink}>Send Reset Link</button>
-        <button onClick={() => { setScreen("login"); setResetError(""); setResetEmail(""); }} style={{ width: "100%", marginTop: 12, padding: "10px", borderRadius: 12, background: "none", border: "1px solid var(--border-subtle)", color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>← Back to Login</button>
-      </div>
-    );
   }
 
   return (
@@ -252,9 +213,16 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
               </button>
             </div>
           </div>
-          <button onClick={() => setScreen("forgot")} style={{ background: "none", border: "none", color: "var(--primary-green)", fontSize: 11, fontWeight: 600, cursor: "pointer", marginBottom: 16, padding: 0 }}>
-            Forgot password?
-          </button>
+          {/* No email delivery in this pass (issue #223 decision) — disabled, not a fake flow. */}
+          <div style={{ marginBottom: 16 }}>
+            <button disabled title="Contact your farm administrator to reset your password."
+              style={{ background: "none", border: "none", color: "var(--text-dim)", fontSize: 11, fontWeight: 600, cursor: "not-allowed", padding: 0 }}>
+              Forgot password?
+            </button>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+              Contact your farm administrator to reset your password.
+            </div>
+          </div>
           {error && <div style={{ padding: "10px 12px", background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, fontSize: 12, color: "var(--status-critical)", marginBottom: 14 }}>{error}</div>}
           <button className="btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={handleEmailLogin} disabled={busy}>
             {busy ? "Signing in…" : "Sign In →"}
@@ -366,9 +334,8 @@ function Step2FarmDetails({
 }
 
 /* ── REGISTER / SELF-ONBOARDING SCREEN ── */
-export function RegisterScreen({ onBack, onSubmit }: {
+export function RegisterScreen({ onBack }: {
   onBack: () => void;
-  onSubmit: (req?: Omit<OnboardRequest, "id" | "requestedAt" | "status">) => void;
 }) {
   const [step, setStep] = useState(1);
   const [farmerName, setFarmerName] = useState("");
@@ -383,6 +350,8 @@ export function RegisterScreen({ onBack, onSubmit }: {
   const [gpsError, setGpsError] = useState("");
   const [selectedEnterprises, setSelectedEnterprises] = useState<string[]>([]);
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   function toggleEnterprise(sub: string) {
     setSelectedEnterprises(s => s.includes(sub) ? s.filter(x => x !== sub) : [...s, sub]);
@@ -401,15 +370,28 @@ export function RegisterScreen({ onBack, onSubmit }: {
     );
   }
 
-  function handleSubmit() {
+  // POST /api/onboard-requests (issue #251 contract): { farmerName, email, phone,
+  // farmName, location, enterprises } -> 201 { success: true, data: { id } }.
+  // GPS/address are collected for the admin's later use but aren't part of the
+  // onboard-request contract, so they aren't sent here.
+  async function handleSubmit() {
     if (!farmerName || !email || !farmName || !location || selectedEnterprises.length === 0) return;
-    const latNum = lat ? parseFloat(lat) : undefined;
-    const lngNum = lng ? parseFloat(lng) : undefined;
-    onSubmit({ farmerName, email, phone, farmName, location,
-      address: address || undefined,
-      lat: latNum, lng: lngNum,
-      enterprises: selectedEnterprises });
-    setSubmitted(true);
+    setSubmitting(true);
+    setSubmitError("");
+    const res = await apiClient.post<{ id: string }>("/api/onboard-requests", {
+      farmerName,
+      email,
+      phone,
+      farmName,
+      location,
+      enterprises: selectedEnterprises,
+    });
+    setSubmitting(false);
+    if (res.success) {
+      setSubmitted(true);
+    } else {
+      setSubmitError(res.error || "Could not submit your request — please try again.");
+    }
   }
 
   if (submitted) {
@@ -516,16 +498,21 @@ export function RegisterScreen({ onBack, onSubmit }: {
               <AlertTriangle size={11} style={{ verticalAlign: "middle", marginRight: 5 }} /> Select at least one enterprise type
             </div>
           )}
+          {submitError && (
+            <div style={{ padding: "10px 12px", background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, fontSize: 12, color: "var(--status-critical)", marginBottom: 12 }}>
+              {submitError}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn-secondary" style={{ flex: 1, justifyContent: "center" }} onClick={() => setStep(2)}>← Back</button>
             <button
               onClick={handleSubmit}
-              disabled={selectedEnterprises.length === 0}
-              style={{ flex: 2, padding: "11px", borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: selectedEnterprises.length > 0 ? "pointer" : "not-allowed",
-                background: selectedEnterprises.length > 0 ? "var(--primary-green)" : "var(--border-subtle)",
-                border: "none", color: selectedEnterprises.length > 0 ? "#0a0f0a" : "var(--text-muted)",
+              disabled={selectedEnterprises.length === 0 || submitting}
+              style={{ flex: 2, padding: "11px", borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: selectedEnterprises.length > 0 && !submitting ? "pointer" : "not-allowed",
+                background: selectedEnterprises.length > 0 && !submitting ? "var(--primary-green)" : "var(--border-subtle)",
+                border: "none", color: selectedEnterprises.length > 0 && !submitting ? "#0a0f0a" : "var(--text-muted)",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <Check size={14} /> Submit Request
+              <Check size={14} /> {submitting ? "Submitting…" : "Submit Request"}
             </button>
           </div>
         </div>
