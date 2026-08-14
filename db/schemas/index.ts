@@ -5,6 +5,7 @@ import { pgTable, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-cor
 
 export * from './auth'
 export * from './dashboard'
+export * from './onboarding'
 
 // A tenant's farms. One tenant owns several farms; each farm carries its own
 // production units. The farm switcher in the shell reads these via GET /api/farms.
