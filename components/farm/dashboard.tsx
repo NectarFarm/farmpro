@@ -23,21 +23,23 @@ import {
 } from "./icons";
 import { apiClient } from "@/lib/request";
 
-// ── Real backend shapes (issue #228) ────────────────────────────────────────
-// KPI fields that are real today, computed from tables that exist on this
-// branch (tasks/notifications/products). `activeBatches`/`mortalityPct`/
-// `avgFCR`/`revenue` come back `null` from the API — no `batches`/`sales`
-// table exists yet (Epic: Crops & Batches / Epic: Finance) — and are never
-// rendered as fabricated numbers, only as an explicit "not yet tracked" note.
+// ── Real backend shapes (issue #228, revisited #292) ────────────────────────
+// KPI fields computed from tables that exist on this branch
+// (tasks/notifications/products/batches/sales). `activeBatches`,
+// `mortalityPct`, and `revenue` are real numbers now that `batches` (#231/
+// #232) and `sales` (#239) exist. `avgFCR` still comes back `null` — there is
+// no feed-intake/weight-gain data source anywhere in this app yet — and is
+// rendered as an explicit "not yet tracked" note rather than a fabricated
+// number.
 interface KpiData {
   activeTasksCount: number;
   overdueTasksCount: number;
   unreadNotifications: number;
   productCount: number;
-  activeBatches: number | null;
+  activeBatches: number;
   mortalityPct: number | null;
   avgFCR: number | null;
-  revenue: number | null;
+  revenue: number;
 }
 interface PriceRow { id: string; type: string; name: string; currentPrice: number }
 interface TaskRow { id: string; title: string; dueAt: string | null; status: string }
@@ -230,6 +232,8 @@ export function DashboardScreen() {
             { label: "Overdue Tasks", value: kpis?.overdueTasksCount, icon: AlertTriangle, color: (kpis?.overdueTasksCount ?? 0) > 0 ? "var(--status-critical)" : "var(--text-muted)", action: "tasks" as const },
             { label: "Unread Notifications", value: kpis?.unreadNotifications, icon: Bell, color: "var(--accent-blue)", action: "notifications" as const },
             { label: "Products Tracked", value: kpis?.productCount, icon: Package, color: "var(--accent-amber)", action: "finance" as const },
+            { label: "Active Batches", value: kpis?.activeBatches, icon: Package, color: "var(--primary-green)", action: "crops" as const },
+            { label: "Mortality %", value: kpis?.mortalityPct != null ? `${kpis.mortalityPct}%` : undefined, icon: AlertTriangle, color: (kpis?.mortalityPct ?? 0) > 3 ? "var(--status-critical)" : "var(--primary-green)", action: "crops" as const },
           ].map((k) => {
             const Icon = k.icon;
             return (
@@ -245,26 +249,25 @@ export function DashboardScreen() {
         </div>
       )}
 
-      {/* Pending-epic KPIs (issue #228): the reference dashboard also wants
-          active-batch counts, mortality % and FCR, but no `batches` table
-          exists yet (Epic: Crops & Batches). Named honestly instead of shown
-          as fabricated tiles. */}
+      {/* avgFCR (issue #228/#292): still no feed-intake/weight-gain data
+          source anywhere in this app — named honestly instead of shown as a
+          fabricated tile. activeBatches/mortalityPct moved into the real KPI
+          strip above now that `batches` (#231/#232) is real. */}
       <div style={{ marginBottom: 14, padding: "8px 12px", border: "1px dashed var(--border-subtle)", borderRadius: 12, fontSize: 10, color: "var(--text-dim)", display: "flex", alignItems: "center", gap: 6 }}>
         <Info size={12} color="var(--text-dim)" style={{ flexShrink: 0 }} />
-        <span>Active batches, mortality % and FCR aren&apos;t tracked yet — pending Epic: Crops &amp; Batches.</span>
+        <span>Feed conversion ratio (FCR) isn&apos;t tracked yet — no feed-intake/weight-gain data source exists.</span>
       </div>
 
-      {/* Revenue — owner/manager only. No `sales` table exists yet
-          (Epic: Finance), so there is no real revenue/margin figure to show;
-          this is an honest "not available" card, not a fabricated chart. */}
+      {/* Revenue — owner/manager only. Real sum of the tenant's `sales.amount`
+          rows (issue #239/#292) now that a real `sales` table exists. */}
       {(role === "owner" || role === "manager") && (
         <button onClick={() => navigate("finance")} className="farm-card" style={{ padding: 14, marginBottom: 14, width: "100%", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Info size={16} color="var(--text-muted)" />
-          </div>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(74,222,128,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 18 }}>💰</div>
           <div style={{ flex: 1 }}>
             <div className="section-eyebrow">Revenue</div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Not available yet — pending Epic: Finance (no sales data recorded).</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--primary-green)", marginTop: 2 }}>
+              {kpis ? `KSh ${kpis.revenue.toLocaleString()}` : "Loading…"}
+            </div>
           </div>
           <ChevronRight size={14} color="var(--text-dim)" />
         </button>
