@@ -1,6 +1,8 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNav, TopNav } from "./navigation";
+import { useToast } from "./ui-shared";
+import { apiClient } from "@/lib/request";
 import { Check, X, ChevronDown, ChevronUp, Eye, EyeOff, Edit2, RefreshCw } from "./icons";
 
 /* ── Module and label definitions ── */
@@ -26,9 +28,11 @@ const DEFAULT_MODULES: ModuleConfig[] = [
   { id: "ai-chat", defaultLabel: "AI Assistant", icon: "🤖", enabled: true, description: "AI-powered farm advisor chatbot" },
 ];
 
+// Branding is a single tenant-wide record (db/schemas/settings.ts's
+// tenantSettings — one row per tenant_id, not per farm), so there is no
+// per-farm branding to key off; the mock's old per-farmCode branding array is
+// gone in favour of one object shared by every farm on this tenant.
 interface FarmBranding {
-  farmCode: string;
-  farmName: string;
   accentColor: string;
   logoEmoji: string;
   dashboardGreeting: string;
@@ -36,35 +40,62 @@ interface FarmBranding {
   weightUnit: string;
 }
 
-const DEFAULT_BRANDINGS: FarmBranding[] = [
-  {
-    farmCode: "FRM-KMU-001", farmName: "Nakuru Main Farm",
-    accentColor: "#4ade80", logoEmoji: "🌾",
-    dashboardGreeting: "Good morning, James!",
-    currencySymbol: "KSh", weightUnit: "kg",
-  },
-  {
-    farmCode: "FRM-KMU-002", farmName: "Eldoret Satellite Farm",
-    accentColor: "#60a5fa", logoEmoji: "🐐",
-    dashboardGreeting: "Good morning!",
-    currencySymbol: "KSh", weightUnit: "kg",
-  },
-];
+const DEFAULT_BRANDING: FarmBranding = {
+  accentColor: "#4ade80", logoEmoji: "🌾",
+  dashboardGreeting: "Good morning!",
+  currencySymbol: "KSh", weightUnit: "kg",
+};
 
 const ACCENT_OPTIONS = [
   "#4ade80", "#60a5fa", "#f59e0b", "#a855f7", "#22d3ee", "#f87171", "#fb923c", "#34d399",
 ];
 
+// Shape returned by GET /api/settings (trimmed to what this screen reads/writes).
+interface ApiModuleSetting { id: string; enabled: boolean; customLabel?: string }
+interface ApiSettings {
+  accentColor: string;
+  logoEmoji: string;
+  dashboardGreeting: string;
+  currencySymbol: string;
+  weightUnit: string;
+  modules: ApiModuleSetting[];
+}
+
 export function UICustomiseScreen() {
+  const { tenantId, farms, activeFarm } = useNav();
+  const { showToast } = useToast();
   const [tab, setTab] = useState<"modules" | "labels" | "branding">("modules");
   const [modules, setModules] = useState<ModuleConfig[]>(DEFAULT_MODULES);
-  const [brandings, setBrandings] = useState<FarmBranding[]>(DEFAULT_BRANDINGS);
-  const [selectedFarm, setSelectedFarm] = useState("FRM-KMU-001");
+  const [branding, setBranding] = useState<FarmBranding>(DEFAULT_BRANDING);
   const [editingModule, setEditingModule] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
-  const branding = brandings.find((b) => b.farmCode === selectedFarm)!;
+  // Load the tenant's persisted modules/branding (issue #256) — merge onto
+  // DEFAULT_MODULES so icon/description/defaultLabel (cosmetic, never sent to
+  // the backend) survive even for module ids the tenant hasn't customised yet.
+  const loadSettings = useCallback(() => {
+    apiClient.get<ApiSettings>(`/api/settings?tenantId=${tenantId}`).then((res) => {
+      if (!res.success) return;
+      const data = res.data;
+      setModules((ms) => ms.map((m) => {
+        const savedModule = data.modules?.find((x) => x.id === m.id);
+        return savedModule ? { ...m, enabled: savedModule.enabled, customLabel: savedModule.customLabel } : m;
+      }));
+      setBranding((b) => ({
+        ...b,
+        accentColor: data.accentColor ?? b.accentColor,
+        logoEmoji: data.logoEmoji ?? b.logoEmoji,
+        dashboardGreeting: data.dashboardGreeting ?? b.dashboardGreeting,
+        currencySymbol: data.currencySymbol ?? b.currencySymbol,
+        weightUnit: data.weightUnit ?? b.weightUnit,
+      }));
+    });
+  }, [tenantId]);
+
+  useEffect(() => { loadSettings(); }, [loadSettings]);
 
   function toggleModule(id: string) {
     setModules((ms) => ms.map((m) => m.id === id ? { ...m, enabled: !m.enabled } : m));
@@ -76,31 +107,48 @@ export function UICustomiseScreen() {
   }
 
   function updateBranding(key: keyof FarmBranding, value: string) {
-    setBrandings((bs) => bs.map((b) => b.farmCode === selectedFarm ? { ...b, [key]: value } : b));
+    setBranding((b) => ({ ...b, [key]: value }));
   }
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  // "Save Customisation" persists every tab's edits in one PATCH /api/settings
+  // call — module toggles/labels and branding fields were only applied to
+  // local state until now (issue #256 task 3); this is what makes a module
+  // hidden or an accent colour set by one user show up for a second user on
+  // the same tenant.
+  async function handleSave() {
+    setSaving(true);
+    setError("");
+    const res = await apiClient.patch(`/api/settings?tenantId=${tenantId}`, {
+      modules: modules.map((m) => ({ id: m.id, enabled: m.enabled, customLabel: m.customLabel })),
+      accentColor: branding.accentColor,
+      logoEmoji: branding.logoEmoji,
+      dashboardGreeting: branding.dashboardGreeting,
+      currencySymbol: branding.currencySymbol,
+      weightUnit: branding.weightUnit,
+    });
+    setSaving(false);
+    if (res.success) {
+      setSaved(true);
+      showToast("Customisation saved.", "success");
+      setTimeout(() => setSaved(false), 2000);
+    } else {
+      setError(res.error || "Failed to save customisation.");
+      showToast(res.error || "Failed to save customisation.", "error");
+    }
   }
+
+  const farmName = farms.find((f) => f.code === activeFarm)?.name ?? "Your farm";
 
   return (
     <div className="screen-content">
       <TopNav title="UI Customise" subtitle="Modules, labels & branding" />
 
       <div className="px-screen" style={{ paddingTop: 12 }}>
-        {/* Farm selector */}
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Customising Farm</label>
-          <select
-            className="farm-input"
-            value={selectedFarm}
-            onChange={(e) => setSelectedFarm(e.target.value)}
-          >
-            {DEFAULT_BRANDINGS.map((b) => (
-              <option key={b.farmCode} value={b.farmCode}>{b.farmName}</option>
-            ))}
-          </select>
+        {/* These settings are tenant-wide (one settings record per tenant, not
+           per farm) — every farm on this tenant shares the same module/branding
+           configuration, so there is no per-farm switcher here. */}
+        <div style={{ padding: "9px 14px", background: "rgba(96,165,250,0.08)", borderRadius: 12, marginBottom: 14, border: "1px solid rgba(96,165,250,0.2)", fontSize: 11, color: "var(--text-muted)" }}>
+          Applies tenant-wide, across all farms ({farmName}{farms.length > 1 ? ` +${farms.length - 1} more` : ""}).
         </div>
 
         {/* Tabs */}
@@ -125,7 +173,7 @@ export function UICustomiseScreen() {
         {tab === "modules" && (
           <div style={{ paddingBottom: 80 }}>
             <div style={{ padding: "10px 14px", background: "rgba(168,85,247,0.08)", borderRadius: 12, marginBottom: 14, border: "1px solid rgba(168,85,247,0.2)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Toggle which modules are visible in the app for this farm. Disabled modules are hidden from all users on this farm.
+              Toggle which modules are visible in the app for this tenant. Disabled modules are hidden from all users, on every farm.
             </div>
             {modules.map((m) => (
               <div
@@ -242,7 +290,7 @@ export function UICustomiseScreen() {
               <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 6 }}>
                 <span style={{ fontSize: 28 }}>{branding.logoEmoji}</span>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>{branding.farmName}</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>{farmName}</div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{branding.dashboardGreeting}</div>
                 </div>
               </div>
@@ -314,12 +362,14 @@ export function UICustomiseScreen() {
 
         {/* Save button */}
         <div style={{ position: "sticky", bottom: 80, paddingBottom: 12 }}>
+          {error && <div style={{ fontSize: 11, color: "var(--status-critical)", marginBottom: 8 }}>{error}</div>}
           <button
             className="btn-primary"
             style={{ width: "100%", justifyContent: "center" }}
             onClick={handleSave}
+            disabled={saving}
           >
-            {saved ? <><Check size={14} /> Saved!</> : <>Save Customisation</>}
+            {saving ? "Saving…" : saved ? <><Check size={14} /> Saved!</> : <>Save Customisation</>}
           </button>
         </div>
       </div>

@@ -1,13 +1,19 @@
 // ============================================================
 // settings.tsx — Settings, Accessibility & Appearance
-// Data flow: ThemeContext (globals) ← SettingsScreen changes
-//            Notification toggles are per-type, stored locally here
+// Data flow: ThemeContext (globals) ← SettingsScreen changes, persisted
+//            per-tenant via GET/PATCH /api/settings (issue #256) — theme and
+//            font size are applied optimistically on the client for
+//            snappiness, then written through to the settings store.
+//            Notification/offline toggles and password change are wired to
+//            the same store / POST /api/auth/change-password.
 //            Navigate links to all major screens from here
 // ============================================================
 "use client";
-import React, { useState, createContext, useContext } from "react";
+import React, { useState, createContext, useContext, useCallback, useEffect } from "react";
 import { useNav, TopNav } from "./navigation";
-import { ChevronRight, LogOut, Check, X } from "./icons";
+import { useToast } from "./ui-shared";
+import { apiClient } from "@/lib/request";
+import { ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff } from "./icons";
 
 /* ── Theme Context (global, used by globals.css overrides) ── */
 export type ThemeMode = "dark-farm" | "high-contrast" | "light-farm" | "sun-mode";
@@ -25,13 +31,9 @@ const ThemeCtx = createContext<ThemeCtxShape>({
   setTheme: () => {}, setFontSize: () => {},
 });
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<ThemeMode>("dark-farm");
-  const [fontSize, setFontSize] = useState<FontSize>("normal");
-
-  // Apply CSS overrides dynamically
-  const applyTheme = (t: ThemeMode) => {
-    setTheme(t);
+// Pure CSS side-effects for a theme/font choice — no state, no network. Shared
+// by the fetch-driven initial load and by user-triggered changes below.
+function applyThemeVisuals(t: ThemeMode) {
     const root = document.documentElement;
     if (t === "high-contrast") {
       root.style.setProperty("--background", "#000000");
@@ -75,17 +77,62 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       root.style.setProperty("--primary-green", "#4ade80");
       root.style.setProperty("--border-subtle", "rgba(255,255,255,0.07)");
     }
-  };
+}
 
-  const applyFontSize = (s: FontSize) => {
-    setFontSize(s);
-    const root = document.documentElement;
-    const sizes: Record<FontSize, string> = { small: "87.5%", normal: "100%", large: "112.5%", xlarge: "125%" };
-    root.style.fontSize = sizes[s];
-  };
+function applyFontSizeVisuals(s: FontSize) {
+  const sizes: Record<FontSize, string> = { small: "87.5%", normal: "100%", large: "112.5%", xlarge: "125%" };
+  document.documentElement.style.fontSize = sizes[s];
+}
+
+export function ThemeProvider({ children, tenantId }: { children: React.ReactNode; tenantId?: string | null }) {
+  const [theme, setThemeState] = useState<ThemeMode>("dark-farm");
+  const [fontSize, setFontSizeState] = useState<FontSize>("normal");
+
+  // Re-apply CSS overrides whenever the local value changes, whether that
+  // change came from the server fetch below or a user pick — one code path.
+  useEffect(() => { applyThemeVisuals(theme); }, [theme]);
+  useEffect(() => { applyFontSizeVisuals(fontSize); }, [fontSize]);
+
+  // Load the tenant's persisted theme/font size once we know which tenant we
+  // are (issue #256): the per-tenant settings store is the source of truth,
+  // not a pure local useState — this fetch is what makes a choice survive a
+  // refresh or show up on a second device for the same tenant.
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    apiClient
+      .get<{ theme?: ThemeMode; fontSize?: FontSize }>(`/api/settings?tenantId=${tenantId}`)
+      .then((res) => {
+        if (cancelled || !res.success) return;
+        if (res.data.theme) setThemeState(res.data.theme);
+        if (res.data.fontSize) setFontSizeState(res.data.fontSize);
+      });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  // User-triggered changes: apply immediately (optimistic, for snappiness),
+  // persist to the tenant settings store in the background. A failed PATCH
+  // is logged but doesn't roll back the visual change — theme/font size are
+  // low-stakes enough that "looks right now, retry the write next change" beats
+  // snapping the UI back under the user.
+  const setTheme = useCallback((t: ThemeMode) => {
+    setThemeState(t);
+    if (!tenantId) return;
+    apiClient.patch(`/api/settings?tenantId=${tenantId}`, { theme: t }).then((res) => {
+      if (!res.success) console.error("Failed to persist theme:", res.error);
+    });
+  }, [tenantId]);
+
+  const setFontSize = useCallback((s: FontSize) => {
+    setFontSizeState(s);
+    if (!tenantId) return;
+    apiClient.patch(`/api/settings?tenantId=${tenantId}`, { fontSize: s }).then((res) => {
+      if (!res.success) console.error("Failed to persist font size:", res.error);
+    });
+  }, [tenantId]);
 
   return (
-    <ThemeCtx.Provider value={{ theme, fontSize, setTheme: applyTheme, setFontSize: applyFontSize }}>
+    <ThemeCtx.Provider value={{ theme, fontSize, setTheme, setFontSize }}>
       {children}
     </ThemeCtx.Provider>
   );
@@ -108,12 +155,48 @@ const FONT_OPTIONS: { id: FontSize; label: string; size: string }[] = [
   { id: "xlarge", label: "A",  size: "19px" },
 ];
 
+// Shape returned by GET /api/settings (db/schemas/settings.ts's tenantSettings,
+// trimmed to what this screen reads/writes).
+interface ApiSettings {
+  notificationsEnabled: boolean;
+  soundAlertsEnabled: boolean;
+  offlineModeEnabled: boolean;
+}
+
 export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
-  const { navigate, role } = useNav();
+  const { navigate, role, tenantId } = useNav();
+  const { showToast } = useToast();
   const { theme, setTheme, fontSize, setFontSize } = useTheme();
-  const [notifications, setNotifications] = useState(true);
-  const [offline, setOffline] = useState(true);
-  const [soundAlerts, setSoundAlerts] = useState(false);
+  const [settings, setSettings] = useState<ApiSettings | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+
+  const loadSettings = useCallback(() => {
+    apiClient.get<ApiSettings>(`/api/settings?tenantId=${tenantId}`).then((res) => {
+      if (res.success) setSettings(res.data);
+    });
+  }, [tenantId]);
+
+  useEffect(() => { loadSettings(); }, [loadSettings]);
+
+  const notifications = settings?.notificationsEnabled ?? true;
+  const offline = settings?.offlineModeEnabled ?? true;
+  const soundAlerts = settings?.soundAlertsEnabled ?? false;
+
+  // Toggles are optimistic (flip immediately), then persisted per-tenant via
+  // PATCH /api/settings — this is a tenant-wide record (issue #255), so a
+  // failed write (e.g. a non-owner/admin role, which the backend 403s) rolls
+  // the toggle back and says why instead of pretending it worked.
+  function toggleSetting(key: keyof ApiSettings) {
+    if (!settings) return;
+    const next = { ...settings, [key]: !settings[key] };
+    setSettings(next);
+    apiClient.patch(`/api/settings?tenantId=${tenantId}`, { [key]: next[key] }).then((res) => {
+      if (!res.success) {
+        setSettings((s) => (s ? { ...s, [key]: !next[key] } : s));
+        showToast(res.error || "Only the farm owner or admin can change this setting.", "error");
+      }
+    });
+  }
 
   const sections: {
     label: string;
@@ -134,25 +217,29 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     {
       label: "Notifications",
       items: [
-        { label: "Push Notifications", desc: "Alerts, approvals, task reminders", toggle: true, value: notifications, onToggle: () => setNotifications(!notifications) },
-        { label: "Sound Alerts", desc: "Audible alerts for critical events", toggle: true, value: soundAlerts, onToggle: () => setSoundAlerts(!soundAlerts) },
+        { label: "Push Notifications", desc: "Alerts, approvals, task reminders", toggle: true, value: notifications, onToggle: () => toggleSetting("notificationsEnabled") },
+        { label: "Sound Alerts", desc: "Audible alerts for critical events", toggle: true, value: soundAlerts, onToggle: () => toggleSetting("soundAlertsEnabled") },
         { label: "Notification Settings", desc: "Per-type controls, SMS, quiet hours", action: () => navigate("notification-settings") },
       ],
     },
     {
       label: "Offline & Sync",
       items: [
-        { label: "Offline Mode", desc: "Cache data for use without internet", toggle: true, value: offline, onToggle: () => setOffline(!offline) },
+        { label: "Offline Mode", desc: "Cache data for use without internet", toggle: true, value: offline, onToggle: () => toggleSetting("offlineModeEnabled") },
         { label: "Sync Now", desc: "Force sync with server", action: () => {} },
       ],
     },
     {
       label: "Security",
       items: [
-        { label: "Change Password", action: () => {} },
+        { label: "Change Password", action: () => setShowPasswordModal(true) },
         { label: "Worker PIN Management", desc: "Reset staff PINs", action: () => navigate("people") },
         { label: "Active Sessions", desc: "Devices signed in", action: () => {} },
-        { label: "Download Farm Backup", desc: "Full JSON export", action: () => {} },
+        // No backup/export backend exists anywhere (issue #256 branch
+        // correction) — an honest disabled state, not a silent no-op: no
+        // `action`, so the row renders inert (no chevron, no click), with a
+        // real explanation and badge instead of pretending to work.
+        { label: "Download Farm Backup", desc: "Full JSON export — not available yet. A dedicated backup/export endpoint is separate future scope.", badge: "Not available yet" },
       ],
     },
     {
@@ -275,6 +362,75 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
           background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)",
           color: "var(--status-critical)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 24 }}>
           <LogOut size={16} /> Sign Out
+        </button>
+      </div>
+
+      {showPasswordModal && <ChangePasswordSheet onClose={() => setShowPasswordModal(false)} />}
+    </div>
+  );
+}
+
+/* ── Change Password sheet — real POST /api/auth/change-password (issue #256).
+ * Same bottom-sheet shell used elsewhere in the app (e.g. RecordPurchaseSheet
+ * in inventory.tsx). ── */
+function ChangePasswordSheet({ onClose }: { onClose: () => void }) {
+  const { showToast } = useToast();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save() {
+    if (!currentPassword) { setError("Current password is required."); return; }
+    if (newPassword.length < 8) { setError("New password must be at least 8 characters."); return; }
+    if (newPassword !== confirmPassword) { setError("New password and confirmation do not match."); return; }
+    if (newPassword === currentPassword) { setError("New password must be different from the current password."); return; }
+
+    setSaving(true);
+    setError("");
+    const res = await apiClient.post("/api/auth/change-password", { currentPassword, newPassword });
+    setSaving(false);
+    if (res.success) {
+      showToast("Password changed.", "success");
+      onClose();
+    } else {
+      setError(res.error || "Failed to change password.");
+    }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex", alignItems: "flex-end", zIndex: 210 }} onClick={onClose}>
+      <div style={{ background: "var(--surface)", borderRadius: "24px 24px 0 0", padding: 20, width: "100%", border: "1px solid var(--border-subtle)", maxHeight: "85%", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}><Lock size={16} /> Change Password</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Current Password *</label>
+          <input className="farm-input" type={showPasswords ? "text" : "password"} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoFocus />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>New Password *</label>
+          <input className="farm-input" type={showPasswords ? "text" : "password"} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Confirm New Password *</label>
+          <input className="farm-input" type={showPasswords ? "text" : "password"} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+        </div>
+        <button onClick={() => setShowPasswords((s) => !s)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", fontSize: 11, color: "var(--text-muted)", marginBottom: 12, padding: 0 }}>
+          {showPasswords ? <EyeOff size={12} /> : <Eye size={12} />} {showPasswords ? "Hide" : "Show"} passwords
+        </button>
+
+        <div style={{ fontSize: 10, color: "var(--text-dim)", marginBottom: 12, lineHeight: 1.4 }}>
+          Minimum 8 characters. Applies to owner/manager accounts — workers sign in with a PIN.
+        </div>
+
+        {error && <div style={{ fontSize: 11, color: "var(--status-critical)", marginBottom: 10 }}>{error}</div>}
+        <button className="btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={saving} onClick={save}>
+          {saving ? "Saving…" : "Change Password"}
         </button>
       </div>
     </div>
