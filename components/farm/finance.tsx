@@ -4,6 +4,8 @@ import { useNav, TopNav } from "./navigation";
 import { apiClient } from "@/lib/request";
 import { Plus, Search, X, Download, Lock } from "./icons";
 import { DataTable, ColDef } from "./data-table";
+import type { ReportPayload } from "@/lib/report-types";
+import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from "@/lib/period-range";
 
 // ── Real-data wiring (issue #240) ───────────────────────────────────────────
 // This screen used to render entirely from hardcoded mock data (a sales
@@ -25,8 +27,27 @@ import { DataTable, ColDef } from "./data-table";
 //                                                     note near the batch P&L
 //                                                     column definitions)
 //   GET /api/gl/accounts + GET /api/gl/trial-balance
-//                                                   — Budget Overview + GL
-//                                                     Accounts tab
+//                                                   — GL Accounts tab
+//   GET /api/reports/pl                             — Budget Overview's
+//                                                     Revenue/Expenses/Net,
+//                                                     date-filtered by the
+//                                                     Month/Quarter/YTD
+//                                                     toggle (issue #299;
+//                                                     see lib/period-range.ts
+//                                                     for the from/to math).
+//                                                     Reuses the Reports
+//                                                     backend (issue #263)
+//                                                     rather than forking its
+//                                                     sales/purchases
+//                                                     date-range query — its
+//                                                     `meta.periodRevenue` /
+//                                                     `periodExpense` are
+//                                                     already unit-normalized
+//                                                     (both whole currency
+//                                                     units), which sidesteps
+//                                                     the trial-balance unit
+//                                                     mismatch noted below for
+//                                                     this card specifically.
 //   GET /api/inventory/items                        — resolves a purchase's
 //                                                     itemId to a name/category
 //                                                     for display (purchases
@@ -44,13 +65,15 @@ import { DataTable, ColDef } from "./data-table";
 // recordPurchase). Both post into the SAME chart of accounts (Sales Revenue
 // vs Purchases Expense), so GET /api/gl/trial-balance's REVENUE-class and
 // EXPENSE-class balances are in different units for any tenant that has both
-// real sales and real purchases recorded. This screen displays the trial
-// balance and the Budget Overview totals exactly as the backend returns them
-// (no invented conversion factor applied here — guessing which side is
-// "wrong" from the frontend would just hide the bug). Recommend a fast-follow
-// backend issue to normalize units at the posting layer (lib/finance.ts)
-// before this reaches production with real multi-hundred-thousand-shilling
-// figures.
+// real sales and real purchases recorded. The GL Accounts tab below displays
+// the trial balance exactly as the backend returns it (no invented conversion
+// factor applied here — guessing which side is "wrong" from the frontend
+// would just hide the bug). Recommend a fast-follow backend issue to
+// normalize units at the posting layer (lib/finance.ts) before this reaches
+// production with real multi-hundred-thousand-shilling figures.
+// (Budget Overview's Revenue/Expenses/Net, below, do NOT have this bug: they
+// come from GET /api/reports/pl's `meta.periodRevenue`/`periodExpense`, which
+// already converts purchases cents -> whole units — see lib/reports.ts.)
 
 /* ── API row shapes (exactly as the routes above return them) ── */
 interface ApiSale {
@@ -454,6 +477,7 @@ const GL_COLS: ColDef<Record<string, unknown>>[] = [
 export function FinanceScreen() {
   const { navigate, tenantId } = useNav();
   const [tab, setTab] = useState<"overview" | "sales" | "purchases" | "gl" | "payroll">("overview");
+  const [period, setPeriod] = useState<BudgetPeriod>("month");
   const [glSearch, setGlSearch] = useState("");
   const [salesSearch, setSalesSearch] = useState("");
   const [showRecordSale, setShowRecordSale] = useState(false);
@@ -470,6 +494,8 @@ export function FinanceScreen() {
   const [accounts, setAccounts] = useState<ApiAccount[]>([]);
   const [trialBalance, setTrialBalance] = useState<ApiTrialBalance | null>(null);
   const [glError, setGlError] = useState("");
+  const [budgetReport, setBudgetReport] = useState<ReportPayload | null>(null);
+  const [budgetError, setBudgetError] = useState("");
 
   const loadSales = useCallback(() => {
     apiClient.get<ApiSale[]>(`/api/data/sales?tenantId=${tenantId}`).then((res) => {
@@ -502,10 +528,23 @@ export function FinanceScreen() {
     });
   }, [tenantId]);
 
+  // Budget Overview (issue #299): Month/Quarter/YTD toggle refetches
+  // GET /api/reports/pl with that period's from/to (lib/period-range.ts),
+  // instead of the all-time trial balance — see the file-top comment.
+  const loadBudget = useCallback(() => {
+    const { from, to } = periodDateRange(period);
+    const params = new URLSearchParams({ tenantId, from, to });
+    apiClient.get<ReportPayload>(`/api/reports/pl?${params.toString()}`).then((res) => {
+      if (res.success) { setBudgetReport(res.data); setBudgetError(""); }
+      else setBudgetError(res.error || "Failed to load budget overview.");
+    });
+  }, [tenantId, period]);
+
   useEffect(() => { loadSales(); }, [loadSales]);
   useEffect(() => { loadPurchases(); }, [loadPurchases]);
   useEffect(() => { loadBatches(); }, [loadBatches]);
   useEffect(() => { loadGL(); }, [loadGL]);
+  useEffect(() => { loadBudget(); }, [loadBudget]);
   useEffect(() => {
     apiClient.get<ApiInventoryItemLite[]>(`/api/inventory/items?tenantId=${tenantId}`).then((res) => {
       if (res.success) setItems(res.data);
@@ -573,19 +612,13 @@ export function FinanceScreen() {
     return { id: b.id, code: b.code, name: b.name, revenue, cost, margin, pct, status: b.status };
   }), [batches, costBreakdowns, salesByBatch]);
 
-  // Budget Overview (task 4): real revenue/expense totals derived from the
-  // trial balance's REVENUE/EXPENSE-class rows — no /api/reports/pl endpoint
-  // exists. NOTE the unit-mismatch bug flagged in the file-top comment: these
-  // two totals are not guaranteed to be in the same unit for a tenant with
-  // both real sales and real purchases.
-  const totalRevenue = useMemo(
-    () => (trialBalance?.rows ?? []).filter((r) => r.class === "REVENUE").reduce((s, r) => s + r.balance, 0),
-    [trialBalance]
-  );
-  const totalExpenses = useMemo(
-    () => (trialBalance?.rows ?? []).filter((r) => r.class === "EXPENSE").reduce((s, r) => s + r.balance, 0),
-    [trialBalance]
-  );
+  // Budget Overview (issue #299): real revenue/expense totals for the
+  // selected Month/Quarter/YTD period, from GET /api/reports/pl's
+  // period-filtered meta (see loadBudget above and lib/reports.ts's
+  // computePlReport) — not the all-time trial balance.
+  const periodLabel = useMemo(() => periodDateRange(period).label, [period]);
+  const totalRevenue = Number(budgetReport?.meta.periodRevenue ?? 0);
+  const totalExpenses = Number(budgetReport?.meta.periodExpense ?? 0);
   const margin = totalRevenue - totalExpenses;
   const budgetTotal = totalRevenue + totalExpenses;
 
@@ -630,9 +663,24 @@ export function FinanceScreen() {
       {/* ── OVERVIEW ── */}
       {tab === "overview" && (
         <div className="px-screen">
+          {/* Month/Quarter/YTD toggle (issue #299) — restored from the
+              original design (commit 80ab7db); re-fetches GET
+              /api/reports/pl scoped to the selected period (loadBudget
+              above) rather than always showing all-time totals. */}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, marginBottom: 12 }}>
+            {BUDGET_PERIODS.map((p) => (
+              <button key={p} onClick={() => setPeriod(p)} style={{
+                padding: "4px 10px", borderRadius: 100, fontSize: 10, fontWeight: 700, cursor: "pointer",
+                background: period === p ? "rgba(74,222,128,0.2)" : "transparent",
+                border: period === p ? "1px solid rgba(74,222,128,0.4)" : "1px solid transparent",
+                color: period === p ? "var(--primary-green)" : "var(--text-muted)",
+              }}>{p.toUpperCase()}</button>
+            ))}
+          </div>
+
           <div className="farm-card farm-card-active" style={{ padding: 18, marginBottom: 14 }}>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Budget Overview — All-time</div>
-            {glError && <div style={{ fontSize: 12, color: "var(--status-critical)", marginBottom: 10 }}>{glError}</div>}
+            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Budget Overview — {periodLabel}</div>
+            {budgetError && <div style={{ fontSize: 12, color: "var(--status-critical)", marginBottom: 10 }}>{budgetError}</div>}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: "var(--status-ok)" }}>KSh {(totalRevenue/1000).toFixed(0)}K</div>
