@@ -71,6 +71,43 @@ export const UNIT_PREFIXES: Record<string, string> = {
   fodder: 'FLD',
 }
 
+// Enterprise subtype -> livestock/crop classification, matching
+// ENTERPRISE_REGISTRY's `type` field in components/farm/data.ts (issue #296).
+// Same "plain map, not an import" reason as BATCH_PREFIXES above — that file
+// is a "use client" component module. GET /api/dashboard/kpis groups a
+// tenant's ACTIVE batches by `enterprise` and uses this map to bucket each
+// group as a Livestock Units group or a Crop Batches group, mirroring the
+// original mock's `enterpriseMap`/`ENTERPRISE_REGISTRY.find(...)` logic
+// exactly. An enterprise subtype not in this map returns `undefined` — the
+// caller skips it entirely (never guesses a classification), same as the
+// mock's `if (!cfg) return`.
+export const ENTERPRISE_TYPES: Record<string, 'livestock' | 'crop'> = {
+  broiler: 'livestock',
+  layer: 'livestock',
+  pig: 'livestock',
+  dairy_cow: 'livestock',
+  beef_cow: 'livestock',
+  goat: 'livestock',
+  sheep: 'livestock',
+  rabbit: 'livestock',
+  turkey: 'livestock',
+  duck: 'livestock',
+  fish: 'livestock',
+  maize: 'crop',
+  wheat: 'crop',
+  sorghum: 'crop',
+  kitchen_garden: 'crop',
+  silage: 'crop',
+  fruit_orchard: 'crop',
+  vegetables: 'crop',
+  legumes: 'crop',
+  fodder: 'crop',
+}
+
+export function enterpriseTypeFor(enterprise: string): 'livestock' | 'crop' | undefined {
+  return ENTERPRISE_TYPES[enterprise]
+}
+
 // Unknown/future enterprise subtype not in the map yet: fall back to a
 // deterministic 3-letter prefix from the subtype string itself rather than
 // throwing, so a new enterprise type doesn't hard-block batch creation.
