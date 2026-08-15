@@ -649,9 +649,9 @@ export function BatchDetailScreen() {
                       converted from `sales.amount` (whole KSh) to cents server-
                       side so it's directly comparable to the cost figures here
                       (see app/api/batches/[id]/cost-breakdown/route.ts — issue
-                      #290, open as of this PR, flags this exact unit mismatch
-                      elsewhere; this endpoint converts explicitly instead of
-                      reproducing it). An honest "KSh 0" (not a fabricated
+                      #290 fixed this exact unit mismatch elsewhere (the GL
+                      posting layer); this endpoint converts explicitly
+                      instead of relying on that). An honest "KSh 0" (not a fabricated
                       number) when the batch has no recorded sales yet. */}
                   <div style={{ background: "var(--surface)", borderRadius: 8, padding: "8px 10px" }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: costBreakdown.revenue.tracked ? "var(--status-ok)" : "var(--text-dim)" }}>KSh {(costBreakdown.revenue.amountCents/100).toLocaleString()}</div>

@@ -57,21 +57,21 @@ import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from "@/lib/period
 // #247/#248) — the Payroll tab below is an honest "not available yet" state,
 // same treatment as components/farm/worker.tsx's WorkerPayScreen.
 //
-// ── Known backend data bug found while wiring (flagged, not fixed here) ────
-// `sales.amount` is posted to the ledger as a plain whole-currency-unit
-// number (e.g. 36000 means KSh 36,000 — see lib/finance.ts's postSaleJournal
-// and db/schemas/finance.ts's comment), while `purchases.totalCostCents` is
-// posted in cents (e.g. 15000 means KSh 150 — see lib/inventory.ts's
-// recordPurchase). Both post into the SAME chart of accounts (Sales Revenue
-// vs Purchases Expense), so GET /api/gl/trial-balance's REVENUE-class and
-// EXPENSE-class balances are in different units for any tenant that has both
-// real sales and real purchases recorded. The GL Accounts tab below displays
-// the trial balance exactly as the backend returns it (no invented conversion
-// factor applied here — guessing which side is "wrong" from the frontend
-// would just hide the bug). Recommend a fast-follow backend issue to
-// normalize units at the posting layer (lib/finance.ts) before this reaches
-// production with real multi-hundred-thousand-shilling figures.
-// (Budget Overview's Revenue/Expenses/Net, below, do NOT have this bug: they
+// ── Backend data bug found while wiring, since fixed (issue #290) ──────────
+// `sales.amount` posts to the ledger as a plain whole-currency-unit number
+// (e.g. 36000 means KSh 36,000 — see lib/finance.ts's postSaleJournal and
+// db/schemas/finance.ts's comment). `purchases.totalCostCents` used to post
+// straight through in cents (e.g. 15000 meaning KSh 150), which inflated the
+// EXPENSE side of GET /api/gl/trial-balance ~100x relative to the REVENUE
+// side for any tenant with both real sales and real purchases. Fixed at the
+// posting layer: lib/finance.ts's postPurchaseJournal now converts
+// totalCostCents/amountPaidCents to whole units (dividing by 100) before
+// posting, matching the convention lib/reports.ts's own computation already
+// used for this same pair of columns — see postPurchaseJournal's "Unit
+// normalization" comment for the full reasoning. The GL Accounts tab below
+// displays the trial balance exactly as the backend returns it, which is now
+// consistently in whole KSh on both sides.
+// (Budget Overview's Revenue/Expenses/Net, below, never had this bug: they
 // come from GET /api/reports/pl's `meta.periodRevenue`/`periodExpense`, which
 // already converts purchases cents -> whole units — see lib/reports.ts.)
 
