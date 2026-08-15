@@ -134,6 +134,16 @@ interface AuditLogRow {
   at: string;
 }
 
+// Exported for tests/audit-log-reason.test.ts (issue #309) — pure, so it's
+// testable without a component render harness (see
+// tests/crops-batch-detail-ui.test.ts's header for why this repo tests UI
+// logic this way).
+export function auditReason(meta: Record<string, unknown> | null): string | null {
+  if (!meta) return null;
+  const reason = meta.reason;
+  return typeof reason === "string" && reason.trim().length > 0 ? reason : null;
+}
+
 function fmtTimestamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -601,6 +611,7 @@ export function GovernanceScreen() {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {filteredActivity.map(entry => {
                   const { icon, bg } = actionIcon(entry.action);
+                  const reason = auditReason(entry.meta);
                   return (
                     <div key={entry.id} className="farm-card" style={{ padding: 12 }}>
                       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -613,6 +624,11 @@ export function GovernanceScreen() {
                             <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 100, background: "rgba(255,255,255,0.06)", color: "var(--text-dim)", fontWeight: 700, flexShrink: 0, marginLeft: 6 }}>{entry.entity}</span>
                           </div>
                           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{entry.entityId}</div>
+                          {reason && (
+                            <div style={{ fontSize: 11, color: "var(--text-secondary, var(--text-primary))", marginTop: 4, fontStyle: "italic" }}>
+                              Reason: {reason}
+                            </div>
+                          )}
                           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
                             <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{entry.actorName ?? entry.actorEmail ?? entry.actor}</span>
                             <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "monospace" }}>{fmtTimestamp(entry.at)}</span>

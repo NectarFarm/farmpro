@@ -188,7 +188,9 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
 
   return (
     <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, tenantId, navigate, goBack, setActiveFarm, pendingApprovals, unreadNotifs }}>
-      <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
+      {process.env.NODE_ENV !== "production" && (
+        <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
+      )}
       {children}
     </NavCtx.Provider>
   );
