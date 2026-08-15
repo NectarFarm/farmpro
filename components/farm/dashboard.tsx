@@ -18,6 +18,11 @@
 //   not this issue's scope.
 //   QuickActions navigate to relevant screens.
 //   FarmSwitcherSheet switches activeFarm (multi-farm, issue #219) → all screens re-filter.
+//   The greeting line and the primary KPI grid's lead tile now read the
+//   tenant's real GET /api/settings branding (dashboardGreeting/accentColor/
+//   logoEmoji, persisted since #255) instead of hardcoded values — issue
+//   #310. Falls back to the original hardcoded strings/color until the fetch
+//   resolves or if it fails, so there's no blank/broken state either way.
 // ============================================================
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
@@ -61,6 +66,12 @@ interface KpiData {
   marginPct: number | null;
   revenueTrend: RevenueTrendPoint[];
 }
+// Tenant branding (issue #255/#256 — persisted via tenant_settings, editable
+// in ui-customise.tsx). Trimmed to the fields this screen actually applies:
+// dashboardGreeting replaces the old hardcoded "Good morning," line, and
+// accentColor drives the primary KPI grid's lead tile so a tenant's branding
+// shows up somewhere real beyond the settings screen itself (issue #310).
+interface DashboardSettings { accentColor: string; logoEmoji: string; dashboardGreeting: string }
 interface PriceRow { id: string; type: string; name: string; currentPrice: number }
 interface TaskRow { id: string; title: string; dueAt: string | null; status: string }
 interface NotificationRow {
@@ -160,6 +171,24 @@ export function DashboardScreen() {
   // marginPct/revenueTrend server-side. Kept in its own effect (below) so
   // flipping the toggle doesn't re-fetch prices/tasks/notifications too.
   const [period, setPeriod] = useState<Period>("month");
+  // Tenant branding (issue #310) — `null` until loaded; every field below
+  // falls back to the same hardcoded defaults this screen shipped with, so
+  // an unfetched/failed load never regresses to blank UI.
+  const [settings, setSettings] = useState<DashboardSettings | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<Partial<DashboardSettings>>(`/api/settings?tenantId=${tenantId}`).then(res => {
+      if (!cancelled && res.success) {
+        setSettings({
+          accentColor: res.data.accentColor || "var(--primary-green)",
+          logoEmoji: res.data.logoEmoji || "🌾",
+          dashboardGreeting: res.data.dashboardGreeting || "Good morning,",
+        });
+      }
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,8 +232,8 @@ export function DashboardScreen() {
       {/* Greeting + bell */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
         <div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Good morning,</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>James Kamau 🌾</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{settings?.dashboardGreeting ?? "Good morning,"}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>James Kamau {settings?.logoEmoji ?? "🌾"}</div>
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, textTransform: "capitalize" }}>
             {role === "owner" ? "Farm Owner" : role === "manager" ? "Farm Manager" : role === "worker" ? "Farm Worker" : role === "super_admin" ? "Platform Admin" : "Staff"}
           </div>
@@ -265,7 +294,7 @@ export function DashboardScreen() {
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
           {[
-            { label: "Active Batches", value: kpis?.activeBatches, icon: Leaf, color: "var(--primary-green)", delta: undefined, action: "crops" as const },
+            { label: "Active Batches", value: kpis?.activeBatches, icon: Leaf, color: settings?.accentColor ?? "var(--primary-green)", delta: undefined, action: "crops" as const },
             { label: "Pending Approvals", value: kpis?.pendingApprovals, icon: CheckCircle2, color: "var(--status-warning)", delta: "→ Review", action: "governance" as const },
             { label: "Livestock Units", value: kpis?.livestockUnitsCount, icon: Activity, color: "var(--accent-blue)", delta: kpis ? `${kpis.livestockUnitsQty.toLocaleString()}` : undefined, action: "crops" as const },
             { label: "Crop Batches", value: kpis?.cropBatchGroupsCount, icon: Package, color: "var(--accent-amber)", delta: kpis ? `${kpis.cropBatchGroupsCount} active` : undefined, action: "crops" as const },
