@@ -11,10 +11,10 @@ export type ScreenId =
   | "notifications" | "ai-chat"
   | "worker-home" | "worker-record" | "worker-pay" | "worker-profile"
   | "admin-dashboard" | "admin-farms" | "admin-settings" | "admin-onboarding"
-  | "batch-detail" | "crop-schedule" | "inventory-detail" | "finance-gl"
-  | "payroll" | "approvals" | "people-detail" | "reports-export"
-  | "enterprise-detail" | "process-config"
-  | "role-builder" | "task-detail" | "notification-settings"
+  | "batch-detail" | "crop-schedule" | "inventory-detail"
+  | "people-detail"
+  | "process-config"
+  | "notification-settings"
   | "ui-customise" | "role-notice";
 
 /* ── Session role contract (issue #219) ──
@@ -310,10 +310,8 @@ export function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs
 /* Active-tab detection shared by BottomNav (mobile) and AppSidebar (desktop). */
 function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
   const SUB_SCREENS: Record<string, ScreenId[]> = {
-    settings: ["people","governance","reports","inventory","weather","role-builder","process-config","notification-settings","ui-customise","ai-chat"],
-    crops: ["batch-detail","crop-schedule","enterprise-detail"],
-    tasks: ["task-detail","approvals"],
-    finance: ["finance-gl","payroll"],
+    settings: ["people","governance","reports","inventory","weather","process-config","notification-settings","ui-customise","ai-chat"],
+    crops: ["batch-detail","crop-schedule"],
     "admin-onboarding": ["admin-onboarding"],
   };
   return current === tabId || (SUB_SCREENS[tabId] ?? []).includes(current);

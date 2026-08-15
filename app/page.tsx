@@ -1,8 +1,8 @@
 "use client";
 import React, { useState, createContext, useContext } from "react";
 import { NavProvider, useNav, BottomNav, AppSidebar, StatusBar, setGlobalLogout, RoleNoticeScreen, type Role } from "@/components/farm/navigation";
-import { DashboardScreen } from "@/components/farm/dashboard";
-import { CropsScreen, BatchDetailScreen, CropScheduleScreen } from "@/components/farm/crops";
+import { DashboardScreen, NotificationsScreen, NotificationSettingsScreen } from "@/components/farm/dashboard";
+import { CropsScreen, BatchDetailScreen, CropScheduleScreen, ProcessConfigScreen } from "@/components/farm/crops";
 import { InventoryScreen, InventoryDetailScreen } from "@/components/farm/inventory";
 import { WeatherScreen } from "@/components/farm/weather";
 import { FinanceScreen } from "@/components/farm/finance";
@@ -51,6 +51,7 @@ function ScreenRouter({ onLogout }: { onLogout: () => void }) {
       case "crops":             return <CropsScreen />;
       case "batch-detail":      return <BatchDetailScreen />;
       case "crop-schedule":     return <CropScheduleScreen />;
+      case "process-config":    return <ProcessConfigScreen />;
       case "inventory":         return <InventoryScreen />;
       case "inventory-detail":  return <InventoryDetailScreen />;
       case "weather":           return <WeatherScreen />;
@@ -61,6 +62,8 @@ function ScreenRouter({ onLogout }: { onLogout: () => void }) {
       case "governance":        return <GovernanceScreen />;
       case "reports":           return <ReportsScreen />;
       case "settings":          return <SettingsScreen onLogout={onLogout} />;
+      case "notifications":     return <NotificationsScreen />;
+      case "notification-settings": return <NotificationSettingsScreen />;
       case "worker-home":       return <WorkerHomeScreen />;
       case "worker-record":     return <WorkerRecordScreen />;
       case "worker-pay":        return <WorkerPayScreen />;
