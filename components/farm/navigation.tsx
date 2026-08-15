@@ -50,6 +50,11 @@ export interface NavContext {
   setActiveFarm: (code: string) => void;
   pendingApprovals: number; // Real count from GET /api/approvals?status=pending (issue #293).
   unreadNotifs: number; // Real count from GET /api/notifications, filtered to read:false (issue #293).
+  openTasksCount: number; // Real count from GET /api/dashboard/kpis's activeTasksCount — the
+                          // tenant's tasks not DONE/CANCELLED (issue #298; reused, not re-derived).
+  pendingOnboardingRequests: number; // Real count of `onboard_requests` rows with status
+                                      // 'pending' (issue #251/#252), super_admin sessions only —
+                                      // 0 for every other role (issue #298).
 }
 
 /* Tenant scope for /api/farms. With real sessions (issue #221) NavProvider gets
@@ -64,6 +69,7 @@ const NavCtx = createContext<NavContext>({
   tenantId: PROVISIONAL_TENANT_ID,
   navigate: () => {}, goBack: () => {}, setActiveFarm: () => {},
   pendingApprovals: 0, unreadNotifs: 0,
+  openTasksCount: 0, pendingOnboardingRequests: 0,
 });
 
 export function useNav() { return useContext(NavCtx); }
@@ -173,6 +179,11 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
   // approvals/unread notifications shows no fake badge.
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
+  // issue #298: tasks tab badge reuses GET /api/dashboard/kpis's activeTasksCount
+  // (tenant's tasks not DONE/CANCELLED, already computed server-side by that
+  // route) rather than re-deriving the same DONE_STATUSES filter a second time
+  // client-side.
+  const [openTasksCount, setOpenTasksCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
     apiClient.get<{ id: string }[]>(`/api/approvals?tenantId=${tenantId}&status=pending`).then(res => {
@@ -183,11 +194,32 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
         setUnreadNotifs(res.data.filter(n => !n.read).length);
       }
     });
+    apiClient.get<{ activeTasksCount: number }>(`/api/dashboard/kpis?tenantId=${tenantId}`).then(res => {
+      if (!cancelled && res.success && res.data && typeof res.data.activeTasksCount === "number") {
+        setOpenTasksCount(res.data.activeTasksCount);
+      }
+    });
     return () => { cancelled = true; };
   }, [tenantId]);
 
+  // issue #298: admin-onboarding tab badge — real count of `onboard_requests`
+  // rows with status 'pending' (issue #251/#252). GET /api/onboard-requests is
+  // the super_admin review queue (403s for every other role), so this only
+  // fetches — and only ever shows a badge — for a super_admin session.
+  const [pendingOnboardingRequests, setPendingOnboardingRequests] = useState(0);
+  useEffect(() => {
+    if (role !== "super_admin") { setPendingOnboardingRequests(0); return; }
+    let cancelled = false;
+    apiClient.get<{ status: string }[]>(`/api/onboard-requests`).then(res => {
+      if (!cancelled && res.success && Array.isArray(res.data)) {
+        setPendingOnboardingRequests(res.data.filter(r => r.status === "pending").length);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [role]);
+
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, tenantId, navigate, goBack, setActiveFarm, pendingApprovals, unreadNotifs }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, tenantId, navigate, goBack, setActiveFarm, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests }}>
       {process.env.NODE_ENV !== "production" && (
         <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       )}
@@ -242,7 +274,7 @@ export function RoleNoticeScreen() {
 
 /* ── Bottom Tab Bar ── */
 export function BottomNav() {
-  const { current, navigate, role, pendingApprovals, unreadNotifs } = useNav();
+  const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests } = useNav();
   const tabs = getTabsForRole(role);
 
   return (
@@ -250,7 +282,7 @@ export function BottomNav() {
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = tabIsActive(current, tab.id);
-        const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs);
+        const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
         return (
           <button key={tab.id} className={`bottom-nav-item ${isActive ? "active" : ""}`} onClick={() => navigate(tab.id)}>
             <Icon className="nav-icon" size={22} />
@@ -263,12 +295,15 @@ export function BottomNav() {
   );
 }
 
-/* Badge counts shared by BottomNav (mobile) and AppSidebar (desktop). */
-function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs: number): number | null {
+/* Badge counts shared by BottomNav (mobile) and AppSidebar (desktop). All four
+ * are real counts (issue #293 for governance/dashboard, issue #298 for
+ * tasks/admin-onboarding) — no hardcoded literals. A tenant/session with 0 of
+ * any of these shows no badge, not a fake number. */
+export function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs: number, openTasksCount: number, pendingOnboardingRequests: number): number | null {
   if (tabId === "governance" && pendingApprovals > 0) return pendingApprovals;
-  if (tabId === "tasks") return 2;
+  if (tabId === "tasks" && openTasksCount > 0) return openTasksCount;
   if (tabId === "dashboard" && unreadNotifs > 0) return unreadNotifs;
-  if (tabId === "admin-onboarding") return 2;
+  if (tabId === "admin-onboarding" && pendingOnboardingRequests > 0) return pendingOnboardingRequests;
   return null;
 }
 
@@ -288,7 +323,7 @@ function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
  * Same tab set BottomNav drives (getTabsForRole). Shown >=1024px via CSS, where
  * BottomNav is hidden; rendered on all sizes so the tab set lives in one place. */
 export function AppSidebar() {
-  const { current, navigate, role, pendingApprovals, unreadNotifs, activeFarm, farms } = useNav();
+  const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarm, farms } = useNav();
   const tabs = getTabsForRole(role);
   return (
     <aside className="farm-sidebar">
@@ -303,7 +338,7 @@ export function AppSidebar() {
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = tabIsActive(current, tab.id);
-          const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs);
+          const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
           return (
             <button key={tab.id} onClick={() => navigate(tab.id)}
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 2,

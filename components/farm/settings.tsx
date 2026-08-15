@@ -164,7 +164,7 @@ interface ApiSettings {
 }
 
 export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
-  const { navigate, role, tenantId } = useNav();
+  const { navigate, role, tenantId, pendingApprovals } = useNav();
   const { showToast } = useToast();
   const { theme, setTheme, fontSize, setFontSize } = useTheme();
   const [settings, setSettings] = useState<ApiSettings | null>(null);
@@ -208,7 +208,10 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         { label: "📦 Inventory", desc: "Stock, lots & purchases", action: () => navigate("inventory") },
         { label: "🌤️ Weather & IoT", desc: "Forecast & sensor alerts", action: () => navigate("weather") },
         { label: "👥 People & Staff", desc: "Employees & role assignment", action: () => navigate("people") },
-        { label: "🛡️ Governance", desc: "Approvals, roles & audit", action: () => navigate("governance"), badge: "2 pending" },
+        // Real count from NavCtx's `pendingApprovals` (GET /api/approvals?status=pending,
+        // issue #293) — reused, not re-fetched a second time (issue #298). No
+        // badge (not a fake "0 pending") when the tenant has none pending.
+        { label: "🛡️ Governance", desc: "Approvals, roles & audit", action: () => navigate("governance"), badge: pendingApprovals > 0 ? `${pendingApprovals} pending` : undefined },
         { label: "📊 Reports", desc: "Export, share & auditor links", action: () => navigate("reports") },
         { label: "🤖 AI Farm Assistant", desc: "Smart farm advisor chatbot", action: () => navigate("ai-chat") },
         ...(role === "super_admin" || role === "owner" ? [{ label: "🎨 UI Customise", desc: "Module toggles & farm branding", action: () => navigate("ui-customise") }] : []),
