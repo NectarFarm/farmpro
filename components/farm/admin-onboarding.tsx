@@ -30,6 +30,9 @@ interface ApiOnboardRequest {
   notes: string | null;
   requestedAt: string;
   tenantId: string | null;
+  // Only present in the PATCH response for the approval call that actually
+  // provisions the tenant (issue #291) — never persisted, never sent again.
+  ownerTempPassword?: string;
 }
 
 function formatRequestedAt(iso: string): string {
@@ -142,6 +145,65 @@ function LocationEditor({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── One-time temp password reveal (issue #291) ──────────────────────────────
+// The approve PATCH returns the new owner's temp password exactly once, on
+// the call that actually provisions the tenant. There is no other channel
+// (no email delivery yet) — so this dialog is the only chance the admin gets
+// to see and relay it before it's gone for good.
+function TempPasswordModal({
+  email,
+  password,
+  onClose,
+}: {
+  email: string;
+  password: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div
+      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20 }}
+      onClick={onClose}
+    >
+      <div
+        className="farm-card"
+        style={{ width: "100%", maxWidth: 380, padding: 20 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <CheckCircle2 size={18} color="var(--status-ok)" />
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Tenant Approved</div>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 12, lineHeight: 1.5 }}>
+          Owner account created for <strong>{email}</strong>. Share this one-time password with them now.
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
+          <code style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 700, flex: 1, letterSpacing: "0.02em", wordBreak: "break-all", color: "var(--text-primary)" }}>
+            {password}
+          </code>
+          <button
+            onClick={() => {
+              if (navigator.clipboard) void navigator.clipboard.writeText(password);
+              setCopied(true);
+            }}
+            style={{ fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 8, background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)", color: "var(--primary-green)", cursor: "pointer", flexShrink: 0 }}
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 5, fontSize: 10, color: "var(--status-warning)", marginBottom: 16, lineHeight: 1.4 }}>
+          <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>This password cannot be retrieved again once you close this dialog. If it&apos;s lost, the owner&apos;s password must be reset directly.</span>
+        </div>
+        <button onClick={onClose} className="btn-primary" style={{ width: "100%", justifyContent: "center", fontSize: 13, padding: 10 }}>
+          Done
+        </button>
+      </div>
     </div>
   );
 }
@@ -289,6 +351,7 @@ export function AdminOnboardingScreen() {
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<OnboardRequest | null>(null);
   const [actionError, setActionError] = useState("");
+  const [tempPassword, setTempPassword] = useState<{ email: string; password: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -315,6 +378,9 @@ export function AdminOnboardingScreen() {
     }
     setActionError("");
     setRequests((rs) => rs.map((r) => (r.id === id ? toOnboardRequest(res.data) : r)));
+    if (res.data.ownerTempPassword) {
+      setTempPassword({ email: res.data.email, password: res.data.ownerTempPassword });
+    }
     return true;
   }
 
@@ -473,6 +539,14 @@ export function AdminOnboardingScreen() {
           req={selected}
           onAction={act}
           onClose={() => setSelected(null)}
+        />
+      )}
+
+      {tempPassword && (
+        <TempPasswordModal
+          email={tempPassword.email}
+          password={tempPassword.password}
+          onClose={() => setTempPassword(null)}
         />
       )}
     </div>
