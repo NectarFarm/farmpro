@@ -35,6 +35,11 @@ run('GET /api/audit-log (issue #244)', () => {
 
   const ownerEmail = `owner-audit-${randomUUID()}@test.ifms`
   const ownerId = randomUUID()
+  // issue #302: a second, differently-roled actor so the route's `actorRole`
+  // join (and the Activity Log role-filter chips it powers) has a real,
+  // non-trivial subset to narrow down to.
+  const workerEmail = `worker-audit-${randomUUID()}@test.ifms`
+  const workerId = randomUUID()
 
   let ownerSessionToken: string
   const rowIds: string[] = []
@@ -45,10 +50,16 @@ run('GET /api/audit-log (issue #244)', () => {
       { id: tenantBId, name: 'Audit Test Co. B', active: true },
     ])
     const salt = randomUUID()
-    await db.insert(users).values({
-      id: ownerId, tenantId: tenantAId, name: 'Audit Owner', email: ownerEmail,
-      role: 'owner', passwordHash: hashSecret('ownerpw', salt), passwordSalt: salt, status: 'ACTIVE',
-    })
+    await db.insert(users).values([
+      {
+        id: ownerId, tenantId: tenantAId, name: 'Audit Owner', email: ownerEmail,
+        role: 'owner', passwordHash: hashSecret('ownerpw', salt), passwordSalt: salt, status: 'ACTIVE',
+      },
+      {
+        id: workerId, tenantId: tenantAId, name: 'Audit Worker', email: workerEmail,
+        role: 'worker', passwordHash: hashSecret('wrkpw', salt), passwordSalt: salt, status: 'ACTIVE',
+      },
+    ])
     ownerSessionToken = await createSession(ownerId)
 
     // Three rows for tenant A (real actor = ownerId, resolvable via the users
@@ -68,6 +79,20 @@ run('GET /api/audit-log (issue #244)', () => {
         at: new Date(Date.now() + i * 1000),
       })
     }
+    // One more row for tenant A, actor = the worker, so the response contains
+    // a real mix of actor roles to filter over.
+    const workerRowId = randomUUID()
+    rowIds.push(workerRowId)
+    await db.insert(auditLog).values({
+      id: workerRowId,
+      tenantId: tenantAId,
+      actor: workerId,
+      action: 'test.action.worker',
+      entity: 'test_entity',
+      entityId: 'entity-worker',
+      meta: {},
+      at: new Date(Date.now() + 4000),
+    })
     const otherTenantRowId = randomUUID()
     rowIds.push(otherTenantRowId)
     await db.insert(auditLog).values({
@@ -84,7 +109,7 @@ run('GET /api/audit-log (issue #244)', () => {
   afterAll(async () => {
     await db.delete(auditLog).where(inArray(auditLog.id, rowIds))
     await db.delete(sessions).where(inArray(sessions.userId, [ownerId]))
-    await db.delete(users).where(inArray(users.id, [ownerId]))
+    await db.delete(users).where(inArray(users.id, [ownerId, workerId]))
     await db.delete(tenants).where(inArray(tenants.id, [tenantAId, tenantBId]))
   })
 
@@ -109,9 +134,35 @@ run('GET /api/audit-log (issue #244)', () => {
     expect(rows.every((r) => r.tenantId === tenantAId)).toBe(true)
     expect(rows.some((r) => r.action === 'test.action.other-tenant')).toBe(false)
 
-    const ours = rows.filter((r) => r.action.startsWith('test.action.'))
+    const ours = rows.filter((r) => /^test\.action\.\d+$/.test(r.action))
     expect(ours.map((r) => r.action)).toEqual(['test.action.2', 'test.action.1', 'test.action.0'])
     expect(ours[0].actorName).toBe('Audit Owner')
+  })
+
+  // ── issue #302: Activity Log's role-filter chips ──────────────────────────
+  // GovernanceScreen filters the already-fetched rows by `entry.actorRole ===
+  // activityRoleFilter`. This proves the route resolves a real `actorRole`
+  // per row (via the same `users` join as actorName/actorEmail) and that
+  // applying that exact filter predicate narrows the set to a real subset —
+  // not all rows, not zero rows.
+  it('resolves a real actorRole per row, and filtering by it narrows to a real subset', async () => {
+    mockCookie = ownerSessionToken
+    const { status, payload } = await readJson(
+      await auditLogGET(new Request('http://localhost/api/audit-log'))
+    )
+    expect(status).toBe(200)
+    const rows = payload.data as { action: string; actorRole: string | null }[]
+    const ours = rows.filter((r) => r.action.startsWith('test.action.') && r.action !== 'test.action.other-tenant')
+
+    expect(ours.find((r) => r.action === 'test.action.0')?.actorRole).toBe('owner')
+    expect(ours.find((r) => r.action === 'test.action.worker')?.actorRole).toBe('worker')
+
+    const ownerOnly = ours.filter((r) => r.actorRole === 'owner')
+    const workerOnly = ours.filter((r) => r.actorRole === 'worker')
+    expect(ownerOnly.length).toBeGreaterThan(0)
+    expect(ownerOnly.length).toBeLessThan(ours.length)
+    expect(workerOnly.length).toBe(1)
+    expect(ownerOnly.every((r) => r.actorRole === 'owner')).toBe(true)
   })
 
   it('respects limit and offset', async () => {

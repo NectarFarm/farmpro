@@ -42,7 +42,19 @@ import { useToast, SearchBar } from "./ui-shared";
 // GET /api/audit-log (new in this issue) — tenant-scoped, newest-first,
 // paginated. Replaces the mock activity feed; each row already carries a
 // resolved `actorName` (the route joins `users`), so entries show a real
-// person, not a raw actor id.
+// person, not a raw actor id. The role-filter chip row (issue #302) filters
+// on `actorRole`, which the route resolves via that same `users` join.
+//
+// ── Summary strip ──
+// The mock's 4th tile ("CRUD Rules") counted rules with `requiresApproval`
+// from its flat mock rule list; there's no such list on the real backend
+// (see the CRUD Rules tab note above). Restored (issue #302) as the sum of
+// `approvalRequired.length` across every role in the already-loaded
+// `roles` state — that's exactly the count of the tenant's real
+// `role_permissions` rows with `approval_required = true` (GET
+// /api/role-permissions groups those rows onto `RoleMatrixEntry.approvalRequired`
+// one entry per true row), so the tile and the CRUD Rules tab's own toggles
+// can never disagree.
 
 /* ── Feature modules (mirrors GET/PUT /api/role-permissions' `module` keys) ── */
 const FEATURE_GROUPS = [
@@ -114,6 +126,7 @@ interface AuditLogRow {
   actor: string;
   actorName: string | null;
   actorEmail: string | null;
+  actorRole: string | null;
   action: string;
   entity: string;
   entityId: string;
@@ -256,6 +269,7 @@ export function GovernanceScreen() {
   const [deleteRoleConfirm, setDeleteRoleConfirm] = useState<string | null>(null);
   const [approvalFilter, setApprovalFilter] = useState("all");
   const [activitySearch, setActivitySearch] = useState("");
+  const [activityRoleFilter, setActivityRoleFilter] = useState("all");
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const loadApprovals = useCallback(async () => {
@@ -340,8 +354,13 @@ export function GovernanceScreen() {
   const approvedCount = (approvals ?? []).filter(a => a.status === "approved").length;
   const filteredApprovals = approvalFilter === "all" ? (approvals ?? []) : (approvals ?? []).filter(a => a.status === approvalFilter);
 
+  // Sum of every role's approvalRequired list = count of the tenant's real
+  // role_permissions rows with approval_required = true (see comment above).
+  const crudRulesCount = (roles ?? []).reduce((sum, r) => sum + r.approvalRequired.length, 0);
+
   const filteredActivity = useMemo(() => {
     let entries = auditLog ?? [];
+    if (activityRoleFilter !== "all") entries = entries.filter(e => e.actorRole === activityRoleFilter);
     if (activitySearch) {
       const q = activitySearch.toLowerCase();
       entries = entries.filter(e =>
@@ -351,7 +370,7 @@ export function GovernanceScreen() {
       );
     }
     return entries;
-  }, [auditLog, activitySearch]);
+  }, [auditLog, activityRoleFilter, activitySearch]);
 
   return (
     <div className="screen-content">
@@ -369,6 +388,7 @@ export function GovernanceScreen() {
             { label: "Pending", value: pending, color: "var(--status-warning)", bg: "rgba(251,191,36,0.1)" },
             { label: "Approved", value: approvedCount, color: "var(--status-ok)", bg: "rgba(74,222,128,0.08)" },
             { label: "Roles", value: (roles ?? []).length, color: "var(--accent-purple)", bg: "rgba(168,85,247,0.08)" },
+            { label: "CRUD Rules", value: crudRulesCount, color: "var(--accent-amber)", bg: "rgba(251,191,36,0.06)" },
           ].map(s => (
             <div key={s.label} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: "10px 4px", textAlign: "center", border: `1px solid ${s.color}30` }}>
               <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -568,6 +588,13 @@ export function GovernanceScreen() {
         {tab === "audit" && (
           <div style={{ paddingBottom: 80 }}>
             <SearchBar value={activitySearch} onChange={setActivitySearch} placeholder="Search actions, users, entities…" />
+            <div style={{ display: "flex", gap: 5, marginBottom: 12, overflowX: "auto", scrollbarWidth: "none" }}>
+              {["all", ...Object.keys(ROLE_COLOR)].map(id => (
+                <button key={id} onClick={() => setActivityRoleFilter(id)} style={{ flexShrink: 0, padding: "5px 10px", borderRadius: 100, fontSize: 10, fontWeight: 700, cursor: "pointer", background: activityRoleFilter === id ? "rgba(74,222,128,0.15)" : "var(--card)", border: activityRoleFilter === id ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)", color: activityRoleFilter === id ? "var(--primary-green)" : "var(--text-muted)", textTransform: "capitalize" }}>
+                  {id === "all" ? "All Roles" : id}
+                </button>
+              ))}
+            </div>
             {auditLog === null ? (
               <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-muted)", fontSize: 13 }}>Loading activity…</div>
             ) : (
