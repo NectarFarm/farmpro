@@ -19,6 +19,11 @@ import { desc, eq } from 'drizzle-orm'
 // uuid; `actorName`/`actorEmail` are null if the user row is gone (e.g.
 // deleted account) — the log entry itself is append-only and still shown.
 //
+// `actorRole` (issue #302) rides the same left join — it's what powers the
+// Activity Log's role-filter chips (GovernanceScreen), so the actor's role at
+// query time is resolved here rather than re-fetched client-side. Null for
+// the same reason actorName/actorEmail can be null (deleted account).
+//
 // Pagination: `limit` (default 50, capped at 200) + `offset` (default 0),
 // same minimal offset-pagination shape as this branch uses elsewhere (no
 // cursor infra exists yet). Always ordered newest-first (`at desc`).
@@ -59,6 +64,7 @@ export async function GET(req: Request) {
       actor: auditLog.actor,
       actorName: users.name,
       actorEmail: users.email,
+      actorRole: users.role,
       action: auditLog.action,
       entity: auditLog.entity,
       entityId: auditLog.entityId,

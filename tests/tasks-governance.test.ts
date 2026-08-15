@@ -11,7 +11,7 @@
 //     call
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
 
@@ -328,6 +328,46 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
       expect(byRole.manager.approvalRequired).toEqual(['finance'])
       expect(byRole.worker.permissions.feeding).toBe('edit')
       expect(byRole.worker.approvalRequired).toEqual([])
+    })
+
+    // ── issue #302: Governance summary strip's "CRUD Rules" tile ──────────────
+    // The tile counts the tenant's real role_permissions rows with
+    // approval_required = true. GovernanceScreen computes that as
+    // sum(role.approvalRequired.length) over the GET response — this proves
+    // that sum equals the real row count in the DB, so the tile can never
+    // drift from what GET actually returns (and what the CRUD Rules tab's own
+    // per-module toggles render).
+    it('sum of approvalRequired.length across GET matches the real DB row count with approval_required = true', async () => {
+      mockCookie = ownerSessionToken
+      await rolePermsPUT(
+        jsonRequest('http://localhost/api/role-permissions', 'PUT', {
+          roles: [
+            {
+              role: 'manager',
+              permissions: { feeding: 'edit', finance: 'view', payroll: 'hidden' },
+              approvalRequired: ['finance', 'payroll'],
+            },
+            {
+              role: 'worker',
+              permissions: { feeding: 'edit', finance: 'hidden' },
+              approvalRequired: ['feeding'],
+            },
+          ],
+        })
+      )
+      mockCookie = undefined
+
+      const getRes = await readJson(await rolePermsGET(jsonRequest(`http://localhost/api/role-permissions?tenantId=${tenantAId}`, 'GET')))
+      expect(getRes.status).toBe(200)
+      const entries = getRes.payload.data as { role: string; approvalRequired: string[] }[]
+      const tileCount = entries.reduce((sum, r) => sum + r.approvalRequired.length, 0)
+      expect(tileCount).toBe(3)
+
+      const dbRows = await db
+        .select()
+        .from(rolePermissions)
+        .where(and(eq(rolePermissions.tenantId, tenantAId), eq(rolePermissions.approvalRequired, true)))
+      expect(dbRows.length).toBe(tileCount)
     })
 
     it('a second PUT fully replaces the previous matrix (old modules disappear)', async () => {
