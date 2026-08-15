@@ -54,7 +54,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ success: true, data: existing }, { status: 200 })
     }
     try {
-      const { tenantId } = await provisionTenant({
+      const { tenantId, ownerTempPassword } = await provisionTenant({
         farmerName: existing.farmerName,
         email: existing.email,
         farmName: existing.farmName,
@@ -65,7 +65,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         .set({ status, tenantId, ...(notes !== undefined ? { notes } : {}) })
         .where(eq(onboardRequests.id, id))
         .returning()
-      return NextResponse.json({ success: true, data: updated }, { status: 200 })
+      // ownerTempPassword is hashed into the DB and never stored in plaintext —
+      // this is the ONE response where it's readable. It is only included on
+      // the branch that actually provisions (never on the "already
+      // provisioned" early-return above), since it can't be retrieved again.
+      return NextResponse.json({ success: true, data: { ...updated, ownerTempPassword } }, { status: 200 })
     } catch (err) {
       if (isUniqueViolation(err)) {
         return NextResponse.json(

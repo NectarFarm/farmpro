@@ -20,6 +20,7 @@ vi.mock('next/headers', () => ({
 
 import { POST as onboardPOST, GET as onboardGET } from '@/app/api/onboard-requests/route'
 import { PATCH as onboardPATCH } from '@/app/api/onboard-requests/[id]/route'
+import { POST as loginPOST } from '@/app/api/auth/login/route'
 import { db } from '@/db'
 import { tenants, users, sessions, farms, onboardRequests } from '@/db/schemas'
 import { createSession, hashSecret } from '@/lib/auth'
@@ -53,6 +54,7 @@ run('onboarding requests: submit -> admin queue -> approve provisions a tenant (
   const farmName = `Test Onboard Farm ${randomUUID().slice(0, 8)}`
   let requestId: string
   let provisionedTenantId: string | undefined
+  let ownerTempPassword: string
 
   beforeAll(async () => {
     const salt = randomUUID()
@@ -165,9 +167,37 @@ run('onboarding requests: submit -> admin queue -> approve provisions a tenant (
     expect(ownerRows).toHaveLength(1)
     expect(ownerRows[0].role).toBe('owner')
     expect(ownerRows[0].email).toBe(requestEmail)
+
+    // issue #291: the response must surface the real one-time owner temp
+    // password so the approving admin can actually relay it.
+    expect(typeof payload.data.ownerTempPassword).toBe('string')
+    expect(payload.data.ownerTempPassword.length).toBeGreaterThan(0)
+    ownerTempPassword = payload.data.ownerTempPassword
   })
 
-  it('PATCH approve is idempotent (does not provision a second tenant)', async () => {
+  it('the returned temp password actually authenticates the new owner (issue #291)', async () => {
+    expect(ownerTempPassword).toBeTruthy()
+    const { status, payload } = await readJson(
+      await loginPOST(
+        new Request('http://localhost/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: requestEmail, password: ownerTempPassword }),
+        })
+      )
+    )
+    expect(status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.data.email).toBe(requestEmail)
+    expect(payload.data.role).toBe('owner')
+    expect(payload.data.tenantId).toBe(provisionedTenantId)
+
+    // Clean up the session the login created so afterAll's tenant/user
+    // deletes aren't blocked by an FK-referencing session row.
+    await db.delete(sessions).where(eq(sessions.userId, payload.data.id))
+  })
+
+  it('PATCH approve is idempotent (does not provision a second tenant, and never re-returns the password)', async () => {
     mockCookie = superAdminSessionToken
     const { status, payload } = await readJson(
       await onboardPATCH(jsonRequest(`http://localhost/api/onboard-requests/${requestId}`, 'PATCH', { status: 'approved' }), {
@@ -176,6 +206,9 @@ run('onboarding requests: submit -> admin queue -> approve provisions a tenant (
     )
     expect(status).toBe(200)
     expect(payload.data.tenantId).toBe(provisionedTenantId)
+    // The "already provisioned" branch returns the existing row as-is — the
+    // password can never be retrieved again after the first response.
+    expect(payload.data.ownerTempPassword).toBeUndefined()
   })
 
   it('PATCH is rejected for a non-super_admin session (403)', async () => {
