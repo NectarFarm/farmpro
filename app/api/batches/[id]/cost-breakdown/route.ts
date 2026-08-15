@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { batches } from '@/db/schemas'
+import { batches, sales } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
 
@@ -22,6 +22,11 @@ import { and, eq } from 'drizzle-orm'
 //     `reason` naming the missing table each would need.
 // A real multi-category cost engine needs those tables and is Epic: Finance's
 // job (flagged as a follow-up in the PR), not this issue's.
+//
+// Issue #300 update: Revenue/Gross Margin were correctly left off this
+// response's shape when this endpoint was first built (no `sales` table
+// existed yet). Issue #239 (Finance, merged) has since added one — see the
+// `revenue`/`grossMarginPct` fields added below this categories block.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
@@ -79,10 +84,49 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     },
   ]
 
+  const totalTrackedCents = categories.filter((c) => c.tracked).reduce((s, c) => s + c.amountCents, 0)
+
+  // ── Revenue / Gross Margin (issue #300) ───────────────────────────────────
+  // Issue #239 (Finance, merged) added a real `sales` table with `sales.batchId`
+  // — this batch's real revenue source. Sum this batch's own sales rows only
+  // (tenant + batch scoped), same as components/farm/finance.tsx's Batch P&L
+  // (`salesByBatch`) does client-side over the tenant's full sales list.
+  //
+  // Units: `sales.amount` is a whole-KSh integer, NOT cents like
+  // `acquisitionCostCents`/`totalTrackedCents` (see db/schemas/finance.ts's
+  // comment on the `sales` table). Issue #290 (open as of this writing) flags
+  // that exact mismatch corrupting the GL trial balance in lib/finance.ts —
+  // this endpoint isn't that code path, but it reads the same column, so it
+  // must not reproduce the bug here: convert explicitly (`amount * 100`)
+  // before doing arithmetic against cost figures, so `revenueCents` is
+  // directly comparable to `totalTrackedCents`.
+  const saleRows = await db
+    .select({ amount: sales.amount })
+    .from(sales)
+    .where(and(eq(sales.batchId, id), eq(sales.tenantId, tenantId)))
+  const hasSales = saleRows.length > 0
+  const revenueCents = saleRows.reduce((s, r) => s + r.amount, 0) * 100
+
+  // Gross margin against tracked cost only (same "tracked cost only" honesty
+  // already used for Break-even above — feed/health/labour/overhead aren't
+  // tracked yet, so a margin against *full* cost isn't computable). `null`
+  // (not 0%) when there's no revenue yet: an honest "not enough data" state,
+  // not a fabricated number — 0% would misleadingly imply a real, measured
+  // break-even margin instead of "no sales recorded".
+  const grossMarginPct = hasSales
+    ? Math.round(((revenueCents - totalTrackedCents) / revenueCents) * 1000) / 10
+    : null
+
   return ok({
     batchId: batch.id,
     code: batch.code,
-    totalTrackedCents: categories.filter((c) => c.tracked).reduce((s, c) => s + c.amountCents, 0),
+    totalTrackedCents,
     categories,
+    revenue: {
+      amountCents: revenueCents,
+      tracked: hasSales,
+      reason: hasSales ? undefined : 'No sales recorded yet for this batch.',
+    },
+    grossMarginPct,
   })
 }

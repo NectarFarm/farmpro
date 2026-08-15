@@ -417,7 +417,14 @@ export function BatchDetailScreen() {
   const [batch, setBatch] = useState<ApiBatch | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [units, setUnits] = useState<ApiUnit[]>([]);
-  const [costBreakdown, setCostBreakdown] = useState<{ categories: { key: string; label: string; amountCents: number; tracked: boolean; reason?: string }[]; totalTrackedCents: number } | null>(null);
+  const [costBreakdown, setCostBreakdown] = useState<{
+    categories: { key: string; label: string; amountCents: number; tracked: boolean; reason?: string }[];
+    totalTrackedCents: number;
+    // Revenue/Gross Margin (issue #300) — real sales.batchId-scoped revenue,
+    // added back now that a real `sales` table exists (issue #239).
+    revenue: { amountCents: number; tracked: boolean; reason?: string };
+    grossMarginPct: number | null;
+  } | null>(null);
 
   const [costTab, setCostTab] = useState<"breakdown" | "processes">("breakdown");
   const [showTransferForm, setShowTransferForm] = useState(false);
@@ -532,7 +539,14 @@ export function BatchDetailScreen() {
               <span style={{ fontSize: 32 }}>{cfg?.emoji}</span>
               <div>
                 <span className={`chip ${batch.status === "ACTIVE" ? "chip-ok" : batch.status === "QUARANTINE" ? "chip-critical" : "chip-info"}`}>{batch.status}</span>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>Stage: <span style={{ color: "var(--primary-green)", fontWeight: 700 }}>{batch.stage || "—"}</span></div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  Stage: <span style={{ color: "var(--primary-green)", fontWeight: 700 }}>{batch.stage || "—"}</span>
+                  {/* Species (issue #301): moved out of the 3rd stat tile (which
+                      now correctly shows the type-specific Area/FCR tile below)
+                      rather than dropped — still useful context, just not in
+                      that tile's position. */}
+                  {batch.species && <span style={{ marginLeft: 8 }}>· Species: <span style={{ color: "var(--text-secondary)", fontWeight: 700 }}>{batch.species}</span></span>}
+                </div>
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
@@ -546,7 +560,14 @@ export function BatchDetailScreen() {
             {[
               { label: cfg?.type === "crop" ? "Plots" : "Head", value: batch.currentQty.toLocaleString() },
               { label: cfg?.type === "crop" ? "Growth" : "Mort. %", value: cfg?.type === "crop" ? "—" : `${mort}%` },
-              { label: "Species", value: batch.species || "—" },
+              // Type-specific 3rd tile (issue #301): the mock shows Area for
+              // crop batches and FCR (feed conversion ratio) for livestock —
+              // the wired version had silently replaced BOTH with a generic
+              // "Species" field, losing FCR entirely with no acknowledgment.
+              // Neither is trackable yet (no area column on `batches`, no
+              // feed/weight data source for FCR) — same honest "—" placeholder
+              // pattern already used for "Growth" above, not a silent drop.
+              { label: cfg?.type === "crop" ? "Area" : "FCR", value: "—" },
               { label: "Cost KSh", value: `${(costKsh/1000).toFixed(0)}K` },
             ].map(s => (
               <div key={s.label} style={{ background: "var(--surface)", borderRadius: 8, padding: "8px", textAlign: "center" }}>
@@ -624,9 +645,29 @@ export function BatchDetailScreen() {
                     <div style={{ fontSize: 13, fontWeight: 700, color: "var(--status-critical)" }}>KSh {(costBreakdown.totalTrackedCents/100).toLocaleString()}</div>
                     <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600, marginTop: 1 }}>Total Tracked Cost</div>
                   </div>
+                  {/* Revenue (issue #300): real sales.batchId-scoped revenue,
+                      converted from `sales.amount` (whole KSh) to cents server-
+                      side so it's directly comparable to the cost figures here
+                      (see app/api/batches/[id]/cost-breakdown/route.ts — issue
+                      #290, open as of this PR, flags this exact unit mismatch
+                      elsewhere; this endpoint converts explicitly instead of
+                      reproducing it). An honest "KSh 0" (not a fabricated
+                      number) when the batch has no recorded sales yet. */}
+                  <div style={{ background: "var(--surface)", borderRadius: 8, padding: "8px 10px" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: costBreakdown.revenue.tracked ? "var(--status-ok)" : "var(--text-dim)" }}>KSh {(costBreakdown.revenue.amountCents/100).toLocaleString()}</div>
+                    <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600, marginTop: 1 }}>Revenue</div>
+                  </div>
                   <div style={{ background: "var(--surface)", borderRadius: 8, padding: "8px 10px" }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent-amber)" }}>{batch.currentQty > 0 ? `KSh ${Math.round(costBreakdown.totalTrackedCents/100/batch.currentQty)}/unit` : "—"}</div>
                     <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600, marginTop: 1 }}>Break-even (tracked cost only)</div>
+                  </div>
+                  {/* Gross Margin (issue #300): tracked-cost-only margin (same
+                      caveat as Break-even above — feed/health/labour/overhead
+                      aren't tracked yet). Honest "—" (not a fabricated "0%")
+                      when there's no revenue to compute a margin against. */}
+                  <div style={{ background: "var(--surface)", borderRadius: 8, padding: "8px 10px" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: costBreakdown.grossMarginPct !== null ? "var(--primary-green)" : "var(--text-dim)" }}>{costBreakdown.grossMarginPct !== null ? `${costBreakdown.grossMarginPct}%` : "—"}</div>
+                    <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600, marginTop: 1 }}>Gross Margin</div>
                   </div>
                 </div>
                 {costBreakdown.categories.map(c => (
@@ -642,7 +683,9 @@ export function BatchDetailScreen() {
                     <div className="progress-track"><div className="progress-fill" style={{ width: c.tracked && costBreakdown.totalTrackedCents > 0 ? `${(c.amountCents/costBreakdown.totalTrackedCents)*100}%` : "0%", background: c.tracked ? "var(--primary-green)" : "var(--border-subtle)" }} /></div>
                   </div>
                 ))}
-                <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 4 }}>Revenue and gross margin need a sales/products data source that doesn&apos;t exist yet — not shown.</div>
+                {!costBreakdown.revenue.tracked && (
+                  <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 4 }}>No sales recorded yet for this batch — Revenue/Gross Margin above are showing an honest zero, not a fabricated estimate.</div>
+                )}
               </>
             )
           )}

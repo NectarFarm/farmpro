@@ -20,7 +20,8 @@ import { GET as batchesGET, POST as batchesPOST } from '@/app/api/batches/route'
 import { GET as batchGET, PATCH as batchPATCH } from '@/app/api/batches/[id]/route'
 import { GET as costBreakdownGET } from '@/app/api/batches/[id]/cost-breakdown/route'
 import { db } from '@/db'
-import { tenants, farms, productionUnits, batches } from '@/db/schemas'
+import { tenants, farms, productionUnits, batches, sales } from '@/db/schemas'
+import { recordSale } from '@/lib/finance'
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -71,6 +72,7 @@ run('batches: CRUD + code generation + cost-breakdown (issue #231)', () => {
   })
 
   afterAll(async () => {
+    await db.delete(sales).where(inArray(sales.tenantId, [tenantAId, tenantBId]))
     await db.delete(batches).where(inArray(batches.tenantId, [tenantAId, tenantBId]))
     await db.delete(productionUnits).where(inArray(productionUnits.tenantId, [tenantAId, tenantBId]))
     await db.delete(farms).where(inArray(farms.tenantId, [tenantAId, tenantBId]))
@@ -320,6 +322,81 @@ run('batches: CRUD + code generation + cost-breakdown (issue #231)', () => {
         { params: Promise.resolve({ id: created.id }) }
       )
       expect(res.status).toBe(404)
+    })
+  })
+
+  // ── issue #300 ─────────────────────────────────────────────────────────
+  describe('GET /api/batches/[id]/cost-breakdown — Revenue/Gross Margin (issue #300)', () => {
+    it('sums this batch\'s real sales into revenue, converting sales.amount (whole KSh) to cents to match cost figures, and computes gross margin against tracked cost', async () => {
+      const createRes = await batchesPOST(
+        postRequest('http://localhost/api/batches', {
+          tenantId: tenantAId,
+          unitId: unitAId,
+          name: 'Broilers Mar Run',
+          enterprise: 'broiler',
+          initialQty: 1000,
+          acquisitionCostCents: 10000000, // KSh 100,000
+        })
+      )
+      const created = (await createRes.json()).data
+
+      // Two real sales for this batch, whole-KSh `amount` (matching
+      // db/schemas/finance.ts's `sales.amount` contract) — KSh 70,000 + KSh
+      // 60,000 = KSh 130,000 total revenue.
+      await recordSale({ tenantId: tenantAId, batchId: created.id, item: 'Broilers batch 1', amount: 70000 })
+      await recordSale({ tenantId: tenantAId, batchId: created.id, item: 'Broilers batch 2', amount: 60000 })
+      // A sale for a *different* batch must not leak into this batch's revenue.
+      const otherRes = await batchesPOST(
+        postRequest('http://localhost/api/batches', {
+          tenantId: tenantAId, unitId: unitAId, name: 'Other Broilers', enterprise: 'broiler', initialQty: 100,
+        })
+      )
+      const other = (await otherRes.json()).data
+      await recordSale({ tenantId: tenantAId, batchId: other.id, item: 'Unrelated sale', amount: 999999 })
+
+      const res = await costBreakdownGET(
+        getRequest(`http://localhost/api/batches/${created.id}/cost-breakdown?tenantId=${tenantAId}`),
+        { params: Promise.resolve({ id: created.id }) }
+      )
+      expect(res.status).toBe(200)
+      const payload = await res.json()
+
+      // Revenue: KSh 130,000 -> 13,000,000 cents, explicitly converted from
+      // sales.amount (whole KSh) — NOT reproducing issue #290's unit mismatch.
+      expect(payload.data.revenue.amountCents).toBe(13000000)
+      expect(payload.data.revenue.tracked).toBe(true)
+
+      // Gross margin: (revenue - trackedCost) / revenue, tracked cost only
+      // (acquisitionCostCents = 10,000,000 cents = KSh 100,000) — same formula
+      // components/farm/finance.tsx's Batch P&L (`batchPLRows`) uses:
+      // margin = 130,000 - 100,000 = 30,000; pct = 30000/130000*100 = 23.1%.
+      expect(payload.data.totalTrackedCents).toBe(10000000)
+      expect(payload.data.grossMarginPct).toBeCloseTo(23.1, 1)
+    })
+
+    it('shows an honest zero revenue and a null (not fabricated 0%) gross margin when the batch has no recorded sales', async () => {
+      const createRes = await batchesPOST(
+        postRequest('http://localhost/api/batches', {
+          tenantId: tenantAId,
+          unitId: unitAId,
+          name: 'Broilers Apr Run (no sales)',
+          enterprise: 'broiler',
+          initialQty: 200,
+          acquisitionCostCents: 5000000,
+        })
+      )
+      const created = (await createRes.json()).data
+
+      const res = await costBreakdownGET(
+        getRequest(`http://localhost/api/batches/${created.id}/cost-breakdown?tenantId=${tenantAId}`),
+        { params: Promise.resolve({ id: created.id }) }
+      )
+      const payload = await res.json()
+
+      expect(payload.data.revenue.amountCents).toBe(0)
+      expect(payload.data.revenue.tracked).toBe(false)
+      expect(typeof payload.data.revenue.reason).toBe('string')
+      expect(payload.data.grossMarginPct).toBeNull()
     })
   })
 })
