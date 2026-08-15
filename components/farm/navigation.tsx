@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
 import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut } from "./icons";
-import { FARMS_DATA, NOTIFICATIONS_DATA } from "./data";
+import { FARMS_DATA } from "./data";
 import { apiClient } from "@/lib/request";
 
 /* ── Screen registry ── */
@@ -48,9 +48,8 @@ export interface NavContext {
   navigate: (to: ScreenId, params?: Record<string, string>) => void;
   goBack: () => void;
   setActiveFarm: (code: string) => void;
-  alertCount: number;
-  pendingApprovals: number;
-  unreadNotifs: number;
+  pendingApprovals: number; // Real count from GET /api/approvals?status=pending (issue #293).
+  unreadNotifs: number; // Real count from GET /api/notifications, filtered to read:false (issue #293).
 }
 
 /* Tenant scope for /api/farms. With real sessions (issue #221) NavProvider gets
@@ -64,7 +63,7 @@ const NavCtx = createContext<NavContext>({
   farms: [],
   tenantId: PROVISIONAL_TENANT_ID,
   navigate: () => {}, goBack: () => {}, setActiveFarm: () => {},
-  alertCount: 3, pendingApprovals: 2, unreadNotifs: 3,
+  pendingApprovals: 0, unreadNotifs: 0,
 });
 
 export function useNav() { return useContext(NavCtx); }
@@ -165,10 +164,30 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
     setParams({});
   }, []);
 
-  const unreadNotifs = NOTIFICATIONS_DATA.filter(n => !n.read).length;
+  // Real nav-badge counts (issue #293): pendingApprovals from GET /api/approvals
+  // (status=pending, server-side filtered) and unreadNotifs from GET
+  // /api/notifications (client-side filtered on `read`, same convention
+  // dashboard.tsx already uses). Fetched once per navigation mount / tenant
+  // change — a v1-proportionate replacement for the old hardcoded literals,
+  // not new polling infra. Defaults stay 0 so a tenant with no real pending
+  // approvals/unread notifications shows no fake badge.
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<{ id: string }[]>(`/api/approvals?tenantId=${tenantId}&status=pending`).then(res => {
+      if (!cancelled && res.success && Array.isArray(res.data)) setPendingApprovals(res.data.length);
+    });
+    apiClient.get<{ read: boolean }[]>(`/api/notifications?tenantId=${tenantId}`).then(res => {
+      if (!cancelled && res.success && Array.isArray(res.data)) {
+        setUnreadNotifs(res.data.filter(n => !n.read).length);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, tenantId, navigate, goBack, setActiveFarm, alertCount: 3, pendingApprovals: 2, unreadNotifs }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, tenantId, navigate, goBack, setActiveFarm, pendingApprovals, unreadNotifs }}>
       <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       {children}
     </NavCtx.Provider>
