@@ -163,7 +163,7 @@ export default function Home() {
   React.useEffect(() => { setGlobalLogout(handleLogout); }, []);
 
   return (
-    <ThemeProvider>
+    <ThemeProvider tenantId={tenantId}>
       <ConfirmProvider>
         <ToastProvider>
           <LogoutCtx.Provider value={handleLogout}>
