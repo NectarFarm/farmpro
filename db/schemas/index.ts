@@ -9,6 +9,7 @@ export * from './onboarding'
 export * from './governance'
 export * from './inventory'
 export * from './people'
+export * from './settings'
 
 // A tenant's farms. One tenant owns several farms; each farm carries its own
 // production units. The farm switcher in the shell reads these via GET /api/farms.
