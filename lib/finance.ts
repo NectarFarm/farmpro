@@ -93,14 +93,37 @@ export async function postSaleJournal(tx: Tx, sale: { id: string; tenantId: stri
 // only to Cash, an unpaid one posts only to Accounts Payable, and a partial
 // payment posts to both. The entry balances by construction (paid + unpaid
 // remainder always sums back to the full expense amount).
+//
+// ── Unit normalization (issue #290) ─────────────────────────────────────────
+// `purchases.totalCostCents`/`amountPaidCents` are minor-unit (cents) figures
+// while `sales.amount` (postSaleJournal, above) is a plain whole-currency-unit
+// figure — both post into the same journal_lines ledger, so one side has to
+// convert or the trial balance is wrong by ~100x on whichever side didn't.
+// Converting cents -> whole units here (rather than converting sales.amount
+// -> cents in postSaleJournal) matches the convention lib/reports.ts's OWN
+// computation already established for this exact pair of columns:
+// computePlReport takes `periodExpense`/its exported `rows` by dividing
+// `purchases.totalCostCents` by 100 and leaving `sales.amount` untouched (see
+// lib/reports.ts's "Known unit caveat" comment on computePlReport), and
+// components/farm/finance.tsx's purchases-list display does the same
+// (`p.totalCostCents / 100`). Posting purchases into the ledger in whole
+// units — instead of posting sales in cents — keeps the GL convention
+// consistent with every other consumer of these two columns instead of
+// introducing a second, conflicting normalization. The division happens once,
+// on the clamped total/paid cents figures, and `owed` is derived from the
+// already-rounded totals (not rounded independently), so the entry still
+// balances by construction even when totalCostCents isn't an exact multiple
+// of 100.
 export async function postPurchaseJournal(
   tx: Tx,
   purchase: { id: string; tenantId: string; totalCostCents: number; amountPaidCents: number }
 ) {
   await ensureAccountsSeeded(tx)
   const expenseAccountId = await accountIdByCode(tx, ACCOUNT_CODES.PURCHASES_EXPENSE)
-  const total = Math.max(0, purchase.totalCostCents)
-  const paid = Math.min(Math.max(0, purchase.amountPaidCents), total)
+  const totalCents = Math.max(0, purchase.totalCostCents)
+  const paidCents = Math.min(Math.max(0, purchase.amountPaidCents), totalCents)
+  const total = Math.round(totalCents / 100)
+  const paid = Math.round(paidCents / 100)
   const owed = total - paid
 
   const [entry] = await tx

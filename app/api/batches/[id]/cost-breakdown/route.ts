@@ -94,8 +94,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   //
   // Units: `sales.amount` is a whole-KSh integer, NOT cents like
   // `acquisitionCostCents`/`totalTrackedCents` (see db/schemas/finance.ts's
-  // comment on the `sales` table). Issue #290 (open as of this writing) flags
-  // that exact mismatch corrupting the GL trial balance in lib/finance.ts —
+  // comment on the `sales` table). Issue #290 fixed that exact mismatch as it
+  // corrupted the GL trial balance in lib/finance.ts (postPurchaseJournal now
+  // converts purchases cents -> whole units to match `sales.amount` there) —
   // this endpoint isn't that code path, but it reads the same column, so it
   // must not reproduce the bug here: convert explicitly (`amount * 100`)
   // before doing arithmetic against cost figures, so `revenueCents` is

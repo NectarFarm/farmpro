@@ -60,17 +60,17 @@ async function batchCodeMap(tenantId: string): Promise<Map<string, string>> {
 // from `sales`/`purchases` rows in range — the period breakdown the issue
 // asks for.
 //
-// Known unit caveat (already flagged in components/farm/finance.tsx, not
-// fixed here — out of scope for this issue): `sales.amount` posts in whole
-// currency units while `purchases.totalCostCents` posts in cents (see
-// lib/finance.ts's postSaleJournal/postPurchaseJournal), so the GL-derived
-// totals are not guaranteed to share a unit for a tenant with both real
-// sales and purchases. The period `rows`/`periodExpense` figures below
-// convert purchases cents -> whole units (dividing by 100) so the exported
-// table reads correctly — the same conversion components/farm/finance.tsx's
-// `batchPLRows` already applies for Batch P&L; the raw GL totals in `meta`
-// are passed through unconverted, exactly as finance.tsx does, so this
-// endpoint doesn't silently paper over the known ledger-unit bug.
+// Unit note (issue #290 fixed the underlying bug this comment used to warn
+// about): `sales.amount` is a whole-currency-unit figure while
+// `purchases.totalCostCents` is in cents; lib/finance.ts's
+// postPurchaseJournal now converts cents -> whole units when posting to the
+// ledger (matching the convention this file already used below), so
+// `glTotalRevenue`/`glTotalExpense` (straight from computeTrialBalance) share
+// the same unit. The period `rows`/`periodExpense` figures below still
+// convert purchases cents -> whole units themselves (dividing by 100) since
+// they're built directly from raw `purchases` rows, not from the GL — same
+// conversion components/farm/finance.tsx's `batchPLRows` already applies for
+// Batch P&L.
 export async function computePlReport(tenantId: string, from: Date | null, to: Date | null): Promise<ReportPayload> {
   const trialBalance = await computeTrialBalance(tenantId)
   const glTotalRevenue = trialBalance.rows.filter((r) => r.class === 'REVENUE').reduce((s, r) => s + r.balance, 0)
@@ -122,7 +122,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       glTotalExpense,
       glNetIncome: glTotalRevenue - glTotalExpense,
       glUnitCaveat:
-        'GL totals are cumulative (all-time), not date-filtered, and sales/purchases post in different units — see lib/reports.ts comment.',
+        'GL totals are cumulative (all-time), not date-filtered — see lib/reports.ts comment. (Sales/purchases now post in the same unit; issue #290.)',
       periodRevenue,
       periodExpense,
       periodNetIncome: periodRevenue - periodExpense,

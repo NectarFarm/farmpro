@@ -163,7 +163,9 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
       )
       expect(pendingSale.status).toBe(201)
 
-      // A fully-paid purchase.
+      // A fully-paid purchase. totalCostCents/amountPaidCents are in cents
+      // (KSh 100 total); postPurchaseJournal (issue #290) converts these to
+      // whole units before posting, so the ledger sees 100, not 10000.
       const paidPurchase = await readJson(
         await purchasesPOST(
           postRequest('http://localhost/api/purchases', {
@@ -181,6 +183,8 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
       expect(paidPurchase.status).toBe(201)
 
       // A partially-paid purchase (owes the remainder to Accounts Payable).
+      // totalCostCents 15000 / amountPaidCents 5000 = KSh 150 total, KSh 50
+      // paid, KSh 100 owed once converted to whole units.
       const partialPurchase = await readJson(
         await purchasesPOST(
           postRequest('http://localhost/api/purchases', {
@@ -206,17 +210,86 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
       const row = (code: string) => tb.rows.find((r: { code: string }) => r.code === code)
 
       // Cash: the first paid sale (36000) is already in `cashBefore` (recorded in an
-      // earlier test); this test only adds -10000 (paid purchase) and -5000
-      // (partial payment on the second purchase).
-      expect(row(ACCOUNT_CODES.CASH).balance).toBe(cashBefore - 10000 - 5000)
+      // earlier test); this test only adds -100 (paid purchase, KSh 100 once
+      // converted from cents) and -50 (partial payment on the second purchase,
+      // KSh 50 once converted from cents).
+      expect(row(ACCOUNT_CODES.CASH).balance).toBe(cashBefore - 100 - 50)
       // Accounts Receivable: the pending sale's full amount.
       expect(row(ACCOUNT_CODES.ACCOUNTS_RECEIVABLE).balance).toBe(128000)
-      // Accounts Payable: the unpaid remainder of the partial purchase (15000 - 5000).
-      expect(row(ACCOUNT_CODES.ACCOUNTS_PAYABLE).balance).toBe(10000)
-      // Sales Revenue: 36000 (paid) + 128000 (pending) = 164000.
+      // Accounts Payable: the unpaid remainder of the partial purchase, in
+      // whole units (150 - 50 = 100), NOT the raw cents figure (15000 - 5000
+      // = 10000) — proves postPurchaseJournal converts before posting.
+      expect(row(ACCOUNT_CODES.ACCOUNTS_PAYABLE).balance).toBe(100)
+      // Sales Revenue: 36000 (paid) + 128000 (pending) = 164000. Same order of
+      // magnitude as Purchases Expense below now that both post in whole
+      // units — this is the exact invariant issue #290 was about.
       expect(row(ACCOUNT_CODES.SALES_REVENUE).balance).toBe(164000)
-      // Purchases Expense: 10000 (paid) + 15000 (partial) = 25000.
-      expect(row(ACCOUNT_CODES.PURCHASES_EXPENSE).balance).toBe(25000)
+      // Purchases Expense: 100 (paid) + 150 (partial) = 250 in whole units —
+      // NOT 25000 (the raw cents sum), which is what the pre-fix code posted.
+      expect(row(ACCOUNT_CODES.PURCHASES_EXPENSE).balance).toBe(250)
+    })
+
+    it('issue #290: a real KSh 36,000 sale and a real KSh 27,500 purchase post in the same, correct order of magnitude', async () => {
+      const localTenantId = `t-fin-unit-${randomUUID()}`
+      await db.insert(tenants).values({ id: localTenantId, name: 'Unit Mismatch Regression Co.', active: true })
+      try {
+        // A real cash sale of KSh 36,000 — sales.amount is already a whole
+        // KSh figure, so this posts as 36000 either way.
+        const sale = await readJson(
+          await salesPOST(
+            postRequest('http://localhost/api/data/sales', {
+              tenantId: localTenantId,
+              item: 'Tray eggs (30) x 120',
+              amount: 36000,
+              status: 'paid',
+            })
+          )
+        )
+        expect(sale.status).toBe(201)
+
+        // A real cash purchase of KSh 27,500 — totalCostCents/amountPaidCents
+        // are in cents, so this is 2,750,000 raw. Pre-fix, postPurchaseJournal
+        // posted that raw cents figure straight into Purchases Expense (a
+        // ~100x inflation vs the real KSh value); post-fix it must post 27500.
+        const purchase = await readJson(
+          await purchasesPOST(
+            postRequest('http://localhost/api/purchases', {
+              tenantId: localTenantId,
+              supplier: 'Agrovet Supplies',
+              itemName: 'Layer Mash',
+              unit: 'kg',
+              quantity: 500,
+              unitCostCents: 5500,
+              totalCostCents: 2750000,
+              amountPaidCents: 2750000,
+            })
+          )
+        )
+        expect(purchase.status).toBe(201)
+
+        const tb = (await readJson(await trialBalanceGET(getRequest(`http://localhost/api/gl/trial-balance?tenantId=${localTenantId}`))))
+          .payload.data
+        expect(tb.balanced).toBe(true)
+        const row = (code: string) => tb.rows.find((r: { code: string }) => r.code === code)
+
+        // Revenue reflects the real KSh 36,000 sale.
+        expect(row(ACCOUNT_CODES.SALES_REVENUE).balance).toBe(36000)
+        // Expense reflects the real KSh 27,500 purchase — NOT 2,750,000 (the
+        // pre-fix ~100x-inflated figure this issue was filed about).
+        expect(row(ACCOUNT_CODES.PURCHASES_EXPENSE).balance).toBe(27500)
+        expect(row(ACCOUNT_CODES.PURCHASES_EXPENSE).balance).not.toBe(2750000)
+
+        // Both sides are now the same order of magnitude as their real KSh
+        // values: revenue/expense differ by less than 2x, not ~100x.
+        const revenue = row(ACCOUNT_CODES.SALES_REVENUE).balance
+        const expense = row(ACCOUNT_CODES.PURCHASES_EXPENSE).balance
+        expect(Math.max(revenue, expense) / Math.min(revenue, expense)).toBeLessThan(2)
+
+        // Cash (fully-paid sale + fully-paid purchase): 36000 - 27500 = 8500.
+        expect(row(ACCOUNT_CODES.CASH).balance).toBe(8500)
+      } finally {
+        await cleanupTenant(localTenantId)
+      }
     })
 
     it('recording a real sale changes the trial balance correctly (before/after)', async () => {
