@@ -1,8 +1,31 @@
 "use client";
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useNav, TopNav } from "./navigation";
-import { FileText, Download, Calendar, TrendingUp, BarChart3, Receipt, ChevronRight, Eye, Plus } from "./icons";
+import { apiClient } from "@/lib/request";
+import type { ReportPayload } from "@/lib/report-types";
+import { downloadReportCsv, downloadReportPdf } from "@/lib/report-export";
+import { FileText, Download, AlertTriangle } from "./icons";
 
+// ── Real-data wiring (issue #263) ───────────────────────────────────────────
+// Of the mock's 8 report types below, only 4 have any real backing data on
+// this branch (per the issue's branch-correction note):
+//   pl / batch-pl       -> GET /api/reports/pl, GET /api/reports/batch-pl
+//                           (composed from the real GL trial balance +
+//                           batches/cost-breakdown, see lib/reports.ts)
+//   mortality / feed    -> GET /api/reports/mortality, GET /api/reports/feed-consumption
+//                           (derived from the real `records` table)
+// The remaining 4 (`production`, `vaccination`, `labour`, `fcr`) have no real
+// data source anywhere on this branch: no eggs/products-collected table, no
+// health-log table, no payroll, no weight-tracking granularity (same "no
+// source table exists" reasoning app/api/batches/[id]/cost-breakdown/route.ts
+// already applies to feed/health/labour/overhead cost categories). Per the
+// issue's direct product decision, these show an honest "not available yet"
+// state — never a fake or empty export.
+//
+// Export: each real report endpoint returns `{ title, meta, columns, rows }`
+// (lib/report-types.ts); lib/report-export.ts builds CSV and PDF (via
+// jspdf/jspdf-autotable, added as real deps this issue) from that one shape
+// client-side — no per-report-type export code.
 const REPORT_TYPES = [
   { id: "pl", name: "P&L Summary", desc: "Revenue vs expenses by period", icon: "💰", color: "var(--status-ok)" },
   { id: "production", name: "Production Summary", desc: "Eggs, meat, products collected", icon: "📊", color: "var(--accent-blue)" },
@@ -14,21 +37,74 @@ const REPORT_TYPES = [
   { id: "fcr", name: "FCR & Efficiency", desc: "Feed conversion by species", icon: "⚖️", color: "var(--accent-blue)" },
 ];
 
-const RECENT_REPORTS = [
-  { name: "P&L Summary – Jul 2026", generated: "2026-08-01", size: "142KB", format: "PDF" },
-  { name: "Mortality Report – Q2 2026", generated: "2026-07-01", size: "88KB", format: "PDF" },
-  { name: "Production Summary – Jun 2026", generated: "2026-07-01", size: "216KB", format: "CSV" },
-];
+// Report types with a real /api/reports/* endpoint behind them.
+const REPORT_ENDPOINTS: Record<string, string> = {
+  pl: "/api/reports/pl",
+  "batch-pl": "/api/reports/batch-pl",
+  mortality: "/api/reports/mortality",
+  feed: "/api/reports/feed-consumption",
+};
+
+// Why each of the other 4 has no real data source yet — shown verbatim in
+// the "not available yet" card so this reads as an honest status, not a
+// generic placeholder.
+const NOT_AVAILABLE_REASONS: Record<string, string> = {
+  production: "No eggs/meat/products-collected table exists yet on this branch — there is nothing to report on.",
+  vaccination: "No health-log table exists yet — vaccination/treatment records are not captured anywhere.",
+  labour: "No payroll or hours-worked table exists yet — labour cost has no real data source.",
+  fcr: "No weight-tracking granularity exists yet — feed-conversion ratio cannot be computed from real data.",
+};
+
+type ExportRecord = { name: string; generated: string; format: "PDF" | "CSV" };
+
+function fmtTimestamp(d: Date): string {
+  return d.toISOString().slice(0, 16).replace("T", " ");
+}
 
 export function ReportsScreen() {
+  const { tenantId } = useNav();
   const [dateFrom, setDateFrom] = useState("2026-08-01");
   const [dateTo, setDateTo] = useState("2026-08-31");
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
   const [showAuditor, setShowAuditor] = useState(false);
 
-  const toggleReport = (id: string) => {
-    setSelected((prev) => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
+  const [report, setReport] = useState<ReportPayload | null>(null);
+  const [reportError, setReportError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [recentExports, setRecentExports] = useState<ExportRecord[]>([]);
+
+  const reportType = selected ? REPORT_TYPES.find((r) => r.id === selected) ?? null : null;
+  const endpoint = selected ? REPORT_ENDPOINTS[selected] : undefined;
+
+  const loadReport = useCallback(() => {
+    if (!endpoint) { setReport(null); setReportError(""); return; }
+    setLoading(true);
+    const params = new URLSearchParams({ tenantId, from: dateFrom, to: dateTo });
+    apiClient.get<ReportPayload>(`${endpoint}?${params.toString()}`).then((res) => {
+      setLoading(false);
+      if (res.success) { setReport(res.data); setReportError(""); }
+      else { setReport(null); setReportError(res.error || "Failed to generate report."); }
+    });
+  }, [endpoint, tenantId, dateFrom, dateTo]);
+
+  useEffect(() => { loadReport(); }, [loadReport]);
+
+  function handleExportCsv() {
+    if (!report || !reportType) return;
+    const filename = `${reportType.id}-${dateFrom}_to_${dateTo}.csv`;
+    downloadReportCsv(report, filename);
+    setRecentExports((prev) => [{ name: `${reportType.name} – ${dateFrom} to ${dateTo}`, generated: fmtTimestamp(new Date()), format: "CSV" as const }, ...prev].slice(0, 8));
+  }
+
+  async function handleExportPdf() {
+    if (!report || !reportType) return;
+    const filename = `${reportType.id}-${dateFrom}_to_${dateTo}.pdf`;
+    await downloadReportPdf(report, filename);
+    setRecentExports((prev) => [{ name: `${reportType.name} – ${dateFrom} to ${dateTo}`, generated: fmtTimestamp(new Date()), format: "PDF" as const }, ...prev].slice(0, 8));
+  }
+
+  const isRealType = selected ? Boolean(REPORT_ENDPOINTS[selected]) : false;
+  const canExport = isRealType && !!report && !loading;
 
   return (
     <div className="screen-content">
@@ -48,20 +124,15 @@ export function ReportsScreen() {
               <input className="farm-input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ fontSize: 13 }} />
             </div>
           </div>
-          <div className="chip-row" style={{ marginTop: 10 }}>
-            {["This Month","Last Month","Q3 2026","YTD"].map((p) => (
-              <button key={p} className="filter-chip">{p}</button>
-            ))}
-          </div>
         </div>
 
         {/* Report type selector */}
-        <div className="section-eyebrow" style={{ marginBottom: 10 }}>Select Reports</div>
+        <div className="section-eyebrow" style={{ marginBottom: 10 }}>Select a Report</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
           {REPORT_TYPES.map((r) => {
-            const isSel = selected.includes(r.id);
+            const isSel = selected === r.id;
             return (
-              <button key={r.id} onClick={() => toggleReport(r.id)}
+              <button key={r.id} onClick={() => setSelected(isSel ? null : r.id)}
                 style={{
                   padding: 12, borderRadius: 14, textAlign: "left", cursor: "pointer",
                   background: isSel ? "rgba(74,222,128,0.12)" : "var(--card)",
@@ -81,13 +152,88 @@ export function ReportsScreen() {
           })}
         </div>
 
+        {/* Not-available state for the 3(+1) report types with no real data source */}
+        {selected && !isRealType && (
+          <div className="farm-card" style={{ padding: 14, marginBottom: 16, border: "1px solid rgba(248,113,113,0.3)" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <AlertTriangle size={18} color="var(--status-warning)" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Not available yet</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+                  {NOT_AVAILABLE_REASONS[selected] ?? "This report has no real data source on this branch yet."}
+                  {" "}No export is offered for it — a placeholder or empty file would misrepresent this as real data.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Real report: loading / error / preview + export */}
+        {selected && isRealType && (
+          <div className="farm-card" style={{ padding: 14, marginBottom: 16 }}>
+            {loading && (
+              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Generating report…</div>
+            )}
+            {!loading && reportError && (
+              <div style={{ fontSize: 12, color: "var(--status-critical)" }}>{reportError}</div>
+            )}
+            {!loading && !reportError && report && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{report.title}</div>
+                  <span className="chip" style={{ fontSize: 9 }}>{report.rows.length} row{report.rows.length === 1 ? "" : "s"}</span>
+                </div>
+
+                {/* Summary meta chips (skips internal-only keys and empty values) */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                  {Object.entries(report.meta)
+                    .filter(([k, v]) => typeof v !== "string" && typeof v === "number" && !/tenantId/i.test(k))
+                    .map(([k, v]) => (
+                      <span key={k} className="chip" style={{ fontSize: 10 }}>
+                        {k}: {typeof v === "number" ? v.toLocaleString() : String(v)}
+                      </span>
+                    ))}
+                </div>
+
+                {/* Row preview (first 8 rows; export carries the full set) */}
+                <div style={{ overflowX: "auto", marginBottom: 12, border: "1px solid var(--border-subtle)", borderRadius: 10 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr>
+                        {report.columns.map((c) => (
+                          <th key={c} style={{ textAlign: "left", padding: "6px 8px", color: "var(--text-muted)", borderBottom: "1px solid var(--border-subtle)", whiteSpace: "nowrap" }}>{c}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.rows.slice(0, 8).map((row, i) => (
+                        <tr key={i}>
+                          {row.map((cell, j) => (
+                            <td key={j} style={{ padding: "6px 8px", borderBottom: i < Math.min(report.rows.length, 8) - 1 ? "1px solid var(--border-subtle)" : "none", whiteSpace: "nowrap" }}>{String(cell)}</td>
+                          ))}
+                        </tr>
+                      ))}
+                      {report.rows.length === 0 && (
+                        <tr><td colSpan={report.columns.length} style={{ padding: "10px 8px", color: "var(--text-muted)" }}>No records in this date range.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                  {report.rows.length > 8 && (
+                    <div style={{ padding: "6px 8px", fontSize: 10, color: "var(--text-muted)" }}>Showing 8 of {report.rows.length} rows — export for the full set.</div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Export buttons */}
-        {selected.length > 0 && (
+        {canExport && (
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <button className="btn-primary" style={{ flex: 1, justifyContent: "center" }}>
-              <Download size={14} /> Export PDF ({selected.length})
+            <button className="btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={handleExportPdf}>
+              <Download size={14} /> Export PDF
             </button>
-            <button className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>
+            <button className="btn-secondary" style={{ flex: 1, justifyContent: "center" }} onClick={handleExportCsv}>
               Export CSV
             </button>
           </div>
@@ -116,18 +262,20 @@ export function ReportsScreen() {
           )}
         </div>
 
-        {/* Recent exports */}
-        <div className="section-eyebrow" style={{ marginBottom: 10 }}>Recent Exports</div>
+        {/* Recent exports (real: this session's actual CSV/PDF downloads, not a mock) */}
+        <div className="section-eyebrow" style={{ marginBottom: 10 }}>Recent Exports (this session)</div>
         <div className="farm-card" style={{ overflow: "hidden", marginBottom: 24 }}>
-          {RECENT_REPORTS.map((r, i) => (
-            <div key={r.name} style={{ padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: i < RECENT_REPORTS.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
+          {recentExports.length === 0 && (
+            <div style={{ padding: "14px", fontSize: 12, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 8 }}>
+              <FileText size={14} /> No exports yet this session — select a report above and export it.
+            </div>
+          )}
+          {recentExports.map((r, i) => (
+            <div key={i} style={{ padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: i < recentExports.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>{r.name}</div>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>{r.generated} · {r.size} · {r.format}</div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>{r.generated} · {r.format}</div>
               </div>
-              <button style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: 600, background: "var(--card)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-                <Download size={12} /> Re-download
-              </button>
             </div>
           ))}
         </div>
