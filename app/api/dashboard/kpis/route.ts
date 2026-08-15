@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { tasks, notifications, products } from '@/db/schemas'
+import { tasks, notifications, products, batches, sales } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { eq } from 'drizzle-orm'
 import { syncTaskNotifications, DONE_STATUSES } from '@/app/api/notifications/route'
 
-// ── GET /api/dashboard/kpis (issue #228) ────────────────────────────────────
-// New, minimal endpoint — nothing built it before this issue (#227 only built
-// current-prices/due-today/notifications; no one was ever scoped to build a
-// KPI backend). Returns exactly what's honestly computable today from tables
-// that exist on this branch (`tasks`, `notifications`, `products`):
+// ── GET /api/dashboard/kpis (issue #228, revisited #292) ────────────────────
+// Built in #228 before `batches` (#231/#232) and `sales` (#239) existed —
+// activeBatches/mortalityPct/avgFCR/revenue were honestly returned as `null`
+// with a "pending Epic" comment at the time. Both epics have since merged, so
+// this route now computes real numbers from the real tables:
 //
 //   - activeTasksCount     — tenant's tasks not DONE/CANCELLED
 //   - overdueTasksCount    — of those, dueAt is in the past
@@ -18,15 +18,38 @@ import { syncTaskNotifications, DONE_STATUSES } from '@/app/api/notifications/ro
 //                            /api/notifications uses, so this is accurate even
 //                            if that endpoint hasn't been hit yet this session)
 //   - productCount         — tenant's tracked product/price rows
+//   - activeBatches        — count of the tenant's `batches` rows with
+//                            status = 'ACTIVE'.
+//   - mortalityPct         — aggregated across those same active batches:
+//                            (sum(initialQty) - sum(currentQty)) / sum(initialQty),
+//                            i.e. the same per-batch formula
+//                            components/farm/crops.tsx already renders
+//                            (issue #232: `(initialQty - currentQty) / initialQty`),
+//                            applied to the pooled totals rather than averaged
+//                            per-batch percentages. Rounded to 1 decimal place
+//                            to match that screen's `toFixed(1)` display.
+//                            `null` (not 0) when there are no active batches or
+//                            every active batch has initialQty 0 — there is no
+//                            honest percentage to report in that case.
+//   - revenue              — sum of the tenant's real `sales.amount` rows
+//                            (issue #239). Every sale — 'paid' or 'pending' —
+//                            is included, matching how lib/finance.ts posts
+//                            every sale to the 4001 Sales Revenue account
+//                            regardless of payment status. `sales.amount` is
+//                            a plain whole-KSh figure (not `*Cents`, see
+//                            db/schemas/finance.ts) — summed as-is. Issue #290
+//                            (open) documents that this unit convention is
+//                            inconsistent with `purchases.totalCostCents`; that
+//                            mismatch is a finance-posting-layer bug, not
+//                            something this read-only KPI route should paper
+//                            over.
 //
-// Explicitly NOT computable yet — no `batches`/`sales` table exists anywhere
-// on this branch (Epic: Crops & Batches / Epic: Finance haven't landed).
-// Returned as `null`, never a fabricated number, so the frontend can render an
-// honest "not yet tracked" state instead of a made-up figure:
-//   - activeBatches  — needs `batches` (Epic: Crops & Batches)
-//   - mortalityPct   — needs `batches` mortality records (Epic: Crops & Batches)
-//   - avgFCR         — needs `batches` feed/weight records (Epic: Crops & Batches)
-//   - revenue        — needs a `sales` table (Epic: Finance)
+// Still honestly not computable — no FCR-capable data source exists anywhere
+// on this branch. `batches` has no feed-consumption or weight-gain columns,
+// and there is no feed-log/weigh-in table (checked db/schemas/*.ts and
+// grepped the repo, same "don't fabricate, don't assume" rule the original
+// #228 comment used):
+//   - avgFCR — needs feed-intake + weight-gain records that don't exist yet.
 //
 // Same tenant-resolution + envelope conventions as the rest of #227's routes:
 // session tenant wins, `tenantId` query param is the standalone-mock-mode
@@ -44,10 +67,12 @@ export async function GET(req: Request) {
   // this is the first dashboard-backed endpoint hit in the session.
   await syncTaskNotifications(tenantId)
 
-  const [taskRows, notificationRows, productRows] = await Promise.all([
+  const [taskRows, notificationRows, productRows, batchRows, salesRows] = await Promise.all([
     db.select().from(tasks).where(eq(tasks.tenantId, tenantId)),
     db.select().from(notifications).where(eq(notifications.tenantId, tenantId)),
     db.select().from(products).where(eq(products.tenantId, tenantId)),
+    db.select().from(batches).where(eq(batches.tenantId, tenantId)),
+    db.select().from(sales).where(eq(sales.tenantId, tenantId)),
   ])
 
   const now = new Date()
@@ -57,16 +82,30 @@ export async function GET(req: Request) {
   const unreadNotifications = notificationRows.filter((n) => !n.read).length
   const productCount = productRows.length
 
+  const activeBatchRows = batchRows.filter((b) => b.status === 'ACTIVE')
+  const activeBatches = activeBatchRows.length
+
+  // Pooled mortality across all active batches — see file header for why this
+  // sums initialQty/currentQty across batches rather than averaging each
+  // batch's own percentage. `null` when there's nothing to divide by (no
+  // active batches, or every active batch has initialQty 0).
+  const totalInitialQty = activeBatchRows.reduce((s, b) => s + b.initialQty, 0)
+  const totalCurrentQty = activeBatchRows.reduce((s, b) => s + b.currentQty, 0)
+  const mortalityPct = totalInitialQty > 0
+    ? Math.round(((totalInitialQty - totalCurrentQty) / totalInitialQty) * 1000) / 10
+    : null
+
+  const revenue = salesRows.reduce((s, sale) => s + sale.amount, 0)
+
   return ok({
     activeTasksCount,
     overdueTasksCount,
     unreadNotifications,
     productCount,
-    // Pending Epic: Crops & Batches — see file header.
-    activeBatches: null,
-    mortalityPct: null,
+    activeBatches,
+    mortalityPct,
+    // No FCR-capable data source exists yet — see file header.
     avgFCR: null,
-    // Pending Epic: Finance — see file header.
-    revenue: null,
+    revenue,
   })
 }
