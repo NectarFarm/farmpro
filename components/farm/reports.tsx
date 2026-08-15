@@ -61,17 +61,70 @@ function fmtTimestamp(d: Date): string {
   return d.toISOString().slice(0, 16).replace("T", " ");
 }
 
+// Shape returned by GET/POST /api/auditor-link (issue #313).
+type AuditorLink = { token: string; expiresAt: string };
+
+function fmtExpiry(iso: string): string {
+  const d = new Date(iso);
+  return d.toISOString().slice(0, 16).replace("T", " ");
+}
+
 export function ReportsScreen() {
-  const { tenantId } = useNav();
+  const { tenantId, role } = useNav();
   const [dateFrom, setDateFrom] = useState("2026-08-01");
   const [dateTo, setDateTo] = useState("2026-08-31");
   const [selected, setSelected] = useState<string | null>(null);
-  const [showAuditor, setShowAuditor] = useState(false);
 
   const [report, setReport] = useState<ReportPayload | null>(null);
   const [reportError, setReportError] = useState("");
   const [loading, setLoading] = useState(false);
   const [recentExports, setRecentExports] = useState<ExportRecord[]>([]);
+
+  // Auditor / investor link (issue #313) — real backend: GET restores
+  // whatever link is currently live for the tenant on mount, POST/DELETE
+  // generate/revoke it. Owner-only on the server, so only bother calling it
+  // client-side for an owner session too.
+  const isOwner = role === "owner";
+  const [auditorLink, setAuditorLink] = useState<AuditorLink | null>(null);
+  const [auditorBusy, setAuditorBusy] = useState(false);
+  const [auditorError, setAuditorError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!isOwner) return;
+    apiClient.get<{ link: AuditorLink | null }>("/api/auditor-link").then((res) => {
+      if (res.success) setAuditorLink(res.data.link);
+    });
+  }, [isOwner]);
+
+  function handleGenerateAuditorLink() {
+    setAuditorBusy(true);
+    setAuditorError("");
+    apiClient.post<AuditorLink>("/api/auditor-link", {}).then((res) => {
+      setAuditorBusy(false);
+      if (res.success) { setAuditorLink(res.data); setCopied(false); }
+      else setAuditorError(res.error || "Failed to generate link.");
+    });
+  }
+
+  function handleRevokeAuditorLink() {
+    setAuditorBusy(true);
+    setAuditorError("");
+    apiClient.delete("/api/auditor-link").then((res) => {
+      setAuditorBusy(false);
+      if (res.success) setAuditorLink(null);
+      else setAuditorError(res.error || "Failed to revoke link.");
+    });
+  }
+
+  function handleCopyAuditorLink() {
+    if (!auditorLink) return;
+    const url = `${window.location.origin}/auditor/${auditorLink.token}`;
+    navigator.clipboard?.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   const reportType = selected ? REPORT_TYPES.find((r) => r.id === selected) ?? null : null;
   const endpoint = selected ? REPORT_ENDPOINTS[selected] : undefined;
@@ -248,17 +301,37 @@ export function ReportsScreen() {
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12, lineHeight: 1.5 }}>
             Generate a temporary read-only link for investors or auditors. Expires in ~8 hours. They can view KPIs and export reports but cannot modify any data.
           </div>
-          <button onClick={() => setShowAuditor(!showAuditor)} className="btn-secondary" style={{ width: "100%", justifyContent: "center" }}>
-            {showAuditor ? "Revoke Link" : "Generate Auditor Link"}
-          </button>
-          {showAuditor && (
-            <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(167,139,250,0.06)", borderRadius: 10, border: "1px solid rgba(167,139,250,0.2)" }}>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Temporary link (expires Aug 11 · 22:00):</div>
-              <div style={{ fontSize: 11, color: "var(--accent-purple)", fontFamily: "monospace", wordBreak: "break-all", padding: "6px 8px", background: "rgba(167,139,250,0.08)", borderRadius: 6 }}>
-                https://farm.app/audit/a7f3d2c9...
-              </div>
-              <button style={{ marginTop: 8, padding: "6px 14px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", color: "var(--accent-purple)", cursor: "pointer" }}>Copy Link</button>
-            </div>
+          {!isOwner && (
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Only an owner can generate or revoke this link.</div>
+          )}
+          {isOwner && (
+            <>
+              <button
+                onClick={auditorLink ? handleRevokeAuditorLink : handleGenerateAuditorLink}
+                disabled={auditorBusy}
+                className="btn-secondary"
+                style={{ width: "100%", justifyContent: "center", opacity: auditorBusy ? 0.6 : 1 }}
+              >
+                {auditorBusy ? "Working…" : auditorLink ? "Revoke Link" : "Generate Auditor Link"}
+              </button>
+              {auditorError && (
+                <div style={{ marginTop: 8, fontSize: 11, color: "var(--status-critical)" }}>{auditorError}</div>
+              )}
+              {auditorLink && (
+                <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(167,139,250,0.06)", borderRadius: 10, border: "1px solid rgba(167,139,250,0.2)" }}>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Temporary link (expires {fmtExpiry(auditorLink.expiresAt)}):</div>
+                  <div style={{ fontSize: 11, color: "var(--accent-purple)", fontFamily: "monospace", wordBreak: "break-all", padding: "6px 8px", background: "rgba(167,139,250,0.08)", borderRadius: 6 }}>
+                    {typeof window !== "undefined" ? `${window.location.origin}/auditor/${auditorLink.token}` : `/auditor/${auditorLink.token}`}
+                  </div>
+                  <button
+                    onClick={handleCopyAuditorLink}
+                    style={{ marginTop: 8, padding: "6px 14px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", color: "var(--accent-purple)", cursor: "pointer" }}
+                  >
+                    {copied ? "Copied!" : "Copy Link"}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
 

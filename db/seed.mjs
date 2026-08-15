@@ -17,7 +17,10 @@ const sql = postgres(DATABASE_URL, { prepare: false })
 const hash = (secret, salt) => scryptSync(secret, salt, 64).toString('hex')
 const saltFor = () => randomBytes(16).toString('hex')
 // Keep in sync with lib/auth.ts pinPrefilter (same env var, same dev fallback).
-const pinPrefilter = (pin) => createHmac('sha256', process.env.AUTH_PIN_PEPPER ?? 'ifms-dev-pepper').update(pin).digest('hex')
+// Uses `||` (not `??`) so an empty-string AUTH_PIN_PEPPER — e.g. if this script
+// is ever run with `.env` auto-loaded — falls back the same way lib/auth.ts
+// does, instead of peppering with "" (issue #272).
+const pinPrefilter = (pin) => createHmac('sha256', process.env.AUTH_PIN_PEPPER || 'ifms-dev-pepper').update(pin).digest('hex')
 
 const TENANTS = [
   { id: 't1', name: 'Nakuru Farm Co.', active: true },
