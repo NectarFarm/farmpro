@@ -5,8 +5,12 @@ import { useToast } from "./ui-shared";
 import { apiClient } from "@/lib/request";
 import {
   Plus, Camera,
-  ChevronRight, Wifi, Check, Lock,
+  ChevronRight, Wifi, Check, Lock, ClipboardList,
 } from "./icons";
+import {
+  splitNotes, displayStatus, STATUS_LABEL, statusChipClass,
+  type ApiTask,
+} from "./tasks";
 
 // ── Real API shapes (issue #248) ────────────────────────────────────────────
 // Wired to GET /api/employees/me and GET/POST /api/records (issue #247).
@@ -109,11 +113,32 @@ function isToday(iso: string | null) {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
+// ── "My Tasks Today" (issue #303) ───────────────────────────────────────────
+// Restores the original Happy Seeds design's Worker Home checklist ("what do
+// I still need to do today"), dropped when this screen was wired to real data
+// (issue #248) and replaced with "Recent Activity" ("what did I just do") —
+// a good addition, but not a substitute. Sourced from the same GET /api/tasks
+// (issue #227, extended #243/#244) the Tasks/Governance screens already use;
+// the server-side `due=today` filter is the exact one built for this
+// purpose (see app/api/tasks/route.ts's header comment). There's no
+// `assigneeId` column on `tasks`, so — exactly like components/farm/tasks.tsx
+// — the assignee's name is parsed back out of `notes`'s "Assigned: <name>"
+// prefix via the shared `splitNotes` helper; a task counts as "mine" when
+// that name matches the logged-in worker's own employee name.
+export function selectMyTasksToday(tasks: ApiTask[], workerName: string): ApiTask[] {
+  const name = workerName.trim().toLowerCase();
+  if (!name) return [];
+  return tasks.filter((t) => splitNotes(t.notes).assignee.trim().toLowerCase() === name);
+}
+
 export function WorkerHomeScreen() {
   const { navigate } = useNav();
   const { tenantId, employee, employeeError, batches } = useWorkerContext();
+  const { showToast } = useToast();
   const [recent, setRecent] = useState<ApiRecord[] | null>(null);
   const [batchLabel, setBatchLabel] = useState<Record<string, string>>({});
+  const [tasksToday, setTasksToday] = useState<ApiTask[] | null>(null);
+  const [taskActionId, setTaskActionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!employee) return;
@@ -122,10 +147,32 @@ export function WorkerHomeScreen() {
     });
   }, [employee, tenantId]);
 
+  const loadTasksToday = useCallback(() => {
+    if (!employee) return;
+    apiClient.get<ApiTask[]>(`/api/tasks?tenantId=${tenantId}&due=today`).then((res) => {
+      if (res.success) setTasksToday(selectMyTasksToday(res.data, employee.name));
+    });
+  }, [employee, tenantId]);
+
+  useEffect(() => { loadTasksToday(); }, [loadTasksToday]);
+
   useEffect(() => {
     if (!batches) return;
     setBatchLabel(Object.fromEntries(batches.map((b) => [b.id, b.code])));
   }, [batches]);
+
+  // Mark-done goes through the identical PATCH /api/tasks/[id] as
+  // components/farm/tasks.tsx's `markDone` — including the
+  // requiresApproval -> PENDING_APPROVAL transition — so a task completed
+  // from Worker Home behaves exactly like completing it from Tasks/Governance.
+  async function markTaskDone(task: ApiTask) {
+    setTaskActionId(task.id);
+    const res = await apiClient.patch<ApiTask & { approvalRequestId?: string }>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { status: "DONE" });
+    setTaskActionId(null);
+    if (!res.success) { showToast(res.error ?? "Could not update task", "error"); return; }
+    showToast(res.data.approvalRequestId ? "Submitted for owner approval" : "Task marked as done ✓", res.data.approvalRequestId ? "info" : "success");
+    loadTasksToday();
+  }
 
   const now = new Date();
   const hour = now.getHours();
@@ -148,6 +195,59 @@ export function WorkerHomeScreen() {
       </div>
 
       {employeeError && <div style={{ fontSize: 12, color: "var(--status-critical)", marginBottom: 14 }}>{employeeError}</div>}
+
+      {/* My Tasks Today — real GET /api/tasks?due=today, filtered to this
+          worker via the "Assigned: <name>" notes convention (issue #303) */}
+      <div className="section-eyebrow" style={{ marginBottom: 10 }}>My Tasks Today</div>
+      <div className="farm-card" style={{ marginBottom: 14, overflow: "hidden" }}>
+        {tasksToday === null && <div style={{ padding: 14, fontSize: 12, color: "var(--text-dim)" }}>Loading…</div>}
+        {tasksToday !== null && tasksToday.length === 0 && (
+          <div style={{ padding: 14, fontSize: 12, color: "var(--text-dim)" }}>Nothing due today — all caught up.</div>
+        )}
+        {tasksToday !== null && tasksToday.map((t, i) => {
+          const status = displayStatus(t);
+          const done = t.status === "DONE";
+          const pendingApproval = status === "PENDING_APPROVAL";
+          return (
+            <div key={t.id} style={{ padding: "12px 14px", display: "flex", gap: 10, alignItems: "center", borderBottom: i < tasksToday.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                background: done ? "rgba(74,222,128,0.12)" : "var(--surface)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <ClipboardList size={16} color={done ? "var(--status-ok)" : "var(--text-muted)"} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: done ? "var(--text-muted)" : "var(--text-primary)", textDecoration: done ? "line-through" : "none" }}>{t.title}</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 3, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: status === "OVERDUE" ? "var(--status-critical)" : "var(--text-dim)" }}>Due {timeOf(t.dueAt)}</span>
+                  {!done && !pendingApproval && (
+                    <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 9 }}>{STATUS_LABEL[status] ?? status}</span>
+                  )}
+                  {pendingApproval && <span style={{ fontSize: 11, color: "var(--status-warning)" }}>Pending approval</span>}
+                  {done && <span style={{ fontSize: 11, color: "var(--status-ok)" }}>✓ Done</span>}
+                </div>
+              </div>
+              {!done && !pendingApproval && (
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <button onClick={() => markTaskDone(t)} disabled={taskActionId === t.id} style={{
+                    padding: "7px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700,
+                    background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)",
+                    color: "var(--primary-green)", cursor: taskActionId === t.id ? "default" : "pointer",
+                  }} title="Mark this task done">
+                    <Check size={12} />
+                  </button>
+                  <button onClick={() => navigate("worker-record")} style={{
+                    padding: "7px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700,
+                    background: "var(--card)", border: "1px solid var(--border-subtle)",
+                    color: "var(--text-primary)", cursor: "pointer",
+                  }}>Open</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {/* Recent activity (real GET /api/records, not a task mock) */}
       <div className="section-eyebrow" style={{ marginBottom: 10 }}>Recent Activity</div>

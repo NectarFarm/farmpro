@@ -28,7 +28,12 @@ import { SearchBar } from "./ui-shared";
 // a real `assignee_id` FK is flagged as a follow-on in the PR. The picker's
 // options come from the real GET /api/employees (issue #247), not a mock list.
 
-interface ApiTask {
+// ApiTask/splitNotes/buildNotes/ASSIGNEE_PREFIX and the status/formatting
+// helpers below are also imported by components/farm/worker.tsx's "My Tasks
+// Today" section (issue #303) so the two screens parse/format the exact same
+// assignee-in-notes convention rather than maintaining a second copy that can
+// drift.
+export interface ApiTask {
   id: string;
   tenantId: string;
   title: string;
@@ -46,9 +51,9 @@ interface Employee {
   role: string;
 }
 
-const ASSIGNEE_PREFIX = "Assigned: ";
+export const ASSIGNEE_PREFIX = "Assigned: ";
 
-function splitNotes(notes: string | null | undefined): { assignee: string; rest: string } {
+export function splitNotes(notes: string | null | undefined): { assignee: string; rest: string } {
   if (!notes) return { assignee: "", rest: "" };
   const nl = notes.indexOf("\n");
   const firstLine = nl === -1 ? notes : notes.slice(0, nl);
@@ -61,7 +66,7 @@ function splitNotes(notes: string | null | undefined): { assignee: string; rest:
   return { assignee: "", rest: notes };
 }
 
-function buildNotes(assignee: string, rest: string): string | null {
+export function buildNotes(assignee: string, rest: string): string | null {
   const trimmedRest = rest.trim();
   const trimmedAssignee = assignee.trim();
   if (!trimmedAssignee && !trimmedRest) return null;
@@ -69,30 +74,30 @@ function buildNotes(assignee: string, rest: string): string | null {
   return `${ASSIGNEE_PREFIX}${trimmedAssignee}${trimmedRest ? `\n${trimmedRest}` : ""}`;
 }
 
-const PRIORITY_COLOR: Record<string, string> = {
+export const PRIORITY_COLOR: Record<string, string> = {
   high: "var(--status-critical)", medium: "var(--status-warning)", low: "var(--text-muted)",
 };
 
-const STATUS_LABEL: Record<string, string> = {
+export const STATUS_LABEL: Record<string, string> = {
   PENDING: "Pending", DONE: "Done", OVERDUE: "Overdue",
   PENDING_APPROVAL: "Pending approval", REJECTED: "Rejected",
 };
 
-function isOverdue(t: ApiTask): boolean {
+export function isOverdue(t: ApiTask): boolean {
   return t.status === "PENDING" && !!t.dueAt && new Date(t.dueAt).getTime() < Date.now();
 }
 
-function displayStatus(t: ApiTask): string {
+export function displayStatus(t: ApiTask): string {
   return isOverdue(t) ? "OVERDUE" : t.status;
 }
 
-function statusChipClass(status: string): string {
+export function statusChipClass(status: string): string {
   if (status === "DONE") return "chip-ok";
   if (status === "OVERDUE" || status === "REJECTED") return "chip-critical";
   return "chip-warning";
 }
 
-function fmtDueAt(iso: string | null): string {
+export function fmtDueAt(iso: string | null): string {
   if (!iso) return "No due date";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "No due date";
