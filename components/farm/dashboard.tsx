@@ -1,15 +1,21 @@
 // ============================================================
 // dashboard.tsx — Role-aware dashboard + Notifications + NotificationSettings
-// Data flow (issue #228 rewire — replaces the old all-mock version):
-//   KPI strip, product price strip, today's-tasks strip and the notification
-//   bell/badge/list are now real data from GET /api/dashboard/kpis,
-//   GET /api/products/current-prices, GET /api/tasks?due=today and
-//   GET/PATCH /api/notifications respectively (see fetch effects below).
-//   Batch/enterprise summary cards and the farm switcher below them are still
-//   BATCHES_DATA-driven mock UI — there is no `batches` table yet
-//   (Epic: Crops & Batches hasn't landed) and this issue didn't scope
-//   rebuilding that screen, only the KPI/price/task/notification/weather
-//   surfaces called out in issue #228.
+// Data flow (issue #228 rewire, primary grid rebuilt in #296 — replaces the
+// old all-mock version):
+//   The primary KPI grid (Active Batches / Pending Approvals / Livestock
+//   Units / Crop Batches) and the Revenue card (real revenue, margin, a
+//   working Month/Quarter/Year toggle, and a real day-bucketed trend) are
+//   real data from GET /api/dashboard/kpis (issue #296 — see that route's
+//   header for the field-by-field writeup and the Margin % formula
+//   decision). Product price strip, today's-tasks strip and the notification
+//   bell/badge/list are real data from GET /api/products/current-prices,
+//   GET /api/tasks?due=today and GET/PATCH /api/notifications respectively
+//   (see fetch effects below).
+//   The secondary Livestock/Crop enterprise summary CARDS further down (with
+//   per-group emoji/label) are still BATCHES_DATA-driven mock UI — there is
+//   no route that returns that per-group breakdown (only aggregate counts,
+//   which the primary grid now uses for real) and rebuilding those cards is
+//   not this issue's scope.
 //   QuickActions navigate to relevant screens.
 //   FarmSwitcherSheet switches activeFarm (multi-farm, issue #219) → all screens re-filter.
 // ============================================================
@@ -19,18 +25,24 @@ import { useNav, TopNav } from "./navigation";
 import { BATCHES_DATA, ENTERPRISE_REGISTRY } from "./data";
 import {
   AlertTriangle, CheckCircle2, Package, ChevronRight, Bell,
-  Clock, X, Check, Settings, Info,
+  Clock, X, Check, Settings, Info, Leaf, Activity,
 } from "./icons";
 import { apiClient } from "@/lib/request";
 
-// ── Real backend shapes (issue #228, revisited #292) ────────────────────────
+// ── Real backend shapes (issue #228, revisited #292, #296) ──────────────────
 // KPI fields computed from tables that exist on this branch
-// (tasks/notifications/products/batches/sales). `activeBatches`,
-// `mortalityPct`, and `revenue` are real numbers now that `batches` (#231/
-// #232) and `sales` (#239) exist. `avgFCR` still comes back `null` — there is
-// no feed-intake/weight-gain data source anywhere in this app yet — and is
-// rendered as an explicit "not yet tracked" note rather than a fabricated
-// number.
+// (tasks/notifications/products/batches/sales/approval_requests).
+// `activeBatches`, `mortalityPct`, `revenue`, `pendingApprovals`,
+// `livestockUnitsCount`/`livestockUnitsQty`, `cropBatchGroupsCount`,
+// `periodRevenue`, `marginPct` and `revenueTrend` are all real now — see
+// GET /api/dashboard/kpis's header comment for exactly how each is computed
+// and, for `marginPct`, why it's a "revenue vs. tracked acquisition cost"
+// approximation rather than a full accounting margin. `avgFCR` still comes
+// back `null` — there is no feed-intake/weight-gain data source anywhere in
+// this app yet — and is rendered as an explicit "not yet tracked" note
+// rather than a fabricated number.
+type Period = "month" | "quarter" | "year";
+interface RevenueTrendPoint { date: string; amount: number }
 interface KpiData {
   activeTasksCount: number;
   overdueTasksCount: number;
@@ -40,6 +52,14 @@ interface KpiData {
   mortalityPct: number | null;
   avgFCR: number | null;
   revenue: number;
+  pendingApprovals: number;
+  livestockUnitsCount: number;
+  livestockUnitsQty: number;
+  cropBatchGroupsCount: number;
+  period: Period;
+  periodRevenue: number;
+  marginPct: number | null;
+  revenueTrend: RevenueTrendPoint[];
 }
 interface PriceRow { id: string; type: string; name: string; currentPrice: number }
 interface TaskRow { id: string; title: string; dueAt: string | null; status: string }
@@ -124,7 +144,7 @@ export function DashboardScreen() {
   const livestock = enterprises.filter(([, v]) => v.type === "livestock");
   const crops = enterprises.filter(([, v]) => v.type === "crop");
 
-  // ── Real data fetches (issue #228) ──
+  // ── Real data fetches (issue #228, #296) ──
   // Each of these hits a real endpoint scoped to the session's tenant (the
   // `tenantId` query param is only the standalone-mock-mode fallback — see
   // GET /api/dashboard/kpis and friends). `null` here means "still loading",
@@ -135,14 +155,24 @@ export function DashboardScreen() {
   const [prices, setPrices] = useState<PriceRow[] | null>(null);
   const [tasksToday, setTasksToday] = useState<TaskRow[] | null>(null);
   const [notifs, setNotifs] = useState<NotificationRow[] | null>(null);
+  // Revenue card's Month/Quarter/Year toggle (issue #296) — drives
+  // GET /api/dashboard/kpis's `period` param, which re-scopes periodRevenue/
+  // marginPct/revenueTrend server-side. Kept in its own effect (below) so
+  // flipping the toggle doesn't re-fetch prices/tasks/notifications too.
+  const [period, setPeriod] = useState<Period>("month");
 
   useEffect(() => {
     let cancelled = false;
-    apiClient.get<KpiData>(`/api/dashboard/kpis?tenantId=${tenantId}`).then(res => {
+    apiClient.get<KpiData>(`/api/dashboard/kpis?tenantId=${tenantId}&period=${period}`).then(res => {
       if (cancelled) return;
       if (res.success) setKpis(res.data);
       else setKpisFailed(true);
     });
+    return () => { cancelled = true; };
+  }, [tenantId, period]);
+
+  useEffect(() => {
+    let cancelled = false;
     apiClient.get<PriceRow[]>(`/api/products/current-prices?tenantId=${tenantId}`).then(res => {
       if (!cancelled && res.success) setPrices(res.data);
     });
@@ -156,6 +186,7 @@ export function DashboardScreen() {
   }, [tenantId]);
 
   const unread = notifs?.filter(n => !n.read).length ?? 0;
+  const maxTrend = Math.max(1, ...(kpis?.revenueTrend.map(p => p.amount) ?? [0]));
 
   // Quick actions vary by role
   const quickActions = [
@@ -217,29 +248,34 @@ export function DashboardScreen() {
         </button>
       ))}
 
-      {/* KPI strip — real numbers from GET /api/dashboard/kpis (issue #228).
-          "Pending Approvals" is hidden entirely (Epic: Tasks & Governance's
-          approvals table doesn't exist yet — issue #228 task 4), rather than
-          shown with a fake count. */}
+      {/* Primary KPI grid (issue #296) — the real design's 4 tiles, matching
+          the original mock (components/farm/dashboard.tsx@80ab7db): Active
+          Batches / Pending Approvals / Livestock Units / Crop Batches, same
+          labels and same navigate() targets, now backed by real numbers from
+          GET /api/dashboard/kpis. `delta` is only shown where it's a real,
+          computable figure (livestock qty / crop group count) — the mock's
+          Active Batches "+2" was a fabricated trend with no historical
+          baseline this backend can compute, so that tile's delta is simply
+          omitted rather than faked; Pending Approvals keeps the mock's
+          static "→ Review" label since that's UI copy, not a data point. */}
       {kpisFailed ? (
         <div className="farm-card" style={{ padding: 14, marginBottom: 14, textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>
           Couldn&apos;t load dashboard metrics.
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
           {[
-            { label: "Active Tasks", value: kpis?.activeTasksCount, icon: CheckCircle2, color: "var(--primary-green)", action: "tasks" as const },
-            { label: "Overdue Tasks", value: kpis?.overdueTasksCount, icon: AlertTriangle, color: (kpis?.overdueTasksCount ?? 0) > 0 ? "var(--status-critical)" : "var(--text-muted)", action: "tasks" as const },
-            { label: "Unread Notifications", value: kpis?.unreadNotifications, icon: Bell, color: "var(--accent-blue)", action: "notifications" as const },
-            { label: "Products Tracked", value: kpis?.productCount, icon: Package, color: "var(--accent-amber)", action: "finance" as const },
-            { label: "Active Batches", value: kpis?.activeBatches, icon: Package, color: "var(--primary-green)", action: "crops" as const },
-            { label: "Mortality %", value: kpis?.mortalityPct != null ? `${kpis.mortalityPct}%` : undefined, icon: AlertTriangle, color: (kpis?.mortalityPct ?? 0) > 3 ? "var(--status-critical)" : "var(--primary-green)", action: "crops" as const },
+            { label: "Active Batches", value: kpis?.activeBatches, icon: Leaf, color: "var(--primary-green)", delta: undefined, action: "crops" as const },
+            { label: "Pending Approvals", value: kpis?.pendingApprovals, icon: CheckCircle2, color: "var(--status-warning)", delta: "→ Review", action: "governance" as const },
+            { label: "Livestock Units", value: kpis?.livestockUnitsCount, icon: Activity, color: "var(--accent-blue)", delta: kpis ? `${kpis.livestockUnitsQty.toLocaleString()}` : undefined, action: "crops" as const },
+            { label: "Crop Batches", value: kpis?.cropBatchGroupsCount, icon: Package, color: "var(--accent-amber)", delta: kpis ? `${kpis.cropBatchGroupsCount} active` : undefined, action: "crops" as const },
           ].map((k) => {
             const Icon = k.icon;
             return (
               <button key={k.label} className="farm-card" style={{ padding: 12, textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => navigate(k.action)}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                   <Icon size={16} color={k.color} />
+                  {k.delta && <span style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600 }}>{k.delta}</span>}
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: k.color }}>{k.value ?? "–"}</div>
                 <div className="kpi-label" style={{ marginTop: 2 }}>{k.label}</div>
@@ -249,28 +285,90 @@ export function DashboardScreen() {
         </div>
       )}
 
-      {/* avgFCR (issue #228/#292): still no feed-intake/weight-gain data
-          source anywhere in this app — named honestly instead of shown as a
-          fabricated tile. activeBatches/mortalityPct moved into the real KPI
-          strip above now that `batches` (#231/#232) is real. */}
-      <div style={{ marginBottom: 14, padding: "8px 12px", border: "1px dashed var(--border-subtle)", borderRadius: 12, fontSize: 10, color: "var(--text-dim)", display: "flex", alignItems: "center", gap: 6 }}>
-        <Info size={12} color="var(--text-dim)" style={{ flexShrink: 0 }} />
-        <span>Feed conversion ratio (FCR) isn&apos;t tracked yet — no feed-intake/weight-gain data source exists.</span>
-      </div>
-
-      {/* Revenue — owner/manager only. Real sum of the tenant's `sales.amount`
-          rows (issue #239/#292) now that a real `sales` table exists. */}
+      {/* Revenue card (issue #296) — real periodRevenue + marginPct, a
+          working Month/Quarter/Year toggle (drives GET /api/dashboard/kpis's
+          `period` param), and a real day-bucketed trend replacing the mock's
+          static PROD_BARS. Owner/manager only, same as the original mock. */}
       {(role === "owner" || role === "manager") && (
-        <button onClick={() => navigate("finance")} className="farm-card" style={{ padding: 14, marginBottom: 14, width: "100%", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(74,222,128,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 18 }}>💰</div>
-          <div style={{ flex: 1 }}>
+        <button onClick={() => navigate("finance")} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 14, width: "100%", textAlign: "left", cursor: "pointer" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div className="section-eyebrow">Revenue</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--primary-green)", marginTop: 2 }}>
-              {kpis ? `KSh ${kpis.revenue.toLocaleString()}` : "Loading…"}
+            <div style={{ display: "flex", gap: 3 }}>
+              {(["month", "quarter", "year"] as const).map(p => (
+                <button key={p} onClick={e => { e.stopPropagation(); setPeriod(p); }}
+                  style={{ padding: "2px 8px", borderRadius: 100, fontSize: 9, fontWeight: 700, cursor: "pointer",
+                    background: period === p ? "rgba(74,222,128,0.2)" : "transparent",
+                    border: period === p ? "1px solid rgba(74,222,128,0.4)" : "1px solid transparent",
+                    color: period === p ? "var(--primary-green)" : "var(--text-muted)", textTransform: "capitalize" }}>{p}</button>
+              ))}
             </div>
           </div>
-          <ChevronRight size={14} color="var(--text-dim)" />
+          <div style={{ display: "flex", gap: 20, alignItems: "flex-end", marginBottom: 12 }}>
+            <div>
+              <div className="kpi-value">{kpis ? `KSh ${kpis.periodRevenue.toLocaleString()}` : "…"}</div>
+              <div className="kpi-label" style={{ marginTop: 2 }}>Revenue</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--status-ok)" }}>{kpis?.marginPct != null ? `${kpis.marginPct}%` : "–"}</div>
+              <div className="kpi-label" style={{ marginTop: 2 }}>Margin</div>
+            </div>
+          </div>
+          {kpis && kpis.revenueTrend.length > 0 && (
+            <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 44, overflowX: "auto", scrollbarWidth: "none" }}>
+              {kpis.revenueTrend.map((point, i) => {
+                const isLast = i === kpis.revenueTrend.length - 1;
+                const day = new Date(`${point.date}T00:00:00Z`).getUTCDate();
+                return (
+                  <div key={point.date} title={`${point.date}: KSh ${point.amount.toLocaleString()}`} style={{ flex: "0 0 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                    <div style={{ width: "100%", borderRadius: 3, height: Math.max(2, Math.round((point.amount / maxTrend) * 36)), background: isLast ? "var(--gradient-primary)" : "rgba(74,222,128,0.22)", transition: "height 0.3s" }} />
+                    <div style={{ fontSize: 7, color: "var(--text-dim)", fontWeight: 600 }}>{day}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </button>
+      )}
+
+      {/* Secondary metrics (issue #296) — the Active Tasks/Overdue Tasks/
+          Unread Notifications/Products Tracked tiles issue #228 originally
+          built. These are still real (GET /api/dashboard/kpis), but they were
+          never part of the actual design and don't belong in the primary
+          grid position above — kept here as a secondary strip since they're
+          still useful at-a-glance operational counts. Mortality %/avgFCR
+          live in the same section since they're also batch-health metrics,
+          not part of the primary 4-tile grid. */}
+      {!kpisFailed && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Other Metrics</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            {[
+              { label: "Active Tasks", value: kpis?.activeTasksCount, icon: CheckCircle2, color: "var(--primary-green)", action: "tasks" as const },
+              { label: "Overdue Tasks", value: kpis?.overdueTasksCount, icon: AlertTriangle, color: (kpis?.overdueTasksCount ?? 0) > 0 ? "var(--status-critical)" : "var(--text-muted)", action: "tasks" as const },
+              { label: "Unread Notifications", value: kpis?.unreadNotifications, icon: Bell, color: "var(--accent-blue)", action: "notifications" as const },
+              { label: "Products Tracked", value: kpis?.productCount, icon: Package, color: "var(--accent-amber)", action: "finance" as const },
+              { label: "Mortality %", value: kpis?.mortalityPct != null ? `${kpis.mortalityPct}%` : undefined, icon: AlertTriangle, color: (kpis?.mortalityPct ?? 0) > 3 ? "var(--status-critical)" : "var(--primary-green)", action: "crops" as const },
+            ].map((k) => {
+              const Icon = k.icon;
+              return (
+                <button key={k.label} className="farm-card" style={{ padding: 12, textAlign: "left", cursor: "pointer", width: "100%" }} onClick={() => navigate(k.action)}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                    <Icon size={16} color={k.color} />
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: k.color }}>{k.value ?? "–"}</div>
+                  <div className="kpi-label" style={{ marginTop: 2 }}>{k.label}</div>
+                </button>
+              );
+            })}
+          </div>
+          {/* avgFCR (issue #228/#292): still no feed-intake/weight-gain data
+              source anywhere in this app — named honestly instead of shown as
+              a fabricated tile. */}
+          <div style={{ padding: "8px 12px", border: "1px dashed var(--border-subtle)", borderRadius: 12, fontSize: 10, color: "var(--text-dim)", display: "flex", alignItems: "center", gap: 6 }}>
+            <Info size={12} color="var(--text-dim)" style={{ flexShrink: 0 }} />
+            <span>Feed conversion ratio (FCR) isn&apos;t tracked yet — no feed-intake/weight-gain data source exists.</span>
+          </div>
+        </div>
       )}
 
       {/* Product prices strip — owner only */}
