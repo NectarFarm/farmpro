@@ -39,10 +39,13 @@ export function verifySecret(secret: string, salt: string, expectedHash: string)
  * O(1) lookup; the real verification still runs scrypt on that single candidate
  * row. The key comes from AUTH_PIN_PEPPER (env) — without it the digest is not
  * recoverable (unlike a plain hash of a 10k-space PIN). The dev fallback below
- * only exists so the demo runs without env setup; production must set it. */
+ * only exists so the demo runs without env setup; production must set it.
+ * Uses `||` (not `??`) so an empty string — which is what Next.js loads from
+ * a `.env` copied verbatim from `.env.example`'s declared-but-empty
+ * `AUTH_PIN_PEPPER=` line — falls back too, matching db/seed.mjs (issue #272). */
 const PIN_PEPPER_DEV_FALLBACK = 'ifms-dev-pepper'
 export function pinPrefilter(pin: string): string {
-  return createHmac('sha256', process.env.AUTH_PIN_PEPPER ?? PIN_PEPPER_DEV_FALLBACK).update(pin).digest('hex')
+  return createHmac('sha256', process.env.AUTH_PIN_PEPPER || PIN_PEPPER_DEV_FALLBACK).update(pin).digest('hex')
 }
 
 /* ── Login throttling / lockout (issue #221 review) ──
