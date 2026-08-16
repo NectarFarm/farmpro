@@ -132,7 +132,7 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
 
 
 /* ── Dashboard Screen ── */
-export function DashboardScreen() {
+export function DashboardScreen({ userName }: { userName?: string }) {
   const { navigate, role, activeFarm, farms, tenantId } = useNav();
   const [showFarmSwitcher, setShowFarmSwitcher] = useState(false);
 
@@ -233,7 +233,7 @@ export function DashboardScreen() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{settings?.dashboardGreeting ?? "Good morning,"}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>James Kamau {settings?.logoEmoji ?? "🌾"}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>{userName || ""} {settings?.logoEmoji ?? "🌾"}</div>
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, textTransform: "capitalize" }}>
             {role === "owner" ? "Farm Owner" : role === "manager" ? "Farm Manager" : role === "worker" ? "Farm Worker" : role === "super_admin" ? "Platform Admin" : "Staff"}
           </div>

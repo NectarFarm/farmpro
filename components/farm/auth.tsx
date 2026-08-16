@@ -132,7 +132,7 @@ function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
 }
 
 /* ── LOGIN SCREEN ── */
-export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, tenantId?: string | null) => void; onRegister?: () => void }) {
+export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, tenantId?: string | null, name?: string) => void; onRegister?: () => void }) {
   const [tab, setTab] = useState<"email" | "pin">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -143,10 +143,10 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
 
   async function doLogin(payload: { email?: string; password?: string; pin?: string }) {
     setBusy(true); setError("");
-    const res = await apiClient.post<{ role: Role; tenantId: string | null }>("/api/auth/login", payload);
+    const res = await apiClient.post<{ role: Role; tenantId: string | null; name?: string }>("/api/auth/login", payload);
     setBusy(false);
     if (res.success && res.data?.role) {
-      onLogin(res.data.role, res.data.tenantId);
+      onLogin(res.data.role, res.data.tenantId, res.data.name ?? "");
     } else {
       setError(res.success ? "Sign-in failed — try the seeded demo accounts below." : (res.error || "Sign-in failed"));
       if (payload.pin) setTimeout(() => setPin(""), 600);
