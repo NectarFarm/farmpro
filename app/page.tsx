@@ -42,12 +42,12 @@ const TAB_SCREENS = new Set([
   "ai-chat","ui-customise",
 ]);
 
-function ScreenRouter({ onLogout }: { onLogout: () => void }) {
+function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?: string }) {
   const { current } = useNav();
 
   const screen = (() => {
     switch (current) {
-      case "dashboard":         return <DashboardScreen />;
+      case "dashboard":         return <DashboardScreen userName={userName} />;
       case "crops":             return <CropsScreen />;
       case "batch-detail":      return <BatchDetailScreen />;
       case "crop-schedule":     return <CropScheduleScreen />;
@@ -110,6 +110,7 @@ export default function Home() {
   const [authState, setAuthState] = useState<AuthState>("booting");
   const [role, setRole] = useState<Role>("owner");
   const [tenantId, setTenantId] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string>("");
 
   // Real session bootstrap (issue #220): GET /api/auth/session on load. 200 with a
   // known role -> authenticated shell; anything else (401, network failure, unknown
@@ -119,7 +120,7 @@ export default function Home() {
     let cancelled = false;
     // Timeout race mirrors the logout pattern (issue #220): a session endpoint
     // that hangs must not leave the shell stuck on the boot screen forever.
-    const boot = apiClient.get<{ role?: string; tenantId?: string | null }>("/api/auth/session");
+    const boot = apiClient.get<{ role?: string; tenantId?: string | null; name?: string }>("/api/auth/session");
     const timeout = new Promise<{ success: false }>((resolve) =>
       setTimeout(() => resolve({ success: false }), 3000)
     );
@@ -131,6 +132,7 @@ export default function Home() {
         if (r) {
           setRole(r);
           setTenantId(tenant);
+          if (res.success && typeof res.data?.name === "string" && res.data.name.trim()) setUserName(res.data.name);
           setAuthState("app");
         } else {
           // 401, endpoint absent on the new backend, timeout, or unknown role ->
@@ -144,9 +146,10 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
-  function handleLogin(r: Role, tenant: string | null = null) {
+  function handleLogin(r: Role, tenant: string | null = null, name = "") {
     setRole(r);
     setTenantId(tenant);
+    if (name) setUserName(name);
     setAuthState("app");
   }
 
@@ -209,7 +212,7 @@ export default function Home() {
 
                 {authState === "app" && (
                   <NavProvider initialRole={role} initialTenantId={tenantId ?? undefined}>
-                    <ScreenRouter onLogout={handleLogout} />
+                    <ScreenRouter onLogout={handleLogout} userName={userName} />
                   </NavProvider>
                 )}
               </div>
