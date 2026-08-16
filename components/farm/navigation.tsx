@@ -36,9 +36,20 @@ export interface FarmSummary {
   location: string;
 }
 
+/* Issue #320: each history entry captures the screen being left AND the
+ * params that were active for it, so goBack() can restore both instead of
+ * unconditionally clearing params to {}. Without this, any params-dependent
+ * detail screen (batch-detail, inventory-detail, people-detail,
+ * process-config) reached through 2+ levels of back navigation renders
+ * "not found" once its params are wiped by an intermediate goBack(). */
+export interface HistoryEntry {
+  screen: ScreenId;
+  params: Record<string, string>;
+}
+
 export interface NavContext {
   current: ScreenId;
-  history: ScreenId[];
+  history: HistoryEntry[];
   role: Role;
   params: Record<string, string>;
   activeFarm: string; // Code of the farm currently in view — switchable (multi-farm, issue #219).
@@ -73,6 +84,18 @@ const NavCtx = createContext<NavContext>({
 });
 
 export function useNav() { return useContext(NavCtx); }
+
+/* ── Pure history-stack push/pop (issue #320) ──
+ * Extracted so the stack logic is testable without a DOM/render harness,
+ * following the same pattern as tabBadge() (issue #298 / tests/nav-tab-badges.test.ts). */
+export function pushHistoryEntry(history: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] {
+  return [...history, entry];
+}
+
+export function popHistoryEntry(history: HistoryEntry[]): { history: HistoryEntry[]; entry: HistoryEntry | null } {
+  if (!history.length) return { history, entry: null };
+  return { history: history.slice(0, -1), entry: history[history.length - 1] };
+}
 
 /* ── Tab bar config per role ── */
 const OWNER_TABS = [
@@ -124,7 +147,7 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
   const [role, setRole] = useState<NavContext["role"]>(initialRole);
   const startScreen: ScreenId = startScreenForRole(initialRole);
   const [current, setCurrent] = useState<ScreenId>(startScreen);
-  const [history, setHistory] = useState<ScreenId[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [params, setParams] = useState<Record<string, string>>({});
   const [activeFarm, setActiveFarm] = useState("FRM-KMU-001");
   const tenantId = initialTenantId ?? PROVISIONAL_TENANT_ID;
@@ -158,17 +181,19 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
   // initial screen, this guard covers deep links / back / any future caller).
   const navigate = useCallback((to: ScreenId, p?: Record<string, string>) => {
     const dest = role === "vet" || role === "auditor" ? "role-notice" : to;
-    setCurrent((prev) => { setHistory((h) => [...h, prev]); return dest; });
+    // Push the screen being left along with the params it was showing —
+    // not the destination's params — so a later goBack() can restore them.
+    setHistory((h) => pushHistoryEntry(h, { screen: current, params }));
+    setCurrent(dest);
     setParams(p ?? {});
-  }, [role]);
+  }, [role, current, params]);
   const goBack = useCallback(() => {
-    setHistory((h) => {
-      if (!h.length) return h;
-      const prev = h[h.length - 1];
-      setCurrent(prev); return h.slice(0, -1);
-    });
-    setParams({});
-  }, []);
+    const { history: rest, entry } = popHistoryEntry(history);
+    if (!entry) return;
+    setHistory(rest);
+    setCurrent(entry.screen);
+    setParams(entry.params);
+  }, [history]);
 
   // Real nav-badge counts (issue #293): pendingApprovals from GET /api/approvals
   // (status=pending, server-side filtered) and unreadNotifs from GET
