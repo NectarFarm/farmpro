@@ -389,10 +389,11 @@ export function AppSidebar() {
 /* ── Top Nav Bar ── */
 export function TopNav({
   title, subtitle, showBack = false, showSearch = false, showBell = false,
-  rightEl, farmBadge,
+  rightEl, farmBadge, onSearchClick,
 }: {
   title: string; subtitle?: string; showBack?: boolean; showSearch?: boolean;
   showBell?: boolean; rightEl?: React.ReactNode; farmBadge?: string;
+  onSearchClick?: () => void;
 }) {
   const { goBack, unreadNotifs, navigate, role } = useNav();
   // Lazy import to avoid circular dep — LogoutCtx lives in page.tsx
@@ -420,7 +421,7 @@ export function TopNav({
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         {rightEl}
-        {showSearch && <button className="btn-icon"><Search size={16} /></button>}
+        {showSearch && <button className="btn-icon" onClick={onSearchClick}><Search size={16} /></button>}
         {showBell && (
           <button className="btn-icon" style={{ position: "relative" }} onClick={() => navigate("notifications")}>
             <Bell size={16} />

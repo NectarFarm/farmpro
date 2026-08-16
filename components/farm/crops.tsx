@@ -288,7 +288,7 @@ export function CropsScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Farm" subtitle="Enterprises & batches" showSearch
+      <TopNav title="Farm" subtitle="Enterprises & batches"
         rightEl={
           <div style={{ display: "flex", gap: 6 }}>
             <button className="btn-icon" style={{ width: 34, height: 34 }} title="Import CSV"><Upload size={14} /></button>
