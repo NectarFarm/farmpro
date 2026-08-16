@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNav, TopNav } from "./navigation";
 import { useToast } from "./ui-shared";
+import { useLogout } from "@/app/page";
 import { apiClient } from "@/lib/request";
 import {
   Plus, Camera,
@@ -752,6 +753,7 @@ export function WorkerPayScreen() {
 
 export function WorkerProfileScreen() {
   const { tenantId, employee, employeeError } = useWorkerContext();
+  const logout = useLogout();
   const [records, setRecords] = useState<ApiRecord[] | null>(null);
   const [batchLabel, setBatchLabelMap] = useState<Record<string, string>>({});
 
@@ -808,7 +810,7 @@ export function WorkerProfileScreen() {
         ))}
       </div>
 
-      <button style={{ width: "100%", padding: "14px", borderRadius: 14, fontSize: 14, fontWeight: 700, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)", color: "var(--status-critical)", cursor: "pointer", marginBottom: 20 }}>
+      <button onClick={logout} style={{ width: "100%", padding: "14px", borderRadius: 14, fontSize: 14, fontWeight: 700, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)", color: "var(--status-critical)", cursor: "pointer", marginBottom: 20 }}>
         Sign Out
       </button>
     </div>

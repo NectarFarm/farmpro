@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNav, TopNav } from "./navigation";
 import { apiClient } from "@/lib/request";
 import { Plus, Search, X, RefreshCw, Download, Lock } from "./icons";
@@ -298,6 +298,8 @@ export function InventoryScreen() {
   const [tab, setTab] = useState<"stock" | "purchases" | "variance" | "feedmix">("stock");
   const [cat, setCat] = useState("All");
   const [stockSearch, setStockSearch] = useState("");
+  const stockSearchRef = useRef<HTMLInputElement>(null);
+  const [pendingSearchFocus, setPendingSearchFocus] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -329,6 +331,25 @@ export function InventoryScreen() {
   }, [loadItems, loadPurchases, loadVariance]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // The search icon in TopNav focuses the real stock search input below (issue
+  // #322) instead of being a dead click. The input only renders on the Stock
+  // tab, so switch tabs first when needed, then focus once it mounts.
+  useEffect(() => {
+    if (tab === "stock" && pendingSearchFocus) {
+      stockSearchRef.current?.focus();
+      setPendingSearchFocus(false);
+    }
+  }, [tab, pendingSearchFocus]);
+
+  const handleSearchClick = useCallback(() => {
+    if (tab !== "stock") {
+      setTab("stock");
+      setPendingSearchFocus(true);
+    } else {
+      stockSearchRef.current?.focus();
+    }
+  }, [tab]);
 
   const loading = items === null;
   const cats = ["All", ...Array.from(new Set((items ?? []).map(i => i.category).filter(Boolean)))];
@@ -392,7 +413,7 @@ export function InventoryScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Inventory" subtitle="Lots, stock & purchases" showSearch
+      <TopNav title="Inventory" subtitle="Lots, stock & purchases" showSearch onSearchClick={handleSearchClick}
         rightEl={
           <div style={{ display: "flex", gap: 6 }}>
             <button onClick={() => setShowImport(true)} style={{ width: 36, height: 36, borderRadius: 10, background: "var(--surface)", border: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} title="Import inventory CSV">
@@ -444,7 +465,7 @@ export function InventoryScreen() {
         <div className="px-screen">
           <div style={{ position: "relative", marginBottom: 10 }}>
             <Search size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", pointerEvents: "none" }} />
-            <input className="farm-input" style={{ paddingLeft: 34, fontSize: 13 }} placeholder="Search item, category, lot…" value={stockSearch} onChange={e => setStockSearch(e.target.value)} />
+            <input ref={stockSearchRef} className="farm-input" style={{ paddingLeft: 34, fontSize: 13 }} placeholder="Search item, category, lot…" value={stockSearch} onChange={e => setStockSearch(e.target.value)} />
             {stockSearch && <button onClick={() => setStockSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0 }}><X size={14} /></button>}
           </div>
           <div className="chip-row" style={{ marginBottom: 12 }}>
