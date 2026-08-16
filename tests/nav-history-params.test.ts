@@ -137,11 +137,11 @@ describe('pushHistoryEntry / popHistoryEntry (issue #320)', () => {
       params = popped.entry.params
     }
 
-    navigate('payroll', { id: 'emp-3' })
+    navigate('inventory-detail', { id: 'emp-3' })
     navigate('reports', {})
 
     goBack()
-    expect(current).toBe('payroll')
+    expect(current).toBe('inventory-detail')
     expect(params).toEqual({ id: 'emp-3' })
 
     goBack()
