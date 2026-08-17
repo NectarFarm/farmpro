@@ -20,7 +20,7 @@ vi.mock('next/headers', () => ({
 import { GET as kpisGET } from '@/app/api/dashboard/kpis/route'
 import { GET as productionGET } from '@/app/api/charts/production/route'
 import { db } from '@/db'
-import { tenants, products, tasks, notifications, farms, productionUnits, batches, sales, approvalRequests } from '@/db/schemas'
+import { tenants, products, tasks, notifications, farms, productionUnits, batches, sales, purchases, inventoryItems, approvalRequests } from '@/db/schemas'
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -74,6 +74,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
           // Real counts/sums — 0 is an honest empty result, not "not tracked".
           activeBatches: 0,
           revenue: 0,
+          expense: 0,
           // No active batches to divide by -> no honest percentage to report.
           mortalityPct: null,
           // No FCR-capable data source exists anywhere in this app yet.
@@ -85,6 +86,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
           cropBatchGroupsCount: 0,
           period: 'month',
           periodRevenue: 0,
+          periodExpense: 0,
           // No revenue in the period -> no honest percentage to report.
           marginPct: null,
         })
@@ -203,6 +205,17 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
           { id: randomUUID(), tenantId, item: 'Eggs', amount: 12500, status: 'pending' },
         ])
 
+        // A real purchase — the expense side of the Revenue card. Same formula
+        // as lib/reports.ts's periodExpense: purchases.totalCostCents summed
+        // then converted to whole units (250_000 cents = KSh 2,500). No
+        // explicit createdAt -> defaults to now(), inside every period to-date.
+        const itemId = `it-${randomUUID()}`
+        await db.insert(inventoryItems).values({ id: itemId, tenantId, name: 'Broiler Starter Mash', unit: 'kg', lowStockThreshold: 200 })
+        await db.insert(purchases).values({
+          id: randomUUID(), tenantId, itemId, supplier: 'Unga Ltd',
+          quantity: 100, unitCostCents: 2500, totalCostCents: 250_000,
+        })
+
         const res = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}`))
         expect(res.status).toBe(200)
         const payload = await res.json()
@@ -227,6 +240,11 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         // so periodRevenue matches the all-time revenue here.
         expect(payload.data.period).toBe('month')
         expect(payload.data.periodRevenue).toBe(57500)
+        // Expense side of the card (the GL / P&L already showed it; the
+        // dashboard never did before): the one purchase is KSh 2,500, all-time
+        // and in-period.
+        expect(payload.data.expense).toBe(2500)
+        expect(payload.data.periodExpense).toBe(2500)
         // Margin = periodRevenue(57500) - totalAcquisitionCost(10,000 + 5,000 +
         // 2,000 = 17,000, ALL 3 batches incl. the closed one) = 40,500.
         // marginPct = 40500/57500 = 70.434...% -> rounds to 70.4, same
@@ -234,6 +252,8 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         expect(payload.data.marginPct).toBeCloseTo(70.4, 1)
       } finally {
         await db.delete(sales).where(inArray(sales.tenantId, [tenantId]))
+        await db.delete(purchases).where(inArray(purchases.tenantId, [tenantId]))
+        await db.delete(inventoryItems).where(inArray(inventoryItems.tenantId, [tenantId]))
         await db.delete(batches).where(inArray(batches.tenantId, [tenantId]))
         await db.delete(productionUnits).where(inArray(productionUnits.tenantId, [tenantId]))
         await db.delete(farms).where(inArray(farms.tenantId, [tenantId]))

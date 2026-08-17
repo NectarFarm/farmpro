@@ -475,17 +475,29 @@ function LogoutButton() {
   );
 }
 
-/* ── Status Bar ── */
+/* ── Status Bar ──
+ * Shows the real clock plus the browser's actual connectivity state
+ * (navigator.onLine + online/offline events). The old fake device telemetry
+ * (signal dots, a literal "WiFi" label, a hardcoded "100%" battery) was
+ * fabricated UI and is gone — there is no device-battery API worth faking
+ * (the Battery API is deprecated) and a hardcoded percentage reads as real.
+ */
 export function StatusBar() {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    setOnline(navigator.onLine);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
   const now = new Date();
   const time = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
   return (
     <div className="status-bar">
       <span style={{ fontWeight: 700 }}>{time}</span>
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <span style={{ fontSize: 10 }}>●●●●</span><span style={{ fontSize: 10 }}>WiFi</span>
-        <span style={{ fontWeight: 700, fontSize: 11 }}>100%</span>
-      </div>
+      <span style={{ fontSize: 10, fontWeight: 700, color: online ? "var(--status-ok)" : "var(--status-critical)" }}>{online ? "● Online" : "● Offline"}</span>
     </div>
   );
 }

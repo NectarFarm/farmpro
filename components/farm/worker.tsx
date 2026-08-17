@@ -140,6 +140,18 @@ export function WorkerHomeScreen() {
   const [batchLabel, setBatchLabel] = useState<Record<string, string>>({});
   const [tasksToday, setTasksToday] = useState<ApiTask[] | null>(null);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
+  // Real connectivity (navigator.onLine + events) — the old badge was a
+  // hardcoded "Online" label regardless of the actual network state.
+  const [online, setOnline] = useState(true);
+
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    setOnline(navigator.onLine);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
 
   useEffect(() => {
     if (!employee) return;
@@ -187,9 +199,9 @@ export function WorkerHomeScreen() {
         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{greeting}</div>
         <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>{employee?.name ?? "…"} 🌾</div>
         <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", background: "rgba(96,165,250,0.1)", borderRadius: 100, border: "1px solid rgba(96,165,250,0.25)" }}>
-            <Wifi size={11} color="var(--accent-blue)" />
-            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-blue)" }}>Online</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", background: online ? "rgba(96,165,250,0.1)" : "rgba(248,113,113,0.08)", borderRadius: 100, border: `1px solid ${online ? "rgba(96,165,250,0.25)" : "rgba(248,113,113,0.3)"}` }}>
+            <Wifi size={11} color={online ? "var(--accent-blue)" : "var(--status-critical)"} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: online ? "var(--accent-blue)" : "var(--status-critical)" }}>{online ? "Online" : "Offline"}</span>
           </div>
           <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{now.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
         </div>

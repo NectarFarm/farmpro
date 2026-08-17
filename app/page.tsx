@@ -61,7 +61,7 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case "people-detail":     return <PeopleDetailScreen />;
       case "governance":        return <GovernanceScreen />;
       case "reports":           return <ReportsScreen />;
-      case "settings":          return <SettingsScreen onLogout={onLogout} />;
+      case "settings":          return <SettingsScreen onLogout={onLogout} userName={userName} />;
       case "notifications":     return <NotificationsScreen />;
       case "notification-settings": return <NotificationSettingsScreen />;
       case "worker-home":       return <WorkerHomeScreen />;

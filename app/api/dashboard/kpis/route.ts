@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { tasks, notifications, products, batches, sales, approvalRequests } from '@/db/schemas'
+import { tasks, notifications, products, batches, sales, purchases, approvalRequests } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
 import { syncTaskNotifications, DONE_STATUSES } from '@/app/api/notifications/route'
@@ -100,6 +100,20 @@ import { enterpriseTypeFor } from '@/lib/codes'
 //                            separate field from the all-time `revenue`
 //                            above rather than overloading that field's
 //                            existing meaning.
+//   - expense / periodExpense — the expense side of the same card. The
+//                            dashboard previously showed Revenue + Margin
+//                            only, so a tenant with purchases (see the GL
+//                            trial balance / P&L) never saw its expenses on
+//                            Home. Computed with EXACTLY the formula
+//                            lib/reports.ts's computePlReport uses for its
+//                            `periodExpense` (`Math.round(sum(
+//                            purchases.totalCostCents)/100)`, purchases
+//                            filtered to the resolved period by `createdAt`,
+//                            whole currency units) so this tile can never
+//                            drift from the Finance Overview's Expenses
+//                            figure or the GL's Purchases Expense total —
+//                            the account page the user asked to see mirrored
+//                            here. `expense` is the same sum all-time.
 //   - marginPct            — see the dedicated writeup below (same
 //                            "document the formula choice" instruction issue
 //                            #239's trial-balance decision followed).
@@ -204,12 +218,13 @@ export async function GET(req: Request) {
   // this is the first dashboard-backed endpoint hit in the session.
   await syncTaskNotifications(tenantId)
 
-  const [taskRows, notificationRows, productRows, batchRows, salesRows, pendingApprovalRows] = await Promise.all([
+  const [taskRows, notificationRows, productRows, batchRows, salesRows, purchaseRows, pendingApprovalRows] = await Promise.all([
     db.select().from(tasks).where(eq(tasks.tenantId, tenantId)),
     db.select().from(notifications).where(eq(notifications.tenantId, tenantId)),
     db.select().from(products).where(eq(products.tenantId, tenantId)),
     db.select().from(batches).where(eq(batches.tenantId, tenantId)),
     db.select().from(sales).where(eq(sales.tenantId, tenantId)),
+    db.select().from(purchases).where(eq(purchases.tenantId, tenantId)),
     db.select().from(approvalRequests).where(and(eq(approvalRequests.tenantId, tenantId), eq(approvalRequests.status, 'pending'))),
   ])
 
@@ -254,11 +269,19 @@ export async function GET(req: Request) {
   const cropBatchGroupsCount = cropGroups.length
 
   const revenue = salesRows.reduce((s, sale) => s + sale.amount, 0)
+  const expense = Math.round(purchaseRows.reduce((s, p) => s + p.totalCostCents, 0) / 100)
 
   // Period-scoped revenue + day-bucketed trend — see file header.
   const start = periodStart(period, now)
   const periodSalesRows = salesRows.filter((s) => (s.soldAt as Date) >= start && (s.soldAt as Date) <= now)
   const periodRevenue = periodSalesRows.reduce((s, sale) => s + sale.amount, 0)
+
+  // Period-scoped expense — same formula lib/reports.ts's computePlReport
+  // uses for its `periodExpense` (purchases filtered by createdAt, cents ->
+  // whole units), so the dashboard card and the Finance Overview / GL
+  // Purchases Expense figure can never disagree.
+  const periodPurchaseRows = purchaseRows.filter((p) => (p.createdAt as Date) >= start && (p.createdAt as Date) <= now)
+  const periodExpense = Math.round(periodPurchaseRows.reduce((s, p) => s + p.totalCostCents, 0) / 100)
 
   const startDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
   const endDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
@@ -292,12 +315,14 @@ export async function GET(req: Request) {
     // No FCR-capable data source exists yet — see file header.
     avgFCR: null,
     revenue,
+    expense,
     pendingApprovals,
     livestockUnitsCount,
     livestockUnitsQty,
     cropBatchGroupsCount,
     period,
     periodRevenue,
+    periodExpense,
     marginPct,
     revenueTrend,
   })

@@ -163,12 +163,19 @@ interface ApiSettings {
   offlineModeEnabled: boolean;
 }
 
-export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
-  const { navigate, role, tenantId, pendingApprovals } = useNav();
+export function SettingsScreen({ onLogout, userName }: { onLogout?: () => void; userName?: string }) {
+  const { navigate, role, tenantId, pendingApprovals, farms, activeFarm } = useNav();
   const { showToast } = useToast();
   const { theme, setTheme, fontSize, setFontSize } = useTheme();
   const [settings, setSettings] = useState<ApiSettings | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+
+  // Real session user (wired through page.tsx, same as the Dashboard greeting)
+  // and the tenant's real farm name — the profile card used to hardcode
+  // "James Kamau / Nakuru Farm" for every user, which was doubly wrong for a
+  // newly onboarded owner.
+  const initials = (userName ?? "").split(" ").filter(Boolean).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+  const farmName = farms.find((f) => f.code === activeFarm)?.name ?? farms[0]?.name ?? "Your farm";
 
   const loadSettings = useCallback(() => {
     apiClient.get<ApiSettings>(`/api/settings?tenantId=${tenantId}`).then((res) => {
@@ -236,7 +243,13 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
       label: "Security",
       items: [
         { label: "Change Password", action: () => setShowPasswordModal(true) },
-        { label: "Worker PIN Management", desc: "Reset staff PINs", action: () => navigate("people") },
+        // No PIN-provisioning backend exists: employees can be added (POST
+        // /api/employees) but nothing creates their login/PIN, and the
+        // add-employee form says so honestly. A row that navigated to People
+        // promised "reset staff PINs" and delivered nothing — an inert,
+        // explained "not available yet" state (same pattern as the farm
+        // backup row below) instead of a dead click target.
+        { label: "Worker PIN Management", desc: "Provisioning a worker's login/PIN is not built yet — new employees have no PIN until it lands.", badge: "Not available yet" },
         { label: "Active Sessions", desc: "Devices signed in", action: () => {} },
         // No backup/export backend exists anywhere (issue #256 branch
         // correction) — an honest disabled state, not a silent no-op: no
@@ -262,11 +275,11 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
 
         {/* Profile card */}
         <button onClick={() => navigate("people")} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 12, alignItems: "center", width: "100%", textAlign: "left", cursor: "pointer" }}>
-          <div style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(251,191,36,0.2)", border: "2px solid rgba(251,191,36,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, color: "var(--accent-amber)", flexShrink: 0 }}>JK</div>
+          <div style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(251,191,36,0.2)", border: "2px solid rgba(251,191,36,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, color: "var(--accent-amber)", flexShrink: 0 }}>{initials || "🌾"}</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-primary)" }}>James Kamau</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-primary)" }}>{userName || "Farm Owner"}</div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-              {role === "owner" ? "Owner" : role === "manager" ? "Manager" : role === "worker" ? "Worker" : role === "super_admin" ? "Platform Admin" : "Staff"} · Nakuru Farm
+              {role === "owner" ? "Owner" : role === "manager" ? "Manager" : role === "worker" ? "Worker" : role === "super_admin" ? "Platform Admin" : "Staff"} · {farmName}
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
               <span className="chip chip-warning" style={{ fontSize: 9 }}>{role.toUpperCase()}</span>
