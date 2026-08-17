@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNav, TopNav } from "./navigation";
 import { Send, Bot, UserSingle as User, Sparkles, Leaf, DollarSign, AlertTriangle, RefreshCw } from "./icons";
+import { apiClient } from "@/lib/request";
 
 interface Message {
   id: string;
@@ -47,17 +48,56 @@ const INITIAL_MESSAGES: Message[] = [
   {
     id: "init",
     role: "assistant",
-    text: "Hello James! 👋 I'm your IFMS farm assistant.\n\nI have live data on your 6 active batches, today's tasks, inventory levels, and the weekend weather forecast. How can I help you right now?",
+    text: "Hello! 👋 I'm your IFMS farm assistant.\n\nThis is a **demo assistant** — responses are pre-written examples, not live AI answers (no AI backend is wired up on this branch yet). The chips above are your farm's real current numbers. How can I help you right now?",
     time: "09:00",
   },
 ];
 
 export function AIChatScreen() {
-  const { navigate } = useNav();
+  const { navigate, tenantId } = useNav();
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [online, setOnline] = useState(true);
+  // Real context chips: active batches / overdue tasks / low stock from the
+  // tenant's actual data — the old strip hardcoded "6 batches active", "2
+  // overdue tasks", "Rain Saturday", "1 low stock".
+  const [context, setContext] = useState<{ icon: string; label: string }[]>([]);
+
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    setOnline(navigator.onLine);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiClient.get<{ activeBatches: number }>(`/api/dashboard/kpis?tenantId=${tenantId}&period=month`),
+      apiClient.get<unknown[]>(`/api/tasks?tenantId=${tenantId}&due=today`),
+      apiClient.get<{ status: string }[]>(`/api/inventory/items?tenantId=${tenantId}`),
+    ]).then(([kpis, tasks, items]) => {
+      if (cancelled) return;
+      const chips: { icon: string; label: string }[] = [];
+      if (kpis.success && typeof kpis.data?.activeBatches === "number") {
+        chips.push({ icon: "🐔", label: `${kpis.data.activeBatches} active batch${kpis.data.activeBatches === 1 ? "" : "es"}` });
+      }
+      if (tasks.success && Array.isArray(tasks.data)) {
+        const overdue = tasks.data.length; // due=today already scopes to today's list
+        chips.push({ icon: "📋", label: `${overdue} task${overdue === 1 ? "" : "s"} due today` });
+      }
+      if (items.success && Array.isArray(items.data)) {
+        const low = items.data.filter((i) => i.status === "low" || i.status === "expiring").length;
+        chips.push({ icon: "⚠️", label: `${low} low-stock item${low === 1 ? "" : "s"}` });
+      }
+      setContext(chips);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -97,34 +137,31 @@ export function AIChatScreen() {
     <div className="screen-content" style={{ display: "flex", flexDirection: "column" }}>
       <TopNav
         title="AI Farm Assistant"
-        subtitle="Powered by IFMS Intelligence"
+        subtitle="Demo — responses are pre-written examples"
         rightEl={
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 100, background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.3)" }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--primary-green)" }} />
-            <span style={{ fontSize: 10, fontWeight: 700, color: "var(--primary-green)" }}>Online</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 100, background: online ? "rgba(74,222,128,0.12)" : "rgba(248,113,113,0.08)", border: `1px solid ${online ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)"}` }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: online ? "var(--primary-green)" : "var(--status-critical)" }} />
+            <span style={{ fontSize: 10, fontWeight: 700, color: online ? "var(--primary-green)" : "var(--status-critical)" }}>{online ? "Online" : "Offline"}</span>
           </div>
         }
       />
 
       {/* Chat messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
-        {/* Context strip */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
-          {[
-            { icon: "🐔", label: "6 batches active" },
-            { icon: "📋", label: "2 overdue tasks" },
-            { icon: "☁️", label: "Rain Saturday" },
-            { icon: "⚠️", label: "1 low stock" },
-          ].map((c) => (
-            <div
-              key={c.label}
-              style={{ display: "flex", gap: 5, alignItems: "center", padding: "5px 10px", background: "var(--card)", borderRadius: 100, border: "1px solid var(--border-subtle)", flexShrink: 0 }}
-            >
-              <span style={{ fontSize: 12 }}>{c.icon}</span>
-              <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{c.label}</span>
-            </div>
-          ))}
-        </div>
+        {/* Context strip — real counts from the tenant's data */}
+        {context.length > 0 && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
+            {context.map((c) => (
+              <div
+                key={c.label}
+                style={{ display: "flex", gap: 5, alignItems: "center", padding: "5px 10px", background: "var(--card)", borderRadius: 100, border: "1px solid var(--border-subtle)", flexShrink: 0 }}
+              >
+                <span style={{ fontSize: 12 }}>{c.icon}</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{c.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {messages.map((msg) => (
           <div key={msg.id} style={{ marginBottom: 12, display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>

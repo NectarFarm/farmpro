@@ -11,11 +11,10 @@
 //   bell/badge/list are real data from GET /api/products/current-prices,
 //   GET /api/tasks?due=today and GET/PATCH /api/notifications respectively
 //   (see fetch effects below).
-//   The secondary Livestock/Crop enterprise summary CARDS further down (with
-//   per-group emoji/label) are still BATCHES_DATA-driven mock UI — there is
-//   no route that returns that per-group breakdown (only aggregate counts,
-//   which the primary grid now uses for real) and rebuilding those cards is
-//   not this issue's scope.
+//   The secondary Livestock/Crop enterprise summary CARDS further down are
+//   real too: they group GET /api/batches rows by enterprise (same
+//   ENTERPRISE_REGISTRY mapping the Crops screen uses), so the per-group
+//   breakdown reflects the tenant's actual batches.
 //   QuickActions navigate to relevant screens.
 //   FarmSwitcherSheet switches activeFarm (multi-farm, issue #219) → all screens re-filter.
 //   The greeting line and the primary KPI grid's lead tile now read the
@@ -27,7 +26,7 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import { useNav, TopNav } from "./navigation";
-import { BATCHES_DATA, ENTERPRISE_REGISTRY } from "./data";
+import { ENTERPRISE_REGISTRY } from "./data";
 import {
   AlertTriangle, CheckCircle2, Package, ChevronRight, Bell,
   Clock, X, Check, Settings, Info, Leaf, Activity,
@@ -139,19 +138,27 @@ export function DashboardScreen({ userName }: { userName?: string }) {
   const [showFarmSwitcher, setShowFarmSwitcher] = useState(false);
 
   const farm = activeFarm === "ALL" ? null : farms.find(f => f.code === activeFarm) ?? farms[0];
-  const farmBatches = activeFarm === "ALL" ? BATCHES_DATA : BATCHES_DATA.filter(b => b.farmCode === activeFarm);
 
-  // Enterprise summary cards — still BATCHES_DATA-driven mock UI. No `batches`
-  // table exists yet (Epic: Crops & Batches hasn't landed); this issue only
-  // scoped the KPI/price/task/notification/weather surfaces below, not a
-  // rebuild of this section.
+  // Enterprise summary cards — real GET /api/batches rows grouped by
+  // enterprise (same ENTERPRISE_REGISTRY the Crops screen uses). Batches are
+  // tenant-scoped (no farmCode column), so the cards reflect the whole
+  // tenant's batches; the primary KPI grid remains the farm-agnostic source.
+  const [batches, setBatches] = useState<{ code: string; enterprise: string; status: string; currentQty: number }[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<{ code: string; enterprise: string; status: string; currentQty: number }[]>(`/api/batches?tenantId=${tenantId}`).then(res => {
+      if (!cancelled && res.success) setBatches(res.data ?? []);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
   const enterpriseMap = new Map<string, { count: number; qty: number; emoji: string; label: string; type: string }>();
-  farmBatches.filter(b => b.status === "ACTIVE").forEach(b => {
+  (batches ?? []).filter(b => b.status === "ACTIVE").forEach(b => {
     const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === b.enterprise);
     if (!cfg) return;
     const existing = enterpriseMap.get(b.enterprise);
-    if (existing) { existing.count++; existing.qty += b.qty; }
-    else enterpriseMap.set(b.enterprise, { count: 1, qty: b.qty, emoji: cfg.emoji, label: cfg.label, type: cfg.type });
+    if (existing) { existing.count++; existing.qty += b.currentQty ?? 0; }
+    else enterpriseMap.set(b.enterprise, { count: 1, qty: b.currentQty ?? 0, emoji: cfg.emoji, label: cfg.label, type: cfg.type });
   });
   const enterprises = [...enterpriseMap.entries()];
   const livestock = enterprises.filter(([, v]) => v.type === "livestock");
