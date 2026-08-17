@@ -57,12 +57,14 @@ interface KpiData {
   mortalityPct: number | null;
   avgFCR: number | null;
   revenue: number;
+  expense: number;
   pendingApprovals: number;
   livestockUnitsCount: number;
   livestockUnitsQty: number;
   cropBatchGroupsCount: number;
   period: Period;
   periodRevenue: number;
+  periodExpense: number;
   marginPct: number | null;
   revenueTrend: RevenueTrendPoint[];
 }
@@ -332,15 +334,18 @@ export function DashboardScreen({ userName }: { userName?: string }) {
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 20, alignItems: "flex-end", marginBottom: 12 }}>
-            <div>
-              <div className="kpi-value">{kpis ? `KSh ${kpis.periodRevenue.toLocaleString()}` : "…"}</div>
-              <div className="kpi-label" style={{ marginTop: 2 }}>Revenue</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--status-ok)" }}>{kpis?.marginPct != null ? `${kpis.marginPct}%` : "–"}</div>
-              <div className="kpi-label" style={{ marginTop: 2 }}>Margin</div>
-            </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+            {[
+              { label: "Revenue", value: kpis ? `KSh ${kpis.periodRevenue.toLocaleString()}` : "…", color: "var(--text-primary)" },
+              { label: "Expenses", value: kpis ? `KSh ${kpis.periodExpense.toLocaleString()}` : "…", color: "var(--status-critical)" },
+              { label: "Net", value: kpis ? `KSh ${(kpis.periodRevenue - kpis.periodExpense).toLocaleString()}` : "…", color: "var(--status-ok)" },
+              { label: "Margin", value: kpis?.marginPct != null ? `${kpis.marginPct}%` : "–", color: "var(--status-ok)" },
+            ].map((m) => (
+              <div key={m.label}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: m.color }}>{m.value}</div>
+                <div className="kpi-label" style={{ marginTop: 2 }}>{m.label}</div>
+              </div>
+            ))}
           </div>
           {kpis && kpis.revenueTrend.length > 0 && (
             <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 44, overflowX: "auto", scrollbarWidth: "none" }}>

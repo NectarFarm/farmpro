@@ -243,7 +243,13 @@ export function SettingsScreen({ onLogout, userName }: { onLogout?: () => void; 
       label: "Security",
       items: [
         { label: "Change Password", action: () => setShowPasswordModal(true) },
-        { label: "Worker PIN Management", desc: "Reset staff PINs", action: () => navigate("people") },
+        // No PIN-provisioning backend exists: employees can be added (POST
+        // /api/employees) but nothing creates their login/PIN, and the
+        // add-employee form says so honestly. A row that navigated to People
+        // promised "reset staff PINs" and delivered nothing — an inert,
+        // explained "not available yet" state (same pattern as the farm
+        // backup row below) instead of a dead click target.
+        { label: "Worker PIN Management", desc: "Provisioning a worker's login/PIN is not built yet — new employees have no PIN until it lands.", badge: "Not available yet" },
         { label: "Active Sessions", desc: "Devices signed in", action: () => {} },
         // No backup/export backend exists anywhere (issue #256 branch
         // correction) — an honest disabled state, not a silent no-op: no
