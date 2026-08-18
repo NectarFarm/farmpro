@@ -156,11 +156,31 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 }
 
 /* ── Cookie attach/clear on the outgoing response ── */
-export function attachSessionCookie(res: NextResponse, token: string): NextResponse {
+
+// Should the session cookie carry the `Secure` flag? A Secure cookie is only
+// ever *sent* by the browser over HTTPS — over plain HTTP it's stored after
+// login and then silently withheld from every API request (all of which 401
+// "Unauthorized"). This app is served over plain HTTP in common deployments
+// (http://localhost:13001, http://192.168.x.x:13001 on the LAN) even though
+// `next start` runs with NODE_ENV=production, so keying Secure off NODE_ENV
+// alone broke the session for every non-localhost http client. Decide from
+// the request's real protocol instead: https (direct or via the
+// x-forwarded-proto header a TLS-terminating proxy sends) → Secure; plain
+// http → not. COOKIE_SECURE=true/false forces it either way for deployments
+// that need a fixed value regardless of the observed protocol.
+export function sessionCookieSecure(req?: Request): boolean {
+  if (process.env.COOKIE_SECURE === 'true') return true
+  if (process.env.COOKIE_SECURE === 'false') return false
+  if (!req) return process.env.NODE_ENV === 'production'
+  const proto = req.headers.get('x-forwarded-proto') ?? new URL(req.url).protocol
+  return proto === 'https' || proto === 'https:'
+}
+
+export function attachSessionCookie(res: NextResponse, token: string, req?: Request): NextResponse {
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: sessionCookieSecure(req),
     path: '/',
     maxAge: Math.floor(SESSION_TTL_MS / 1000),
   })
