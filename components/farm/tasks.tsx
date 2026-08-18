@@ -138,7 +138,7 @@ function exportTaskCSV(tasks: ApiTask[], filename = "tasks_export.csv") {
 
 /* ── Task Detail Sheet ── */
 function TaskDetailSheet({
-  task, approvers, blockedBy, onClose, onDone, onStart, onBlock, onDelete,
+  task, approvers, blockedBy, onClose, onDone, onStart, onBlock, onDelete, onReopen,
 }: {
   task: ApiTask;
   approvers: Approver[];
@@ -148,6 +148,7 @@ function TaskDetailSheet({
   onStart: (task: ApiTask) => void;
   onBlock: (task: ApiTask) => void;
   onDelete: (task: ApiTask) => void;
+  onReopen: (task: ApiTask) => void;
 }) {
   const { assignee, rest } = splitNotes(task.notes);
   const status = displayStatus(task);
@@ -222,6 +223,11 @@ function TaskDetailSheet({
           {task.status !== "DONE" && (
             <button onClick={() => { onDelete(task); onClose(); }} style={{ padding: "11px 14px", borderRadius: 10, fontSize: 12, fontWeight: 700, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)", color: "var(--status-critical)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
               <Trash2 size={13} />
+            </button>
+          )}
+          {(task.status === "DONE" || task.status === "REJECTED") && (
+            <button onClick={() => { onReopen(task); onClose(); }} style={{ flex: 1, padding: "11px", borderRadius: 10, fontSize: 13, fontWeight: 700, background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.35)", color: "#a855f7", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <Play size={13} /> Reopen
             </button>
           )}
           <button onClick={onClose} style={{ padding: "11px 16px", borderRadius: 10, fontSize: 12, fontWeight: 700, background: "var(--card)", border: "1px solid var(--border-subtle)", color: "var(--text-muted)", cursor: "pointer" }}>Close</button>
@@ -522,6 +528,14 @@ export function TasksScreen() {
     await loadTasks();
   }
 
+  // REOPEN a completed/rejected task back to PENDING (owner/manager only server-side).
+  async function reopenTask(task: ApiTask) {
+    const res = await apiClient.patch<ApiTask>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { reopen: true });
+    if (!res.success) { showToast(res.error ?? "Could not reopen task", "error"); return; }
+    showToast("Task reopened", "success");
+    await loadTasks();
+  }
+
   function resetFilters() { setFilterStatus("All"); setFilterPriority("All"); setSearch(""); }
 
   return (
@@ -628,6 +642,7 @@ export function TasksScreen() {
           onStart={startTask}
           onBlock={setBlockTask}
           onDelete={deleteTask}
+          onReopen={reopenTask}
         />
       )}
     </div>

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNav, TopNav } from "./navigation";
 import { ENTERPRISE_REGISTRY } from "./data";
 import { apiClient } from "@/lib/request";
+import { StatusTimeline } from "./status-timeline";
 import { Plus, X, Check, Upload, Lock } from "./icons";
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
@@ -760,6 +761,11 @@ export function BatchDetailScreen() {
             </div>
           </div>
         )}
+
+        {/* Status Timeline */}
+        <div style={{ marginBottom: 14 }}>
+          <StatusTimeline tenantId={tenantId} entity="batch" entityId={batch.id} />
+        </div>
       </div>
     </div>
   );

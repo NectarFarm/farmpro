@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { batches, productionUnits } from '@/db/schemas'
+import { batches, productionUnits, auditLog } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/PATCH /api/batches/[id] (issue #231) ────────────────────────────────
 // PATCH is the single update endpoint for a batch's mutable lifecycle fields
@@ -70,6 +72,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const b = (raw ?? {}) as Record<string, unknown>
 
+  // Role-matrix enforcement (lib/permissions.ts): batch edits (stage advance,
+  // qty adjustments, unit transfer) are writes on the 'batches' module.
+  if (session && !(await canEdit(tenantId, session.role, MODULES.batches))) {
+    return NextResponse.json({ success: false, error: 'You do not have permission to edit batches' }, { status: 403 })
+  }
+
   const patch: Partial<typeof batches.$inferInsert> = {}
   if (typeof b.stage === 'string') patch.stage = b.stage.trim()
   if (typeof b.status === 'string') patch.status = b.status.trim()
@@ -106,5 +114,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     .returning()
 
   if (rows.length === 0) return notFound()
+
+  // Field-edit audit for the batch timeline — who changed what. Status/stage
+  // transitions are the interesting "lifecycle" entries, but any field edit
+  // is worth a line so the timeline isn't blank for renamed/adjusted batches.
+  await db.insert(auditLog).values({
+    id: randomUUID(),
+    tenantId,
+    actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
+    action: 'batch.updated',
+    entity: 'batch',
+    entityId: id,
+    meta: { code: rows[0].code, fields: Object.keys(patch) },
+  })
+
   return ok(rows[0])
 }

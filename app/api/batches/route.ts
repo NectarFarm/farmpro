@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { batches, productionUnits, farms } from '@/db/schemas'
+import { batches, productionUnits, farms, auditLog } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, like } from 'drizzle-orm'
 import { batchPrefixFor, farmSegment, generateCode } from '@/lib/codes'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/batches (issue #231) ──────────────────────────────────────
 // Fresh build: no `batches` table, `costing.ts`, or `/api/batches/*` route
@@ -75,6 +77,12 @@ export async function POST(req: Request) {
   if (!name) return badRequest('name is required')
   if (!enterprise) return badRequest('enterprise is required')
 
+  // Role-matrix enforcement (lib/permissions.ts): creating a batch is a write
+  // on the 'batches' module; only checked with a real session.
+  if (session && !(await canEdit(tenantId, session.role, MODULES.batches))) {
+    return NextResponse.json({ success: false, error: 'You do not have permission to create batches' }, { status: 403 })
+  }
+
   const unitRows = await db
     .select()
     .from(productionUnits)
@@ -142,6 +150,16 @@ export async function POST(req: Request) {
         harvestDate,
       })
       .returning()
+    // Timeline's first entry — who created the batch, when.
+    await db.insert(auditLog).values({
+      id: randomUUID(),
+      tenantId,
+      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
+      action: 'batch.created',
+      entity: 'batch',
+      entityId: id,
+      meta: { code, name, enterprise, initialQty, currentQty, acquisitionCostCents },
+    })
     return created(rows[0])
   } catch (err) {
     if (isUniqueViolation(err)) {

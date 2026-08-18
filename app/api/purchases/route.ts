@@ -4,6 +4,7 @@ import { purchases } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { recordPurchase } from '@/lib/inventory'
 import { and, desc, eq } from 'drizzle-orm'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/purchases (issue #235 task 2) ─────────────────────────────
 // Fresh build: no `purchases` table existed on this branch before this issue.
@@ -64,6 +65,20 @@ export async function POST(req: Request) {
   if (!unit) return badRequest('unit is required')
   if (!Number.isFinite(quantity) || quantity <= 0) return badRequest('quantity must be a positive number')
   if (!Number.isFinite(unitCostCents) || unitCostCents < 0) return badRequest('unitCostCents must be a non-negative number')
+
+  // Role-matrix enforcement (lib/permissions.ts): recording a purchase is a
+  // write on both the 'inventory' and 'finance' modules — either restriction
+  // blocks it.
+  if (session && !(await canEdit(tenantId, session.role, MODULES.inventory)) && !(await canEdit(tenantId, session.role, MODULES.finance))) {
+    return NextResponse.json({ success: false, error: 'You do not have permission to record purchases' }, { status: 403 })
+  }
+
+  // Role-matrix enforcement (lib/permissions.ts): recording a purchase is a
+  // write on both the 'inventory' and 'finance' modules — either restriction
+  // blocks it.
+  if (session && !(await canEdit(tenantId, session.role, MODULES.inventory)) && !(await canEdit(tenantId, session.role, MODULES.finance))) {
+    return NextResponse.json({ success: false, error: 'You do not have permission to record purchases' }, { status: 403 })
+  }
 
   const category = typeof b.category === 'string' ? b.category.trim() : undefined
   const lowStockThreshold = b.lowStockThreshold !== undefined && Number.isFinite(Number(b.lowStockThreshold))

@@ -4,6 +4,7 @@ import { useNav, TopNav } from "./navigation";
 import { useToast } from "./ui-shared";
 import { useLogout } from "@/app/page";
 import { apiClient } from "@/lib/request";
+import { StatusTimeline } from "./status-timeline";
 import {
   Plus, Camera,
   ChevronRight, Wifi, Check, Lock, ClipboardList, X,
@@ -500,6 +501,8 @@ function WorkerTaskSheet({ task, approvers, allTasks, tenantId, onClose, onChang
             )}
           </div>
         )}
+
+        <StatusTimeline tenantId={tenantId} entity="task" entityId={task.id} />
       </div>
     </div>
   );

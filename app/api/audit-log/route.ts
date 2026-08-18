@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { auditLog, users } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 
 // ── GET /api/audit-log (issue #244) ─────────────────────────────────────────
 // The missing read side of `audit_log` (issue #243 built the table + the two
@@ -27,6 +27,12 @@ import { desc, eq } from 'drizzle-orm'
 // Pagination: `limit` (default 50, capped at 200) + `offset` (default 0),
 // same minimal offset-pagination shape as this branch uses elsewhere (no
 // cursor infra exists yet). Always ordered newest-first (`at desc`).
+//
+// Timeline filter: optional `entity` + `entityId` query params narrow the log
+// to one record's own history (e.g. entity=task&entityId=<id>) — that's what
+// the per-record Status Timeline components fetch. Both must be provided
+// together; the tenant scope still applies on top, so a caller can't read
+// another tenant's entries by guessing an id.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
@@ -57,6 +63,17 @@ export async function GET(req: Request) {
   const limit = parseLimit(url.searchParams.get('limit'))
   const offset = parseOffset(url.searchParams.get('offset'))
 
+  const entity = url.searchParams.get('entity')?.trim()
+  const entityId = url.searchParams.get('entityId')?.trim()
+  if ((entity && !entityId) || (!entity && entityId)) {
+    return badRequest('entity and entityId must be provided together')
+  }
+
+  const conditions = [eq(auditLog.tenantId, tenantId)]
+  if (entity && entityId) {
+    conditions.push(eq(auditLog.entity, entity), eq(auditLog.entityId, entityId))
+  }
+
   const rows = await db
     .select({
       id: auditLog.id,
@@ -73,7 +90,7 @@ export async function GET(req: Request) {
     })
     .from(auditLog)
     .leftJoin(users, eq(users.id, auditLog.actor))
-    .where(eq(auditLog.tenantId, tenantId))
+    .where(and(...conditions))
     .orderBy(desc(auditLog.at), desc(auditLog.id))
     .limit(limit)
     .offset(offset)

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { employees, batches } from '@/db/schemas'
+import { employees, batches, auditLog } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 
@@ -111,6 +112,17 @@ export async function POST(req: Request) {
       status,
     })
     .returning()
+
+  // Timeline's first entry — who added the employee, when.
+  await db.insert(auditLog).values({
+    id: randomUUID(),
+    tenantId,
+    actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
+    action: 'employee.created',
+    entity: 'employee',
+    entityId: id,
+    meta: { name, role, phone },
+  })
 
   return created(rows[0])
 }
