@@ -104,5 +104,8 @@ export async function POST(req: Request) {
     success: true,
     data: { id: user.id, name: user.name, email: user.email, role: user.role, tenantId: user.tenantId },
   }, 200)
-  return attachSessionCookie(res, token)
+  // `req` drives the cookie's Secure flag (sessionCookieSecure): this app is
+  // served over plain http on localhost/LAN, where a Secure cookie would be
+  // stored but never sent back — making every API call 401 "Unauthorized".
+  return attachSessionCookie(res, token, req)
 }
