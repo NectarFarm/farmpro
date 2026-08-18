@@ -258,7 +258,7 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
   return issues;
 }
 
-function validateEmployee(row: Record<string, string>, allRows: Record<string, string>[], rowIdx: number, batchCodes: string[]): CellIssue[] {
+function validateEmployee(row: Record<string, string>, allRows: Record<string, string>[], rowIdx: number, batchCodes: string[], cur = "KSh"): CellIssue[] {
   const issues: CellIssue[] = [];
   const v = (col: string) => (row[col] ?? "").trim();
 
@@ -322,7 +322,7 @@ function validateEmployee(row: Record<string, string>, allRows: Record<string, s
   } else if (isNaN(parseFloat(salary)) || parseFloat(salary) < 0) {
     issues.push({ col: "salary", severity: "error", message: `Salary "${salary}" is not a valid number` });
   } else if (parseFloat(salary) < 5000) {
-    issues.push({ col: "salary", severity: "warning", message: `Salary KSh ${salary} seems low — confirm it's correct` });
+    issues.push({ col: "salary", severity: "warning", message: `Salary ${cur} ${salary} seems low — confirm it's correct` });
   }
 
   // ── payday ──
@@ -434,11 +434,11 @@ function validateInventory(row: Record<string, string>, allRows: Record<string, 
   return issues;
 }
 
-export function validateRows(entity: ImportEntity, rows: Record<string, string>[], batchCodes: string[] = []): RowResult[] {
+export function validateRows(entity: ImportEntity, rows: Record<string, string>[], batchCodes: string[] = [], cur = "KSh"): RowResult[] {
   return rows.map((row, i) => {
     let issues: CellIssue[] = [];
     if (entity === "tasks") issues = validateTask(row, rows, i, batchCodes);
-    else if (entity === "employees") issues = validateEmployee(row, rows, i, batchCodes);
+    else if (entity === "employees") issues = validateEmployee(row, rows, i, batchCodes, cur);
     else if (entity === "inventory") issues = validateInventory(row, rows, i);
     const hasErrors = issues.some(is => is.severity === "error");
     return {
@@ -481,7 +481,8 @@ interface CsvImportModalProps {
 }
 
 export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProps) {
-  const { tenantId } = useNav();
+  const { tenantId, currencySymbol } = useNav();
+  const cur = currencySymbol || "KSh";
   const [phase, setPhase] = useState<"upload" | "review" | "done">("upload");
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
@@ -521,7 +522,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
       const text = ev.target?.result as string;
       const { headers: h, rows } = parseCSVText(text);
       setHeaders(h);
-      setResults(validateRows(entity, rows, batchCodes));
+      setResults(validateRows(entity, rows, batchCodes, cur));
       setPhase("review");
     };
     reader.readAsText(file);
@@ -538,7 +539,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
         }
       });
       // Re-validate with fixed values
-      const newResults = validateRows(entity, [newEdited], batchCodes);
+      const newResults = validateRows(entity, [newEdited], batchCodes, cur);
       return { ...row, edited: newEdited, issues: newResults[0].issues, importable: newResults[0].importable };
     }));
   }
@@ -554,7 +555,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
     setResults(prev => prev.map((row, i) => {
       if (i !== editingCell.row) return row;
       const newEdited = { ...row.edited, [editingCell.col]: editValue };
-      const newResults = validateRows(entity, [newEdited], batchCodes);
+      const newResults = validateRows(entity, [newEdited], batchCodes, cur);
       return { ...row, edited: newEdited, issues: newResults[0].issues, importable: newResults[0].importable };
     }));
     setEditingCell(null);
@@ -564,7 +565,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
     setResults(prev => prev.map((row, i) => {
       if (i !== rowIdx) return row;
       const newEdited = { ...row.edited, [col]: suggestion };
-      const newResults = validateRows(entity, [newEdited], batchCodes);
+      const newResults = validateRows(entity, [newEdited], batchCodes, cur);
       return { ...row, edited: newEdited, issues: newResults[0].issues, importable: newResults[0].importable };
     }));
   }

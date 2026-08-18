@@ -72,7 +72,7 @@ interface KpiData {
 // dashboardGreeting replaces the old hardcoded "Good morning," line, and
 // accentColor drives the primary KPI grid's lead tile so a tenant's branding
 // shows up somewhere real beyond the settings screen itself (issue #310).
-interface DashboardSettings { accentColor: string; logoEmoji: string; dashboardGreeting: string }
+interface DashboardSettings { accentColor: string; logoEmoji: string; dashboardGreeting: string; currencySymbol?: string }
 interface PriceRow { id: string; type: string; name: string; currentPrice: number }
 interface TaskRow { id: string; title: string; dueAt: string | null; status: string }
 interface NotificationRow {
@@ -193,6 +193,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
           accentColor: res.data.accentColor || "var(--primary-green)",
           logoEmoji: res.data.logoEmoji || "🌾",
           dashboardGreeting: res.data.dashboardGreeting || "Good morning,",
+          currencySymbol: res.data.currencySymbol || "KSh",
         });
       }
     });
@@ -343,9 +344,9 @@ export function DashboardScreen({ userName }: { userName?: string }) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
             {[
-              { label: "Revenue", value: kpis ? `KSh ${kpis.periodRevenue.toLocaleString()}` : "…", color: "var(--text-primary)" },
-              { label: "Expenses", value: kpis ? `KSh ${kpis.periodExpense.toLocaleString()}` : "…", color: "var(--status-critical)" },
-              { label: "Net", value: kpis ? `KSh ${(kpis.periodRevenue - kpis.periodExpense).toLocaleString()}` : "…", color: "var(--status-ok)" },
+              { label: "Revenue", value: kpis ? `${settings?.currencySymbol ?? "KSh"} ${kpis.periodRevenue.toLocaleString()}` : "…", color: "var(--text-primary)" },
+              { label: "Expenses", value: kpis ? `${settings?.currencySymbol ?? "KSh"} ${kpis.periodExpense.toLocaleString()}` : "…", color: "var(--status-critical)" },
+              { label: "Net", value: kpis ? `${settings?.currencySymbol ?? "KSh"} ${(kpis.periodRevenue - kpis.periodExpense).toLocaleString()}` : "…", color: "var(--status-ok)" },
               { label: "Margin", value: kpis?.marginPct != null ? `${kpis.marginPct}%` : "–", color: "var(--status-ok)" },
             ].map((m) => (
               <div key={m.label}>
@@ -360,7 +361,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
                 const isLast = i === kpis.revenueTrend.length - 1;
                 const day = new Date(`${point.date}T00:00:00Z`).getUTCDate();
                 return (
-                  <div key={point.date} title={`${point.date}: KSh ${point.amount.toLocaleString()}`} style={{ flex: "0 0 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                  <div key={point.date} title={`${point.date}: ${settings?.currencySymbol ?? "KSh"} ${point.amount.toLocaleString()}`} style={{ flex: "0 0 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                     <div style={{ width: "100%", borderRadius: 3, height: Math.max(2, Math.round((point.amount / maxTrend) * 36)), background: isLast ? "var(--gradient-primary)" : "rgba(74,222,128,0.22)", transition: "height 0.3s" }} />
                     <div style={{ fontSize: 7, color: "var(--text-dim)", fontWeight: 600 }}>{day}</div>
                   </div>
@@ -429,7 +430,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
                 <button key={p.id} onClick={() => navigate("finance")}
                   style={{ flexShrink: 0, padding: "9px 12px", background: "var(--card)", border: "1px solid var(--border-subtle)", borderRadius: 12, textAlign: "left", cursor: "pointer", minWidth: 90 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-primary)" }}>{p.name}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--primary-green)", marginTop: 3 }}>KSh {p.currentPrice.toLocaleString()}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--primary-green)", marginTop: 3 }}>{settings?.currencySymbol ?? "KSh"} {p.currentPrice.toLocaleString()}</div>
                   {/* No unit-of-measure column exists yet on `products` (Epic:
                       Crops & Batches) — "/unit" is a generic label, not a
                       fabricated specific unit like "tray" or "kg". */}

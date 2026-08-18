@@ -99,6 +99,8 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, onCreated, onClose 
   onCreated: () => void;
   onClose: () => void;
 }) {
+  const { currencySymbol } = useNav();
+  const cur = currencySymbol || "KSh";
   const [supplier, setSupplier] = useState("");
   const [itemName, setItemName] = useState(prefill?.itemName ?? "");
   const [category, setCategory] = useState(prefill?.category ?? "");
@@ -183,7 +185,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, onCreated, onClose 
             <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Cost/unit (KSh) *</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Cost/unit ({cur}) *</label>
             <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)} />
           </div>
         </div>
@@ -203,7 +205,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, onCreated, onClose 
             <input className="farm-input" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Amount Paid (KSh)</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Amount Paid ({cur})</label>
             <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} />
           </div>
         </div>
@@ -222,7 +224,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, onCreated, onClose 
 }
 
 /* Column definitions (outside component to keep stable refs) */
-const STOCK_COLS: ColDef<Record<string, unknown>>[] = [
+const STOCK_COLS = (cur: string): ColDef<Record<string, unknown>>[] => [
   {
     key: "name", header: "Item", sortable: true, minWidth: 140,
     summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: "var(--text-muted)" }}>TOTALS</span>,
@@ -254,7 +256,7 @@ const STOCK_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: "avgCost", header: "Cost/u", sortable: true, align: "right", minWidth: 68,
     summary: "avg",
-    render: (r) => <span style={{ fontSize: 11 }}>KSh {((r.avgCost as number) / 100).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 11 }}>{cur} {((r.avgCost as number) / 100).toLocaleString()}</span>,
   },
   {
     key: "status", header: "Status", align: "center", minWidth: 72,
@@ -294,7 +296,8 @@ const VARIANCE_COLS: ColDef<Record<string, unknown>>[] = [
 ];
 
 export function InventoryScreen() {
-  const { navigate, tenantId } = useNav();
+  const { navigate, tenantId, currencySymbol } = useNav();
+  const cur = currencySymbol || "KSh";
   const [tab, setTab] = useState<"stock" | "purchases" | "variance" | "feedmix">("stock");
   const [cat, setCat] = useState("All");
   const [stockSearch, setStockSearch] = useState("");
@@ -476,7 +479,7 @@ export function InventoryScreen() {
           <div style={{ marginBottom: 20 }}>
             <DataTable
               rows={filteredStock as unknown as Record<string, unknown>[]}
-              columns={STOCK_COLS}
+              columns={STOCK_COLS(cur)}
               rowKey={(r) => r.id as string}
               onRowClick={(r) => navigate("inventory-detail", { id: r.id as string })}
               defaultPageSize={20}
@@ -512,7 +515,7 @@ export function InventoryScreen() {
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
                     <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{fmtDate(p.createdAt)}</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--status-ok)" }}>KSh {(p.totalCostCents / 100).toLocaleString()}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--status-ok)" }}>{cur} {(p.totalCostCents / 100).toLocaleString()}</span>
                   </div>
                 </div>
               );
@@ -652,7 +655,8 @@ function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onS
 }
 
 export function InventoryDetailScreen() {
-  const { params, tenantId } = useNav();
+  const { params, tenantId, currencySymbol } = useNav();
+  const cur = currencySymbol || "KSh";
   const id = params.id;
   const [items, setItems] = useState<ApiInventoryItem[] | null>(null);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
@@ -714,7 +718,7 @@ export function InventoryDetailScreen() {
         <div className="farm-card" style={{ padding: 16, marginBottom: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
             <div><div style={{ fontSize: 24, fontWeight: 700, color: "var(--primary-green)" }}>{item.qtyOnHand.toLocaleString()}<span style={{ fontSize: 14 }}>{item.unit}</span></div><div style={{ fontSize: 10, color: "var(--text-muted)" }}>In Stock</div></div>
-            <div><div style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)" }}>KSh {(cost / 100).toLocaleString()}</div><div style={{ fontSize: 10, color: "var(--text-muted)" }}>Avg per {item.unit}</div></div>
+            <div><div style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)" }}>{cur} {(cost / 100).toLocaleString()}</div><div style={{ fontSize: 10, color: "var(--text-muted)" }}>Avg per {item.unit}</div></div>
           </div>
           <div className="progress-track" style={{ marginBottom: 8 }}>
             <div className={`progress-fill ${isLow ? "progress-fill-red" : ""}`} style={{ width: `${item.lowStockThreshold > 0 ? Math.min((item.qtyOnHand / (item.lowStockThreshold * 3)) * 100, 100) : 100}%` }} />
@@ -763,7 +767,7 @@ export function InventoryDetailScreen() {
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{p.quantity.toLocaleString()}{item.unit}</div>
-                  <div style={{ color: "var(--text-muted)" }}>KSh {(p.totalCostCents / 100).toLocaleString()}</div>
+                  <div style={{ color: "var(--text-muted)" }}>{cur} {(p.totalCostCents / 100).toLocaleString()}</div>
                 </div>
               </div>
             ))}

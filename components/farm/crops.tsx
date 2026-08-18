@@ -239,7 +239,8 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
 }
 
 export function CropsScreen() {
-  const { navigate, activeFarm, farms, tenantId } = useNav();
+  const { navigate, activeFarm, farms, tenantId, currencySymbol } = useNav();
+  const cur = currencySymbol || "KSh";
   const [tab, setTab] = useState<"livestock" | "crops" | "units">("livestock");
   const [filter, setFilter] = useState("All");
   const [farmFilter, setFarmFilter] = useState(activeFarm === "ALL" ? "All" : activeFarm);
@@ -316,7 +317,7 @@ export function CropsScreen() {
             { label: "Livestock Batches", value: livestockBatches.filter(b=>b.status==="ACTIVE").length, color: "var(--primary-green)" },
             { label: "Crop Batches", value: cropBatches.filter(b=>b.status==="ACTIVE").length, color: "var(--accent-amber)" },
             { label: "Animals", value: livestockBatches.reduce((s,b)=>s+b.qty,0).toLocaleString(), color: "var(--accent-blue)" },
-            { label: "Total Cost", value: `KSh ${(farmBatches.reduce((s,b)=>s+b.costCents,0)/100000).toFixed(0)}K`, color: "var(--text-secondary)" },
+            { label: "Total Cost", value: `${cur} ${(farmBatches.reduce((s,b)=>s+b.costCents,0)/100000).toFixed(0)}K`, color: "var(--text-secondary)" },
           ].map(s => (
             <div key={s.label} style={{ flexShrink: 0, background: "var(--card)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "8px 12px", textAlign: "center", minWidth: 80 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -410,7 +411,8 @@ export function CropsScreen() {
 
 /* ── Batch Detail ── */
 export function BatchDetailScreen() {
-  const { goBack, params, navigate, farms, tenantId } = useNav();
+  const { goBack, params, navigate, farms, tenantId, currencySymbol } = useNav();
+  const cur = currencySymbol || "KSh";
   const batchId = params.id;
   const batchCode = params.code;
 
@@ -568,7 +570,7 @@ export function BatchDetailScreen() {
               // feed/weight data source for FCR) — same honest "—" placeholder
               // pattern already used for "Growth" above, not a silent drop.
               { label: cfg?.type === "crop" ? "Area" : "FCR", value: "—" },
-              { label: "Cost KSh", value: `${(costKsh/1000).toFixed(0)}K` },
+              { label: `Cost ${cur}`, value: `${(costKsh/1000).toFixed(0)}K` },
             ].map(s => (
               <div key={s.label} style={{ background: "var(--surface)", borderRadius: 8, padding: "8px", textAlign: "center" }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>{s.value}</div>
@@ -642,7 +644,7 @@ export function BatchDetailScreen() {
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                   <div style={{ background: "var(--surface)", borderRadius: 8, padding: "8px 10px" }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--status-critical)" }}>KSh {(costBreakdown.totalTrackedCents/100).toLocaleString()}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--status-critical)" }}>{cur} {(costBreakdown.totalTrackedCents/100).toLocaleString()}</div>
                     <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600, marginTop: 1 }}>Total Tracked Cost</div>
                   </div>
                   {/* Revenue (issue #300): real sales.batchId-scoped revenue,
@@ -651,14 +653,14 @@ export function BatchDetailScreen() {
                       (see app/api/batches/[id]/cost-breakdown/route.ts — issue
                       #290 fixed this exact unit mismatch elsewhere (the GL
                       posting layer); this endpoint converts explicitly
-                      instead of relying on that). An honest "KSh 0" (not a fabricated
+                      instead of relying on that). An honest "0" (not a fabricated
                       number) when the batch has no recorded sales yet. */}
                   <div style={{ background: "var(--surface)", borderRadius: 8, padding: "8px 10px" }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: costBreakdown.revenue.tracked ? "var(--status-ok)" : "var(--text-dim)" }}>KSh {(costBreakdown.revenue.amountCents/100).toLocaleString()}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: costBreakdown.revenue.tracked ? "var(--status-ok)" : "var(--text-dim)" }}>{cur} {(costBreakdown.revenue.amountCents/100).toLocaleString()}</div>
                     <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600, marginTop: 1 }}>Revenue</div>
                   </div>
                   <div style={{ background: "var(--surface)", borderRadius: 8, padding: "8px 10px" }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent-amber)" }}>{batch.currentQty > 0 ? `KSh ${Math.round(costBreakdown.totalTrackedCents/100/batch.currentQty)}/unit` : "—"}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent-amber)" }}>{batch.currentQty > 0 ? `${cur} ${Math.round(costBreakdown.totalTrackedCents/100/batch.currentQty)}/unit` : "—"}</div>
                     <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600, marginTop: 1 }}>Break-even (tracked cost only)</div>
                   </div>
                   {/* Gross Margin (issue #300): tracked-cost-only margin (same
@@ -675,7 +677,7 @@ export function BatchDetailScreen() {
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11 }}>
                       <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>{c.label}</span>
                       {c.tracked ? (
-                        <span style={{ color: "var(--text-primary)", fontWeight: 700 }}>KSh {(c.amountCents/100).toLocaleString()}</span>
+                        <span style={{ color: "var(--text-primary)", fontWeight: 700 }}>{cur} {(c.amountCents/100).toLocaleString()}</span>
                       ) : (
                         <span style={{ color: "var(--text-dim)", fontStyle: "italic" }} title={c.reason}>not tracked</span>
                       )}
@@ -765,7 +767,8 @@ export function BatchDetailScreen() {
 
 /* ── Batch / Enterprise Creation Wizard ── */
 export function CropScheduleScreen() {
-  const { goBack, navigate, params, farms, tenantId } = useNav();
+  const { goBack, navigate, params, farms, tenantId, currencySymbol } = useNav();
+  const cur = currencySymbol || "KSh";
   const subtype = params.subtype ?? "broiler";
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === subtype) ?? ENTERPRISE_REGISTRY[0];
   const isCrop = cfg.type === "crop";
@@ -942,7 +945,7 @@ export function CropScheduleScreen() {
               </div>
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Initial Input Cost (KSh)</label>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Initial Input Cost ({cur})</label>
               <input className="farm-input" type="number" placeholder="0" value={initialCost} onChange={e => setInitialCost(e.target.value)} />
             </div>
             <div style={{ marginBottom: 12 }}>

@@ -168,6 +168,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
   const [soldAt, setSoldAt] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const { currencySymbol } = useNav();
 
   async function save() {
     const amt = Number(amount);
@@ -208,7 +209,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Amount (KSh) *</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Amount ({currencySymbol || "KSh"}) *</label>
             <input className="farm-input" type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
           </div>
           <div>
@@ -272,6 +273,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, onCreated, onClose }: {
   const [amountPaid, setAmountPaid] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const { currencySymbol } = useNav();
 
   async function save() {
     const qty = Number(quantity);
@@ -343,7 +345,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, onCreated, onClose }: {
             <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Cost/unit (KSh) *</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Cost/unit ({currencySymbol || "KSh"}) *</label>
             <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)} />
           </div>
         </div>
@@ -353,7 +355,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, onCreated, onClose }: {
             <input className="farm-input" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Amount Paid (KSh)</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Amount Paid ({currencySymbol || "KSh"})</label>
             <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} />
           </div>
         </div>
@@ -374,7 +376,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, onCreated, onClose }: {
 // "batch P&L" backend endpoint. Fine at this farm's scale (a handful of
 // batches); if the batch count grows large this per-batch loop should become
 // a real aggregate endpoint (flagged in the PR as a follow-on).
-const BATCH_PNL_COLS: ColDef<Record<string, unknown>>[] = [
+// All three column sets take the tenant's currency symbol (issue #256 branding)
+// so amounts render with it instead of a hardcoded "KSh" — converted from
+// module-level constants to functions for that reason.
+const BATCH_PNL_COLS = (cur: string): ColDef<Record<string, unknown>>[] => [
   {
     key: "name", header: "Batch", sortable: true, minWidth: 140,
     summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: "var(--text-muted)" }}>TOTALS</span>,
@@ -388,17 +393,17 @@ const BATCH_PNL_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: "revenue", header: "Revenue", sortable: true, align: "right", minWidth: 80,
     summary: "sum",
-    render: (r) => <span style={{ fontSize: 12, fontWeight: 700, color: "var(--status-ok)" }}>KSh {(r.revenue as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 12, fontWeight: 700, color: "var(--status-ok)" }}>{cur} {(r.revenue as number).toLocaleString()}</span>,
   },
   {
     key: "cost", header: "Cost", sortable: true, align: "right", minWidth: 72,
     summary: "sum",
-    render: (r) => <span style={{ fontSize: 12, color: "var(--status-critical)" }}>KSh {(r.cost as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 12, color: "var(--status-critical)" }}>{cur} {(r.cost as number).toLocaleString()}</span>,
   },
   {
     key: "margin", header: "Margin", sortable: true, align: "right", minWidth: 72,
     summary: "sum",
-    render: (r) => <span style={{ fontSize: 12, fontWeight: 700, color: (r.margin as number) > 0 ? "var(--primary-green)" : "var(--status-critical)" }}>KSh {(r.margin as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 12, fontWeight: 700, color: (r.margin as number) > 0 ? "var(--primary-green)" : "var(--status-critical)" }}>{cur} {(r.margin as number).toLocaleString()}</span>,
   },
   {
     key: "pct", header: "%", sortable: true, align: "right", minWidth: 50,
@@ -412,7 +417,7 @@ const BATCH_PNL_COLS: ColDef<Record<string, unknown>>[] = [
   },
 ];
 
-const SALES_COLS: ColDef<Record<string, unknown>>[] = [
+const SALES_COLS = (cur: string): ColDef<Record<string, unknown>>[] => [
   {
     key: "item", header: "Item", sortable: true, minWidth: 160,
     summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: "var(--text-muted)" }}>TOTALS</span>,
@@ -427,7 +432,7 @@ const SALES_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: "amount", header: "Amount", sortable: true, align: "right", minWidth: 90,
     summary: "sum",
-    render: (r) => <span style={{ fontSize: 13, fontWeight: 700, color: "var(--status-ok)" }}>KSh {(r.amount as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 13, fontWeight: 700, color: "var(--status-ok)" }}>{cur} {(r.amount as number).toLocaleString()}</span>,
   },
   {
     key: "status", header: "Status", align: "center", minWidth: 70,
@@ -436,7 +441,7 @@ const SALES_COLS: ColDef<Record<string, unknown>>[] = [
   },
 ];
 
-const GL_COLS: ColDef<Record<string, unknown>>[] = [
+const GL_COLS = (cur: string): ColDef<Record<string, unknown>>[] => [
   {
     key: "code", header: "Code", sortable: true, minWidth: 56,
     summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: "var(--text-muted)" }}>TOTALS</span>,
@@ -455,27 +460,28 @@ const GL_COLS: ColDef<Record<string, unknown>>[] = [
     key: "debit", header: "Debit", sortable: true, align: "right", minWidth: 90,
     summary: "sum",
     render: (r) => (r.debit as number) > 0
-      ? <span style={{ fontSize: 12, fontWeight: 700, color: "var(--status-critical)" }}>KSh {(r.debit as number).toLocaleString()}</span>
+      ? <span style={{ fontSize: 12, fontWeight: 700, color: "var(--status-critical)" }}>{cur} {(r.debit as number).toLocaleString()}</span>
       : <span style={{ color: "var(--text-dim)" }}>—</span>,
   },
   {
     key: "credit", header: "Credit", sortable: true, align: "right", minWidth: 90,
     summary: "sum",
     render: (r) => (r.credit as number) > 0
-      ? <span style={{ fontSize: 12, fontWeight: 700, color: "var(--status-ok)" }}>KSh {(r.credit as number).toLocaleString()}</span>
+      ? <span style={{ fontSize: 12, fontWeight: 700, color: "var(--status-ok)" }}>{cur} {(r.credit as number).toLocaleString()}</span>
       : <span style={{ color: "var(--text-dim)" }}>—</span>,
   },
   {
     key: "balance", header: "Balance", sortable: true, align: "right", minWidth: 90,
     summary: "sum",
-    render: (r) => <span style={{ fontSize: 12, fontWeight: 700 }}>KSh {(r.balance as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 12, fontWeight: 700 }}>{cur} {(r.balance as number).toLocaleString()}</span>,
   },
 ];
 
 /* ── Screen ─────────────────────────────────────────────────────────────── */
 
 export function FinanceScreen() {
-  const { navigate, tenantId } = useNav();
+  const { navigate, tenantId, currencySymbol } = useNav();
+  const cur = currencySymbol || "KSh";
   const [tab, setTab] = useState<"overview" | "sales" | "purchases" | "gl" | "payroll">("overview");
   const [period, setPeriod] = useState<BudgetPeriod>("month");
   const [glSearch, setGlSearch] = useState("");
@@ -683,16 +689,16 @@ export function FinanceScreen() {
             {budgetError && <div style={{ fontSize: 12, color: "var(--status-critical)", marginBottom: 10 }}>{budgetError}</div>}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--status-ok)" }}>KSh {(totalRevenue/1000).toFixed(0)}K</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--status-ok)" }}>{cur} {(totalRevenue/1000).toFixed(0)}K</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600 }}>Revenue</div>
               </div>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--status-critical)" }}>KSh {(totalExpenses/1000).toFixed(0)}K</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--status-critical)" }}>{cur} {(totalExpenses/1000).toFixed(0)}K</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600 }}>Expenses</div>
               </div>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: margin > 0 ? "var(--primary-green)" : "var(--status-critical)" }}>
-                  {margin > 0 ? "+" : ""}KSh {(margin/1000).toFixed(0)}K
+                  {margin > 0 ? "+" : ""}{cur} {(margin/1000).toFixed(0)}K
                 </div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600 }}>Net</div>
               </div>
@@ -714,7 +720,7 @@ export function FinanceScreen() {
           {batches !== null && (
             <DataTable
               rows={batchPLRows as unknown as Record<string, unknown>[]}
-              columns={BATCH_PNL_COLS}
+              columns={BATCH_PNL_COLS(cur)}
               rowKey={(r) => r.id as string}
               onRowClick={(r) => navigate("batch-detail", { id: r.id as string, code: r.code as string })}
               defaultPageSize={10}
@@ -742,7 +748,7 @@ export function FinanceScreen() {
           ) : (
             <DataTable
               rows={filteredSales as unknown as Record<string, unknown>[]}
-              columns={SALES_COLS}
+              columns={SALES_COLS(cur)}
               rowKey={(r) => r.id as string}
               defaultPageSize={20}
               pageSizes={[10, 20, 50, 100]}
@@ -784,7 +790,7 @@ export function FinanceScreen() {
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
                     <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{p.quantity.toLocaleString()} units</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--status-critical)" }}>KSh {(p.totalCostCents / 100).toLocaleString()}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--status-critical)" }}>{cur} {(p.totalCostCents / 100).toLocaleString()}</span>
                   </div>
                 </div>
               ))}
@@ -803,11 +809,11 @@ export function FinanceScreen() {
             <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-blue)", marginBottom: 2 }}>General Ledger — {accounts.length} accounts</div>
             <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--status-ok)" }}>KSh {(trialBalance?.totalCredits ?? 0).toLocaleString()}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--status-ok)" }}>{cur} {(trialBalance?.totalCredits ?? 0).toLocaleString()}</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)" }}>Total Credits</div>
               </div>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--status-critical)" }}>KSh {(trialBalance?.totalDebits ?? 0).toLocaleString()}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--status-critical)" }}>{cur} {(trialBalance?.totalDebits ?? 0).toLocaleString()}</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)" }}>Total Debits</div>
               </div>
               <div>
@@ -832,7 +838,7 @@ export function FinanceScreen() {
           ) : (
             <DataTable
               rows={filteredGL as unknown as Record<string, unknown>[]}
-              columns={GL_COLS}
+              columns={GL_COLS(cur)}
               rowKey={(r) => r.code as string}
               defaultPageSize={20}
               pageSizes={[10, 20, 50]}
