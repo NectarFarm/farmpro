@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { tasks, approvalRequests } from '@/db/schemas'
+import { tasks, approvalRequests, auditLog } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
 
 // ── GET/PATCH/DELETE /api/tasks/[id] (issue #243) ───────────────────────────
 // Tenant-scoped: an id only reads/updates/deletes when its tenantId matches
@@ -41,7 +42,27 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 // PATCH /api/tasks/[id] — partial update. Every field is optional; only
 // fields present in the body are changed. Supported fields: title, dueAt,
-// status, priority, requiresApproval, notes.
+// status, priority, requiresApproval, notes, blockedByTaskId, clarification.
+//
+// ── Status history / governance trail ──
+// Every status change here writes an `audit_log` row (entity: 'task',
+// entityId: the task id) attributed to the real actor — session user id, or
+// the `actorId` fallback in standalone mock mode. That's what the Governance
+// → Activity Log screen surfaces (it already lists audit_log with
+// actorName/actorRole resolved), so "who started/blocked/completed this task"
+// is auditable across the system instead of living only in the task row.
+//
+// ── Blocked-by ──
+// `blockedByTaskId` is only meaningful alongside status BLOCKED: the worker
+// picks an existing tenant task that blocks this one, validated here (bad /
+// foreign/other-tenant ids → 400/404, same convention as POST /api/batches's
+// `unitId`). Setting BLOCKED without a blocker, or clearing status away from
+// BLOCKED, drops the reference.
+//
+// ── Clarification ──
+// `clarification` is a free-text note ("what do you need clarified?") the
+// worker appends when they need more info — stored as an audit entry, not a
+// new column, so the request-and-response trail stays in one place.
 //
 // Body may also include `actorId` — the user requesting the change, used as
 // `approval_requests.requestedBy` when a completion routes through approval
@@ -72,8 +93,39 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (b.requiresApproval !== undefined) patch.requiresApproval = b.requiresApproval === true
   if (typeof b.notes === 'string') patch.notes = b.notes.trim()
 
-  const requestedStatus = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : undefined
+  const requestedStatus = typeof b.status === 'string' && b.status.trim() ? b.status.trim().toUpperCase() : undefined
   const effectiveRequiresApproval = patch.requiresApproval ?? existing.requiresApproval
+
+  // A task can only be blocked with a real blocker, and can't be blocked by
+  // itself. The blocker must belong to this tenant — validated against real
+  // rows (bad/foreign ids get a clean 400/404, not a bare FK-violation 500).
+  if (requestedStatus === 'BLOCKED') {
+    const blocker = typeof b.blockedByTaskId === 'string' && b.blockedByTaskId.trim() ? b.blockedByTaskId.trim() : ''
+    if (!blocker) return badRequest('blockedByTaskId is required when blocking a task')
+    if (blocker === id) return badRequest('A task cannot block itself')
+    const blockerRows = await db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.id, blocker), eq(tasks.tenantId, tenantId)))
+    if (blockerRows.length === 0) return notFound()
+    patch.blockedByTaskId = blocker
+  } else if (typeof b.blockedByTaskId === 'string' && b.blockedByTaskId.trim()) {
+    // Blocked-by reference without BLOCKED status (or while unblocking) —
+    // treat as "not blocked" rather than silently storing a dangling ref.
+    patch.blockedByTaskId = null
+  }
+
+  // Clarification request: free-text note from the worker, stored as an audit
+  // entry so it appears in the tenant's activity trail with the requester.
+  const clarification = typeof b.clarification === 'string' ? b.clarification.trim() : ''
+  if (clarification) {
+    await db.insert(auditLog).values({
+      id: randomUUID(),
+      tenantId,
+      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
+      action: 'task.clarification_requested',
+      entity: 'task',
+      entityId: id,
+      meta: { note: clarification, title: existing.title },
+    })
+  }
 
   if (requestedStatus && requestedStatus.toUpperCase() === 'DONE' && effectiveRequiresApproval) {
     const actor = session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : '')
@@ -116,12 +168,42 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     patch.status = 'PENDING_APPROVAL'
     const [updated] = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
+    // Completion requested — audited so "who asked for approval" is on the
+    // record alongside the later approve/reject (which writes its own entry).
+    await db.insert(auditLog).values({
+      id: randomUUID(),
+      tenantId,
+      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
+      action: 'task.completion_requested',
+      entity: 'task',
+      entityId: id,
+      meta: { title: updated.title, from: existing.status, to: 'PENDING_APPROVAL' },
+    })
     return ok({ ...updated, approvalRequestId: approvalRequest.id })
   }
 
-  if (requestedStatus) patch.status = requestedStatus
+  // Direct status change (STARTED / BLOCKED / DONE-without-approval / back to
+  // PENDING): record the transition + who did it. `from` is the pre-change
+  // status so the audit trail shows the full lifecycle, not just the latest.
+  if (requestedStatus) {
+    patch.status = requestedStatus
+    await db.insert(auditLog).values({
+      id: randomUUID(),
+      tenantId,
+      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
+      action: `task.${requestedStatus.toLowerCase()}`,
+      entity: 'task',
+      entityId: id,
+      meta: { title: existing.title, from: existing.status, to: requestedStatus, blockedByTaskId: patch.blockedByTaskId ?? null },
+    })
+  }
 
-  if (Object.keys(patch).length === 0) return badRequest('No updatable fields provided')
+  if (Object.keys(patch).length === 0) {
+    // Clarification-only PATCH — the note lives in audit_log (inserted above),
+    // not on the task row, so an empty field-patch is a valid request here.
+    if (clarification) return ok(existing)
+    return badRequest('No updatable fields provided')
+  }
 
   const rows = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
   if (rows.length === 0) return notFound()

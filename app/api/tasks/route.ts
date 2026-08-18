@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { tasks } from '@/db/schemas'
+import { tasks, users } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, gte, lt } from 'drizzle-orm'
+
+// ── Task approval governance (issue: task approver selection) ───────────────
+// A task's creator can designate WHO approves its completion (`approverId`, a
+// user id). Only users who can actually decide — owner/manager roles (the
+// same ALLOWED_ROLES the approve/reject routes gate on) — are valid
+// approvers; anything else is rejected here rather than stored. NULL leaves
+// the task in the general queue (pre-existing behavior).
 
 // ── GET/POST /api/tasks (issue #227 task 2, extended by issue #243) ────────
 // Small dedicated endpoint rather than a generic /api/data/[resource] route —
@@ -76,12 +83,31 @@ export async function POST(req: Request) {
 
   if (!tenantId) return badRequest('tenantId is required')
   if (!title) return badRequest('title is required')
-
   const dueAt = typeof b.dueAt === 'string' && b.dueAt ? new Date(b.dueAt) : null
   const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'PENDING'
   const priority = typeof b.priority === 'string' && VALID_PRIORITIES.has(b.priority.trim()) ? b.priority.trim() : 'medium'
   const requiresApproval = b.requiresApproval === true
   const notes = typeof b.notes === 'string' ? b.notes.trim() : null
+
+  // Designated approver: an owner/manager user of THIS tenant. Rejected with
+  // 400 if it doesn't exist or can't approve — a bad/foreign id must not be
+  // stored (same "validate before insert" convention POST /api/batches uses
+  // for `unitId`).
+  let approverId: string | null = null
+  const requestedApprover = typeof b.approverId === 'string' && b.approverId.trim() ? b.approverId.trim() : null
+  if (requestedApprover) {
+    const approverRows = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, requestedApprover), eq(users.tenantId, tenantId), eq(users.status, 'ACTIVE')))
+    const approver = approverRows[0]
+    if (!approver) return badRequest('approverId must be an active user of this tenant')
+    const approverUser = await db.select({ role: users.role }).from(users).where(eq(users.id, requestedApprover)).limit(1)
+    if (!approverUser[0] || !['owner', 'manager'].includes(approverUser[0].role)) {
+      return badRequest('approverId must be an owner or manager')
+    }
+    approverId = requestedApprover
+  }
 
   const rows = await db
     .insert(tasks)
@@ -94,6 +120,7 @@ export async function POST(req: Request) {
       priority,
       requiresApproval,
       notes,
+      approverId,
     })
     .returning()
 
