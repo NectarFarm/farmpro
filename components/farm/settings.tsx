@@ -236,7 +236,10 @@ export function SettingsScreen({ onLogout, userName }: { onLogout?: () => void; 
       label: "Offline & Sync",
       items: [
         { label: "Offline Mode", desc: "Cache data for use without internet", toggle: true, value: offline, onToggle: () => toggleSetting("offlineModeEnabled") },
-        { label: "Sync Now", desc: "Force sync with server", action: () => {} },
+        // No offline cache or sync queue exists anywhere — data is always live
+        // from the API, so a "Sync Now" row would be a dead click target. Honest
+        // inert state (same convention as the backup row below).
+        { label: "Sync Now", desc: "No offline cache or sync queue exists yet — data is always live.", badge: "Not available yet" },
       ],
     },
     {
@@ -250,7 +253,9 @@ export function SettingsScreen({ onLogout, userName }: { onLogout?: () => void; 
         // explained "not available yet" state (same pattern as the farm
         // backup row below) instead of a dead click target.
         { label: "Worker PIN Management", desc: "Provisioning a worker's login/PIN is not built yet — new employees have no PIN until it lands.", badge: "Not available yet" },
-        { label: "Active Sessions", desc: "Devices signed in", action: () => {} },
+        // No session-list/revoke endpoint exists — a row that promised "devices
+        // signed in" with no backend would be a dead click target.
+        { label: "Active Sessions", desc: "Device/session management isn't built yet.", badge: "Not available yet" },
         // No backup/export backend exists anywhere (issue #256 branch
         // correction) — an honest disabled state, not a silent no-op: no
         // `action`, so the row renders inert (no chevron, no click), with a
@@ -261,9 +266,11 @@ export function SettingsScreen({ onLogout, userName }: { onLogout?: () => void; 
     {
       label: "App",
       items: [
-        { label: "Help & Support", action: () => {} },
-        { label: "About IFMS", desc: "Version 2.1.0 — Build 2026.08", action: () => {} },
-        { label: "Privacy Policy", action: () => {} },
+        // No in-app help / privacy pages exist yet — inert rows with an honest
+        // badge instead of dead click targets. About stays as a plain info row.
+        { label: "Help & Support", desc: "In-app help isn't built yet.", badge: "Not available yet" },
+        { label: "About IFMS", desc: "Version 2.1.0 — Build 2026.08" },
+        { label: "Privacy Policy", desc: "No privacy policy page yet.", badge: "Not available yet" },
       ],
     },
   ];
@@ -283,7 +290,6 @@ export function SettingsScreen({ onLogout, userName }: { onLogout?: () => void; 
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
               <span className="chip chip-warning" style={{ fontSize: 9 }}>{role.toUpperCase()}</span>
-              <span className="chip chip-ok" style={{ fontSize: 9 }}>PRO PLAN</span>
             </div>
           </div>
           <ChevronRight size={16} color="var(--text-muted)" />
