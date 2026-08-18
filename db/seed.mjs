@@ -42,6 +42,32 @@ const FARMS = [
   { id: 'f2', tenantId: 't1', name: 'Eldoret Satellite', location: 'Eldoret', code: 'FRM-ELDORET-SATE' },
 ]
 
+// ── Demo data: units / batches / employees per farm ─────────────────────────
+// So a fresh `pnpm db:seed` has something real to show on both farms (the farm
+// switcher filters Crops by unit farm, and People by the employee's assigned
+// batches' farms — see components/farm/people.tsx). Fixed IDs + ON CONFLICT
+// DO NOTHING keep this idempotent and identical to a previously-seeded DB.
+const DEMO_UNITS = [
+  // Nakuru (mirrors the rows the running dev DB already had, if present)
+  { id: 'b420423b-1860-468c-8c73-29b68d7a3e8f', tenantId: 't1', farmId: 'f1', type: 'house', name: 'House 001', code: 'HSE-NAKURU-001' },
+  // Eldoret
+  { id: 'e1d0ret-0000-0000-0000-000000000001', tenantId: 't1', farmId: 'f2', type: 'house', name: 'House E01', code: 'HSE-ELDORET-001' },
+]
+
+const DEMO_BATCHES = [
+  // Nakuru
+  { id: '2990a223-6106-408d-a19f-3e2fe74e16b0', tenantId: 't1', unitId: 'b420423b-1860-468c-8c73-29b68d7a3e8f', code: 'BRO-NAKURU-001', name: 'Broilers Batch – Aug 2026', species: 'Spring hen', enterprise: 'broiler', initialQty: 1200, currentQty: 1200, costCents: 1200000 },
+  // Eldoret
+  { id: 'e1d0ret-0000-0000-0000-000000000002', tenantId: 't1', unitId: 'e1d0ret-0000-0000-0000-000000000001', code: 'BRO-ELDORET-001', name: 'Eldoret Broiler Run', species: 'Cobb 500', enterprise: 'broiler', initialQty: 500, currentQty: 480, costCents: 600000 },
+]
+
+const DEMO_EMPLOYEES = [
+  // Nakuru
+  { id: '472e6747-7b6c-4074-8efa-6b2ee2513329', tenantId: 't1', name: 'Akai Elim', phone: '+254799979067', role: 'worker', batchIds: ['2990a223-6106-408d-a19f-3e2fe74e16b0'] },
+  // Eldoret
+  { id: 'e1d0ret-0000-0000-0000-000000000003', tenantId: 't1', name: 'Lydia Chebet', phone: '+254711222333', role: 'worker', batchIds: ['e1d0ret-0000-0000-0000-000000000002'] },
+]
+
 try {
   let tenantInserted = 0
   for (const t of TENANTS) {
@@ -73,7 +99,34 @@ try {
     `
     if (res.count > 0) farmInserted += 1
   }
-  console.log(`seed ok: ${tenantInserted} tenants inserted (${TENANTS.length} total), ${inserted} users inserted (${USERS.length} total), ${farmInserted} farms inserted (${FARMS.length} total)`)
+  let unitInserted = 0
+  for (const u of DEMO_UNITS) {
+    const res = await sql`
+      INSERT INTO production_units (id, tenant_id, farm_id, type, name, code, status)
+      VALUES (${u.id}, ${u.tenantId}, ${u.farmId}, ${u.type}, ${u.name}, ${u.code}, 'ACTIVE')
+      ON CONFLICT (tenant_id, code) DO NOTHING
+    `
+    if (res.count > 0) unitInserted += 1
+  }
+  let batchInserted = 0
+  for (const b of DEMO_BATCHES) {
+    const res = await sql`
+      INSERT INTO batches (id, tenant_id, unit_id, code, name, species, enterprise, stage, status, initial_qty, current_qty, acquisition_cost_cents)
+      VALUES (${b.id}, ${b.tenantId}, ${b.unitId}, ${b.code}, ${b.name}, ${b.species}, ${b.enterprise}, '', 'ACTIVE', ${b.initialQty}, ${b.currentQty}, ${b.costCents})
+      ON CONFLICT (tenant_id, code) DO NOTHING
+    `
+    if (res.count > 0) batchInserted += 1
+  }
+  let employeeInserted = 0
+  for (const e of DEMO_EMPLOYEES) {
+    const res = await sql`
+      INSERT INTO employees (id, tenant_id, name, phone, role, assigned_batch_ids, mortality_photo_threshold, status)
+      VALUES (${e.id}, ${e.tenantId}, ${e.name}, ${e.phone}, ${e.role}, ${e.batchIds}, 3, 'ACTIVE')
+      ON CONFLICT (id) DO NOTHING
+    `
+    if (res.count > 0) employeeInserted += 1
+  }
+  console.log(`seed ok: ${tenantInserted} tenants inserted (${TENANTS.length} total), ${inserted} users inserted (${USERS.length} total), ${farmInserted} farms inserted (${FARMS.length} total), ${unitInserted} units, ${batchInserted} batches, ${employeeInserted} employees`)
 } catch (err) {
   console.error('seed failed:', err)
   process.exitCode = 1

@@ -30,6 +30,7 @@ interface ApiBatchLite {
   id: string;
   code: string;
   name: string;
+  unitId?: string;
 }
 
 type Access = "hidden" | "view" | "edit";
@@ -112,7 +113,7 @@ const PEOPLE_COLS: ColDef<Record<string, unknown>>[] = [
 ];
 
 export function PeopleScreen() {
-  const { navigate, tenantId } = useNav();
+  const { navigate, tenantId, farms, activeFarm } = useNav();
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
@@ -120,6 +121,11 @@ export function PeopleScreen() {
   const [employees, setEmployees] = useState<ApiEmployee[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [batches, setBatches] = useState<ApiBatchLite[]>([]);
+  // unitId → farmId, fetched so an employee's farm can be derived via their
+  // assigned batches (employee → assigned_batch_ids → batch.unit_id →
+  // production_units.farm_id → farm code). No farm column exists on employees,
+  // so this is the real, API-driven way to scope staff to the active farm.
+  const [unitFarms, setUnitFarms] = useState<Record<string, string>>({});
   const [viewMode, setViewMode] = usePersistedView<"card" | "table">("people", "card");
 
   const loadEmployees = useCallback(() => {
@@ -132,11 +138,33 @@ export function PeopleScreen() {
   useEffect(() => { loadEmployees(); }, [loadEmployees]);
   useEffect(() => {
     apiClient.get<ApiBatchLite[]>(`/api/batches?tenantId=${tenantId}`).then((res) => {
-      if (res.success) setBatches(res.data.map((b) => ({ id: b.id, code: (b as unknown as { code: string }).code, name: (b as unknown as { name: string }).name })));
+      if (res.success) setBatches(res.data.map((b) => ({ id: b.id, code: (b as unknown as { code: string }).code, name: (b as unknown as { name: string }).name, unitId: (b as unknown as { unitId?: string }).unitId })));
     });
+  }, [tenantId]);
+  // Real GET /api/units rows → farmId, for the batch → farm join above.
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<{ id: string; farmId?: string }[]>(`/api/units?tenantId=${tenantId}`).then((res) => {
+      if (!cancelled && res.success) {
+        const m: Record<string, string> = {};
+        for (const u of res.data ?? []) if (u.id && u.farmId) m[u.id] = u.farmId;
+        setUnitFarms(m);
+      }
+    });
+    return () => { cancelled = true; };
   }, [tenantId]);
 
   const batchLabel = useCallback((id: string) => batches.find((b) => b.id === id)?.code ?? id.slice(0, 8), [batches]);
+
+  // batchId → farm code, derived from real rows only (batch.unitId →
+  // unit.farmId → farm.code). Empty when the active farm is "ALL".
+  const farmCodeById = useCallback((batchId: string): string | null => {
+    const b = batches.find((x) => x.id === batchId);
+    if (!b?.unitId) return null;
+    const farmId = unitFarms[b.unitId];
+    if (!farmId) return null;
+    return farms.find((f) => f.id === farmId)?.code ?? null;
+  }, [batches, unitFarms, farms]);
 
   // CSV import (issue #248 task 6): loop real POST /api/employees calls per
   // row rather than a client-only merge — the imported rows become real
@@ -169,8 +197,15 @@ export function PeopleScreen() {
   }
 
   const list = employees ?? [];
-  const roles = ["All", ...Array.from(new Set(list.map((e) => e.role)))];
-  const filtered = list
+  const activeFarmName = farms.find((f) => f.code === activeFarm)?.name;
+  // A staff member belongs to the active farm when ANY of their assigned
+  // batches resolves to that farm. "ALL" shows everyone; an unassigned
+  // employee (no batches) only shows under "All Farms".
+  const farmFiltered = activeFarm === "ALL"
+    ? list
+    : list.filter((e) => (e.assignedBatchIds ?? []).some((id) => farmCodeById(id) === activeFarm));
+  const roles = ["All", ...Array.from(new Set(farmFiltered.map((e) => e.role)))];
+  const filtered = farmFiltered
     .filter((e) => filter === "All" || e.role === filter)
     .filter((e) => {
       if (!search.trim()) return true;
@@ -180,7 +215,7 @@ export function PeopleScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="People" subtitle="Staff, roles & access"
+      <TopNav title="People" subtitle={activeFarm === "ALL" ? "Staff, roles & access" : `Staff on ${activeFarmName ?? activeFarm}`}
         rightEl={
           <div style={{ display: "flex", gap: 6 }}>
             {/* Card / Table toggle */}
@@ -208,10 +243,13 @@ export function PeopleScreen() {
       <div className="px-screen" style={{ paddingTop: 12 }}>
         {/* Summary */}
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          {/* Counts are farm-scoped (farmFiltered) so the summary matches the
+           * list below when a specific farm is active — previously they counted
+           * every tenant employee while the list was filtered. */}
           {[
-            { label: "Active", value: list.filter((e) => e.status === "ACTIVE").length, color: "var(--status-ok)" },
-            { label: "Inactive", value: list.filter((e) => e.status !== "ACTIVE").length, color: "var(--text-muted)" },
-            { label: "Total", value: list.length, color: "var(--accent-blue)" },
+            { label: "Active", value: farmFiltered.filter((e) => e.status === "ACTIVE").length, color: "var(--status-ok)" },
+            { label: "Inactive", value: farmFiltered.filter((e) => e.status !== "ACTIVE").length, color: "var(--text-muted)" },
+            { label: "Total", value: farmFiltered.length, color: "var(--accent-blue)" },
           ].map((s) => (
             <div key={s.label} style={{ flex: 1, background: "var(--card)", borderRadius: 12, padding: "10px 8px", textAlign: "center", border: "1px solid var(--border-subtle)" }}>
               <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>

@@ -1,6 +1,9 @@
 "use client";
 import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
 import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut } from "./icons";
+
+// localStorage key for the persisted active-farm selection (see NavProvider).
+const ACTIVE_FARM_KEY = "ifms_active_farm";
 import { apiClient } from "@/lib/request";
 
 /* ── Screen registry ── */
@@ -148,7 +151,18 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
   const [current, setCurrent] = useState<ScreenId>(startScreen);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [params, setParams] = useState<Record<string, string>>({});
-  const [activeFarm, setActiveFarm] = useState("FRM-KMU-001");
+  // Active-farm selection persists across reloads (localStorage) — switching
+  // farms is a per-device preference, and forgetting it on every reload made
+  // the switcher feel broken (you pick Eldoret, refresh, you're back on the
+  // first farm). `ALL` (the aggregate view) persists too.
+  const [activeFarm, setActiveFarmState] = useState<string>(() => {
+    if (typeof window === "undefined") return "FRM-KMU-001";
+    try { return localStorage.getItem(ACTIVE_FARM_KEY) ?? "FRM-KMU-001"; } catch { return "FRM-KMU-001"; }
+  });
+  const setActiveFarm = useCallback((code: string) => {
+    setActiveFarmState(code);
+    try { localStorage.setItem(ACTIVE_FARM_KEY, code); } catch { /* storage unavailable — in-memory only */ }
+  }, []);
   const tenantId = initialTenantId ?? PROVISIONAL_TENANT_ID;
 
   // The tenant's farms for the switcher, from the real backend (GET /api/farms).
@@ -167,7 +181,7 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
         setFarms(real);
         // The shell starts on a default code; land on the first real farm so
         // the badge/filters stay coherent.
-        setActiveFarm(prev => (real.some(f => f.code === prev) ? prev : real[0].code));
+        setActiveFarmState(prev => (prev === "ALL" || real.some(f => f.code === prev) ? prev : real[0].code));
       }
     });
     return () => { cancelled = true; };
