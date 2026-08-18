@@ -701,6 +701,7 @@ export function PeopleDetailScreen() {
         <EditEmployeeModal
           employee={employee}
           tenantId={tenantId}
+          batches={batches}
           onClose={() => setShowEdit(false)}
           onSaved={(updated) => { setEmployee(updated); setShowEdit(false); }}
         />
@@ -709,17 +710,27 @@ export function PeopleDetailScreen() {
   );
 }
 
-function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
+function EditEmployeeModal({ employee, tenantId, batches, onClose, onSaved }: {
   employee: ApiEmployee;
   tenantId: string;
+  batches: ApiBatchLite[];
   onClose: () => void;
   onSaved: (emp: ApiEmployee) => void;
 }) {
   const [name, setName] = useState(employee.name);
   const [phone, setPhone] = useState(employee.phone);
   const [threshold, setThreshold] = useState(String(employee.mortalityPhotoThreshold));
+  // Batch assignment is editable here, not just at creation — PATCH
+  // /api/employees/[id] accepts assignedBatchIds (full-replace), so the owner
+  // can reassign a worker's batches as duties change instead of being stuck
+  // with whatever was picked at creation.
+  const [selectedBatches, setSelectedBatches] = useState<string[]>(employee.assignedBatchIds ?? []);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  function toggleBatch(id: string) {
+    setSelectedBatches((prev) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
+  }
 
   async function handleSave() {
     if (!name.trim()) { setError("Full name is required."); return; }
@@ -728,6 +739,7 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
       name: name.trim(),
       phone: phone.trim(),
       mortalityPhotoThreshold: Number(threshold) || 0,
+      assignedBatchIds: selectedBatches,
     });
     setSaving(false);
     if (!res.success) { setError(res.error || "Failed to save changes."); return; }
@@ -752,6 +764,21 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Photo Required Above (deaths)</label>
           <input className="farm-input" type="number" min={0} value={threshold} onChange={(e) => setThreshold(e.target.value)} />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 8 }}>Assigned Batches</label>
+          {batches.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)" }}>No batches exist yet for this tenant.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto" }}>
+            {batches.map((b) => {
+              const on = selectedBatches.includes(b.id);
+              return (
+                <div key={b.id} onClick={() => toggleBatch(b.id)} style={{ padding: "10px 12px", background: on ? "rgba(74,222,128,0.08)" : "var(--card)", border: `1px solid ${on ? "rgba(74,222,128,0.3)" : "var(--border-subtle)"}`, borderRadius: 10, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                  <span style={{ fontSize: 12, color: on ? "var(--primary-green)" : "var(--text-secondary)", fontWeight: on ? 700 : 400 }}>{b.code} – {b.name}</span>
+                  {on && <Check size={14} color="var(--primary-green)" />}
+                </div>
+              );
+            })}
+          </div>
         </div>
         {error && <div style={{ fontSize: 12, color: "var(--status-critical)", marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" disabled={saving} style={{ width: "100%", justifyContent: "center", borderRadius: 12, padding: 12, opacity: saving ? 0.7 : 1 }} onClick={handleSave}>
