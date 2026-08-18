@@ -62,7 +62,7 @@ interface ApiSettings {
 }
 
 export function UICustomiseScreen() {
-  const { tenantId, farms, activeFarm } = useNav();
+  const { tenantId, farms, activeFarm, refreshBranding } = useNav();
   const { showToast } = useToast();
   const [tab, setTab] = useState<"modules" | "labels" | "branding">("modules");
   const [modules, setModules] = useState<ModuleConfig[]>(DEFAULT_MODULES);
@@ -129,6 +129,10 @@ export function UICustomiseScreen() {
     setSaving(false);
     if (res.success) {
       setSaved(true);
+      // Push the freshly-saved currency symbol into nav context so money
+      // screens (Finance, Inventory, Crops, Dashboard) render it immediately
+      // instead of after a reload.
+      refreshBranding();
       showToast("Customisation saved.", "success");
       setTimeout(() => setSaved(false), 2000);
     } else {
@@ -171,7 +175,7 @@ export function UICustomiseScreen() {
 
         {/* ── MODULES TAB ── */}
         {tab === "modules" && (
-          <div style={{ paddingBottom: 80 }}>
+          <div style={{ paddingBottom: 170 }}>
             <div style={{ padding: "10px 14px", background: "rgba(168,85,247,0.08)", borderRadius: 12, marginBottom: 14, border: "1px solid rgba(168,85,247,0.2)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>
               Toggle which modules are visible in the app for this tenant. Disabled modules are hidden from all users, on every farm.
             </div>
@@ -215,7 +219,7 @@ export function UICustomiseScreen() {
 
         {/* ── LABELS TAB ── */}
         {tab === "labels" && (
-          <div style={{ paddingBottom: 80 }}>
+          <div style={{ paddingBottom: 170 }}>
             <div style={{ padding: "10px 14px", background: "rgba(96,165,250,0.08)", borderRadius: 12, marginBottom: 14, border: "1px solid rgba(96,165,250,0.2)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>
               Rename module labels to match your farm's terminology. Leave blank to use the default label.
             </div>
@@ -280,7 +284,7 @@ export function UICustomiseScreen() {
 
         {/* ── BRANDING TAB ── */}
         {tab === "branding" && (
-          <div style={{ paddingBottom: 80 }}>
+          <div style={{ paddingBottom: 170 }}>
             {/* Preview card */}
             <div style={{
               marginBottom: 16, padding: 16, borderRadius: 16,
@@ -360,8 +364,9 @@ export function UICustomiseScreen() {
           </div>
         )}
 
-        {/* Save button */}
-        <div style={{ position: "sticky", bottom: 80, paddingBottom: 12 }}>
+        {/* Save button — fixed above the bottom nav (never floats mid-screen).
+           Content tabs keep their own paddingBottom so nothing hides behind it. */}
+        <div className="save-bar">
           {error && <div style={{ fontSize: 11, color: "var(--status-critical)", marginBottom: 8 }}>{error}</div>}
           <button
             className="btn-primary"

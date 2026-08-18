@@ -68,6 +68,13 @@ export interface NavContext {
   pendingOnboardingRequests: number; // Real count of `onboard_requests` rows with status
                                       // 'pending' (issue #251/#252), super_admin sessions only —
                                       // 0 for every other role (issue #298).
+  currencySymbol: string; // The tenant's branding currency symbol from GET /api/settings
+                          // (defaults "KSh" when unset/unavailable) — money screens render
+                          // amounts with this instead of hardcoding "KSh".
+  refreshBranding: () => void; // Re-fetch GET /api/settings branding (currencySymbol). Called
+                               // by ui-customise.tsx after a successful save so screens that
+                               // read the value from context see the new symbol immediately
+                               // instead of only after a full reload.
 }
 
 /* Tenant scope for /api/farms. With real sessions (issue #221) NavProvider gets
@@ -83,6 +90,7 @@ const NavCtx = createContext<NavContext>({
   navigate: () => {}, goBack: () => {}, setActiveFarm: () => {},
   pendingApprovals: 0, unreadNotifs: 0,
   openTasksCount: 0, pendingOnboardingRequests: 0,
+  currencySymbol: "KSh", refreshBranding: () => {},
 });
 
 export function useNav() { return useContext(NavCtx); }
@@ -254,8 +262,25 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
     return () => { cancelled = true; };
   }, [role]);
 
+  // Tenant branding currency symbol (issue #256) — fetched once alongside the
+  // farms/badges so every money screen renders with the tenant's chosen symbol
+  // instead of a hardcoded "KSh". GET /api/settings is tenant-scoped; a
+  // super_admin session (no tenantId) simply keeps the default. `refreshBranding`
+  // re-fetches after ui-customise saves, so the new symbol propagates to every
+  // screen reading context without a reload.
+  const [currencySymbol, setCurrencySymbol] = useState("KSh");
+  const refreshBranding = useCallback(() => {
+    if (!tenantId) return;
+    apiClient.get<{ currencySymbol?: string }>(`/api/settings?tenantId=${tenantId}`).then(res => {
+      if (res.success && res.data && typeof res.data.currencySymbol === "string" && res.data.currencySymbol.trim()) {
+        setCurrencySymbol(res.data.currencySymbol.trim());
+      }
+    });
+  }, [tenantId]);
+  useEffect(() => { refreshBranding(); }, [refreshBranding]);
+
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, tenantId, navigate, goBack, setActiveFarm, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, tenantId, navigate, goBack, setActiveFarm, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, currencySymbol, refreshBranding }}>
       {process.env.NODE_ENV !== "production" && (
         <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       )}
