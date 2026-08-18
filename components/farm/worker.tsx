@@ -6,11 +6,12 @@ import { useLogout } from "@/app/page";
 import { apiClient } from "@/lib/request";
 import {
   Plus, Camera,
-  ChevronRight, Wifi, Check, Lock, ClipboardList,
+  ChevronRight, Wifi, Check, Lock, ClipboardList, X,
+  AlertTriangle, Users, MessageSquare, Play,
 } from "./icons";
 import {
-  splitNotes, displayStatus, STATUS_LABEL, statusChipClass,
-  type ApiTask,
+  splitNotes, displayStatus, STATUS_LABEL, statusChipClass, fmtDueAt,
+  type ApiTask, type Approver,
 } from "./tasks";
 
 // ── Real API shapes (issue #248) ────────────────────────────────────────────
@@ -140,6 +141,12 @@ export function WorkerHomeScreen() {
   const [batchLabel, setBatchLabel] = useState<Record<string, string>>({});
   const [tasksToday, setTasksToday] = useState<ApiTask[] | null>(null);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
+  // Task detail sheet (issue: task approval governance) — replaces the old
+  // "Open" button that pointed at the Record screen (which showed nothing
+  // about the task). Shows the task's notes, designated approver, and gives
+  // the worker Start / Complete / Block (pick blocker) / Request clarification.
+  const [openTask, setOpenTask] = useState<ApiTask | null>(null);
+  const [approvers, setApprovers] = useState<Approver[]>([]);
   // Real connectivity (navigator.onLine + events) — the old badge was a
   // hardcoded "Online" label regardless of the actual network state.
   const [online, setOnline] = useState(true);
@@ -168,6 +175,12 @@ export function WorkerHomeScreen() {
   }, [employee, tenantId]);
 
   useEffect(() => { loadTasksToday(); }, [loadTasksToday]);
+
+  useEffect(() => {
+    apiClient.get<Approver[]>(`/api/approvers?tenantId=${tenantId}`).then(res => {
+      if (res.success) setApprovers(res.data);
+    });
+  }, [tenantId]);
 
   useEffect(() => {
     if (!batches) return;
@@ -250,7 +263,7 @@ export function WorkerHomeScreen() {
                   }} title="Mark this task done">
                     <Check size={12} />
                   </button>
-                  <button onClick={() => navigate("worker-record")} style={{
+                  <button onClick={() => setOpenTask(t)} style={{
                     padding: "7px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700,
                     background: "var(--card)", border: "1px solid var(--border-subtle)",
                     color: "var(--text-primary)", cursor: "pointer",
@@ -314,6 +327,179 @@ export function WorkerHomeScreen() {
             <span style={{ fontSize: 7, color: "var(--text-dim)" }}>Not available yet</span>
           </div>
         ))}
+      </div>
+
+      {openTask && (
+        <WorkerTaskSheet
+          task={openTask}
+          approvers={approvers}
+          allTasks={tasksToday ?? []}
+          tenantId={tenantId}
+          onClose={() => setOpenTask(null)}
+          onChanged={() => { loadTasksToday(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Worker Task Detail sheet (issue: task approval governance) ─────────────
+ * The worker's real task view: notes/instructions, the designated approver
+ * (so they know who reviews their completion), and status actions that go
+ * through the SAME PATCH /api/tasks/[id] as the owner's Tasks screen —
+ * Start (PENDING→STARTED), Mark Complete (→DONE or the approval queue),
+ * Block (pick an existing task this one is blocked by), and Request
+ * Clarification (a note appended to the audit trail). Every transition is
+ * audited server-side, so the owner sees who did what in Governance's
+ * Activity Log. */
+function WorkerTaskSheet({ task, approvers, allTasks, tenantId, onClose, onChanged }: {
+  task: ApiTask;
+  approvers: Approver[];
+  allTasks: ApiTask[];
+  tenantId: string;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { showToast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const [showBlockPicker, setShowBlockPicker] = useState(false);
+  const [blockerId, setBlockerId] = useState("");
+  const [showClarify, setShowClarify] = useState(false);
+  const [clarifyNote, setClarifyNote] = useState("");
+
+  const { assignee, rest } = splitNotes(task.notes);
+  const status = displayStatus(task);
+  const approver = task.approverId ? approvers.find(a => a.id === task.approverId) ?? null : null;
+  const blockedBy = task.blockedByTaskId ? allTasks.find(t => t.id === task.blockedByTaskId)?.title ?? null : null;
+
+  async function setStatus(next: string) {
+    setBusy(true);
+    const res = await apiClient.patch<ApiTask>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { status: next });
+    setBusy(false);
+    if (!res.success) { showToast(res.error ?? "Could not update task", "error"); return; }
+    showToast(next === "STARTED" ? "Task started" : next === "BLOCKED" ? "Task blocked" : "Task marked as done ✓", next === "BLOCKED" ? "info" : "success");
+    onChanged();
+    onClose();
+  }
+
+  async function blockWithSelected() {
+    if (!blockerId) return;
+    setBusy(true);
+    const res = await apiClient.patch<ApiTask>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { status: "BLOCKED", blockedByTaskId: blockerId });
+    setBusy(false);
+    if (!res.success) { showToast(res.error ?? "Could not block task", "error"); return; }
+    showToast("Task blocked", "info");
+    onChanged();
+    onClose();
+  }
+
+  async function submitClarification() {
+    if (!clarifyNote.trim()) return;
+    setBusy(true);
+    const res = await apiClient.patch<ApiTask>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { clarification: clarifyNote.trim() });
+    setBusy(false);
+    if (!res.success) { showToast(res.error ?? "Could not send clarification request", "error"); return; }
+    showToast("Clarification requested", "info");
+    setShowClarify(false);
+    setClarifyNote("");
+    onChanged();
+  }
+
+  const others = allTasks.filter(t => t.id !== task.id && t.status !== "DONE" && t.status !== "REJECTED");
+
+  return (
+    <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "flex-end", zIndex: 200 }} onClick={onClose}>
+      <div style={{ background: "var(--surface)", borderRadius: "22px 22px 0 0", width: "100%", maxHeight: "92%", overflowY: "auto", border: "1px solid var(--border-subtle)", padding: 20 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+          <div style={{ flex: 1, marginRight: 8 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.3, color: "var(--text-primary)", marginBottom: 4 }}>{task.title}</div>
+            <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 9 }}>{STATUS_LABEL[status] ?? status}</span>
+          </div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {[
+              ["Assigned To", assignee || "You", "var(--text-secondary)"],
+              ["Due", fmtDueAt(task.dueAt), status === "OVERDUE" ? "var(--status-critical)" : "var(--text-secondary)"],
+              ["Priority", task.priority, "var(--text-secondary)"],
+            ].map(([k, v, c]) => (
+              <div key={k}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>{k}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: c, textTransform: "capitalize" }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          {rest && (
+            <div style={{ marginTop: 10, padding: "8px 10px", background: "var(--card)", borderRadius: 8, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+              📝 {rest}
+            </div>
+          )}
+          {approver && (
+            <div style={{ marginTop: 10, padding: "7px 10px", background: "rgba(96,165,250,0.08)", borderRadius: 8, border: "1px solid rgba(96,165,250,0.25)", display: "flex", alignItems: "center", gap: 6 }}>
+              <Users size={12} color="var(--accent-blue)" />
+              <span style={{ fontSize: 11, color: "var(--accent-blue)", fontWeight: 600 }}>Will be approved by: {approver.name} ({approver.role})</span>
+            </div>
+          )}
+          {status === "BLOCKED" && blockedBy && (
+            <div style={{ marginTop: 8, padding: "7px 10px", background: "rgba(248,113,113,0.08)", borderRadius: 8, border: "1px solid rgba(248,113,113,0.25)", display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={12} color="var(--status-critical)" />
+              <span style={{ fontSize: 11, color: "var(--status-critical)", fontWeight: 600 }}>Blocked by: {blockedBy}</span>
+            </div>
+          )}
+        </div>
+
+        {showBlockPicker ? (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>What is blocking this task?</div>
+            {others.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>No other open tasks to block by.</div>}
+            {others.map(t => (
+              <button key={t.id} onClick={() => setBlockerId(t.id)} style={{ width: "100%", padding: "10px 12px", marginBottom: 6, borderRadius: 10, textAlign: "left", cursor: "pointer", background: blockerId === t.id ? "rgba(74,222,128,0.1)" : "var(--card)", border: blockerId === t.id ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{t.title}</span>
+                  {blockerId === t.id && <Check size={14} color="var(--primary-green)" />}
+                </div>
+              </button>
+            ))}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setShowBlockPicker(false)} style={{ flex: 1, padding: "10px", borderRadius: 10, background: "var(--card)", border: "1px solid var(--border-subtle)", color: "var(--text-muted)", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button onClick={blockWithSelected} disabled={!blockerId || busy} className="btn-primary" style={{ flex: 2, justifyContent: "center" }}>Confirm block</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {task.status === "PENDING" && (
+              <button onClick={() => setStatus("STARTED")} disabled={busy} className="btn-primary" style={{ justifyContent: "center", background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.4)", color: "var(--accent-blue)" }}>
+                <Play size={14} /> Start Work
+              </button>
+            )}
+            {task.status !== "DONE" && task.status !== "PENDING_APPROVAL" && task.status !== "BLOCKED" && (
+              <button onClick={() => setStatus("DONE")} disabled={busy} className="btn-primary" style={{ justifyContent: "center" }}>
+                <Check size={14} /> {task.requiresApproval ? "Submit for Approval" : "Mark Complete"}
+              </button>
+            )}
+            {task.status === "BLOCKED" && (
+              <button onClick={() => setStatus("STARTED")} disabled={busy} style={{ justifyContent: "center", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", background: "var(--card)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" }}>
+                <Play size={13} /> Resume (unblock)
+              </button>
+            )}
+            {task.status !== "DONE" && task.status !== "PENDING_APPROVAL" && task.status !== "BLOCKED" && (
+              <button onClick={() => setShowBlockPicker(true)} disabled={busy} style={{ justifyContent: "center", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)", color: "var(--status-critical)" }}>
+                <AlertTriangle size={13} /> Block…
+              </button>
+            )}
+            <button onClick={() => setShowClarify(s => !s)} style={{ justifyContent: "center", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 12, cursor: "pointer", background: "var(--card)", border: "1px solid var(--border-subtle)", color: "var(--text-muted)" }}>
+              <MessageSquare size={13} /> Request Clarification
+            </button>
+            {showClarify && (
+              <div style={{ marginTop: 4 }}>
+                <textarea className="farm-input" rows={2} placeholder="What do you need clarified? (e.g. which feed, how many birds)…" value={clarifyNote} onChange={e => setClarifyNote(e.target.value)} style={{ resize: "none" }} />
+                <button onClick={submitClarification} disabled={busy || !clarifyNote.trim()} className="btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 8 }}>Send request</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

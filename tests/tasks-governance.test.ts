@@ -172,6 +172,115 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
     })
   })
 
+  describe('task approval governance: approver selection, statuses, blockers, audit trail', () => {
+    it('POST /api/tasks accepts a designated owner approver and stores approverId', async () => {
+      mockCookie = undefined
+      const { status, payload } = await readJson(
+        await tasksPOST(
+          jsonRequest('http://localhost/api/tasks', 'POST', {
+            tenantId: tenantAId,
+            title: 'Approver-designated task',
+            requiresApproval: true,
+            approverId: managerId,
+          })
+        )
+      )
+      expect(status).toBe(201)
+      expect(payload.data.approverId).toBe(managerId)
+    })
+
+    it('rejects a worker as approver (400)', async () => {
+      const { status } = await readJson(
+        await tasksPOST(
+          jsonRequest('http://localhost/api/tasks', 'POST', {
+            tenantId: tenantAId,
+            title: 'Bad approver',
+            approverId: workerId,
+          })
+        )
+      )
+      expect(status).toBe(400)
+    })
+
+    it('rejects an approver id from another tenant (400)', async () => {
+      // workerId belongs to tenantA; there is no tenantB user in this suite,
+      // so use a random uuid — must fail the "active user of this tenant" check.
+      const { status } = await readJson(
+        await tasksPOST(
+          jsonRequest('http://localhost/api/tasks', 'POST', {
+            tenantId: tenantAId,
+            title: 'Foreign approver',
+            approverId: randomUUID(),
+          })
+        )
+      )
+      expect(status).toBe(400)
+    })
+
+    it('PATCH status STARTED records a task.started audit entry', async () => {
+      const created = (
+        await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Start me' })))
+      ).payload.data
+      const { status, payload } = await readJson(
+        await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'STARTED' }), {
+          params: Promise.resolve({ id: created.id }),
+        })
+      )
+      expect(status).toBe(200)
+      expect(payload.data.status).toBe('STARTED')
+      const audit = await db.select().from(auditLog).where(eq(auditLog.entityId, created.id))
+      expect(audit.some((a) => a.action === 'task.started')).toBe(true)
+    })
+
+    it('PATCH status BLOCKED requires a real blocker task (400 without, works with)', async () => {
+      const a = (await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Blocked task' })))).payload.data
+      const blocker = (await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Blocker task' })))).payload.data
+
+      const missing = await readJson(
+        await taskPATCH(jsonRequest(`http://localhost/api/tasks/${a.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'BLOCKED' }), {
+          params: Promise.resolve({ id: a.id }),
+        })
+      )
+      expect(missing.status).toBe(400)
+
+      const ok = await readJson(
+        await taskPATCH(
+          jsonRequest(`http://localhost/api/tasks/${a.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'BLOCKED', blockedByTaskId: blocker.id }),
+          { params: Promise.resolve({ id: a.id }) }
+        )
+      )
+      expect(ok.status).toBe(200)
+      expect(ok.payload.data.status).toBe('BLOCKED')
+      expect(ok.payload.data.blockedByTaskId).toBe(blocker.id)
+    })
+
+    it('rejects a self-block (400)', async () => {
+      const a = (await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Self block' })))).payload.data
+      const res = await readJson(
+        await taskPATCH(
+          jsonRequest(`http://localhost/api/tasks/${a.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'BLOCKED', blockedByTaskId: a.id }),
+          { params: Promise.resolve({ id: a.id }) }
+        )
+      )
+      expect(res.status).toBe(400)
+    })
+
+    it('PATCH clarification writes a task.clarification_requested audit entry', async () => {
+      const created = (await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Clarify me' })))).payload.data
+      const { status } = await readJson(
+        await taskPATCH(
+          jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'PATCH', { clarification: 'Which feed should I use?' }),
+          { params: Promise.resolve({ id: created.id }) }
+        )
+      )
+      expect(status).toBe(200)
+      const audit = await db.select().from(auditLog).where(eq(auditLog.entityId, created.id))
+      const entry = audit.find((a) => a.action === 'task.clarification_requested')
+      expect(entry).toBeTruthy()
+      expect(entry?.meta).toMatchObject({ note: 'Which feed should I use?' })
+    })
+  })
+
   describe('approvals: completion -> approve/reject writes audit_log', () => {
     it('marking a requiresApproval task DONE creates a pending approval_request instead of completing it', async () => {
       const created = (

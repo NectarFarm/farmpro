@@ -4,7 +4,7 @@ import { useNav, TopNav } from "./navigation";
 import {
   Plus, CheckCircle2, Clock, AlertTriangle, Users, Calendar,
   X, Check, Filter, RefreshCw, ShieldCheck,
-  Trash2, ChevronDown, ChevronUp, Download,
+  Trash2, ChevronDown, ChevronUp, Download, Play,
 } from "./icons";
 import { apiClient } from "@/lib/request";
 import { useToast } from "./ui-shared";
@@ -42,12 +42,27 @@ export interface ApiTask {
   priority: "low" | "medium" | "high";
   requiresApproval: boolean;
   notes: string | null;
+  // Task approval governance: the user id designated to approve this task's
+  // completion (owner/manager, chosen at creation), plus the task this one is
+  // blocked by when status = BLOCKED. Both null by default.
+  approverId?: string | null;
+  blockedByTaskId?: string | null;
   createdAt: string | null;
 }
 
 interface Employee {
   id: string;
   name: string;
+  role: string;
+}
+
+// A user who can approve task completions — GET /api/approvers (owner/manager
+// roles only, ACTIVE, tenant-scoped). Kept as name+role for display; the
+// worker-facing "who approves this" uses the same source.
+export interface Approver {
+  id: string;
+  name: string;
+  email: string;
   role: string;
 }
 
@@ -81,6 +96,7 @@ export const PRIORITY_COLOR: Record<string, string> = {
 export const STATUS_LABEL: Record<string, string> = {
   PENDING: "Pending", DONE: "Done", OVERDUE: "Overdue",
   PENDING_APPROVAL: "Pending approval", REJECTED: "Rejected",
+  STARTED: "In progress", BLOCKED: "Blocked",
 };
 
 export function isOverdue(t: ApiTask): boolean {
@@ -93,6 +109,8 @@ export function displayStatus(t: ApiTask): string {
 
 export function statusChipClass(status: string): string {
   if (status === "DONE") return "chip-ok";
+  if (status === "STARTED") return "chip-info";
+  if (status === "BLOCKED") return "chip-critical";
   if (status === "OVERDUE" || status === "REJECTED") return "chip-critical";
   return "chip-warning";
 }
@@ -120,15 +138,21 @@ function exportTaskCSV(tasks: ApiTask[], filename = "tasks_export.csv") {
 
 /* ── Task Detail Sheet ── */
 function TaskDetailSheet({
-  task, onClose, onDone, onDelete,
+  task, approvers, blockedBy, onClose, onDone, onStart, onBlock, onDelete,
 }: {
   task: ApiTask;
+  approvers: Approver[];
+  blockedBy: string | null;
   onClose: () => void;
   onDone: (task: ApiTask) => void;
+  onStart: (task: ApiTask) => void;
+  onBlock: (task: ApiTask) => void;
   onDelete: (task: ApiTask) => void;
 }) {
   const { assignee, rest } = splitNotes(task.notes);
   const status = displayStatus(task);
+  const approverName = task.approverId ? approvers.find(a => a.id === task.approverId)?.name ?? "—" : null;
+  const approverRole = task.approverId ? approvers.find(a => a.id === task.approverId)?.role ?? null : null;
 
   return (
     <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "flex-end", zIndex: 200 }} onClick={onClose}>
@@ -157,7 +181,19 @@ function TaskDetailSheet({
           {task.requiresApproval && (
             <div style={{ marginTop: 10, padding: "7px 10px", background: "rgba(251,191,36,0.08)", borderRadius: 8, border: "1px solid rgba(251,191,36,0.25)", display: "flex", alignItems: "center", gap: 6 }}>
               <ShieldCheck size={12} color="var(--accent-amber)" />
-              <span style={{ fontSize: 11, color: "var(--accent-amber)", fontWeight: 600 }}>Requires owner approval before marking done</span>
+              <span style={{ fontSize: 11, color: "var(--accent-amber)", fontWeight: 600 }}>Requires approval before marking done</span>
+            </div>
+          )}
+          {task.approverId && (
+            <div style={{ marginTop: 8, padding: "7px 10px", background: "rgba(96,165,250,0.08)", borderRadius: 8, border: "1px solid rgba(96,165,250,0.25)", display: "flex", alignItems: "center", gap: 6 }}>
+              <Users size={12} color="var(--accent-blue)" />
+              <span style={{ fontSize: 11, color: "var(--accent-blue)", fontWeight: 600 }}>Approver: {approverName} <span style={{ textTransform: "capitalize" }}>({approverRole})</span></span>
+            </div>
+          )}
+          {status === "BLOCKED" && blockedBy && (
+            <div style={{ marginTop: 8, padding: "7px 10px", background: "rgba(248,113,113,0.08)", borderRadius: 8, border: "1px solid rgba(248,113,113,0.25)", display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={12} color="var(--status-critical)" />
+              <span style={{ fontSize: 11, color: "var(--status-critical)", fontWeight: 600 }}>Blocked by: {blockedBy}</span>
             </div>
           )}
           {rest && (
@@ -168,6 +204,16 @@ function TaskDetailSheet({
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
+          {task.status === "PENDING" && (
+            <button onClick={() => { onStart(task); onClose(); }} style={{ flex: 1, padding: "11px", borderRadius: 10, fontSize: 13, fontWeight: 700, background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.35)", color: "var(--accent-blue)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <Play size={13} /> Start
+            </button>
+          )}
+          {task.status !== "DONE" && task.status !== "PENDING_APPROVAL" && task.status !== "BLOCKED" && (
+            <button onClick={() => { onBlock(task); onClose(); }} style={{ flex: 1, padding: "11px", borderRadius: 10, fontSize: 12, fontWeight: 700, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)", color: "var(--status-critical)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+              <AlertTriangle size={12} /> Block
+            </button>
+          )}
           {task.status !== "DONE" && task.status !== "PENDING_APPROVAL" && (
             <button onClick={() => { onDone(task); onClose(); }} style={{ flex: 1, padding: "11px", borderRadius: 10, fontSize: 13, fontWeight: 700, background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)", color: "var(--primary-green)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
               <Check size={14} /> Mark Done
@@ -221,13 +267,15 @@ function TaskCard({ task, onOpen }: { task: ApiTask; onOpen: (task: ApiTask) => 
 }
 
 /* ── Add Task Sheet ── */
-function AddTaskSheet({ employees, onClose, onCreate }: {
+function AddTaskSheet({ employees, approvers, onClose, onCreate }: {
   employees: Employee[];
+  approvers: Approver[];
   onClose: () => void;
-  onCreate: (payload: { title: string; assignee: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string }) => Promise<boolean>;
+  onCreate: (payload: { title: string; assignee: string; approverId: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string }) => Promise<boolean>;
 }) {
   const [title, setTitle] = useState("");
   const [assignee, setAssignee] = useState("");
+  const [approverId, setApproverId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("08:00");
   const [priority, setPriority] = useState<"high" | "medium" | "low">("medium");
@@ -241,7 +289,7 @@ function AddTaskSheet({ employees, onClose, onCreate }: {
     setSaving(true);
     setError("");
     const dueAt = dueDate ? new Date(`${dueDate}T${dueTime || "00:00"}`).toISOString() : "";
-    const ok = await onCreate({ title: title.trim(), assignee, dueAt, priority, requiresApproval, notes });
+    const ok = await onCreate({ title: title.trim(), assignee, approverId, dueAt, priority, requiresApproval, notes });
     setSaving(false);
     if (!ok) { setError("Could not create task — please try again"); return; }
     onClose();
@@ -266,6 +314,18 @@ function AddTaskSheet({ employees, onClose, onCreate }: {
             <option value="">Unassigned</option>
             {employees.map(e => <option key={e.id} value={e.name}>{e.name} ({e.role})</option>)}
           </select>
+        </div>
+
+        {/* Approver — who reviews this task's completion (issue: task approval
+            governance). Options are real owner/manager users from GET
+            /api/approvers; blank = any owner/manager (general queue). */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Approve By (optional)</label>
+          <select className="farm-input" value={approverId} onChange={e => setApproverId(e.target.value)}>
+            <option value="">Any owner / manager</option>
+            {approvers.map(a => <option key={a.id} value={a.id}>{a.name} ({a.role})</option>)}
+          </select>
+          <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 4 }}>The assigned worker will see who approves their work.</div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
@@ -362,11 +422,13 @@ export function TasksScreen() {
 
   const [tasks, setTasks] = useState<ApiTask[] | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [approvers, setApprovers] = useState<Approver[]>([]);
   const [loadError, setLoadError] = useState("");
 
   const [showAdd, setShowAdd] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
   const [openTask, setOpenTask] = useState<ApiTask | null>(null);
+  const [blockTask, setBlockTask] = useState<ApiTask | null>(null);
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -383,6 +445,9 @@ export function TasksScreen() {
   useEffect(() => {
     apiClient.get<Employee[]>(`/api/employees?tenantId=${tenantId}`).then(res => {
       if (res.success) setEmployees(res.data);
+    });
+    apiClient.get<Approver[]>(`/api/approvers?tenantId=${tenantId}`).then(res => {
+      if (res.success) setApprovers(res.data);
     });
   }, [tenantId]);
 
@@ -410,7 +475,7 @@ export function TasksScreen() {
   const done = all.filter(t => t.status === "DONE").length;
   const completionPct = all.length > 0 ? Math.round((done / all.length) * 100) : 0;
 
-  async function createTask(payload: { title: string; assignee: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string }) {
+  async function createTask(payload: { title: string; assignee: string; approverId: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string }) {
     const res = await apiClient.post<ApiTask>("/api/tasks", {
       tenantId,
       title: payload.title,
@@ -418,6 +483,7 @@ export function TasksScreen() {
       priority: payload.priority,
       requiresApproval: payload.requiresApproval,
       notes: buildNotes(payload.assignee, payload.notes),
+      approverId: payload.approverId || undefined,
     });
     if (!res.success) { showToast(res.error ?? "Could not create task", "error"); return false; }
     showToast("Task created", "success");
@@ -436,6 +502,23 @@ export function TasksScreen() {
     const res = await apiClient.delete(`/api/tasks/${task.id}?tenantId=${tenantId}`);
     if (!res.success) { showToast(res.error ?? "Could not delete task", "error"); return; }
     showToast(`Task deleted`, "success");
+    await loadTasks();
+  }
+
+  // STARTED — worker/owner marks the task in progress. Status transition is
+  // audited server-side (task.started audit entry); no approval involved.
+  async function startTask(task: ApiTask) {
+    const res = await apiClient.patch<ApiTask>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { status: "STARTED" });
+    if (!res.success) { showToast(res.error ?? "Could not start task", "error"); return; }
+    showToast("Task started", "success");
+    await loadTasks();
+  }
+
+  // BLOCKED with a real blocker task picked by the user (BlockTaskSheet).
+  async function blockTaskWith(task: ApiTask, blockedByTaskId: string) {
+    const res = await apiClient.patch<ApiTask>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { status: "BLOCKED", blockedByTaskId });
+    if (!res.success) { showToast(res.error ?? "Could not block task", "error"); return; }
+    showToast("Task blocked", "info");
     await loadTasks();
   }
 
@@ -518,7 +601,7 @@ export function TasksScreen() {
         </div>
       </div>
 
-      {showAdd && <AddTaskSheet employees={employees} onClose={() => setShowAdd(false)} onCreate={createTask} />}
+      {showAdd && <AddTaskSheet employees={employees} approvers={approvers} onClose={() => setShowAdd(false)} onCreate={createTask} />}
       {showFilter && (
         <FilterSheet
           filterStatus={filterStatus} setFilterStatus={setFilterStatus}
@@ -527,14 +610,63 @@ export function TasksScreen() {
           onReset={resetFilters}
         />
       )}
+      {blockTask && (
+        <BlockTaskSheet
+          task={blockTask}
+          tasks={tasks ?? []}
+          onClose={() => setBlockTask(null)}
+          onBlock={(blockerId) => { blockTaskWith(blockTask, blockerId); setBlockTask(null); }}
+        />
+      )}
       {openTask && (
         <TaskDetailSheet
           task={openTask}
+          approvers={approvers}
+          blockedBy={(tasks ?? []).find(t => t.id === openTask.blockedByTaskId)?.title ?? null}
           onClose={() => setOpenTask(null)}
           onDone={markDone}
+          onStart={startTask}
+          onBlock={setBlockTask}
           onDelete={deleteTask}
         />
       )}
+    </div>
+  );
+}
+
+/* ── Block Task Sheet — pick an existing task this one is blocked by ── */
+function BlockTaskSheet({ task, tasks, onClose, onBlock }: {
+  task: ApiTask;
+  tasks: ApiTask[];
+  onClose: () => void;
+  onBlock: (blockedByTaskId: string) => void;
+}) {
+  const [blockerId, setBlockerId] = useState("");
+  const others = tasks.filter(t => t.id !== task.id && t.status !== "DONE" && t.status !== "REJECTED");
+  return (
+    <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "flex-end", zIndex: 210 }} onClick={onClose}>
+      <div style={{ background: "var(--surface)", borderRadius: "22px 22px 0 0", width: "100%", padding: 20, border: "1px solid var(--border-subtle)", maxHeight: "85%", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Block "{task.title}"</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 12 }}>Select the task that must be finished first:</div>
+        {others.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12 }}>No other open tasks to block by.</div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+          {others.map(t => (
+            <button key={t.id} onClick={() => setBlockerId(t.id)} style={{ padding: "11px 12px", borderRadius: 10, textAlign: "left", cursor: "pointer", background: blockerId === t.id ? "rgba(74,222,128,0.1)" : "var(--card)", border: blockerId === t.id ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{t.title}</div>
+                {blockerId === t.id && <Check size={14} color="var(--primary-green)" />}
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{displayStatus(t)} · {fmtDueAt(t.dueAt)}</div>
+            </button>
+          ))}
+        </div>
+        <button className="btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={!blockerId} onClick={() => blockerId && onBlock(blockerId)}>
+          <AlertTriangle size={14} /> Block with selected task
+        </button>
+      </div>
     </div>
   );
 }

@@ -56,6 +56,16 @@ export const tasks = pgTable('tasks', {
   priority: text('priority').notNull().default('medium'),
   requiresApproval: boolean('requires_approval').notNull().default(false),
   notes: text('notes'),
+  // Designated approver (issue: task approval governance) — the user id of
+  // the owner/manager who should review this task's completion, chosen at
+  // creation by the task creator. NULL = "any owner/manager" (the pre-
+  // existing behavior where the request goes to the general approval queue).
+  // Plain logical reference, same no-FK convention as approvalRequests.batchId.
+  approverId: text('approver_id'),
+  // The task this one is blocked by (status = BLOCKED). Worker picks an
+  // existing tenant task when marking a task blocked, so dependencies are
+  // real references, not free text. NULL = not blocked.
+  blockedByTaskId: text('blocked_by_task_id'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_tasks_tenant').on(t.tenantId),
