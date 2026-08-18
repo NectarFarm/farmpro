@@ -6,9 +6,9 @@ import { getSessionUser } from '@/lib/auth'
 import { eq } from 'drizzle-orm'
 
 // ── GET/PUT /api/role-permissions (issue #243 task 4) ───────────────────────
-// The real backend for the UI's `OWNER_ROLES[].permissions` / `.approvalRequired`
-// shape (components/farm/data.ts's `OwnerRole` — GovernanceScreen's Role
-// Builder / CRUD Rules / Permissions matrix tabs). One row per
+// The real backend for the UI's `OwnerRole` shape (components/farm/data.ts's
+// `OwnerRole` type — GovernanceScreen's Role Builder / CRUD Rules / Permissions
+// matrix tabs; the old mock OWNER_ROLES constant is gone). One row per
 // (tenant, role, module) in the DB; GET regroups those rows back into the
 // per-role shape the UI already renders.
 //

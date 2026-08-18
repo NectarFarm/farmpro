@@ -1,7 +1,6 @@
 "use client";
 import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
 import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut } from "./icons";
-import { FARMS_DATA } from "./data";
 import { apiClient } from "@/lib/request";
 
 /* ── Screen registry ── */
@@ -27,8 +26,8 @@ export type ScreenId =
  * never silently into the worker/owner tab set. */
 export type Role = "owner" | "manager" | "worker" | "vet" | "auditor" | "super_admin";
 
-/* A farm as the shell needs it: identity + display fields. Rows from the backend
- * GET /api/farms map onto this; the mock FARMS_DATA do too. */
+/* A farm as the shell needs it: identity + display fields, mapped from the
+ * backend's GET /api/farms rows. */
 export interface FarmSummary {
   id: string;
   code: string;
@@ -53,7 +52,7 @@ export interface NavContext {
   role: Role;
   params: Record<string, string>;
   activeFarm: string; // Code of the farm currently in view — switchable (multi-farm, issue #219).
-  farms: FarmSummary[]; // The tenant's farms (from GET /api/farms; mock FARMS_DATA fallback).
+  farms: FarmSummary[]; // The tenant's farms, from GET /api/farms.
   tenantId: string; // Resolved tenant scope for tenant-scoped GETs (issue #228) — same
                      // session-tenant-wins / PROVISIONAL_TENANT_ID fallback as the farms fetch below.
   navigate: (to: ScreenId, params?: Record<string, string>) => void;
@@ -152,24 +151,22 @@ export function NavProvider({ children, initialRole = "owner", initialTenantId }
   const [activeFarm, setActiveFarm] = useState("FRM-KMU-001");
   const tenantId = initialTenantId ?? PROVISIONAL_TENANT_ID;
 
-  // The tenant's farms for the switcher: prefer the real backend (GET /api/farms),
-  // fall back to the mock FARMS_DATA when running standalone without the API
-  // (the mock app has no /api/farms route, so the fetch 404s and the fallback holds).
-  const [farms, setFarms] = useState<FarmSummary[]>(() =>
-    FARMS_DATA.map(f => ({ id: f.code, code: f.code, name: f.name, location: f.location }))
-  );
+  // The tenant's farms for the switcher, from the real backend (GET /api/farms).
+  // Start empty — no mock farms flash in while the fetch is in flight, and a
+  // failed/empty response stays empty (an empty tenant must not see fake
+  // farms). The old mock FARMS_DATA fallback was removed for the same reason.
+  const [farms, setFarms] = useState<FarmSummary[]>([]);
   useEffect(() => {
     let cancelled = false;
     apiClient.get<{ id: string; code: string; name: string; location: string }[]>(
       `/api/farms?tenantId=${tenantId}`
     ).then(res => {
       if (cancelled) return;
-      // Empty (valid) responses keep the mock set — the standalone app isn't seeded.
       if (res.success && Array.isArray(res.data) && res.data.length) {
         const real = res.data.map(f => ({ id: f.id, code: f.code || f.id, name: f.name, location: f.location ?? "" }));
         setFarms(real);
-        // The shell starts on the mock default code; if real farms replace the
-        // mock set, land on the first real farm so the badge/filters stay coherent.
+        // The shell starts on a default code; land on the first real farm so
+        // the badge/filters stay coherent.
         setActiveFarm(prev => (real.some(f => f.code === prev) ? prev : real[0].code));
       }
     });
