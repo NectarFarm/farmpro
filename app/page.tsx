@@ -86,7 +86,13 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       <AppSidebar />
       <div className="shell-main">
         <StatusBar />
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        {/* flex column so the screen's own `.screen-content` (flex: 1 +
+         * overflow-y: auto) is height-bounded and actually scrolls — before
+         * this, the child's `flex: 1` was inert against a block parent, so
+         * long screens grew past the viewport and were clipped with no way to
+         * scroll down (mobile and desktop alike). Same pattern the
+         * login/register branches already use below. */}
+        <div style={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
           {screen}
         </div>
         {showTabs && <BottomNav />}
