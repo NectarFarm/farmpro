@@ -8,15 +8,15 @@ import { and, desc, eq } from 'drizzle-orm'
 // Generic worker-submission log — feeding / mortality / physical_count today
 // (see db/schemas/people.ts for why this is one table, not one per type).
 //
-// POST does not enforce employees.mortalityPhotoThreshold against `photoUrl`
-// server-side: components/farm/worker.tsx's MortalityForm already blocks the
-// submit flow client-side once the death count reaches the threshold
-// (`needsPhoto` gates the Photo step before Confirm), and there is no
-// deaths-count field standardized across `data` payloads yet to key a
-// server-side check off (mortality's own `count` lives inside the loose
-// jsonb `data` blob). Enforcing this properly needs a typed mortality
-// payload — left for a follow-up rather than half-validating one field name
-// out of an intentionally-loose jsonb column.
+// Mortality photo gate: `employees.mortalityPhotoThreshold` is the server-side
+// source of truth. A mortality record whose `data.count` is at or above the
+// threshold REQUIRES `photoUrl` — the route rejects it with 400 if the photo
+// is missing, so the gate holds even against direct API calls, not just the
+// client-side check in components/farm/worker.tsx's MortalityForm (`needsPhoto`
+// gates the Photo step before Confirm). The mortality `count` lives inside the
+// loose jsonb `data` blob, so this reads that one field by name — a typed
+// mortality payload would let the check be stricter, but a plain count check
+// is safe: feeding/physical_count records never carry a death count.
 //
 // Same tenant-resolution + envelope conventions as the batches/employees
 // routes: session tenant wins, `tenantId` query param / body field is the
@@ -89,13 +89,24 @@ export async function POST(req: Request) {
   if (batchRows.length === 0) return notFound('Batch not found for this tenant')
 
   const employeeRows = await db
-    .select({ id: employees.id })
+    .select({ id: employees.id, mortalityPhotoThreshold: employees.mortalityPhotoThreshold })
     .from(employees)
     .where(and(eq(employees.id, employeeId), eq(employees.tenantId, tenantId)))
   if (employeeRows.length === 0) return notFound('Employee not found for this tenant')
+  const employee = employeeRows[0]
 
   const data = (b.data && typeof b.data === 'object' && !Array.isArray(b.data)) ? (b.data as Record<string, unknown>) : {}
   const photoUrl = typeof b.photoUrl === 'string' && b.photoUrl.trim() ? b.photoUrl.trim() : null
+
+  // Server-side mortality photo gate (the client-side `needsPhoto` check is
+  // not a security boundary — a direct API call could bypass it). A mortality
+  // record with `data.count >= threshold` must carry a photo.
+  if (type === 'mortality') {
+    const count = typeof data.count === 'number' ? data.count : Number(data.count)
+    if (Number.isFinite(count) && count >= employee.mortalityPhotoThreshold && !photoUrl) {
+      return badRequest(`A photo is required for ${employee.mortalityPhotoThreshold}+ deaths (this employee's threshold)`)
+    }
+  }
 
   const id = crypto.randomUUID()
   const rows = await db
