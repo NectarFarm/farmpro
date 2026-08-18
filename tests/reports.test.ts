@@ -105,9 +105,12 @@ run('reports: P&L, Batch P&L, Mortality, Feed Consumption (issue #263)', () => {
     // "in range" relative to a wide from/to window used for the date-filter
     // assertions below; the narrow-window assertions use a from/to that
     // brackets "now".
+    // count=4 is >= the default mortalityPhotoThreshold (3) — the record must
+    // carry a photoUrl since the route now enforces the photo gate server-side.
     await recordsPOST(
       postRequest('http://localhost/api/records', {
         tenantId, batchId: batchAId, employeeId, type: 'mortality', data: { count: 4, cause: 'Heat stress' },
+        photoUrl: 'https://example.com/mortality-evidence.jpg',
       })
     )
     await recordsPOST(
