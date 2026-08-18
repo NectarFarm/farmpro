@@ -772,8 +772,6 @@ export function CropScheduleScreen() {
   const [step, setStep] = useState(1);
   const totalSteps = 4;
   const steps = ["Basic Info", cfg.unitName, "Schedule", "Processes"];
-  const autoCode = genCode(cfg.batchPrefix, "KMU", 24);
-  const unitCodePreview = genCode(cfg.unitPrefix, "KMU", 7);
 
   // Step 1 — batch basics
   const [batchName, setBatchName] = useState(`${cfg.label} Batch – ${new Date().toLocaleString("en-GB", { month: "short", year: "numeric" })}`);
@@ -789,6 +787,33 @@ export function CropScheduleScreen() {
   const [startDate, setStartDate] = useState("");
   const [endOrHarvestDate, setEndOrHarvestDate] = useState("");
   const [initialCost, setInitialCost] = useState("");
+
+  // ── Real code previews (not hardcoded): the server generates codes as
+  // `<prefix>-<farm-segment>-<seq>` where seq = count of existing codes with
+  // that prefix+segment plus one (see lib/codes.ts / POST /api/units and
+  // /api/batches). Mirror that here against the real farm code and the real
+  // existing rows, so the preview matches what will actually be created —
+  // previously this was a hardcoded `genCode(prefix, "KMU", 24/7)` that
+  // showed a code (e.g. BRO-XXX-024) that never matched the saved one
+  // (e.g. BRO-NAKURU-002).
+  const [existingBatches, setExistingBatches] = useState<ApiBatch[]>([]);
+  const [existingUnits, setExistingUnits] = useState<ApiUnit[]>([]);
+  useEffect(() => {
+    apiClient.get<ApiBatch[]>(`/api/batches?tenantId=${tenantId}`).then(res => {
+      if (res.success) setExistingBatches(res.data);
+    });
+    apiClient.get<ApiUnit[]>(`/api/units?tenantId=${tenantId}`).then(res => {
+      if (res.success) setExistingUnits(res.data);
+    });
+  }, [tenantId]);
+
+  const selectedFarm = farms.find(f => f.id === farmId) ?? farms[0];
+  const farmCode = selectedFarm?.code ?? "FRM-XXX-000";
+  const segment = farmCode.split("-")[1] ?? "XXX";
+  const batchSeq = existingBatches.filter(b => b.code.startsWith(`${cfg.batchPrefix}-${segment}-`)).length + 1;
+  const unitSeq = existingUnits.filter(u => u.code.startsWith(`${cfg.unitPrefix}-${segment}-`)).length + 1;
+  const autoCode = genCode(cfg.batchPrefix, farmCode, batchSeq);
+  const unitCodePreview = genCode(cfg.unitPrefix, farmCode, unitSeq);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
