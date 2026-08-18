@@ -268,5 +268,92 @@ run('people & worker backend: employees + records (issue #247)', () => {
       )
       expect(res.status).toBe(404)
     })
+
+    it('rejects a mortality record at/above the photo threshold with no photo (server-side gate)', async () => {
+      // Threshold defaults to 3 (see employees POST test above)
+      const empRes = await employeesPOST(postRequest('http://localhost/api/employees', { tenantId: tenantAId, name: 'No-Photo Submitter' }))
+      const employee = (await empRes.json()).data
+      expect(employee.mortalityPhotoThreshold).toBe(3)
+
+      // Below threshold → allowed without a photo
+      const below = await recordsPOST(
+        postRequest('http://localhost/api/records', {
+          tenantId: tenantAId, batchId: batchAId, employeeId: employee.id,
+          type: 'mortality', data: { count: 2, cause: 'Injury' },
+        })
+      )
+      expect(below.status).toBe(201)
+      const belowRecord = (await below.json()).data
+      expect(belowRecord.photoUrl).toBeNull()
+
+      // At threshold → rejected without a photo
+      const atThreshold = await recordsPOST(
+        postRequest('http://localhost/api/records', {
+          tenantId: tenantAId, batchId: batchAId, employeeId: employee.id,
+          type: 'mortality', data: { count: 3, cause: 'Disease' },
+        })
+      )
+      expect(atThreshold.status).toBe(400)
+      expect((await atThreshold.json()).error).toMatch(/photo is required/i)
+
+      // Above threshold → rejected without a photo
+      const above = await recordsPOST(
+        postRequest('http://localhost/api/records', {
+          tenantId: tenantAId, batchId: batchAId, employeeId: employee.id,
+          type: 'mortality', data: { count: 4, cause: 'Disease' },
+        })
+      )
+      expect(above.status).toBe(400)
+
+      // Above threshold → accepted WITH a photo
+      const withPhoto = await recordsPOST(
+        postRequest('http://localhost/api/records', {
+          tenantId: tenantAId, batchId: batchAId, employeeId: employee.id,
+          type: 'mortality', data: { count: 4, cause: 'Disease' },
+          photoUrl: 'https://example.com/evidence.jpg',
+        })
+      )
+      expect(withPhoto.status).toBe(201)
+    })
+
+    it('uses the employee\'s real threshold, not a hardcoded 3', async () => {
+      const empRes = await employeesPOST(postRequest('http://localhost/api/employees', {
+        tenantId: tenantAId, name: 'High-Threshold Submitter', mortalityPhotoThreshold: 10,
+      }))
+      const employee = (await empRes.json()).data
+      expect(employee.mortalityPhotoThreshold).toBe(10)
+
+      // count 5 < 10 → allowed without a photo even though it exceeds a 3 default
+      const below = await recordsPOST(
+        postRequest('http://localhost/api/records', {
+          tenantId: tenantAId, batchId: batchAId, employeeId: employee.id,
+          type: 'mortality', data: { count: 5, cause: 'Unknown' },
+        })
+      )
+      expect(below.status).toBe(201)
+
+      // count 12 >= 10 → rejected without a photo
+      const above = await recordsPOST(
+        postRequest('http://localhost/api/records', {
+          tenantId: tenantAId, batchId: batchAId, employeeId: employee.id,
+          type: 'mortality', data: { count: 12, cause: 'Unknown' },
+        })
+      )
+      expect(above.status).toBe(400)
+    })
+
+    it('does not gate non-mortality record types on the photo rule', async () => {
+      const empRes = await employeesPOST(postRequest('http://localhost/api/employees', { tenantId: tenantAId, name: 'Feeding Submitter' }))
+      const employee = (await empRes.json()).data
+
+      // feeding with a large data.count (irrelevant field) and no photo → fine
+      const res = await recordsPOST(
+        postRequest('http://localhost/api/records', {
+          tenantId: tenantAId, batchId: batchAId, employeeId: employee.id,
+          type: 'feeding', data: { count: 50, feedType: 'mash' },
+        })
+      )
+      expect(res.status).toBe(201)
+    })
   })
 })
