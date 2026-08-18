@@ -39,7 +39,12 @@ interface RoleMatrixEntry {
   approvalRequired: string[];
 }
 
-const FALLBACK_ROLES = ["manager", "worker", "vet", "harvest_lead"];
+// Fallback when no role matrix is saved yet — the backend's real farm-scoped
+// roles (db/schemas/auth.ts: owner | manager | worker | vet | auditor |
+// super_admin, minus platform-only super_admin). Replaces the old mock-era
+// list that included "harvest_lead", a role that has never existed in the
+// backend, and omitted "owner".
+const FALLBACK_ROLES = ["owner", "manager", "worker", "vet", "auditor"];
 
 function roleLabel(roleId: string) {
   return roleId.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());

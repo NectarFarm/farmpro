@@ -1,22 +1,20 @@
 // ============================================================
-// data.ts — IFMS Single Source of Truth
+// data.ts — static UI config + shared types (NOT mock data)
 // ============================================================
-// Data flow overview:
-//   1. ENTERPRISE_REGISTRY  → drives CropScheduleScreen (what processes to show),
-//      BatchDetailScreen (metrics/KPIs), WorkerRecordScreen (which forms to show)
-//   2. BATCHES_DATA         → filtered by activeFarm in NavProvider,
-//      used by DashboardScreen, CropsScreen, FinanceScreen
-//   3. TASKS_DATA           → shown in TasksScreen, DashboardScreen today strip,
-//      WorkerHomeScreen; approval tasks feed APPROVALS_DATA
-//   4. APPROVALS_DATA       → shown in GovernanceScreen; on approve/reject
-//      a NOTIFICATION is appended and shown in NotificationsScreen
-//   5. NOTIFICATIONS_DATA   → badge count in BottomNav; full list in NotificationsScreen
-//   6. EMPLOYEES_DATA       → used by PeopleScreen, TasksScreen (assignee picker),
-//      WorkerProfileScreen; role maps to OWNER_ROLES permissions
-//   7. PRODUCTS_DATA        → priced products attached to batches; price history
-//      with start/end dates drives FinanceScreen sales & batch P&L
-//   8. GL_CHART             → FinanceScreen GL view; code ranges 1-6xxx per convention
-//   9. ONBOARD_REQUESTS     → AdminOnboardingScreen; status changes visible to admin
+// Every screen is API-driven (GET/POST against the real routes under
+// app/api). What remains here is genuinely static, data-free config:
+//   1. ENTERPRISE_REGISTRY  → UI config for enterprise types (emoji, code
+//      prefixes, process templates, metrics) — shared by Crops, Dashboard,
+//      Worker, Auth (register enterprise picker) and Admin onboarding.
+//   2. CSV_TEMPLATES / downloadCSV → the import-file format spec (columns +
+//      example rows) for the CSV import modal.
+//   3. Shared TypeScript interfaces + the genCode helper.
+// The mock data constants that used to live here (BATCHES_DATA,
+// EMPLOYEES_DATA, PRODUCTS_DATA, TASKS_DATA, APPROVALS_DATA,
+// NOTIFICATIONS_DATA, FARMS_DATA, OWNER_ROLES, GL_CHART, ONBOARD_REQUESTS)
+// are all gone — several leaked into real flows (e.g. the CSV import's
+// validation) because they were importable, so they were deleted rather than
+// left as a footgun.
 // ============================================================
 
 "use client";
@@ -214,61 +212,10 @@ export interface Product {
   priceHistory: ProductPrice[];
 }
 
-export const PRODUCTS_DATA: Product[] = [
-  {
-    id: "PRD-KMU-001", name: "Tray Eggs (30)", emoji: "🥚",
-    batchCode: "LYR-KMU-008", farmCode: "FRM-KMU-001", enterprise: "layer",
-    priceHistory: [
-      { price: 480, unit: "tray", currency: "KSh", startDate: "2026-01-01", endDate: "2026-07-31", notes: "Pre-season rate" },
-      { price: 530, unit: "tray", currency: "KSh", startDate: "2026-08-01", notes: "August price increase" },
-    ],
-  },
-  {
-    id: "PRD-KMU-002", name: "Live Broiler (kg)", emoji: "🐔",
-    batchCode: "BRO-KMU-022", farmCode: "FRM-KMU-001", enterprise: "broiler",
-    priceHistory: [
-      { price: 350, unit: "kg liveweight", currency: "KSh", startDate: "2026-01-01" },
-    ],
-  },
-  {
-    id: "PRD-KMU-003", name: "Fresh Milk (litre)", emoji: "🥛",
-    batchCode: "COW-KMU-003", farmCode: "FRM-KMU-001", enterprise: "dairy_cow",
-    priceHistory: [
-      { price: 55, unit: "litre", currency: "KSh", startDate: "2026-01-01", endDate: "2026-06-30" },
-      { price: 60, unit: "litre", currency: "KSh", startDate: "2026-07-01" },
-    ],
-  },
-  {
-    id: "PRD-KMU-004", name: "Maize (90kg bag)", emoji: "🌽",
-    batchCode: "MZE-KMU-007", farmCode: "FRM-KMU-001", enterprise: "maize",
-    priceHistory: [
-      { price: 4200, unit: "bag", currency: "KSh", startDate: "2026-01-01" },
-    ],
-  },
-  {
-    id: "PRD-KMU-005", name: "Kale / Sukuma (kg)", emoji: "🥬",
-    batchCode: "KIT-KMU-002", farmCode: "FRM-KMU-001", enterprise: "kitchen_garden",
-    priceHistory: [
-      { price: 80, unit: "kg", currency: "KSh", startDate: "2026-01-01" },
-    ],
-  },
-  {
-    id: "PRD-KMU-006", name: "Live Pork (kg)", emoji: "🐷",
-    batchCode: "PIG-KMU-004", farmCode: "FRM-KMU-001", enterprise: "pig",
-    priceHistory: [
-      { price: 420, unit: "kg liveweight", currency: "KSh", startDate: "2026-01-01" },
-    ],
-  },
-];
-
-// Helper: get current price for a product on a given date
-export function getCurrentPrice(product: Product, onDate?: string): ProductPrice | null {
-  const d = onDate ?? new Date().toISOString().slice(0, 10);
-  const valid = product.priceHistory
-    .filter(p => p.startDate <= d && (!p.endDate || p.endDate >= d))
-    .sort((a, b) => b.startDate.localeCompare(a.startDate));
-  return valid[0] ?? null;
-}
+// PRODUCTS_DATA (mock products + price history) and getCurrentPrice were
+// deleted — the dashboard's current-prices strip reads the real
+// GET /api/products/current-prices. The Product/ProductPrice types remain
+// below for any contract that references them.
 
 /* ── Multi-Farm ── */
 export interface Farm {
@@ -288,24 +235,8 @@ export interface Farm {
   createdAt: string;
 }
 
-export const FARMS_DATA: Farm[] = [
-  {
-    code: "FRM-KMU-001", name: "Nakuru Main Farm", location: "Nakuru, Kenya",
-    address: "Off Nakuru-Nairobi Highway, Lanet, Nakuru County",
-    lat: -0.2802, lng: 36.0665,
-    size: "12 acres", owner: "James Kamau", plan: "Pro",
-    enterprises: ["broiler", "layer", "pig", "dairy_cow", "maize", "kitchen_garden"],
-    employees: 5, maxEmployees: 15, status: "active", createdAt: "2024-01-15",
-  },
-  {
-    code: "FRM-KMU-002", name: "Eldoret Satellite Farm", location: "Eldoret, Kenya",
-    address: "Huruma Road, Eldoret West, Uasin Gishu County",
-    lat: 0.5143, lng: 35.2698,
-    size: "6 acres", owner: "James Kamau", plan: "Basic",
-    enterprises: ["goat", "maize", "vegetables"],
-    employees: 2, maxEmployees: 5, status: "active", createdAt: "2025-03-01",
-  },
-];
+// FARMS_DATA (mock farms) deleted — the farm switcher reads GET /api/farms
+// (components/farm/navigation.tsx falls back to nothing, not mock farms).
 
 /* ── Employees ── */
 export interface Employee {
@@ -325,14 +256,8 @@ export interface Employee {
   permissions?: Record<string, "edit" | "view" | "hidden">; // override if needed
 }
 
-export const EMPLOYEES_DATA: Employee[] = [
-  { code: "EMP-KMU-001", name: "Peter Njoroge", role: "manager", phone: "+254-712-345-678", salary: 45000, payday: 28, active: true, farmCode: "FRM-KMU-001", startDate: "2024-01-20", batches: ["ALL"], pin: null },
-  { code: "EMP-KMU-002", name: "John Kamau", role: "worker", phone: "+254-722-111-222", salary: 18000, payday: 28, active: true, farmCode: "FRM-KMU-001", startDate: "2024-02-01", batches: ["BRO-KMU-022","LYR-KMU-008"], pin: "****" },
-  { code: "EMP-KMU-003", name: "Sarah Mwangi", role: "worker", phone: "+254-733-444-555", salary: 18000, payday: 28, active: true, farmCode: "FRM-KMU-001", startDate: "2024-02-01", batches: ["PIG-KMU-004","COW-KMU-003"], pin: "****" },
-  { code: "EMP-KMU-004", name: "Ann Wambui", role: "harvest_lead", phone: "+254-744-666-777", salary: 22000, payday: 28, active: true, farmCode: "FRM-KMU-001", startDate: "2025-01-10", endDate: "2026-12-31", batches: ["MZE-KMU-007","KIT-KMU-002"], pin: "****", customRole: "Harvest Lead" },
-  { code: "EMP-KMU-005", name: "Dr. Ken Oduya", role: "vet", phone: "+254-755-888-999", salary: 25000, payday: 5, active: true, farmCode: "FRM-KMU-001", startDate: "2024-01-20", batches: ["ALL"], pin: null },
-  { code: "EMP-KMU-006", name: "Moses Kiptoo", role: "worker", phone: "+254-766-000-111", salary: 16000, payday: 28, active: true, farmCode: "FRM-KMU-002", startDate: "2025-03-15", batches: ["ALL"], pin: "****" },
-];
+// EMPLOYEES_DATA (mock employees) deleted — People/Tasks/Worker screens read
+// GET /api/employees. The Employee type remains for contracts that reference it.
 
 /* ── Batches ── */
 export interface Batch {
@@ -360,14 +285,8 @@ export interface Batch {
   customProcesses?: ProcessTemplate[];
 }
 
-export const BATCHES_DATA: Batch[] = [
-  { code: "BRO-KMU-022", label: "Broilers Oct Run", enterprise: "broiler", farmCode: "FRM-KMU-001", unitCode: "HSE-KMU-A01", qty: 920, initialQty: 1000, startDate: "2026-10-01", endDate: "2026-12-01", status: "ACTIVE", stage: "Grower", cost: 145000 },
-  { code: "LYR-KMU-008", label: "Layers Batch 8", enterprise: "layer", farmCode: "FRM-KMU-001", unitCode: "PEN-KMU-B01", qty: 490, initialQty: 500, startDate: "2026-02-20", status: "ACTIVE", stage: "Peak Lay", cost: 95000 },
-  { code: "PIG-KMU-004", label: "Pig Fatteners Q4", enterprise: "pig", farmCode: "FRM-KMU-001", unitCode: "STY-KMU-P01", qty: 62, initialQty: 65, startDate: "2026-07-15", endDate: "2026-11-15", status: "ACTIVE", stage: "Fattening", cost: 182000, transferDate: "2026-08-20", transferToUnitCode: "STY-KMU-P02", transferNotes: "Moving to new sty for final fattening phase" },
-  { code: "COW-KMU-003", label: "Dairy Herd Batch 3", enterprise: "dairy_cow", farmCode: "FRM-KMU-001", unitCode: "PAD-KMU-D01", qty: 12, initialQty: 12, startDate: "2025-01-01", status: "ACTIVE", stage: "Lactating", cost: 480000 },
-  { code: "MZE-KMU-007", label: "Maize Field Oct", enterprise: "maize", farmCode: "FRM-KMU-001", unitCode: "FLD-KMU-F01", qty: 2, initialQty: 2, startDate: "2026-03-15", harvestDate: "2026-07-20", status: "ACTIVE", stage: "Growing (75%)", cost: 42000 },
-  { code: "KIT-KMU-002", label: "Kale & Spinach Plot", enterprise: "kitchen_garden", farmCode: "FRM-KMU-001", unitCode: "PLT-KMU-F02", qty: 1, initialQty: 1, startDate: "2026-07-01", status: "ACTIVE", stage: "Mature", cost: 8500 },
-];
+// BATCHES_DATA (mock batches) deleted — Crops/Dashboard/Finance screens read
+// GET /api/batches. The Batch type remains for contracts that reference it.
 
 /* ── Owner-defined Roles ── */
 // Roles are created/edited in GovernanceScreen > Role Builder tab.
@@ -382,48 +301,10 @@ export interface OwnerRole {
   canApproveFor: string[];
 }
 
-export const OWNER_ROLES: OwnerRole[] = [
-  {
-    id: "manager", name: "Farm Manager", color: "var(--accent-purple)",
-    permissions: {
-      "feeding": "edit", "egg-collection": "edit", "mortality": "edit",
-      "health": "edit", "physical-count": "edit", "tasks": "edit",
-      "inventory": "view", "finance": "view", "payroll": "hidden", "governance": "hidden",
-    },
-    approvalRequired: ["delete-record", "variance-adjustment"],
-    canApproveFor: ["feeding", "egg-collection", "mortality"],
-  },
-  {
-    id: "worker", name: "Farm Worker", color: "var(--primary-green)",
-    permissions: {
-      "feeding": "edit", "egg-collection": "edit", "mortality": "edit",
-      "health": "view", "physical-count": "edit", "tasks": "view",
-      "inventory": "hidden", "finance": "hidden", "payroll": "hidden", "governance": "hidden",
-    },
-    approvalRequired: ["egg-collection", "mortality", "physical-count", "harvest"],
-    canApproveFor: [],
-  },
-  {
-    id: "vet", name: "Veterinarian", color: "var(--accent-cyan)",
-    permissions: {
-      "feeding": "hidden", "health": "edit", "mortality": "view",
-      "physical-count": "hidden", "tasks": "view", "inventory": "view",
-      "finance": "hidden", "payroll": "hidden", "governance": "hidden",
-    },
-    approvalRequired: [],
-    canApproveFor: ["health", "vaccination"],
-  },
-  {
-    id: "harvest_lead", name: "Harvest Lead", color: "var(--accent-amber)",
-    permissions: {
-      "feeding": "hidden", "harvest": "edit", "physical-count": "edit",
-      "tasks": "view", "inventory": "view", "finance": "hidden",
-      "payroll": "hidden", "governance": "hidden",
-    },
-    approvalRequired: ["harvest"],
-    canApproveFor: [],
-  },
-];
+// OWNER_ROLES (mock role definitions, including the never-real "harvest_lead"
+// role) deleted — Governance's Role Builder reads/writes the real per-tenant
+// GET/PUT /api/role-permissions matrix. The OwnerRole type remains for
+// contracts that reference it.
 
 /* ── Tasks ── */
 // Tasks flow: Created by Owner/Manager → assigned to Employee → Worker marks done
@@ -456,13 +337,8 @@ export interface Task {
   externalWorkers?: { name: string; phone?: string; portion?: string }[];
 }
 
-export const TASKS_DATA: Task[] = [
-  { code: "TSK-KMU-0081", title: "Egg Collection – Pen B01", type: "egg-collection", assigneeCode: "EMP-KMU-002", assigneeName: "John Kamau", farmCode: "FRM-KMU-001", batchCode: "LYR-KMU-008", unitCode: "PEN-KMU-B01", location: "Pen B01", startDate: "2026-08-11", dueTime: "07:30", frequency: "daily", status: "PENDING", requiresApproval: true, priority: "high" },
-  { code: "TSK-KMU-0082", title: "Morning Feeding – BRO-KMU-022", type: "feeding", assigneeCode: "EMP-KMU-002", assigneeName: "John Kamau", farmCode: "FRM-KMU-001", batchCode: "BRO-KMU-022", unitCode: "HSE-KMU-A01", location: "House A01", startDate: "2026-08-11", dueTime: "08:00", frequency: "daily", status: "OVERDUE", requiresApproval: false, priority: "high" },
-  { code: "TSK-KMU-0083", title: "Milking – Morning Round", type: "milking", assigneeCode: "EMP-KMU-003", assigneeName: "Sarah Mwangi", farmCode: "FRM-KMU-001", batchCode: "COW-KMU-003", unitCode: "PAD-KMU-D01", location: "Paddock D01", startDate: "2026-08-11", dueTime: "06:00", frequency: "daily", status: "DONE", requiresApproval: true, priority: "high" },
-  { code: "TSK-KMU-0084", title: "Maize Field Weed Inspection", type: "weed", assigneeCode: "EMP-KMU-004", assigneeName: "Ann Wambui", farmCode: "FRM-KMU-001", batchCode: "MZE-KMU-007", unitCode: "FLD-KMU-F01", location: "Field F01", startDate: "2026-08-11", endDate: "2026-08-14", dueTime: "09:00", frequency: "once", status: "PENDING", requiresApproval: false, priority: "medium" },
-  { code: "TSK-KMU-0085", title: "Maize Weeding – Group Task", type: "weed", assigneeCode: "GROUP:worker", assigneeName: "All Workers", farmCode: "FRM-KMU-001", batchCode: "MZE-KMU-007", unitCode: "FLD-KMU-F01", location: "Field F01", startDate: "2026-08-15", endDate: "2026-08-17", dueTime: "07:00", frequency: "once", status: "PENDING", requiresApproval: true, priority: "high", notes: "Divide field into 3 rows per person. Bring own jembes.", externalWorkers: [{ name: "James Mwangi", phone: "+254-700-111-222", portion: "Rows 1–4" }, { name: "Lucy Achieng", phone: "+254-711-333-444", portion: "Rows 5–8" }] },
-];
+// TASKS_DATA (mock tasks) deleted — Tasks/Worker screens read GET /api/tasks.
+// The Task type remains for contracts that reference it.
 
 /* ── Approval Requests ── */
 // When a worker submits a task that requiresApproval=true, an ApprovalRequest is created.
@@ -484,12 +360,9 @@ export interface ApprovalRequest {
   evidencePhoto?: boolean;
 }
 
-export const APPROVALS_DATA: ApprovalRequest[] = [
-  { code: "APR-KMU-0041", type: "Egg Collection", title: "Egg Collection – 145 trays recorded", requestedByCode: "EMP-KMU-002", requestedByName: "John Kamau", batchCode: "LYR-KMU-008", farmCode: "FRM-KMU-001", details: "Morning + evening rounds combined. 145 trays (30 eggs each). 3 cracked.", requestedAt: "2026-08-11 07:45", status: "pending", priority: "high", evidencePhoto: true },
-  { code: "APR-KMU-0042", type: "Mortality", title: "Pig mortality – 2 animals (PIG-KMU-004)", requestedByCode: "EMP-KMU-003", requestedByName: "Sarah Mwangi", batchCode: "PIG-KMU-004", farmCode: "FRM-KMU-001", details: "2 pigs found dead. Cause: heat stress. Photos attached.", requestedAt: "2026-08-11 09:30", status: "pending", priority: "high", evidencePhoto: true },
-  { code: "APR-KMU-0043", type: "Harvest", title: "Kitchen garden harvest – 28kg kale", requestedByCode: "EMP-KMU-004", requestedByName: "Ann Wambui", batchCode: "KIT-KMU-002", farmCode: "FRM-KMU-001", details: "Kale harvest ready for market. Estimated 28kg gross.", requestedAt: "2026-08-10 14:00", status: "approved", priority: "medium" },
-  { code: "APR-KMU-0044", type: "Milking", title: "Dairy milking – 84L morning", requestedByCode: "EMP-KMU-003", requestedByName: "Sarah Mwangi", batchCode: "COW-KMU-003", farmCode: "FRM-KMU-001", details: "12 cows milked. 84L total (7L/cow avg). 1 cow withheld (mastitis).", requestedAt: "2026-08-11 06:45", status: "approved", priority: "medium" },
-];
+// APPROVALS_DATA (mock approval requests) deleted — Governance reads
+// GET /api/approvals. The ApprovalRequest type remains for contracts that
+// reference it.
 
 /* ── Notifications ── */
 // Populated from: GovernanceScreen approvals, system events, task overdue alerts
@@ -506,44 +379,13 @@ export interface Notification {
   sourceCode?: string; // APR code, TSK code etc for deep linking
 }
 
-export const NOTIFICATIONS_DATA: Notification[] = [
-  { id: "N001", type: "weather", title: "Heavy Rain – Saturday", body: "82% rain forecast for Nakuru. Check drainage & shelters.", time: "2h ago", read: false, farmCode: "FRM-KMU-001" },
-  { id: "N002", type: "approval", title: "Approval needed: Egg Collection", body: "John Kamau submitted 145 trays. Review required.", time: "5m ago", read: false, farmCode: "FRM-KMU-001", sourceCode: "APR-KMU-0041" },
-  { id: "N003", type: "task", title: "Task Overdue: BRO-KMU-022 feeding", body: "Morning feeding was due at 08:00. Assigned to John Kamau.", time: "45m ago", read: false, farmCode: "FRM-KMU-001", sourceCode: "TSK-KMU-0082" },
-  { id: "N004", type: "alert", title: "Low Stock: Layer Mash", body: "Only 320kg remaining (reorder: 500kg). Place order now.", time: "3h ago", read: true, farmCode: "FRM-KMU-001" },
-  { id: "N005", type: "system", title: "Payroll due in 17 days", body: "August payroll (KSh 126,000) is due on 28 Aug.", time: "1d ago", read: true },
-  { id: "N006", type: "approval", title: "Approved: Dairy milking 84L", body: "Your milking record was approved by James Kamau.", time: "1h ago", read: true, farmCode: "FRM-KMU-001", sourceCode: "APR-KMU-0044" },
-];
+// NOTIFICATIONS_DATA (mock notifications) deleted — the bell/badge and
+// Notifications screen read GET /api/notifications. The Notification type
+// remains for contracts that reference it.
 
 /* ── GL Accounts ── */
-export const GL_CHART = [
-  { code: "1000", account: "Cash in Hand",            class: "Asset",    normal: "debit"  },
-  { code: "1001", account: "Bank – Equity Bank",      class: "Asset",    normal: "debit"  },
-  { code: "1100", account: "Accounts Receivable",     class: "Asset",    normal: "debit"  },
-  { code: "1200", account: "Livestock Inventory",     class: "Asset",    normal: "debit"  },
-  { code: "1201", account: "Feed & Supplies Inventory", class: "Asset",  normal: "debit"  },
-  { code: "1300", account: "Land & Improvements",     class: "Asset",    normal: "debit"  },
-  { code: "1301", account: "Farm Equipment",          class: "Asset",    normal: "debit"  },
-  { code: "2000", account: "Accounts Payable",        class: "Liability", normal: "credit" },
-  { code: "2001", account: "Loans – KCB Farm Loan",  class: "Liability", normal: "credit" },
-  { code: "2100", account: "Accrued Wages",           class: "Liability", normal: "credit" },
-  { code: "3000", account: "Owner's Equity",          class: "Equity",   normal: "credit" },
-  { code: "3100", account: "Retained Earnings",       class: "Equity",   normal: "credit" },
-  { code: "4001", account: "Egg Sales",               class: "Revenue",  normal: "credit" },
-  { code: "4002", account: "Broiler Sales",           class: "Revenue",  normal: "credit" },
-  { code: "4003", account: "Pork Sales",              class: "Revenue",  normal: "credit" },
-  { code: "4004", account: "Milk Sales",              class: "Revenue",  normal: "credit" },
-  { code: "4005", account: "Crop / Produce Sales",    class: "Revenue",  normal: "credit" },
-  { code: "5001", account: "Feed Costs",              class: "COGS",     normal: "debit"  },
-  { code: "5002", account: "Livestock Purchases",     class: "COGS",     normal: "debit"  },
-  { code: "5003", account: "Seed & Fertiliser",       class: "COGS",     normal: "debit"  },
-  { code: "6001", account: "Salaries & Wages",        class: "OpEx",     normal: "debit"  },
-  { code: "6002", account: "Veterinary & Medicine",   class: "OpEx",     normal: "debit"  },
-  { code: "6003", account: "Utilities",               class: "OpEx",     normal: "debit"  },
-  { code: "6004", account: "Repairs & Maintenance",   class: "OpEx",     normal: "debit"  },
-  { code: "6005", account: "Depreciation",            class: "OpEx",     normal: "debit"  },
-  { code: "6006", account: "Insurance",               class: "OpEx",     normal: "debit"  },
-];
+// GL_CHART (mock chart of accounts) deleted — Finance's GL reads the real
+// GET /api/gl/trial-balance (accounts are a real table, db/schemas/finance.ts).
 
 /* ── Onboarding Requests (SaaS admin) ── */
 // Self-registration: farmer fills out RegisterScreen → creates OnboardRequest
@@ -564,11 +406,9 @@ export interface OnboardRequest {
   notes?: string;
 }
 
-export const ONBOARD_REQUESTS: OnboardRequest[] = [
-  { id: "ORQ-001", farmerName: "Mary Wanjiku", email: "mary@email.com", phone: "+254-712-000-001", farmName: "Rift Valley Poultry", location: "Nakuru, Kenya", enterprises: ["layer","broiler"], requestedAt: "2026-08-10 14:00", status: "pending" },
-  { id: "ORQ-002", farmerName: "Peter Rono", email: "peter@email.com", phone: "+254-722-000-002", farmName: "Eldoret Dairy", location: "Eldoret, Kenya", enterprises: ["dairy_cow","maize"], requestedAt: "2026-08-09 10:00", status: "info-needed", notes: "Need to verify land ownership documents." },
-  { id: "ORQ-003", farmerName: "Grace Mutua", email: "grace@email.com", phone: "+254-733-000-003", farmName: "Machakos Veggie Farm", location: "Machakos, Kenya", enterprises: ["vegetables","kitchen_garden"], requestedAt: "2026-08-08 09:00", status: "approved" },
-];
+// ONBOARD_REQUESTS (mock onboarding rows) deleted — Admin onboarding reads
+// GET /api/onboard-requests. The OnboardRequest type remains for contracts
+// that reference it.
 
 /* ── CSV Templates ── */
 export const CSV_TEMPLATES: Record<string, { cols: string[]; example: string[] }> = {

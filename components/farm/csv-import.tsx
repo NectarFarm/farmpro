@@ -16,9 +16,11 @@
 //   7. Import proceeds only for rows with no remaining errors
 // ============================================================
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { X, Check, AlertTriangle, Download, RefreshCw, Edit2, ChevronDown, ChevronUp } from "./icons";
-import { EMPLOYEES_DATA, BATCHES_DATA, OWNER_ROLES, TASKS_DATA, downloadCSV, type Task, type Employee } from "./data";
+import { downloadCSV, type Task, type Employee } from "./data";
+import { useNav } from "./navigation";
+import { apiClient } from "@/lib/request";
 
 /* ─────────────────────────────────────────────────────────────
    Validation types
@@ -120,13 +122,21 @@ const VALID_TASK_TYPES = ["feeding","egg-collection","milking","mortality","heal
 const VALID_FREQUENCIES = ["once","daily","weekly","on-demand"];
 const VALID_PRIORITIES  = ["high","medium","low"];
 const VALID_STATUSES    = ["PENDING","DONE","OVERDUE","APPROVED","REJECTED"];
-const VALID_ROLES       = OWNER_ROLES.map(r => r.id);
+// Roles a real employee can hold — the backend's farm-scoped role set
+// (db/schemas/auth.ts: owner | manager | worker | vet | auditor | super_admin)
+// minus super_admin, which is a platform role, not an employee role. This used
+// to be derived from the mock OWNER_ROLES list, which offered a role
+// ("harvest_lead") that has never existed in the backend and omitted "owner".
+const VALID_ROLES = ["owner", "manager", "worker", "vet", "auditor"];
 
-const EMPLOYEE_CODES  = EMPLOYEES_DATA.map(e => e.code);
-const BATCH_CODES     = BATCHES_DATA.map(b => b.code);
-const TASK_CODES      = TASKS_DATA.map(t => t.code);
+// Real batch codes are fetched from GET /api/batches inside the modal and
+// threaded into the validators below — the old BATCH_CODES came from the mock
+// BATCHES_DATA (codes like BRO-KMU-022 that don't exist for a real tenant).
+// Employee codes aren't checked at all: the backend has no employee-code
+// column (POST /api/employees drops `code`), so an "already exists" check
+// against mock codes would be fabricated.
 
-function validateTask(row: Record<string, string>, allRows: Record<string, string>[], rowIdx: number): CellIssue[] {
+function validateTask(row: Record<string, string>, allRows: Record<string, string>[], rowIdx: number, batchCodes: string[]): CellIssue[] {
   const issues: CellIssue[] = [];
   const v = (col: string) => (row[col] ?? "").trim();
 
@@ -141,8 +151,6 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
   // duplicate within import batch
   const dupeInBatch = allRows.some((r, i) => i !== rowIdx && (r.code ?? "") === code && code !== "");
   if (dupeInBatch) issues.push({ col: "code", severity: "error", message: "Duplicate code in this import file" });
-  // already exists in system
-  if (code && TASK_CODES.includes(code)) issues.push({ col: "code", severity: "warning", message: `Task ${code} already exists — will be skipped on import` });
 
   // ── title ──
   const title = v("title");
@@ -167,11 +175,10 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
     issues.push({ col: "assigneeCode", severity: "error", message: "assigneeCode is required (employee code or GROUP:roleId)" });
   } else if (!aCode.startsWith("GROUP:")) {
     if (!RE_EMP_CODE.test(aCode)) {
-      const match = fuzzyMatchCode(aCode, EMPLOYEE_CODES);
-      issues.push({ col: "assigneeCode", severity: "warning", message: `"${aCode}" doesn't match EMP-XXX-000 format${match ? ` — did you mean "${match}"?` : ""}`, suggestion: match ?? undefined, autoFix: !!match });
-    } else if (!EMPLOYEE_CODES.includes(aCode)) {
-      issues.push({ col: "assigneeCode", severity: "warning", message: `Employee ${aCode} not found in system — will create as unknown assignee` });
+      issues.push({ col: "assigneeCode", severity: "warning", message: `"${aCode}" doesn't match EMP-XXX-000 format` });
     }
+    // No existence check: the backend has no employee-code column, so there is
+    // no real code list to validate against (the old one was mock data).
   } else {
     const roleId = aCode.replace("GROUP:", "");
     if (!VALID_ROLES.includes(roleId) && roleId !== "all") {
@@ -182,9 +189,9 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
   // ── batchCode ──
   const bCode = v("batchCode");
   if (bCode && !RE_BATCH_CODE.test(bCode)) {
-    const match = fuzzyMatchCode(bCode, BATCH_CODES);
+    const match = fuzzyMatchCode(bCode, batchCodes);
     issues.push({ col: "batchCode", severity: "warning", message: `"${bCode}" doesn't match batch code pattern${match ? ` — did you mean "${match}"?` : ""}`, suggestion: match ?? undefined, autoFix: !!match });
-  } else if (bCode && !BATCH_CODES.includes(bCode)) {
+  } else if (bCode && !batchCodes.includes(bCode)) {
     issues.push({ col: "batchCode", severity: "info", message: `Batch "${bCode}" not in system — will be stored as-is` });
   }
 
@@ -251,7 +258,7 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
   return issues;
 }
 
-function validateEmployee(row: Record<string, string>, allRows: Record<string, string>[], rowIdx: number): CellIssue[] {
+function validateEmployee(row: Record<string, string>, allRows: Record<string, string>[], rowIdx: number, batchCodes: string[]): CellIssue[] {
   const issues: CellIssue[] = [];
   const v = (col: string) => (row[col] ?? "").trim();
 
@@ -265,7 +272,9 @@ function validateEmployee(row: Record<string, string>, allRows: Record<string, s
   }
   const dupeInBatch = allRows.some((r, i) => i !== rowIdx && (r.code ?? "") === code && code !== "");
   if (dupeInBatch) issues.push({ col: "code", severity: "error", message: "Duplicate code within this import file" });
-  if (code && EMPLOYEE_CODES.includes(code)) issues.push({ col: "code", severity: "warning", message: `Employee ${code} already exists — will update existing record` });
+  // No "already exists" check against a code list: the backend has no
+  // employee-code column (POST /api/employees drops `code`), so imports always
+  // create new records and the old existence hint compared against mock codes.
 
   // ── name ──
   const name = v("name");
@@ -345,8 +354,8 @@ function validateEmployee(row: Record<string, string>, allRows: Record<string, s
   if (batches && batches !== "ALL") {
     const codes = batches.split(";").map(c => c.trim());
     codes.forEach(bc => {
-      if (bc && !BATCH_CODES.includes(bc) && !RE_BATCH_CODE.test(bc)) {
-        const match = fuzzyMatchCode(bc, BATCH_CODES);
+      if (bc && !batchCodes.includes(bc) && !RE_BATCH_CODE.test(bc)) {
+        const match = fuzzyMatchCode(bc, batchCodes);
         issues.push({ col: "batches", severity: "warning", message: `Batch "${bc}" not found${match ? ` — did you mean "${match}"?` : ""}`, suggestion: match ?? undefined, autoFix: !!match });
       }
     });
@@ -425,11 +434,11 @@ function validateInventory(row: Record<string, string>, allRows: Record<string, 
   return issues;
 }
 
-export function validateRows(entity: ImportEntity, rows: Record<string, string>[]): RowResult[] {
+export function validateRows(entity: ImportEntity, rows: Record<string, string>[], batchCodes: string[] = []): RowResult[] {
   return rows.map((row, i) => {
     let issues: CellIssue[] = [];
-    if (entity === "tasks") issues = validateTask(row, rows, i);
-    else if (entity === "employees") issues = validateEmployee(row, rows, i);
+    if (entity === "tasks") issues = validateTask(row, rows, i, batchCodes);
+    else if (entity === "employees") issues = validateEmployee(row, rows, i, batchCodes);
     else if (entity === "inventory") issues = validateInventory(row, rows, i);
     const hasErrors = issues.some(is => is.severity === "error");
     return {
@@ -472,6 +481,7 @@ interface CsvImportModalProps {
 }
 
 export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProps) {
+  const { tenantId } = useNav();
   const [phase, setPhase] = useState<"upload" | "review" | "done">("upload");
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
@@ -481,6 +491,16 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
   const [editValue, setEditValue] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const expectedCols = ENTITY_EXPECTED_COLS[entity];
+
+  /* ── Real batch codes for existence checks (fetched, not mock) ── */
+  const [batchCodes, setBatchCodes] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<{ code: string }[]>(`/api/batches?tenantId=${tenantId}`).then((res) => {
+      if (!cancelled && res.success) setBatchCodes((res.data ?? []).map((b) => b.code));
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   /* ── Missing / extra column detection ── */
   const missingCols = expectedCols.filter(c => !headers.includes(c));
@@ -501,7 +521,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
       const text = ev.target?.result as string;
       const { headers: h, rows } = parseCSVText(text);
       setHeaders(h);
-      setResults(validateRows(entity, rows));
+      setResults(validateRows(entity, rows, batchCodes));
       setPhase("review");
     };
     reader.readAsText(file);
@@ -518,7 +538,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
         }
       });
       // Re-validate with fixed values
-      const newResults = validateRows(entity, [newEdited]);
+      const newResults = validateRows(entity, [newEdited], batchCodes);
       return { ...row, edited: newEdited, issues: newResults[0].issues, importable: newResults[0].importable };
     }));
   }
@@ -534,7 +554,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
     setResults(prev => prev.map((row, i) => {
       if (i !== editingCell.row) return row;
       const newEdited = { ...row.edited, [editingCell.col]: editValue };
-      const newResults = validateRows(entity, [newEdited]);
+      const newResults = validateRows(entity, [newEdited], batchCodes);
       return { ...row, edited: newEdited, issues: newResults[0].issues, importable: newResults[0].importable };
     }));
     setEditingCell(null);
@@ -544,7 +564,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
     setResults(prev => prev.map((row, i) => {
       if (i !== rowIdx) return row;
       const newEdited = { ...row.edited, [col]: suggestion };
-      const newResults = validateRows(entity, [newEdited]);
+      const newResults = validateRows(entity, [newEdited], batchCodes);
       return { ...row, edited: newEdited, issues: newResults[0].issues, importable: newResults[0].importable };
     }));
   }
