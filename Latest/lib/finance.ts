@@ -160,6 +160,10 @@ export async function postPurchaseJournal(
 export async function recordSale(input: {
   tenantId: string
   batchId?: string | null
+  // product-unit-inheritance task: optional link to the products catalogue.
+  // `item` stays required and independent of this — see db/schemas/
+  // finance.ts's comment on sales.productId for why both fields exist.
+  productId?: string | null
   item: string
   amount: number
   method?: string
@@ -173,6 +177,7 @@ export async function recordSale(input: {
         id: randomUUID(),
         tenantId: input.tenantId,
         batchId: input.batchId ?? null,
+        productId: input.productId ?? null,
         item: input.item,
         amount: input.amount,
         method: input.method ?? '',

@@ -131,9 +131,32 @@ const PRODUCTS = [
   { id: 'demo-pr4', type: 'crop',      name: 'Maize (90kg bag)', units: 52 },
 ]
 
+// Which units offer which products (product-unit-inheritance task). Note
+// demo-pr4 is attached to BOTH maize fields — one product shared across two
+// units on two different farms, which is the whole point of a tenant-level
+// catalogue. Batches under these units inherit these products with no rows of
+// their own.
+const PRODUCT_UNITS = [
+  { id: 'demo-pu1', product: 'demo-pr1', unit: 'demo-u1' }, // Eggs      -> Layer Pen A
+  { id: 'demo-pu2', product: 'demo-pr2', unit: 'demo-u2' }, // Broiler   -> Broiler House B
+  { id: 'demo-pu3', product: 'demo-pr4', unit: 'demo-u3' }, // Maize bag -> Maize Field 1  (Nakuru)
+  { id: 'demo-pu4', product: 'demo-pr4', unit: 'demo-u5' }, // Maize bag -> Maize Field 2  (Eldoret) — shared
+  { id: 'demo-pu5', product: 'demo-pr3', unit: 'demo-u4' }, // Milk      -> Dairy Shed
+]
+
+// The two override cases, so both are visible in the UI rather than only the
+// happy path: one batch sells something its unit does not (spent layers going
+// out as meat), and one batch drops an inherited product it genuinely has no
+// use for.
+const BATCH_PRODUCTS = [
+  { id: 'demo-bp1', batch: 'demo-b1', product: 'demo-pr2', mode: 'ADD' },     // Layers Jan also sells spent hens
+  { id: 'demo-bp2', batch: 'demo-b5', product: 'demo-pr4', mode: 'EXCLUDE' }, // Satellite maize is cut for silage
+]
+
 async function reset() {
   // Child rows first — records/sales/approvals reference batches.
-  for (const t of ['records', 'sales', 'approval_requests', 'notifications', 'purchases',
+  for (const t of ['batch_products', 'product_units',
+                   'records', 'sales', 'approval_requests', 'notifications', 'purchases',
                    'inventory_lots', 'inventory_items', 'tasks', 'employees', 'products',
                    'batches', 'production_units']) {
     await sql`DELETE FROM ${sql(t)} WHERE id LIKE 'demo-%'`
@@ -211,12 +234,23 @@ async function main() {
       VALUES (${p.id}, ${T}, ${p.type}, ${p.name}, ${p.units})
       ON CONFLICT (id) DO NOTHING`
   }
+  for (const pu of PRODUCT_UNITS) {
+    await sql`INSERT INTO product_units (id, tenant_id, product_id, unit_id)
+      VALUES (${pu.id}, ${T}, ${pu.product}, ${pu.unit})
+      ON CONFLICT (id) DO NOTHING`
+  }
+  for (const bp of BATCH_PRODUCTS) {
+    await sql`INSERT INTO batch_products (id, tenant_id, batch_id, product_id, mode)
+      VALUES (${bp.id}, ${T}, ${bp.batch}, ${bp.product}, ${bp.mode})
+      ON CONFLICT (id) DO NOTHING`
+  }
 
   const [{ count: units }] = await sql`SELECT count(*)::int FROM production_units WHERE id LIKE 'demo-%'`
   const [{ count: batches }] = await sql`SELECT count(*)::int FROM batches WHERE id LIKE 'demo-%'`
   const [{ count: sales }] = await sql`SELECT count(*)::int FROM sales WHERE id LIKE 'demo-%'`
   console.log(`demo data ready: ${units} units, ${batches} batches, ${sales} sales, ` +
-    `${EMPLOYEES.length} staff, ${TASKS.length} tasks, ${LOTS.length} stock lots, ${PURCHASES.length} purchases`)
+    `${EMPLOYEES.length} staff, ${TASKS.length} tasks, ${LOTS.length} stock lots, ${PURCHASES.length} purchases, ` +
+    `${PRODUCTS.length} products across ${PRODUCT_UNITS.length} unit links + ${BATCH_PRODUCTS.length} batch overrides`)
 }
 
 try { await main() } catch (err) { console.error('demo seed failed:', err); process.exitCode = 1 } finally { await sql.end() }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { batches } from '@/db/schemas'
+import { batches, products } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { listSales, recordSale } from '@/lib/finance'
 import { and, eq } from 'drizzle-orm'
@@ -52,7 +52,16 @@ export async function GET(req: Request) {
 }
 
 // POST /api/data/sales — record a sale (and post its journal entry).
-// Body: { tenantId?, batchId?, item, amount, method?, status?, soldAt? }
+// Body: { tenantId?, batchId?, productId?, item?, amount, method?, status?,
+//         soldAt? }
+//
+// `productId` (product-unit-inheritance task, optional): when present and
+// `item` is not explicitly supplied, `item` is filled in from the product's
+// own name — so a catalogue-driven sale doesn't force the caller to retype
+// the label the catalogue already knows, while an ad-hoc sale with no
+// productId still requires `item` exactly as before. `productId` must
+// belong to the caller's tenant (tenant isolation, same 404-not-500 shape as
+// `batchId` below).
 export async function POST(req: Request) {
   let raw: unknown
   try {
@@ -63,12 +72,22 @@ export async function POST(req: Request) {
   const b = (raw ?? {}) as Record<string, unknown>
   const session = await getSessionUser()
   const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
-  const item = typeof b.item === 'string' ? b.item.trim() : ''
+  let item = typeof b.item === 'string' ? b.item.trim() : ''
   const amount = Number(b.amount)
   const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'paid'
   const batchId = typeof b.batchId === 'string' && b.batchId.trim() ? b.batchId.trim() : null
+  const productId = typeof b.productId === 'string' && b.productId.trim() ? b.productId.trim() : null
 
   if (!tenantId) return badRequest('tenantId is required')
+
+  let product: { id: string; name: string } | undefined
+  if (productId) {
+    const rows = await db.select({ id: products.id, name: products.name }).from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId)))
+    product = rows[0]
+    if (!product) return notFound('Product not found for this tenant')
+    if (!item) item = product.name
+  }
+
   if (!item) return badRequest('item is required')
   if (!Number.isFinite(amount) || amount <= 0) return badRequest('amount must be a positive number')
   if (!VALID_STATUSES.has(status)) return badRequest("status must be 'paid' or 'pending'")
@@ -84,6 +103,7 @@ export async function POST(req: Request) {
   const sale = await recordSale({
     tenantId,
     batchId,
+    productId,
     item,
     amount: Math.trunc(amount),
     method,

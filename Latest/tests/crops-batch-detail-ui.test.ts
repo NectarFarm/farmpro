@@ -20,7 +20,9 @@ describe('components/farm/crops.tsx — BatchDetailScreen stat row (issue #301)'
   })
 
   it('restores the type-specific Area (crop) / FCR (livestock) 3rd tile', () => {
-    expect(source).toMatch(/cfg\?\.type === "crop" \? "Area" : "FCR"/)
+    // Quote-agnostic: the repo lints to single quotes, so pinning the literal
+    // double-quoted form made a lint fix look like a behaviour regression.
+    expect(source).toMatch(/cfg\?\.type === ['"]crop['"] \? ['"]Area['"] : ['"]FCR['"]/)
   })
 
   it('keeps Species elsewhere on the screen rather than dropping it entirely', () => {
