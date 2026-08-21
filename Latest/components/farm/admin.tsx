@@ -1,7 +1,7 @@
 'use client';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Lock, Plus, X, Edit2, Archive, RotateCcw } from './icons';
+import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Lock, Plus, X, Edit2, Archive, RotateCcw, Palette } from './icons';
 import { apiClient } from '@/lib/request';
 
 // ── Real backend wiring (issue #252) ────────────────────────────────────────
@@ -448,21 +448,233 @@ function FarmArchiveConfirm({ tenantId, farm, onClose, onDone }: {
   );
 }
 
-// Platform Settings (branding/plans) has no backend at all — building one is
-// real net-new scope beyond issue #252. This is an explicit "not available
-// yet" state rather than a form that posts nowhere.
+// ── Platform Config (vet/auditor/admin-settings screens task) ──────────────
+// There is no platform-GLOBAL settings table — that half of the old "not
+// available yet" copy was true. But per-TENANT settings have a full backend
+// (db/schemas/settings.ts's tenant_settings + GET/PATCH /api/settings), and
+// GET /api/admin/tenants already lists every tenant a super_admin can act on.
+// So this screen is what a super_admin can honestly do today: pick a tenant,
+// then read/edit that tenant's real settings row — the same store
+// components/farm/settings.tsx and ui-customise.tsx read/write for a normal
+// tenant session.
+//
+// Cross-tenant authorisation: GET/PATCH /api/settings resolve tenantId from
+// the SESSION first; the `?tenantId=` query param is only consulted when the
+// session itself carries none (session?.tenantId ?? query — see
+// app/api/settings/route.ts's resolveTenantId). A super_admin session's
+// tenantId is always null, so the query param is the only way for a
+// super_admin to act at all; every other role always has a real
+// session.tenantId, so their own session wins and the query param is inert
+// for them — an owner/manager cannot use this same query param to reach
+// another tenant's settings. Verified in tests/role-screens.test.ts.
+//
+// Plans/packages genuinely have no backend anywhere (no plans table) — kept
+// as a small, honest, separate note rather than blocking the rest of the tab.
+const THEMES = ['dark-farm', 'high-contrast', 'light-farm', 'sun-mode'] as const;
+const FONT_SIZES = ['small', 'normal', 'large', 'xlarge'] as const;
+
+interface ApiTenantSettings {
+  tenantId: string;
+  theme: string;
+  fontSize: string;
+  notificationsEnabled: boolean;
+  soundAlertsEnabled: boolean;
+  offlineModeEnabled: boolean;
+  accentColor: string;
+  logoEmoji: string;
+  dashboardGreeting: string;
+  currencySymbol: string;
+  weightUnit: string;
+}
+
 export function AdminSettingsScreen() {
+  const [tenants, setTenants] = useState<ApiTenant[] | null>(null);
+  const [tenantsError, setTenantsError] = useState('');
+  const [tenantId, setTenantId] = useState('');
+  const [settings, setSettings] = useState<ApiTenantSettings | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    apiClient.get<ApiTenant[]>('/api/admin/tenants').then((res) => {
+      if (res.success) {
+        setTenants(res.data);
+        setTenantsError('');
+        if (res.data.length > 0) setTenantId((cur) => cur || res.data[0].id);
+      } else {
+        setTenantsError(res.error || 'Failed to load tenants.');
+      }
+    });
+  }, []);
+
+  const loadSettings = useCallback(() => {
+    if (!tenantId) return;
+    apiClient.get<ApiTenantSettings>(`/api/settings?tenantId=${tenantId}`).then((res) => {
+      if (res.success) { setSettings(res.data); setLoadError(''); }
+      else { setSettings(null); setLoadError(res.error || 'Failed to load settings.'); }
+    });
+  }, [tenantId]);
+
+  useEffect(() => { loadSettings(); }, [loadSettings]);
+
+  function update<K extends keyof ApiTenantSettings>(key: K, value: ApiTenantSettings[K]) {
+    setSettings((s) => (s ? { ...s, [key]: value } : s));
+  }
+
+  async function handleSave() {
+    if (!tenantId || !settings) return;
+    setSaving(true);
+    setSaveError('');
+    const res = await apiClient.patch(`/api/settings?tenantId=${tenantId}`, {
+      theme: settings.theme,
+      fontSize: settings.fontSize,
+      notificationsEnabled: settings.notificationsEnabled,
+      soundAlertsEnabled: settings.soundAlertsEnabled,
+      offlineModeEnabled: settings.offlineModeEnabled,
+      accentColor: settings.accentColor,
+      logoEmoji: settings.logoEmoji,
+      dashboardGreeting: settings.dashboardGreeting,
+      currencySymbol: settings.currencySymbol,
+      weightUnit: settings.weightUnit,
+    });
+    setSaving(false);
+    if (res.success) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } else {
+      setSaveError(res.error || 'Failed to save settings.');
+    }
+  }
+
+  const selectedTenant = tenants?.find((t) => t.id === tenantId) ?? null;
+
   return (
-    <div className="screen-content px-screen" style={{ paddingTop: 16 }}>
-      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Platform Config</div>
-      <div className="farm-card" style={{ padding: 24, textAlign: 'center' }}>
-        <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
-          <Lock size={22} color="var(--text-muted)" />
-        </div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Not available yet</div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          Platform branding and plan/package configuration have no backend yet.
-          This tab will come online once that admin-settings service exists.
+    <div className="screen-content">
+      <TopNav title="Platform Config" subtitle="Per-tenant settings, as a platform admin" />
+      <div className="px-screen" style={{ paddingTop: 12, paddingBottom: 40 }}>
+        {tenantsError && (
+          <div className="farm-card" style={{ padding: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <AlertTriangle size={16} color="var(--status-critical)" />
+            <span style={{ fontSize: 12, color: 'var(--status-critical)' }}>{tenantsError}</span>
+          </div>
+        )}
+
+        {tenants && tenants.length === 0 && !tenantsError && (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+            <Building2 size={32} style={{ marginBottom: 10, opacity: 0.4 }} />
+            <div style={{ fontSize: 14, fontWeight: 600 }}>No tenants onboarded yet</div>
+          </div>
+        )}
+
+        {tenants && tenants.length > 0 && (
+          <>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Tenant</label>
+              <select className="farm-input" value={tenantId} onChange={(e) => setTenantId(e.target.value)}>
+                {tenants.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}{t.active ? '' : ' (suspended)'}</option>
+                ))}
+              </select>
+              {selectedTenant && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  {selectedTenant.farms} farm{selectedTenant.farms === 1 ? '' : 's'} · {selectedTenant.users} user{selectedTenant.users === 1 ? '' : 's'}
+                </div>
+              )}
+            </div>
+
+            {loadError && (
+              <div className="farm-card" style={{ padding: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <AlertTriangle size={16} color="var(--status-critical)" />
+                <span style={{ fontSize: 12, color: 'var(--status-critical)' }}>{loadError}</span>
+              </div>
+            )}
+
+            {settings && (
+              <>
+                <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 10 }}>Appearance</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Theme</label>
+                      <select className="farm-input" value={settings.theme} onChange={(e) => update('theme', e.target.value)} style={{ fontSize: 13 }}>
+                        {THEMES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Font size</label>
+                      <select className="farm-input" value={settings.fontSize} onChange={(e) => update('fontSize', e.target.value)} style={{ fontSize: 13 }}>
+                        {FONT_SIZES.map((f) => <option key={f} value={f}>{f}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 10 }}>Branding</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Logo emoji</label>
+                      <input className="farm-input" value={settings.logoEmoji} onChange={(e) => update('logoEmoji', e.target.value)} style={{ fontSize: 13 }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Accent color</label>
+                      <input className="farm-input" type="color" value={settings.accentColor} onChange={(e) => update('accentColor', e.target.value)} style={{ padding: 3, height: 38 }} />
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Dashboard greeting</label>
+                    <input className="farm-input" value={settings.dashboardGreeting} onChange={(e) => update('dashboardGreeting', e.target.value)} style={{ fontSize: 13 }} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Currency symbol</label>
+                      <input className="farm-input" value={settings.currencySymbol} onChange={(e) => update('currencySymbol', e.target.value)} style={{ fontSize: 13 }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Weight unit</label>
+                      <input className="farm-input" value={settings.weightUnit} onChange={(e) => update('weightUnit', e.target.value)} style={{ fontSize: 13 }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 10 }}>Notifications & offline</div>
+                  {([
+                    ['notificationsEnabled', 'Push notifications'],
+                    ['soundAlertsEnabled', 'Sound alerts'],
+                    ['offlineModeEnabled', 'Offline mode'],
+                  ] as const).map(([key, label]) => (
+                    <label key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', cursor: 'pointer' }}>
+                      <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
+                      <input type="checkbox" checked={settings[key]} onChange={(e) => update(key, e.target.checked)} />
+                    </label>
+                  ))}
+                </div>
+
+                {saveError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{saveError}</div>}
+                <button className="btn-primary" disabled={saving} style={{ width: '100%', justifyContent: 'center', borderRadius: 12, padding: 12, opacity: saving ? 0.7 : 1, marginBottom: 20 }} onClick={handleSave}>
+                  {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Tenant Settings'}
+                </button>
+              </>
+            )}
+          </>
+        )}
+
+        {/* Honest gap: plans/packages have no backend anywhere on this branch
+            (no plans table, no route) — kept separate from the working
+            per-tenant settings above instead of blocking the whole tab. */}
+        <div className="farm-card" style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Lock size={16} color="var(--text-muted)" />
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Plans & packages — not available yet</div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            There is no plans/packages table anywhere in this backend, so pricing tiers and per-plan feature limits
+            can&apos;t be configured here yet. Everything else on this tab (branding, appearance, notifications) is
+            the tenant&apos;s real, persisted settings — the same store <Palette size={11} style={{ display: 'inline', verticalAlign: -1 }} /> the tenant&apos;s own UI Customise screen reads and writes.
+          </div>
         </div>
       </div>
     </div>

@@ -25,6 +25,8 @@ import { AIChatScreen } from '@/components/farm/ai-chat';
 import { AdminOnboardingScreen } from '@/components/farm/admin-onboarding';
 import { AdminUsersScreen, ImpersonationBanner, type ImpersonationInfo } from '@/components/farm/admin-users';
 import { UICustomiseScreen } from '@/components/farm/ui-customise';
+import { AuditorReportsScreen } from '@/components/farm/auditor';
+import { VetHerdScreen } from '@/components/farm/vet';
 import { LoginScreen, RegisterScreen } from '@/components/farm/auth';
 import { apiClient } from '@/lib/request';
 
@@ -41,6 +43,7 @@ const TAB_SCREENS = new Set([
   'admin-dashboard','admin-farms','admin-settings','admin-onboarding','admin-users',
   'inventory','weather','people','governance','reports',
   'ai-chat','ui-customise',
+  'auditor-reports','vet-herd',
 ]);
 
 function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?: string }) {
@@ -77,6 +80,8 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'admin-users':       return <AdminUsersScreen />;
       case 'ai-chat':           return <AIChatScreen />;
       case 'ui-customise':      return <UICustomiseScreen />;
+      case 'auditor-reports':   return <AuditorReportsScreen />;
+      case 'vet-herd':          return <VetHerdScreen />;
       case 'role-notice':       return <RoleNoticeScreen />;
       default:                  return <DashboardScreen />;
     }
