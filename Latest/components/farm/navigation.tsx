@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck } from './icons';
 import { FARMS_DATA } from './data';
 import { apiClient } from '@/lib/request';
 
@@ -10,7 +10,7 @@ export type ScreenId =
   | 'tasks' | 'people' | 'governance' | 'reports' | 'settings'
   | 'notifications' | 'ai-chat'
   | 'worker-home' | 'worker-record' | 'worker-pay' | 'worker-profile'
-  | 'admin-dashboard' | 'admin-farms' | 'admin-settings' | 'admin-onboarding'
+  | 'admin-dashboard' | 'admin-farms' | 'admin-settings' | 'admin-onboarding' | 'admin-users'
   | 'batch-detail' | 'crop-schedule' | 'inventory-detail'
   | 'people-detail'
   | 'process-config'
@@ -106,7 +106,7 @@ const ALL_SCREENS: ScreenId[] = [
   'tasks', 'people', 'governance', 'reports', 'settings',
   'notifications', 'ai-chat',
   'worker-home', 'worker-record', 'worker-pay', 'worker-profile',
-  'admin-dashboard', 'admin-farms', 'admin-settings', 'admin-onboarding',
+  'admin-dashboard', 'admin-farms', 'admin-settings', 'admin-onboarding', 'admin-users',
   'batch-detail', 'crop-schedule', 'inventory-detail',
   'people-detail',
   'process-config',
@@ -169,6 +169,7 @@ const ADMIN_TABS = [
   { id: 'admin-dashboard' as ScreenId, label: 'Overview', icon: BarChart3 },
   { id: 'admin-farms' as ScreenId, label: 'Farms', icon: Leaf },
   { id: 'admin-onboarding' as ScreenId, label: 'Requests', icon: Users },
+  { id: 'admin-users' as ScreenId, label: 'Users', icon: UserCheck },
   { id: 'admin-settings' as ScreenId, label: 'Config', icon: Settings },
 ];
 

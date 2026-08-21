@@ -17,9 +17,11 @@ import { pgTable, text, timestamp, integer, jsonb, index } from 'drizzle-orm/pg-
 // any login is provisioned for them). This is the field the issue's task 3
 // asks to "document which" — GET /api/employees/me resolves the caller's
 // employees row by `userId` (matched against the session user's id), not by
-// phone: `users` has no phone column on this branch, so phone-matching would
-// require format-normalizing two independently-entered free-text fields with
-// no guarantee of a match, while `userId` is an exact id equality once set.
+// phone: even though `users.phone` exists now (added for the admin
+// user-management feature's forgot-password flow — db/schemas/auth.ts),
+// phone-matching would still require format-normalizing two independently
+// -entered free-text fields with no guarantee of a match, while `userId` is
+// an exact id equality once set.
 //
 // `assignedBatchIds` references real `batches.id` rows (issue depends on
 // #231, merged) — validated against the caller's tenant in the route (same

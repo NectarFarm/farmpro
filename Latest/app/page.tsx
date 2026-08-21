@@ -23,6 +23,7 @@ import {
 } from '@/components/farm/admin';
 import { AIChatScreen } from '@/components/farm/ai-chat';
 import { AdminOnboardingScreen } from '@/components/farm/admin-onboarding';
+import { AdminUsersScreen, ImpersonationBanner, type ImpersonationInfo } from '@/components/farm/admin-users';
 import { UICustomiseScreen } from '@/components/farm/ui-customise';
 import { LoginScreen, RegisterScreen } from '@/components/farm/auth';
 import { apiClient } from '@/lib/request';
@@ -37,7 +38,7 @@ export function useLogout() { return useContext(LogoutCtx); }
 const TAB_SCREENS = new Set([
   'dashboard','crops','finance','tasks','settings',
   'worker-home','worker-record','worker-pay','worker-profile',
-  'admin-dashboard','admin-farms','admin-settings','admin-onboarding',
+  'admin-dashboard','admin-farms','admin-settings','admin-onboarding','admin-users',
   'inventory','weather','people','governance','reports',
   'ai-chat','ui-customise',
 ]);
@@ -73,6 +74,7 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'admin-farms':       return <AdminFarmsScreen />;
       case 'admin-settings':    return <AdminSettingsScreen />;
       case 'admin-onboarding':  return <AdminOnboardingScreen />;
+      case 'admin-users':       return <AdminUsersScreen />;
       case 'ai-chat':           return <AIChatScreen />;
       case 'ui-customise':      return <UICustomiseScreen />;
       case 'role-notice':       return <RoleNoticeScreen />;
@@ -111,6 +113,11 @@ export default function Home() {
   const [role, setRole] = useState<Role>('owner');
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>('');
+  // Admin user-management feature: set only when the active session is a
+  // time-boxed impersonation (GET /api/auth/session's additive
+  // `impersonatedBy` field) — drives the global ImpersonationBanner below.
+  // Null for every normal session.
+  const [impersonation, setImpersonation] = useState<ImpersonationInfo | null>(null);
 
   // Real session bootstrap (issue #220): GET /api/auth/session on load. 200 with a
   // known role -> authenticated shell; anything else (401, network failure, unknown
@@ -120,7 +127,7 @@ export default function Home() {
     let cancelled = false;
     // Timeout race mirrors the logout pattern (issue #220): a session endpoint
     // that hangs must not leave the shell stuck on the boot screen forever.
-    const boot = apiClient.get<{ role?: string; tenantId?: string | null; name?: string }>('/api/auth/session');
+    const boot = apiClient.get<{ role?: string; tenantId?: string | null; name?: string; impersonatedBy?: ImpersonationInfo | null }>('/api/auth/session');
     const timeout = new Promise<{ success: false }>((resolve) =>
       setTimeout(() => resolve({ success: false }), 3000)
     );
@@ -133,6 +140,7 @@ export default function Home() {
           setRole(r);
           setTenantId(tenant);
           if (res.success && typeof res.data?.name === 'string' && res.data.name.trim()) setUserName(res.data.name);
+          setImpersonation(res.success ? res.data?.impersonatedBy ?? null : null);
           setAuthState('app');
         } else {
           // 401, endpoint absent on the new backend, timeout, or unknown role ->
@@ -161,6 +169,7 @@ export default function Home() {
     const timeout = new Promise((resolve) => setTimeout(resolve, 3000));
     Promise.race([settled, timeout]).finally(() => {
       setRole('owner');
+      setImpersonation(null);
       setAuthState('login');
     });
   }
@@ -175,6 +184,10 @@ export default function Home() {
           <LogoutCtx.Provider value={handleLogout}>
             <div className="farm-viewport">
               <div className="farm-device-frame">
+                {/* Global impersonation banner (admin user-management feature) —
+                    rendered at the shell's top level, above every screen, so it
+                    is unmissable regardless of where navigation currently is. */}
+                <ImpersonationBanner info={impersonation} onReturned={() => window.location.reload()} />
 
                 {authState === 'booting' && (
                   <div className="farm-shell">
