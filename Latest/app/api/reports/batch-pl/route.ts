@@ -1,21 +1,28 @@
 import { NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/auth'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
-import { computeBatchPlReport, parseDateRange, InvalidDateRangeError } from '@/lib/reports'
+import { computeBatchPlReport, parseDateRange, InvalidDateRangeError, REPORT_VIEWER_ROLES } from '@/lib/reports'
 
-// ── GET /api/reports/batch-pl (issue #263 task 2) ───────────────────────────
+// ── GET /api/reports/batch-pl (issue #263 task 2; role-gated + session-only
+// tenant for the vet/auditor screens task) ──────────────────────────────────
 // Per-batch P&L: composes GET /api/batches (list) + each batch's real
 // cost-breakdown, server-side, in one shot — see lib/reports.ts's
-// computeBatchPlReport for the full composition + date-range caveat.
-// Same tenant-resolution conventions as GET /api/batches.
+// computeBatchPlReport for the full composition + date-range caveat. Tenant
+// comes from the SESSION ONLY now (see GET /api/reports/pl's header for why);
+// see lib/reports.ts's REPORT_VIEWER_ROLES for the role allowlist (this
+// route previously had no role gate at all).
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
+const unauthorized = () => NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+const forbidden = () => NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
 
 export async function GET(req: Request) {
   const session = await getSessionUser()
+  if (!session) return unauthorized()
+  if (!REPORT_VIEWER_ROLES.has(session.role)) return forbidden()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
+  const tenantId = session.tenantId
   if (!tenantId) return badRequest('tenantId is required')
 
   const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))

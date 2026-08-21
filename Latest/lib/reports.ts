@@ -19,6 +19,16 @@ import type { ReportRow, ReportPayload } from '@/lib/report-types'
 
 export type { ReportRow, ReportPayload } from '@/lib/report-types'
 
+// ── Report-route role gate (vet/auditor screens task) ───────────────────────
+// Before this task, GET /api/reports/pl|batch-pl|mortality|feed-consumption
+// had NO role check at all — any authenticated session (any role, including
+// worker) could read a tenant's full P&L. The four routes now share this
+// allowlist: owner/manager run the existing Reports screen, super_admin is
+// included for parity with the rest of the admin surface, and auditor is the
+// new read-only role this task wires up. worker and vet are excluded — vet
+// gets its own herd-health data (batches/records), not the financial reports.
+export const REPORT_VIEWER_ROLES = new Set(['owner', 'manager', 'super_admin', 'auditor'])
+
 // Every compute* function below takes an already-VALIDATED farmId (or
 // undefined for unfiltered) — the routes resolve/validate it via
 // lib/farm-scope.ts's resolveFarmFilter before calling in, same contract

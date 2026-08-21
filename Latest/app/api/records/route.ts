@@ -27,6 +27,7 @@ const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 
 const created = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 201 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 404 })
+const forbidden = () => NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
 
 const RECORD_TYPES = new Set(['feeding', 'mortality', 'physical_count'])
 
@@ -84,6 +85,12 @@ export async function POST(req: Request) {
   }
   const b = (raw ?? {}) as Record<string, unknown>
   const session = await getSessionUser()
+  // Auditor is strictly read-only (vet/auditor screens task) — refused here
+  // with a real 403 rather than relying on the UI simply not offering a
+  // write form. Only checked when a session is present so the pre-existing
+  // tenantId-from-body fallback for a session-less caller (a broader, known
+  // hole this task was told not to fix) is left exactly as it was.
+  if (session?.role === 'auditor') return forbidden()
   const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
   const batchId = typeof b.batchId === 'string' ? b.batchId.trim() : ''
   const employeeId = typeof b.employeeId === 'string' ? b.employeeId.trim() : ''

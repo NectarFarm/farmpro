@@ -185,6 +185,20 @@ async function main() {
       VALUES (${e.id}, ${T}, ${e.name}, ${e.phone}, ${e.role}, ${e.batches}, 5, 'ACTIVE', ${e.farm})
       ON CONFLICT (id) DO NOTHING`
   }
+  // The vet demo login (db/seed.mjs's vet@nakurufarm.com) otherwise has no
+  // `employees` row at all, which means POST /api/records — required for
+  // components/farm/vet.tsx's "log a mortality record" — has no valid
+  // employeeId to submit under (GET /api/employees/me resolves by
+  // employees.userId, matched against the session's user id). Linked here by
+  // email lookup rather than a fixed id, since db/seed.mjs generates the
+  // user's id fresh (randomUUID()) on every run.
+  const [vetUser] = await sql`SELECT id FROM users WHERE email = 'vet@nakurufarm.com' LIMIT 1`
+  if (vetUser) {
+    await sql`INSERT INTO employees (id, tenant_id, user_id, name, phone, role, assigned_batch_ids,
+        mortality_photo_threshold, status, farm_id)
+      VALUES ('demo-e-vet', ${T}, ${vetUser.id}, 'Dr. Grace Wanjiru', '', 'vet', ${[]}, 5, 'ACTIVE', ${F1})
+      ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id`
+  }
   for (const t of TASKS) {
     await sql`INSERT INTO tasks (id, tenant_id, title, due_at, status, priority, requires_approval, farm_id)
       VALUES (${t.id}, ${T}, ${t.title}, ${daysAhead(t.due)}, ${t.status}, ${t.priority}, false, ${t.farm})

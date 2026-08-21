@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye } from './icons';
 import { FARMS_DATA } from './data';
 import { apiClient } from '@/lib/request';
 
@@ -15,7 +15,8 @@ export type ScreenId =
   | 'people-detail'
   | 'process-config'
   | 'notification-settings'
-  | 'ui-customise' | 'security-settings' | 'role-notice';
+  | 'ui-customise' | 'security-settings' | 'role-notice'
+  | 'auditor-reports' | 'vet-herd';
 
 /* ── Session role contract (issue #219) ──
  * The UI role set mirrors the backend exactly (backend: `lib/types/index.ts`):
@@ -131,6 +132,7 @@ const ALL_SCREENS: ScreenId[] = [
   'process-config',
   'notification-settings',
   'ui-customise', 'security-settings', 'role-notice',
+  'auditor-reports', 'vet-herd',
 ];
 const SCREEN_SET = new Set<string>(ALL_SCREENS);
 function isScreenId(s: string): s is ScreenId {
@@ -191,13 +193,24 @@ const ADMIN_TABS = [
   { id: 'admin-users' as ScreenId, label: 'Users', icon: UserCheck },
   { id: 'admin-settings' as ScreenId, label: 'Config', icon: Settings },
 ];
+// vet / auditor (issue #219 follow-up: these two roles get real screens
+// instead of RoleNoticeScreen) — one tab each, matching how narrow their
+// actual remit is: a vet reviews herd health and logs mortality; an auditor
+// only ever reads reports. See ALLOWED_SCREENS_FOR_ROLE below for the
+// server-side-equivalent client guard that keeps both roles inside their tab.
+const VET_TABS = [
+  { id: 'vet-herd' as ScreenId, label: 'Herd', icon: Heart },
+];
+const AUDITOR_TABS = [
+  { id: 'auditor-reports' as ScreenId, label: 'Reports', icon: Eye },
+];
 
 function getTabsForRole(role: NavContext['role']) {
   if (role === 'worker') return WORKER_TABS;
   if (role === 'super_admin') return ADMIN_TABS; // UI "admin" → backend "super_admin"
   if (role === 'manager') return MANAGER_TABS;
-  // vet / auditor: explicit deny — no tabs; the shell shows RoleNoticeScreen instead.
-  if (role === 'vet' || role === 'auditor') return [];
+  if (role === 'vet') return VET_TABS;
+  if (role === 'auditor') return AUDITOR_TABS;
   return OWNER_TABS;
 }
 
@@ -205,9 +218,31 @@ function getTabsForRole(role: NavContext['role']) {
 function startScreenForRole(role: Role): ScreenId {
   if (role === 'worker') return 'worker-home';
   if (role === 'super_admin') return 'admin-dashboard';
-  // vet / auditor get an explicit "not supported yet" notice, not a silent fallback.
-  if (role === 'vet' || role === 'auditor') return 'role-notice';
+  if (role === 'vet') return 'vet-herd';
+  if (role === 'auditor') return 'auditor-reports';
   return 'dashboard'; // owner / manager
+}
+
+/* Screens vet/auditor may navigate to — everything else on a deep link/back/
+ * programmatic navigate() attempt for these two roles is rewritten to
+ * 'role-notice' (see guardDestination below). null means "no restriction"
+ * (owner/manager/worker/super_admin keep their existing, unrestricted
+ * client-side navigation — this only narrows the two roles that previously
+ * had zero screens at all). This is a UX guard, not the access-control
+ * boundary — the real boundary is server-side (each API route's own role
+ * check, e.g. lib/reports.ts's REPORT_VIEWER_ROLES and POST /api/records'
+ * auditor block), so a vet/auditor client that somehow reached a
+ * disallowed screen still can't read/write data it shouldn't via the API. */
+function allowedScreensForRole(role: Role): Set<ScreenId> | null {
+  if (role === 'vet') return new Set<ScreenId>(['vet-herd']);
+  if (role === 'auditor') return new Set<ScreenId>(['auditor-reports']);
+  return null;
+}
+
+function guardDestination(role: Role, dest: ScreenId): ScreenId {
+  const allowed = allowedScreensForRole(role);
+  if (!allowed) return dest;
+  return allowed.has(dest) ? dest : 'role-notice';
 }
 
 export function NavProvider({ children, initialRole = 'owner', initialTenantId }: { children: React.ReactNode; initialRole?: NavContext['role']; initialTenantId?: string }) {
@@ -255,11 +290,12 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   // interface comment for why fetches must never key on this instead).
   const activeFarm = activeFarmId === 'ALL' ? 'ALL' : (farms.find(f => f.id === activeFarmId)?.code ?? 'ALL');
 
-  // vet/auditor have no screens in this pass — funnel every navigation attempt to
-  // the role notice (single enforcement point; startScreenForRole handles the
-  // initial screen, this guard covers deep links / back / any future caller).
+  // vet/auditor are restricted to their own screen (see allowedScreensForRole) —
+  // any other destination is rewritten to the role notice (single enforcement
+  // point; startScreenForRole handles the initial screen, this guard covers
+  // deep links / back / any future caller).
   const navigate = useCallback((to: ScreenId, p?: Record<string, string>) => {
-    const dest = role === 'vet' || role === 'auditor' ? 'role-notice' : to;
+    const dest = guardDestination(role, to);
     const nextParams = p ?? {};
     // Push the screen being left along with the params it was showing —
     // not the destination's params — so a later goBack() can restore them.
@@ -317,7 +353,7 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
       }
       const state = event.state as { screen?: string; params?: Record<string, string> } | null;
       if (state && typeof state.screen === 'string' && isScreenId(state.screen)) {
-        const guarded = role === 'vet' || role === 'auditor' ? 'role-notice' : state.screen;
+        const guarded = guardDestination(role, state.screen);
         setCurrent(guarded);
         setParams(state.params ?? {});
       } else {
@@ -343,7 +379,7 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
     let initialScreen: ScreenId;
     let initialParams: Record<string, string>;
     if (decoded) {
-      const guarded = role === 'vet' || role === 'auditor' ? 'role-notice' : decoded.screen;
+      const guarded = guardDestination(role, decoded.screen);
       initialScreen = guarded;
       initialParams = guarded === decoded.screen ? decoded.params : {};
     } else {
@@ -415,7 +451,7 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
 
   return (
     <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests }}>
-      {process.env.NODE_ENV !== "production" && (
+      {process.env.NODE_ENV !== 'production' && (
         <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       )}
       {children}
@@ -445,22 +481,28 @@ function RoleSelector({ role, setRole }: { role: NavContext['role']; setRole: (r
   );
 }
 
-/* ── Role notice (vet / auditor) ──
- * vet and auditor are real backend roles but have no dedicated screens in this
- * mobile pass. Instead of silently landing them in the worker/owner tab set, the
- * shell shows this explicit notice (decision documented in issue #219). */
+/* ── Role notice (vet / auditor guard fallback) ──
+ * vet and auditor now have real dedicated screens (Herd Health / Reports —
+ * see vet.tsx / auditor.tsx), each reachable only through their own single
+ * tab. This screen is what guardDestination() rewrites any OTHER
+ * destination to for those two roles — e.g. a vet whose browser restores an
+ * old '#finance' hash, or any future caller that tries to navigate() them
+ * somewhere outside their remit. So the copy here is about the destination
+ * being out of scope for the role, not about the role having no home at all
+ * (decision originally documented in issue #219; narrowed by the vet/auditor
+ * screens task). */
 export function RoleNoticeScreen() {
   const { role } = useNav();
-  const roleLabel = role === 'vet' ? 'Veterinarian' : 'Auditor';
+  const roleLabel = role === 'vet' ? 'Veterinarian' : role === 'auditor' ? 'Auditor' : 'this role';
   return (
     <div className="screen-content" style={{ padding: '0 20px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '72%', textAlign: 'center', paddingTop: 10 }}>
         <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, marginBottom: 18 }}>
           {role === 'vet' ? '🩺' : '🔍'}
         </div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Role not yet supported</div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Not available for your role</div>
         <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, maxWidth: 300 }}>
-          You&apos;re signed in as a <strong style={{ color: 'var(--text-secondary)' }}>{roleLabel}</strong>. This mobile app doesn&apos;t support the {roleLabel.toLowerCase()} role yet — please use the desktop web app. You can sign out below.
+          You&apos;re signed in as a <strong style={{ color: 'var(--text-secondary)' }}>{roleLabel}</strong>, which only has access to its own screen in this app. You can sign out below.
         </div>
         <button
           type="button"
