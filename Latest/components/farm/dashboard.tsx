@@ -17,7 +17,22 @@
 //   which the primary grid now uses for real) and rebuilding those cards is
 //   not this issue's scope.
 //   QuickActions navigate to relevant screens.
-//   FarmSwitcherSheet switches activeFarm (multi-farm, issue #219) → all screens re-filter.
+//   FarmSwitcherSheet switches activeFarmId (multi-farm, issue #219, made
+//   real by the farm-scoped-data task) → the KPI fetch below re-runs with
+//   `farmId=${activeFarmId}` and GET /api/dashboard/kpis re-scopes every
+//   metric that has a real farm relationship (activeBatches, mortalityPct,
+//   revenue/periodRevenue/marginPct/revenueTrend, pendingApprovals,
+//   livestock/crop group counts, activeTasksCount/overdueTasksCount — see
+//   that route's header for the field-by-field list). unreadNotifications
+//   and productCount stay tenant-wide on every farm — no farm relationship
+//   exists for either — and the response's `tenantWideMetrics` says so
+//   explicitly rather than this screen quietly implying they're scoped too.
+//   Not every screen re-filters yet: the product-price strip, today's-tasks
+//   strip and notification feed below still fetch unscoped
+//   (GET /api/products/current-prices, GET /api/tasks?due=today, GET
+//   /api/notifications) — tasks.farmId exists as of this task but this
+//   screen's "today" strip wasn't wired to it, and prices/notifications have
+//   no farm relationship to filter by in the first place.
 //   The greeting line and the primary KPI grid's lead tile now read the
 //   tenant's real GET /api/settings branding (dashboardGreeting/accentColor/
 //   logoEmoji, persisted since #255) instead of hardcoded values — issue
@@ -65,6 +80,13 @@ interface KpiData {
   periodRevenue: number;
   marginPct: number | null;
   revenueTrend: RevenueTrendPoint[];
+  // farm-scoped-data task: which farm this response was actually scoped to,
+  // and which of the fields above never change with it (no farm
+  // relationship exists — see GET /api/dashboard/kpis's header). Used below
+  // to label tenant-wide tiles honestly instead of implying every number on
+  // this screen follows the farm switcher.
+  farmId?: string;
+  tenantWideMetrics?: string[];
 }
 // Tenant branding (issue #255/#256 — persisted via tenant_settings, editable
 // in ui-customise.tsx). Trimmed to the fields this screen actually applies:
@@ -102,7 +124,10 @@ function OperationalDashboard({
   const attention = [
     kpis?.overdueTasksCount ? { title: `${kpis.overdueTasksCount} overdue task${kpis.overdueTasksCount === 1 ? "" : "s"}`, detail: "Scheduled work needs intervention.", action: "tasks" } : null,
     kpis?.pendingApprovals ? { title: `${kpis.pendingApprovals} pending approval${kpis.pendingApprovals === 1 ? "" : "s"}`, detail: "A decision is required to keep work moving.", action: "governance" } : null,
-    kpis?.unreadNotifications ? { title: `${kpis.unreadNotifications} unread notification${kpis.unreadNotifications === 1 ? "" : "s"}`, detail: "Review the latest operational updates.", action: "notifications" } : null,
+    // unreadNotifications is always tenant-wide (no farm relationship — see
+    // GET /api/dashboard/kpis's header); labelled so a farm-scoped view
+    // never implies this count is specific to the selected farm.
+    kpis?.unreadNotifications ? { title: `${kpis.unreadNotifications} unread notification${kpis.unreadNotifications === 1 ? '' : 's'}${kpis.farmId && kpis.farmId !== 'ALL' ? ' (all farms)' : ''}`, detail: "Review the latest operational updates.", action: "notifications" } : null,
   ].filter(Boolean) as { title: string; detail: string; action: any }[];
   const recent = (notifs ?? []).slice(0, 4);
   const isManager = role === "manager";
@@ -163,7 +188,13 @@ function OperationalDashboard({
           <section style={{ marginBottom: 28 }}>
             <h2 className="section-title" style={{ margin: "0 0 10px" }}>Operational snapshot</h2>
             <div className="farm-card" style={{ overflow: "hidden" }}>
-              {[["Fields & crops", kpis?.cropBatchGroupsCount, "crops"], ["Inventory items tracked", kpis?.productCount, "inventory"], ["Pending approvals", kpis?.pendingApprovals, "governance"]].map(([label, value, screen], index) => <button key={label as string} onClick={() => navigate(screen as any)} style={{ width: "100%", padding: "13px 14px", background: "transparent", border: "none", borderBottom: index < 2 ? "1px solid var(--border-subtle)" : "none", display: "flex", justifyContent: "space-between", cursor: "pointer", color: "var(--text-primary)", fontSize: 14 }}><span>{label as string}</span><span style={{ fontWeight: 700 }}>{value as number ?? "—"}</span></button>)}
+              {/* "Inventory items tracked" reads kpis.productCount, which the
+                * route documents as tenant-wide on every farm (products has
+                * no farm relationship — GET /api/dashboard/kpis's header).
+                * Labelled "(all farms)" whenever a specific farm is selected
+                * so this tile never implies a farm-specific count it can't
+                * actually give. */}
+              {[["Fields & crops", kpis?.cropBatchGroupsCount, "crops", false], ["Inventory items tracked", kpis?.productCount, "inventory", true], ["Pending approvals", kpis?.pendingApprovals, "governance", false]].map(([label, value, screen, tenantWide], index) => <button key={label as string} onClick={() => navigate(screen as any)} style={{ width: "100%", padding: "13px 14px", background: "transparent", border: "none", borderBottom: index < 2 ? "1px solid var(--border-subtle)" : "none", display: "flex", justifyContent: "space-between", cursor: "pointer", color: "var(--text-primary)", fontSize: 14 }}><span>{label as string}{tenantWide && kpis && kpis.farmId && kpis.farmId !== 'ALL' ? <span style={{ color: "var(--text-dim)", fontWeight: 500 }}> (all farms)</span> : null}</span><span style={{ fontWeight: 700 }}>{value as number ?? "—"}</span></button>)}
             </div>
           </section>
         </>
@@ -180,13 +211,32 @@ function OperationalDashboard({
 }
 
 /* ── Farm Switcher Sheet ──
- * Multi-farm is a first-class feature (issue #219): an owner/manager with several
- * farms under their tenant switches between them here, and every screen re-filters
- * to the selected farm (or the "All Farms" aggregate view). Farms come from the
- * real GET /api/farms when the backend is wired, else the mock set.
+ * Multi-farm is a first-class feature (issue #219): an owner/manager with
+ * several farms under their tenant switches between them here. As of the
+ * farm-scoped-data task this actually re-filters real data, not just a
+ * label — screens re-fetch with `farmId=${activeFarmId}` and re-render once
+ * a new farm (or 'ALL', the aggregate view) is selected:
+ *   dashboard (KPIs + today's tasks), navigation badges (pending approvals,
+ *   open-tasks count), crops (batches/units, filtered client-side against
+ *   real unit->farm ids), inventory (stock items' lots, purchases), tasks,
+ *   finance (sales, purchases, batches), people (employees), and all four
+ *   Reports types.
+ * Screens/fields that do NOT re-filter, because no farm relationship exists
+ * in the schema to filter by (see GET /api/dashboard/kpis's header for the
+ * canonical list): the notification bell/feed, the product-price strip,
+ * inventory variance, and Finance's GL (chart of accounts / trial balance /
+ * budget overview) — journal_entries traces to a sale or purchase by id,
+ * not by farm. Those stay tenant-wide on purpose rather than faking a
+ * filter; several are labelled "(all farms)" in the UI for exactly that
+ * reason. Farms come from the real GET /api/farms when the backend is
+ * wired, else the mock set.
  */
 function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
-  const { activeFarm, setActiveFarm, farms } = useNav()
+  // Selection compares/sets by `activeFarmId` (a real farms.id), never by
+  // `farm.code` — codes are user-editable display labels (PATCH
+  // /api/farms/[id] lets an owner rename one), so keying the filter on code
+  // would silently stop matching the moment a farm is renamed.
+  const { activeFarmId, setActiveFarmId, farms } = useNav()
   return (
     <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "flex-end", zIndex: 100 }} onClick={onClose}>
       <div style={{ background: "var(--surface)", borderRadius: "24px 24px 0 0", padding: 20, width: "100%", border: "1px solid var(--border-subtle)", maxHeight: "60%" }} onClick={e => e.stopPropagation()}>
@@ -194,30 +244,30 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
           <div style={{ fontWeight: 700, fontSize: 16 }}>Switch Farm</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
-        <button onClick={() => { setActiveFarm("ALL"); onClose() }}
+        <button onClick={() => { setActiveFarmId("ALL"); onClose() }}
           style={{ width: "100%", padding: "12px 14px", marginBottom: 10, borderRadius: 14, textAlign: "left", cursor: "pointer",
-            background: activeFarm === "ALL" ? "rgba(74,222,128,0.12)" : "var(--card)",
-            border: activeFarm === "ALL" ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
+            background: activeFarmId === "ALL" ? "rgba(74,222,128,0.12)" : "var(--card)",
+            border: activeFarmId === "ALL" ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
             display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🌐</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>All Farms</div>
             <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Aggregated view · {farms.length} farms</div>
           </div>
-          {activeFarm === "ALL" && <Check size={16} color="var(--primary-green)" />}
+          {activeFarmId === "ALL" && <Check size={16} color="var(--primary-green)" />}
         </button>
         {farms.map(farm => (
-          <button key={farm.code} onClick={() => { setActiveFarm(farm.code); onClose() }}
+          <button key={farm.id} onClick={() => { setActiveFarmId(farm.id); onClose() }}
             style={{ width: "100%", padding: "12px 14px", marginBottom: 10, borderRadius: 14, textAlign: "left", cursor: "pointer",
-              background: activeFarm === farm.code ? "rgba(74,222,128,0.12)" : "var(--card)",
-              border: activeFarm === farm.code ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
+              background: activeFarmId === farm.id ? "rgba(74,222,128,0.12)" : "var(--card)",
+              border: activeFarmId === farm.id ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
               display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🌾</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>{farm.name}</div>
               <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{farm.code} · {farm.location}</div>
             </div>
-            {activeFarm === farm.code && <Check size={16} color="var(--primary-green)" />}
+            {activeFarmId === farm.id && <Check size={16} color="var(--primary-green)" />}
           </button>
         ))}
       </div>
@@ -228,10 +278,10 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
 
 /* ── Dashboard Screen ── */
 export function DashboardScreen({ userName }: { userName?: string }) {
-  const { navigate, role, activeFarm, farms, tenantId } = useNav();
+  const { navigate, role, activeFarmId, activeFarm, farms, tenantId } = useNav();
   const [showFarmSwitcher, setShowFarmSwitcher] = useState(false);
 
-  const farm = activeFarm === "ALL" ? null : farms.find(f => f.code === activeFarm) ?? farms[0];
+  const farm = activeFarmId === "ALL" ? null : farms.find(f => f.id === activeFarmId) ?? farms[0];
   const farmBatches = activeFarm === "ALL" ? BATCHES_DATA : BATCHES_DATA.filter(b => b.farmCode === activeFarm);
 
   // Enterprise summary cards — still BATCHES_DATA-driven mock UI. No `batches`
@@ -285,29 +335,38 @@ export function DashboardScreen({ userName }: { userName?: string }) {
     return () => { cancelled = true; };
   }, [tenantId]);
 
+  // Re-fetches on activeFarmId change (farm-scoped-data task) — this is the
+  // fetch the file header calls out: GET /api/dashboard/kpis re-scopes every
+  // farm-scopable metric server-side once `farmId` is in the query string.
   useEffect(() => {
     let cancelled = false;
-    apiClient.get<KpiData>(`/api/dashboard/kpis?tenantId=${tenantId}&period=${period}`).then(res => {
+    apiClient.get<KpiData>(`/api/dashboard/kpis?tenantId=${tenantId}&period=${period}&farmId=${activeFarmId}`).then(res => {
       if (cancelled) return;
       if (res.success) setKpis(res.data);
       else setKpisFailed(true);
     });
     return () => { cancelled = true; };
-  }, [tenantId, period]);
+  }, [tenantId, period, activeFarmId]);
 
   useEffect(() => {
     let cancelled = false;
+    // Product prices have no farm relationship (products is a tenant-wide
+    // catalogue — see GET /api/dashboard/kpis's header) — fetched unscoped
+    // regardless of activeFarmId.
     apiClient.get<PriceRow[]>(`/api/products/current-prices?tenantId=${tenantId}`).then(res => {
       if (!cancelled && res.success) setPrices(res.data);
     });
-    apiClient.get<TaskRow[]>(`/api/tasks?tenantId=${tenantId}&due=today`).then(res => {
+    // tasks.farmId is real (migration 0019) — re-scoped like every other
+    // farmId-accepting route (activeFarmId in the dep array below).
+    apiClient.get<TaskRow[]>(`/api/tasks?tenantId=${tenantId}&due=today&farmId=${activeFarmId}`).then(res => {
       if (!cancelled && res.success) setTasksToday(res.data);
     });
+    // Notifications stay tenant-wide — no farm relationship exists.
     apiClient.get<NotificationRow[]>(`/api/notifications?tenantId=${tenantId}`).then(res => {
       if (!cancelled && res.success) setNotifs(res.data);
     });
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
 
   const unread = notifs?.filter(n => !n.read).length ?? 0;
   const maxTrend = Math.max(1, ...(kpis?.revenueTrend.map(p => p.amount) ?? [0]));

@@ -4,6 +4,7 @@ import { productionUnits, farms } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, like } from 'drizzle-orm'
 import { farmSegment, generateCode, unitPrefixFor } from '@/lib/codes'
+import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 
 // ── GET/POST /api/units (issue #232) ────────────────────────────────────────
 // The `production_units` table has existed since #219, but no route ever read
@@ -35,9 +36,17 @@ export async function GET(req: Request) {
   const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
   if (!tenantId) return badRequest('tenantId is required')
 
-  const farmId = url.searchParams.get('farmId')?.trim()
+  // farmId (direct filter, production_units.farmId — farm-scoped-data task).
+  // This param already existed as a plain equality filter; it's now run
+  // through the same resolveFarmFilter every other farmId-accepting route
+  // uses, so an unknown/foreign id 404s instead of silently returning an
+  // empty (but technically "successful") list that looks identical to a
+  // real farm with zero units.
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   const conditions = [eq(productionUnits.tenantId, tenantId)]
-  if (farmId) conditions.push(eq(productionUnits.farmId, farmId))
+  if (farmFilter) conditions.push(eq(productionUnits.farmId, farmFilter))
 
   const rows = await db
     .select()

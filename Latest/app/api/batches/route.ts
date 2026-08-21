@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { batches, productionUnits, farms } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
-import { and, asc, eq, like } from 'drizzle-orm'
+import { and, asc, eq, inArray, like } from 'drizzle-orm'
 import { batchPrefixFor, farmSegment, generateCode } from '@/lib/codes'
+import { farmNotFoundResponse, resolveFarmFilter, unitIdsForFarm } from '@/lib/farm-scope'
 
 // ── GET/POST /api/batches (issue #231) ──────────────────────────────────────
 // Fresh build: no `batches` table, `costing.ts`, or `/api/batches/*` route
@@ -26,8 +27,16 @@ function isUniqueViolation(err: unknown): boolean {
   return !!err && typeof err === 'object' && (err as { code?: string }).code === '23505'
 }
 
-// GET /api/batches?tenantId=...&unitId=... — list a tenant's batches (oldest
-// first), optionally filtered to one production unit.
+// GET /api/batches?tenantId=...&unitId=...&farmId=... — list a tenant's
+// batches (oldest first), optionally filtered to one production unit and/or
+// one farm.
+//
+// `farmId` is a JOIN filter (farm-scoped-data task): `batches` has no
+// farm_id column of its own — see db/schemas/index.ts — a batch's farm is
+// reached one hop through `unitId -> production_units.farmId`. Deliberately
+// NOT denormalised onto `batches` (a redundant farm_id here could drift from
+// the unit's real farm if the batch were ever transferred without updating
+// both columns); `unitIdsForFarm` (lib/farm-scope.ts) resolves the join.
 export async function GET(req: Request) {
   const session = await getSessionUser()
   const url = new URL(req.url)
@@ -35,8 +44,19 @@ export async function GET(req: Request) {
   if (!tenantId) return badRequest('tenantId is required')
 
   const unitId = url.searchParams.get('unitId')?.trim()
+
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   const conditions = [eq(batches.tenantId, tenantId)]
   if (unitId) conditions.push(eq(batches.unitId, unitId))
+  if (farmFilter) {
+    const unitIds = await unitIdsForFarm(tenantId, farmFilter)
+    // No units at all under this farm -> no batches can match; short-circuit
+    // rather than pass an empty array to inArray (invalid/ambiguous SQL).
+    if (unitIds.length === 0) return ok([])
+    conditions.push(inArray(batches.unitId, unitIds))
+  }
 
   const rows = await db
     .select()

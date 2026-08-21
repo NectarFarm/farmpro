@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { tasks } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, gte, lt } from 'drizzle-orm'
+import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 
 // ── GET/POST /api/tasks (issue #227 task 2, extended by issue #243) ────────
 // Small dedicated endpoint rather than a generic /api/data/[resource] route —
@@ -41,12 +42,19 @@ export async function GET(req: Request) {
 
   const due = url.searchParams.get('due')?.trim().toLowerCase()
 
+  // farmId (direct filter — tasks.farmId, farm-scoped-data task). Absent or
+  // 'ALL' means no filter (unchanged behaviour); an unknown/foreign id 404s
+  // instead of silently returning the tenant's unfiltered tasks.
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   const conditions = [eq(tasks.tenantId, tenantId)]
   if (due === 'today') {
     const start = startOfUtcDay(new Date())
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
     conditions.push(gte(tasks.dueAt, start), lt(tasks.dueAt, end))
   }
+  if (farmFilter) conditions.push(eq(tasks.farmId, farmFilter))
 
   const rows = await db
     .select()
@@ -58,10 +66,17 @@ export async function GET(req: Request) {
 }
 
 // POST /api/tasks — create a task. Body: { tenantId?, title, dueAt?, status?,
-// priority?, requiresApproval?, notes? }. `assignee`/`batch`/photo-evidence
+// priority?, requiresApproval?, notes?, farmId? }. `assignee`/`batch`/photo-evidence
 // fields the mock UI carries (components/farm/data.ts's `Task`) are not
 // stored — no `productionUnits`/`batches` assignment column exists on this
 // table and photo evidence is explicitly out of scope for this issue.
+//
+// `farmId` (farm-scoped-data task) is optional and nullable — a task with no
+// farmId is tenant-level (e.g. "renew business license") and stays visible
+// in every farm's filtered view exactly the way records.batchId === null
+// already documents for approval_requests. When supplied it must belong to
+// this tenant — same 404-not-silently-unfiltered contract every other
+// farmId-accepting route uses.
 export async function POST(req: Request) {
   let raw: unknown
   try {
@@ -76,6 +91,9 @@ export async function POST(req: Request) {
 
   if (!tenantId) return badRequest('tenantId is required')
   if (!title) return badRequest('title is required')
+
+  const farmFilter = await resolveFarmFilter(tenantId, typeof b.farmId === 'string' ? b.farmId : undefined)
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
 
   const dueAt = typeof b.dueAt === 'string' && b.dueAt ? new Date(b.dueAt) : null
   const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'PENDING'
@@ -94,6 +112,7 @@ export async function POST(req: Request) {
       priority,
       requiresApproval,
       notes,
+      farmId: farmFilter ?? null,
     })
     .returning()
 

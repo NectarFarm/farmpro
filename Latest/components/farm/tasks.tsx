@@ -44,6 +44,7 @@ export interface ApiTask {
   requiresApproval: boolean;
   notes: string | null;
   createdAt: string | null;
+  farmId?: string | null; // farm-scoped-data task (migration 0019)
 }
 
 interface Employee {
@@ -224,10 +225,16 @@ function TaskCard({ task, onOpen }: { task: ApiTask; onOpen: (task: ApiTask) => 
 }
 
 /* ── Add Task Sheet ── */
-function AddTaskSheet({ employees, onClose, onCreate }: {
+function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
   employees: Employee[];
+  // farm-scoped-data task: defaults to the shell's active farm; a task can
+  // also legitimately have NO farm (a tenant-level task, e.g. "renew
+  // business license" — see POST /api/tasks's header) so, unlike the
+  // purchase/lot forms, this picker is never forced to a value.
+  farms: { id: string; name: string }[];
+  activeFarmId: string;
   onClose: () => void;
-  onCreate: (payload: { title: string; assignee: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string }) => Promise<boolean>;
+  onCreate: (payload: { title: string; assignee: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string; farmId: string }) => Promise<boolean>;
 }) {
   const [title, setTitle] = useState('');
   const [assignee, setAssignee] = useState('');
@@ -236,6 +243,7 @@ function AddTaskSheet({ employees, onClose, onCreate }: {
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [notes, setNotes] = useState('');
+  const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -244,7 +252,7 @@ function AddTaskSheet({ employees, onClose, onCreate }: {
     setSaving(true);
     setError('');
     const dueAt = dueDate ? new Date(`${dueDate}T${dueTime || '00:00'}`).toISOString() : '';
-    const ok = await onCreate({ title: title.trim(), assignee, dueAt, priority, requiresApproval, notes });
+    const ok = await onCreate({ title: title.trim(), assignee, dueAt, priority, requiresApproval, notes, farmId });
     setSaving(false);
     if (!ok) { setError('Could not create task — please try again'); return; }
     onClose();
@@ -261,6 +269,14 @@ function AddTaskSheet({ employees, onClose, onCreate }: {
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Task Title *</label>
           <input className="farm-input" value={title} onChange={e => { setTitle(e.target.value); setError(''); }} placeholder="e.g. Morning feeding — House A1" />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
+          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
+            <option value="">No specific farm (tenant-wide)</option>
+            {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
         </div>
 
         <div style={{ marginBottom: 12 }}>
@@ -360,7 +376,7 @@ function FilterSheet({
 
 /* ── Main Screen ── */
 export function TasksScreen() {
-  const { tenantId } = useNav();
+  const { tenantId, activeFarmId, farms } = useNav();
   const { showToast } = useToast();
 
   const [tasks, setTasks] = useState<ApiTask[] | null>(null);
@@ -376,11 +392,15 @@ export function TasksScreen() {
   const [filterPriority, setFilterPriority] = useState('All');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
+  // farm-scoped-data task: re-fetches when the active farm changes.
+  // tasks.farmId is a direct column (migration 0019) — see GET /api/tasks's
+  // header for why a tenant-level task (farmId IS NULL) only shows under
+  // 'ALL', not folded into every farm's filtered view.
   const loadTasks = useCallback(async () => {
-    const res = await apiClient.get<ApiTask[]>(`/api/tasks?tenantId=${tenantId}`);
+    const res = await apiClient.get<ApiTask[]>(`/api/tasks?tenantId=${tenantId}&farmId=${activeFarmId}`);
     if (res.success) { setTasks(res.data); setLoadError(''); }
     else setLoadError(res.error ?? 'Could not load tasks');
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
   useEffect(() => {
@@ -413,7 +433,7 @@ export function TasksScreen() {
   const done = all.filter(t => t.status === 'DONE').length;
   const completionPct = all.length > 0 ? Math.round((done / all.length) * 100) : 0;
 
-  async function createTask(payload: { title: string; assignee: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string }) {
+  async function createTask(payload: { title: string; assignee: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string; farmId: string }) {
     const res = await apiClient.post<ApiTask>('/api/tasks', {
       tenantId,
       title: payload.title,
@@ -421,6 +441,7 @@ export function TasksScreen() {
       priority: payload.priority,
       requiresApproval: payload.requiresApproval,
       notes: buildNotes(payload.assignee, payload.notes),
+      farmId: payload.farmId || undefined,
     });
     if (!res.success) { showToast(res.error ?? 'Could not create task', 'error'); return false; }
     showToast('Task created', 'success');
@@ -521,7 +542,7 @@ export function TasksScreen() {
         </div>
       </div>
 
-      {showAdd && <AddTaskSheet employees={employees} onClose={() => setShowAdd(false)} onCreate={createTask} />}
+      {showAdd && <AddTaskSheet employees={employees} farms={farms} activeFarmId={activeFarmId} onClose={() => setShowAdd(false)} onCreate={createTask} />}
       {showFilter && (
         <FilterSheet
           filterStatus={filterStatus} setFilterStatus={setFilterStatus}

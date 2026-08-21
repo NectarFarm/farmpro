@@ -134,6 +134,13 @@
       "when": 1787325276534,
       "tag": "0018_cold_prism",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1787326221744,
+      "tag": "0019_petite_mojo",
+      "breakpoints": true
     }
   ]
 }

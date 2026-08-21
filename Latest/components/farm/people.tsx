@@ -25,6 +25,7 @@ interface ApiEmployee {
   mortalityPhotoThreshold: number;
   status: string;
   createdAt: string | null;
+  farmId: string | null; // farm-scoped-data task (migration 0019)
 }
 
 interface ApiBatchLite {
@@ -108,7 +109,7 @@ const PEOPLE_COLS: ColDef<Record<string, unknown>>[] = [
 ];
 
 export function PeopleScreen() {
-  const { navigate, tenantId } = useNav();
+  const { navigate, tenantId, activeFarmId, farms } = useNav();
   const [filter, setFilter] = useState('All');
   // Status filter (farms/employees CRUD task) — the summary strip above
   // already counted Active/Inactive, but nothing let an admin actually see
@@ -123,12 +124,14 @@ export function PeopleScreen() {
   const [batches, setBatches] = useState<ApiBatchLite[]>([]);
   const [viewMode, setViewMode] = usePersistedView<'card' | 'table'>('people', 'card');
 
+  // farm-scoped-data task: employees.farmId is a direct column
+  // (migration 0019) — re-fetches when the active farm changes.
   const loadEmployees = useCallback(() => {
-    apiClient.get<ApiEmployee[]>(`/api/employees?tenantId=${tenantId}`).then((res) => {
+    apiClient.get<ApiEmployee[]>(`/api/employees?tenantId=${tenantId}&farmId=${activeFarmId}`).then((res) => {
       if (res.success) { setEmployees(res.data); setLoadError(''); }
       else setLoadError(res.error || 'Failed to load staff.');
     });
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
 
   useEffect(() => { loadEmployees(); }, [loadEmployees]);
   useEffect(() => {
@@ -143,9 +146,15 @@ export function PeopleScreen() {
   // row rather than a client-only merge — the imported rows become real
   // tenant employees, not local-only state that vanishes on refresh. Only
   // fields the backend actually stores are sent (name, phone, role, status,
-  // assignedBatchIds resolved from batch codes) — salary/payday/pin/farmCode
-  // columns in the CSV template have no backend column (payroll/login are
-  // separate epics) and are intentionally dropped, not fabricated.
+  // assignedBatchIds resolved from batch codes) — salary/payday/pin columns
+  // in the CSV template have no backend column (payroll/login are separate
+  // epics) and are intentionally dropped, not fabricated.
+  //
+  // `farmCode` (farm-scoped-data task): employees.farmId now exists, so this
+  // column is no longer dropped — resolved against the tenant's real farms
+  // by code. A row whose code doesn't match any real farm, or that omits
+  // the column, falls back to the currently active farm (or no farm at all
+  // under 'ALL') rather than failing the whole import over one bad cell.
   const { showToast } = useToast();
   async function handleImportRows(rows: Record<string, string>[]) {
     let ok = 0;
@@ -155,6 +164,7 @@ export function PeopleScreen() {
       const assignedBatchIds = batchCodes
         .map((code) => batches.find((b) => b.code === code)?.id)
         .filter((id): id is string => !!id);
+      const rowFarmId = row.farmCode ? farms.find((f) => f.code === row.farmCode.trim())?.id : undefined;
       const res = await apiClient.post<ApiEmployee>('/api/employees', {
         tenantId,
         name: row.name || 'Imported Employee',
@@ -162,6 +172,7 @@ export function PeopleScreen() {
         role: row.role || 'worker',
         status: row.active === 'false' ? 'INACTIVE' : 'ACTIVE',
         assignedBatchIds,
+        farmId: rowFarmId ?? (activeFarmId !== 'ALL' ? activeFarmId : undefined),
       });
       if (res.success) ok += 1; else failed += 1;
     }
@@ -329,6 +340,8 @@ export function PeopleScreen() {
         <AddEmployeeModal
           tenantId={tenantId}
           batches={batches}
+          farms={farms}
+          activeFarmId={activeFarmId}
           onClose={() => setShowAdd(false)}
           onCreated={(emp) => { setEmployees((prev) => [...(prev ?? []), emp]); setShowAdd(false); }}
         />
@@ -337,9 +350,14 @@ export function PeopleScreen() {
   );
 }
 
-function AddEmployeeModal({ tenantId, batches, onClose, onCreated }: {
+function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onCreated }: {
   tenantId: string;
   batches: ApiBatchLite[];
+  // farm-scoped-data task: an employee's home farm — required, same as
+  // purchases/lots (a worker is always based at one real farm; unlike a
+  // task, "no farm" isn't a meaningful choice for a new hire).
+  farms: { id: string; name: string }[];
+  activeFarmId: string;
   onClose: () => void;
   onCreated: (emp: ApiEmployee) => void;
 }) {
@@ -349,6 +367,7 @@ function AddEmployeeModal({ tenantId, batches, onClose, onCreated }: {
   const [role, setRole] = useState('worker');
   const [threshold, setThreshold] = useState('3');
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
+  const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -358,6 +377,7 @@ function AddEmployeeModal({ tenantId, batches, onClose, onCreated }: {
 
   async function handleSubmit() {
     if (!name.trim()) { setError('Full name is required.'); setAddStep(1); return; }
+    if (!farmId) { setError('Select which farm this employee is based at.'); setAddStep(1); return; }
     setSaving(true); setError('');
     const res = await apiClient.post<ApiEmployee>('/api/employees', {
       tenantId,
@@ -367,6 +387,7 @@ function AddEmployeeModal({ tenantId, batches, onClose, onCreated }: {
       mortalityPhotoThreshold: Number(threshold) || 3,
       assignedBatchIds: selectedBatches,
       status: 'ACTIVE',
+      farmId,
     });
     setSaving(false);
     if (!res.success) { setError(res.error || 'Failed to add employee.'); return; }
@@ -396,6 +417,13 @@ function AddEmployeeModal({ tenantId, batches, onClose, onCreated }: {
 
         {addStep === 1 && (
           <div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
+              <select className="farm-input" value={farmId} onChange={(e) => setFarmId(e.target.value)}>
+                <option value="" disabled>Select a farm…</option>
+                {farms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
             <div style={{ marginBottom: 10 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Full Name</label>
               <input className="farm-input" placeholder="Employee name" value={name} onChange={(e) => setName(e.target.value)} />

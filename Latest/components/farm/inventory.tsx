@@ -27,6 +27,7 @@ interface ApiLot {
   unitCostCents: number;
   expiryDate: string | null;
   receivedDate: string;
+  farmId: string | null; // farm-scoped-data task (migration 0019)
 }
 interface ApiInventoryItem {
   id: string;
@@ -48,6 +49,7 @@ interface ApiPurchase {
   paymentMethod: string;
   amountPaidCents: number;
   createdAt: string;
+  farmId: string | null; // farm-scoped-data task (migration 0019)
 }
 interface ApiVarianceRow {
   lotId: string;
@@ -92,10 +94,16 @@ function paymentStatus(p: ApiPurchase): 'paid' | 'partial' | 'unpaid' {
 
 /* ── Record Purchase sheet — real POST /api/purchases. Used from both the
  * Purchases tab (blank) and the item detail screen (prefilled). ── */
-function RecordPurchaseSheet({ tenantId, itemNames, prefill, onCreated, onClose }: {
+function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId, onCreated, onClose }: {
   tenantId: string;
   itemNames: string[];
   prefill?: { itemName?: string; unit?: string; category?: string };
+  // farm-scoped-data task: both purchases.farmId and the inventoryLots.farmId
+  // it creates need a farm — see lib/inventory.ts's recordPurchase. Defaults
+  // to the shell's active farm; when that's 'ALL' the picker starts empty so
+  // the form never silently guesses which farm this stock landed at.
+  farms: { id: string; name: string }[];
+  activeFarmId: string;
   onCreated: () => void;
   onClose: () => void;
 }) {
@@ -110,6 +118,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, onCreated, onClose 
   const [expiryDate, setExpiryDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
+  const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -122,6 +131,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, onCreated, onClose 
     }
     if (!Number.isFinite(qty) || qty <= 0) { setError('Quantity must be a positive number.'); return; }
     if (!Number.isFinite(cost) || cost < 0) { setError('Cost per unit must be a non-negative number.'); return; }
+    if (!farmId) { setError('Select which farm this stock is for.'); return; }
 
     setSaving(true);
     setError('');
@@ -138,6 +148,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, onCreated, onClose 
       amountPaidCents: amountPaid ? Math.round(Number(amountPaid) * 100) : undefined,
       lotNo: lotNo.trim() || undefined,
       expiryDate: expiryDate || undefined,
+      farmId,
     });
     setSaving(false);
     if (res.success) {
@@ -156,6 +167,13 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, onCreated, onClose 
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
 
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
+          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
+            <option value="" disabled>Select a farm…</option>
+            {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
           <input className="farm-input" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)} />
@@ -294,7 +312,7 @@ const VARIANCE_COLS: ColDef<Record<string, unknown>>[] = [
 ];
 
 export function InventoryScreen() {
-  const { navigate, tenantId } = useNav();
+  const { navigate, tenantId, activeFarmId, farms } = useNav();
   const [tab, setTab] = useState<'stock' | 'purchases' | 'variance' | 'feedmix'>('stock');
   const [cat, setCat] = useState('All');
   const [stockSearch, setStockSearch] = useState('');
@@ -306,16 +324,23 @@ export function InventoryScreen() {
   const [purchases, setPurchases] = useState<ApiPurchase[] | null>(null);
   const [variance, setVariance] = useState<ApiVarianceRow[] | null>(null);
 
+  // farm-scoped-data task: items/purchases both re-fetch on activeFarmId
+  // change. GET /api/inventory/items filters LOTS to the farm (the item
+  // catalogue itself stays the same — see that route's header); GET
+  // /api/purchases filters directly on purchases.farmId.
   const loadItems = useCallback(() => {
-    apiClient.get<ApiInventoryItem[]>(`/api/inventory/items?tenantId=${tenantId}`).then(res => {
+    apiClient.get<ApiInventoryItem[]>(`/api/inventory/items?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
       if (res.success) setItems(res.data);
     });
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
   const loadPurchases = useCallback(() => {
-    apiClient.get<ApiPurchase[]>(`/api/purchases?tenantId=${tenantId}`).then(res => {
+    apiClient.get<ApiPurchase[]>(`/api/purchases?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
       if (res.success) setPurchases(res.data);
     });
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
+  // Variance (GET /api/inventory/variance) has no farmId support yet — it's
+  // not one of the endpoints this task scoped (see lib/inventory.ts's
+  // computeVariance); stays tenant-wide regardless of activeFarmId.
   const loadVariance = useCallback(() => {
     apiClient.get<ApiVarianceRow[]>(`/api/inventory/variance?tenantId=${tenantId}`).then(res => {
       if (res.success) setVariance(res.data);
@@ -358,6 +383,11 @@ export function InventoryScreen() {
         lowStockThreshold: row.reorder ? Math.trunc(Number(row.reorder)) : undefined,
         lotNo: row.lotNumber || undefined,
         expiryDate: row.expiryDate || undefined,
+        // A CSV row carries no farm column (same reason the template has no
+        // supplier column — see file header); import against the currently
+        // active farm when one is selected, or leave unscoped under 'ALL'
+        // rather than guess.
+        farmId: activeFarmId !== 'ALL' ? activeFarmId : undefined,
       });
     }
     setImporting(false);
@@ -557,6 +587,8 @@ export function InventoryScreen() {
         <RecordPurchaseSheet
           tenantId={tenantId}
           itemNames={(items ?? []).map(i => i.name)}
+          farms={farms}
+          activeFarmId={activeFarmId}
           onCreated={loadAll}
           onClose={() => setShowRecordPurchase(false)}
         />
@@ -631,7 +663,7 @@ function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onS
 }
 
 export function InventoryDetailScreen() {
-  const { params, tenantId } = useNav();
+  const { params, tenantId, activeFarmId, farms } = useNav();
   const id = params.id;
   const [items, setItems] = useState<ApiInventoryItem[] | null>(null);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
@@ -639,10 +671,10 @@ export function InventoryDetailScreen() {
   const [history, setHistory] = useState<ApiPurchase[] | null>(null);
 
   const load = useCallback(() => {
-    apiClient.get<ApiInventoryItem[]>(`/api/inventory/items?tenantId=${tenantId}`).then(res => {
+    apiClient.get<ApiInventoryItem[]>(`/api/inventory/items?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
       if (res.success) setItems(res.data);
     });
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -755,6 +787,8 @@ export function InventoryDetailScreen() {
           tenantId={tenantId}
           itemNames={items.map(i => i.name)}
           prefill={{ itemName: item.name, unit: item.unit, category: item.category }}
+          farms={farms}
+          activeFarmId={activeFarmId}
           onCreated={load}
           onClose={() => setShowRecordPurchase(false)}
         />

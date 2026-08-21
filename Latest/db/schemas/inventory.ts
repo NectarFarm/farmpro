@@ -61,9 +61,21 @@ export const inventoryLots = pgTable('inventory_lots', {
   unitCostCents: integer('unit_cost_cents').notNull().default(0),
   expiryDate: timestamp('expiry_date'),
   receivedDate: timestamp('received_date').defaultNow().notNull(),
+  // Multi-farm filtering (farm-scoped-data task): the farm belongs on the
+  // physical LOT, not the catalog item — `inventoryItems` is a tenant-wide
+  // catalogue (the same "Broiler Starter Mash" item can have lots sitting at
+  // different farms), while a lot is a specific quantity received at a
+  // specific place. Plain logical reference to farms.id, no DB FK — same
+  // "no import cycle with db/schemas/index.ts" convention this file already
+  // avoids by not importing productionUnits/batches either; validated
+  // against the caller's tenant in the route. Nullable: pre-existing lots
+  // predate farm scoping — the migration backfills them to the tenant's
+  // earliest-created farm rather than leaving them permanently unfilterable.
+  farmId: text('farm_id'),
 }, (t) => [
   index('idx_inventory_lots_tenant').on(t.tenantId),
   index('idx_inventory_lots_tenant_item').on(t.tenantId, t.itemId),
+  index('idx_inventory_lots_farm').on(t.farmId),
 ])
 
 // A purchase: the record of stock coming in. Creating one upserts the item
@@ -85,8 +97,17 @@ export const purchases = pgTable('purchases', {
   totalCostCents: integer('total_cost_cents').notNull().default(0),
   paymentMethod: text('payment_method').notNull().default(''),
   amountPaidCents: integer('amount_paid_cents').notNull().default(0),
+  // Multi-farm filtering (farm-scoped-data task) — a purchase is a receiving
+  // event for a specific farm's stock, same rationale as inventoryLots.farmId
+  // above (and recordPurchase sets both to the same value: a purchase and
+  // the lot it creates always belong to the same farm). Plain logical
+  // reference, no DB FK, same convention as the rest of this file. Nullable:
+  // pre-existing purchases predate farm scoping — backfilled to the tenant's
+  // earliest-created farm by the migration.
+  farmId: text('farm_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (t) => [
   index('idx_purchases_tenant').on(t.tenantId),
   index('idx_purchases_tenant_item').on(t.tenantId, t.itemId),
+  index('idx_purchases_farm').on(t.farmId),
 ])

@@ -4,6 +4,7 @@ import { purchases } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { recordPurchase } from '@/lib/inventory'
 import { and, desc, eq } from 'drizzle-orm'
+import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 
 // ── GET/POST /api/purchases (issue #235 task 2) ─────────────────────────────
 // Fresh build: no `purchases` table existed on this branch before this issue.
@@ -25,8 +26,14 @@ export async function GET(req: Request) {
   if (!tenantId) return badRequest('tenantId is required')
 
   const itemId = url.searchParams.get('itemId')?.trim()
+
+  // farmId (direct filter — purchases.farmId, farm-scoped-data task).
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   const conditions = [eq(purchases.tenantId, tenantId)]
   if (itemId) conditions.push(eq(purchases.itemId, itemId))
+  if (farmFilter) conditions.push(eq(purchases.farmId, farmFilter))
 
   const rows = await db
     .select()
@@ -65,6 +72,13 @@ export async function POST(req: Request) {
   if (!Number.isFinite(quantity) || quantity <= 0) return badRequest('quantity must be a positive number')
   if (!Number.isFinite(unitCostCents) || unitCostCents < 0) return badRequest('unitCostCents must be a non-negative number')
 
+  // farmId (farm-scoped-data task) — optional. When supplied, both the new
+  // lot AND this purchase row get it (see lib/inventory.ts's recordPurchase):
+  // a purchase and the physical lot it creates always describe stock landing
+  // at the same farm, so there is exactly one farmId to resolve/validate here.
+  const farmFilter = await resolveFarmFilter(tenantId, typeof b.farmId === 'string' ? b.farmId : undefined)
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   const category = typeof b.category === 'string' ? b.category.trim() : undefined
   const lowStockThreshold = b.lowStockThreshold !== undefined && Number.isFinite(Number(b.lowStockThreshold))
     ? Math.max(0, Math.trunc(Number(b.lowStockThreshold)))
@@ -95,6 +109,7 @@ export async function POST(req: Request) {
     lotNo,
     expiryDate,
     receivedDate,
+    farmId: farmFilter ?? null,
   })
 
   return created(result)

@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { employees, batches } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, inArray } from 'drizzle-orm'
+import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 
 // ── GET/POST /api/employees (issue #247) ────────────────────────────────────
 // Fresh build: no `employees` table or `/api/employees/*` route existed on
@@ -54,8 +55,14 @@ export async function GET(req: Request) {
   if (!tenantId) return badRequest('tenantId is required')
 
   const status = url.searchParams.get('status')?.trim()
+
+  // farmId (direct filter — employees.farmId, farm-scoped-data task).
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   const conditions = [eq(employees.tenantId, tenantId)]
   if (status) conditions.push(eq(employees.status, status))
+  if (farmFilter) conditions.push(eq(employees.farmId, farmFilter))
 
   const rows = await db
     .select()
@@ -68,7 +75,7 @@ export async function GET(req: Request) {
 
 // POST /api/employees — create an employee.
 // Body: { tenantId?, userId?, name, phone?, role?, assignedBatchIds?,
-//         mortalityPhotoThreshold?, status? }
+//         mortalityPhotoThreshold?, status?, farmId? }
 export async function POST(req: Request) {
   let raw: unknown
   try {
@@ -83,6 +90,10 @@ export async function POST(req: Request) {
 
   if (!tenantId) return badRequest('tenantId is required')
   if (!name) return badRequest('name is required')
+
+  // farmId (farm-scoped-data task) — the employee's home farm, optional.
+  const farmFilter = await resolveFarmFilter(tenantId, typeof b.farmId === 'string' ? b.farmId : undefined)
+  if (farmFilter === null) return notFound('Farm not found for this tenant')
 
   const userId = typeof b.userId === 'string' && b.userId.trim() ? b.userId.trim() : null
   const phone = typeof b.phone === 'string' ? b.phone.trim() : ''
@@ -109,6 +120,7 @@ export async function POST(req: Request) {
       assignedBatchIds,
       mortalityPhotoThreshold,
       status,
+      farmId: farmFilter ?? null,
     })
     .returning()
 

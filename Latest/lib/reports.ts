@@ -10,13 +10,23 @@
 // needed client-side beyond stringifying for CSV and handing straight to
 // jspdf-autotable for PDF.
 import 'server-only'
-import { and, asc, eq, gte, lte } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
 import { db } from '@/db'
 import { batches, sales, purchases, records } from '@/db/schemas'
 import { computeTrialBalance } from '@/lib/finance'
+import { batchIdsForFarm, unitIdsForFarm } from '@/lib/farm-scope'
 import type { ReportRow, ReportPayload } from '@/lib/report-types'
 
 export type { ReportRow, ReportPayload } from '@/lib/report-types'
+
+// Every compute* function below takes an already-VALIDATED farmId (or
+// undefined for unfiltered) — the routes resolve/validate it via
+// lib/farm-scope.ts's resolveFarmFilter before calling in, same contract
+// every other farmId-accepting endpoint in this task uses. `meta.farmId`
+// echoes what was actually applied, same as GET /api/dashboard/kpis, so a
+// generated report is self-describing about its own scope (important for a
+// report someone might export/print and read later, detached from the
+// screen that generated it).
 
 export class InvalidDateRangeError extends Error {}
 
@@ -71,19 +81,32 @@ async function batchCodeMap(tenantId: string): Promise<Map<string, string>> {
 // they're built directly from raw `purchases` rows, not from the GL — same
 // conversion components/farm/finance.tsx's `batchPLRows` already applies for
 // Batch P&L.
-export async function computePlReport(tenantId: string, from: Date | null, to: Date | null): Promise<ReportPayload> {
+// `farmId` (farm-scoped-data task): scopes the PERIOD rows only — sales via
+// the batches->units->farm join (sales has no farm_id of its own) and
+// purchases via its own direct farmId column. `glTotalRevenue`/
+// `glTotalExpense` (straight from computeTrialBalance) stay tenant-wide
+// regardless — see finance.tsx's loadGL comment for why journal_entries has
+// no farm relationship to scope by; a farm-filtered P&L report therefore
+// carries both a scoped period figure AND an unavoidably tenant-wide GL
+// figure side by side, and `meta.farmId` says so rather than leaving that
+// implicit.
+export async function computePlReport(tenantId: string, from: Date | null, to: Date | null, farmId?: string): Promise<ReportPayload> {
   const trialBalance = await computeTrialBalance(tenantId)
   const glTotalRevenue = trialBalance.rows.filter((r) => r.class === 'REVENUE').reduce((s, r) => s + r.balance, 0)
   const glTotalExpense = trialBalance.rows.filter((r) => r.class === 'EXPENSE').reduce((s, r) => s + r.balance, 0)
 
+  const farmBatchIds = farmId ? await batchIdsForFarm(tenantId, farmId) : null
+
   const saleConditions = [eq(sales.tenantId, tenantId)]
   if (from) saleConditions.push(gte(sales.soldAt, from))
   if (to) saleConditions.push(lte(sales.soldAt, to))
+  if (farmBatchIds !== null) saleConditions.push(inArray(sales.batchId, farmBatchIds.length ? farmBatchIds : ['__none__']))
   const periodSales = await db.select().from(sales).where(and(...saleConditions)).orderBy(asc(sales.soldAt))
 
   const purchaseConditions = [eq(purchases.tenantId, tenantId)]
   if (from) purchaseConditions.push(gte(purchases.createdAt, from))
   if (to) purchaseConditions.push(lte(purchases.createdAt, to))
+  if (farmId) purchaseConditions.push(eq(purchases.farmId, farmId))
   const periodPurchases = await db.select().from(purchases).where(and(...purchaseConditions)).orderBy(asc(purchases.createdAt))
 
   const codeById = await batchCodeMap(tenantId)
@@ -118,11 +141,12 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       from: isoDate(from),
       to: isoDate(to),
       generatedAt: new Date().toISOString(),
+      farmId: farmId ?? 'ALL',
       glTotalRevenue,
       glTotalExpense,
       glNetIncome: glTotalRevenue - glTotalExpense,
       glUnitCaveat:
-        'GL totals are cumulative (all-time), not date-filtered — see lib/reports.ts comment. (Sales/purchases now post in the same unit; issue #290.)',
+        'GL totals are cumulative (all-time) AND tenant-wide regardless of farmId — not date-filtered, and journal_entries has no farm relationship to scope by. See lib/reports.ts comment. (Sales/purchases now post in the same unit; issue #290.)',
       periodRevenue,
       periodExpense,
       periodNetIncome: periodRevenue - periodExpense,
@@ -148,8 +172,17 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
 // period-bucketed cost stream, so it always reflects the full tracked total
 // regardless of `from`/`to` — flagged in `meta` rather than silently
 // pretending it's period-scoped.
-export async function computeBatchPlReport(tenantId: string, from: Date | null, to: Date | null): Promise<ReportPayload> {
-  const batchRows = await db.select().from(batches).where(eq(batches.tenantId, tenantId)).orderBy(asc(batches.createdAt))
+// `farmId` (farm-scoped-data task): restricts the batch list itself (via
+// unitId -> production_units.farmId — the same JOIN GET /api/batches uses),
+// which naturally restricts `revenueByBatch` too since it's only ever
+// looked up for batches in `batchRows`.
+export async function computeBatchPlReport(tenantId: string, from: Date | null, to: Date | null, farmId?: string): Promise<ReportPayload> {
+  const batchConditions = [eq(batches.tenantId, tenantId)]
+  if (farmId) {
+    const unitIds = await unitIdsForFarm(tenantId, farmId)
+    batchConditions.push(inArray(batches.unitId, unitIds.length ? unitIds : ['__none__']))
+  }
+  const batchRows = await db.select().from(batches).where(and(...batchConditions)).orderBy(asc(batches.createdAt))
 
   const saleConditions = [eq(sales.tenantId, tenantId)]
   if (from) saleConditions.push(gte(sales.soldAt, from))
@@ -178,6 +211,7 @@ export async function computeBatchPlReport(tenantId: string, from: Date | null, 
       from: isoDate(from),
       to: isoDate(to),
       generatedAt: new Date().toISOString(),
+      farmId: farmId ?? 'ALL',
       batchCount: rows.length,
       totalRevenue: rows.reduce((s, r) => s + r.revenue, 0),
       totalCost: rows.reduce((s, r) => s + r.cost, 0),
@@ -194,10 +228,17 @@ export async function computeBatchPlReport(tenantId: string, from: Date | null, 
 // tenant + date range on `createdAt` (mortality records have no separate
 // "occurred at" field — see db/schemas/people.ts / components/farm/worker.tsx's
 // MortalityForm, which posts `data: { count, cause }` at submit time).
-export async function computeMortalityReport(tenantId: string, from: Date | null, to: Date | null): Promise<ReportPayload> {
+// `farmId` (farm-scoped-data task): records has no farm_id of its own —
+// scoped via the same two-hop join GET /api/records uses (batchId ->
+// batches.unitId -> production_units.farmId).
+export async function computeMortalityReport(tenantId: string, from: Date | null, to: Date | null, farmId?: string): Promise<ReportPayload> {
   const conditions = [eq(records.tenantId, tenantId), eq(records.type, 'mortality')]
   if (from) conditions.push(gte(records.createdAt, from))
   if (to) conditions.push(lte(records.createdAt, to))
+  if (farmId) {
+    const batchIds = await batchIdsForFarm(tenantId, farmId)
+    conditions.push(inArray(records.batchId, batchIds.length ? batchIds : ['__none__']))
+  }
   const rows = await db.select().from(records).where(and(...conditions)).orderBy(asc(records.createdAt))
 
   const codeById = await batchCodeMap(tenantId)
@@ -218,6 +259,7 @@ export async function computeMortalityReport(tenantId: string, from: Date | null
       from: isoDate(from),
       to: isoDate(to),
       generatedAt: new Date().toISOString(),
+      farmId: farmId ?? 'ALL',
       recordCount: rows.length,
       totalDeaths,
     },
@@ -232,10 +274,15 @@ export async function computeMortalityReport(tenantId: string, from: Date | null
 // `feedItems: [{ item, qtyKg }]` array (components/farm/worker.tsx's
 // FeedingForm) — flattened to one exported row per feed item, since a single
 // submission can cover several feed types in one round.
-export async function computeFeedConsumptionReport(tenantId: string, from: Date | null, to: Date | null): Promise<ReportPayload> {
+// `farmId` — same two-hop join as computeMortalityReport above.
+export async function computeFeedConsumptionReport(tenantId: string, from: Date | null, to: Date | null, farmId?: string): Promise<ReportPayload> {
   const conditions = [eq(records.tenantId, tenantId), eq(records.type, 'feeding')]
   if (from) conditions.push(gte(records.createdAt, from))
   if (to) conditions.push(lte(records.createdAt, to))
+  if (farmId) {
+    const batchIds = await batchIdsForFarm(tenantId, farmId)
+    conditions.push(inArray(records.batchId, batchIds.length ? batchIds : ['__none__']))
+  }
   const rows = await db.select().from(records).where(and(...conditions)).orderBy(asc(records.createdAt))
 
   const codeById = await batchCodeMap(tenantId)
@@ -262,6 +309,7 @@ export async function computeFeedConsumptionReport(tenantId: string, from: Date 
       from: isoDate(from),
       to: isoDate(to),
       generatedAt: new Date().toISOString(),
+      farmId: farmId ?? 'ALL',
       recordCount: rows.length,
       totalKg,
     },

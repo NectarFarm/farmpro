@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { tasks, notifications, products, batches, sales, approvalRequests } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { syncTaskNotifications, DONE_STATUSES } from '@/app/api/notifications/route'
 import { enterpriseTypeFor } from '@/lib/codes'
+import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 
 // ── GET /api/dashboard/kpis (issue #228, revisited #292, #296) ──────────────
 // Built in #228 before `batches` (#231/#232), `sales` (#239) and
@@ -159,6 +160,64 @@ import { enterpriseTypeFor } from '@/lib/codes'
 // #228 comment used):
 //   - avgFCR — needs feed-intake + weight-gain records that don't exist yet.
 //
+// ── farmId (farm-scoped-data task) — which metrics are, and aren't,
+// farm-scoped ─────────────────────────────────────────────────────────────
+// This route used to be the proof that the farm switcher was decorative:
+// `activeFarm` changed a label and every number here stayed tenant-wide. An
+// optional `?farmId=` (validated against the tenant; 'ALL' or absent means
+// unfiltered, same contract as every other route in this task) now actually
+// re-scopes every metric that has a real farm relationship to follow:
+//
+//   FARM-SCOPED when farmId is set (all reached via production_units, the
+//   one direct FK into farms, then one more hop into batches):
+//     - activeBatches, mortalityPct       — only this farm's ACTIVE batches
+//     - revenue, periodRevenue,
+//       revenueTrend, marginPct           — only sales whose batch belongs
+//                                            to this farm (marginPct's cost
+//                                            side already sums the same
+//                                            farm-filtered batch set, so it
+//                                            can't silently mix farms)
+//     - livestockUnitsCount/Qty,
+//       cropBatchGroupsCount               — grouped from the same
+//                                            farm-filtered active batches
+//     - pendingApprovals                   — this farm's batch-linked
+//                                            approvals PLUS every
+//                                            batchId-IS-NULL tenant-level
+//                                            approval (see GET
+//                                            /api/approvals's header for why
+//                                            — hiding tenant-level approvals
+//                                            behind a farm filter would hide
+//                                            decisions that need making)
+//     - activeTasksCount, overdueTasksCount — tasks.farmId is a direct
+//                                            column (migration 0019); a
+//                                            farm-scoped view shows only that
+//                                            farm's tasks. A tenant-level
+//                                            task (farmId IS NULL, e.g. "renew
+//                                            business license") shows only in
+//                                            the ALL/unfiltered view — unlike
+//                                            approvals, this route does NOT
+//                                            fold null-farm tasks into every
+//                                            farm's count, so a farm-scoped
+//                                            task badge never over-counts
+//                                            work that isn't actually this
+//                                            farm's.
+//
+//   STAYS TENANT-WIDE regardless of farmId — no farm relationship exists to
+//   scope them by, and faking one would be dishonest, not a feature:
+//     - unreadNotifications  — `notifications` has no farm_id and no path to
+//                              one (not even through a batch)
+//     - productCount         — `products` is a tenant-wide price catalogue,
+//                              same "catalogue vs. physical/scoped fact"
+//                              split as inventoryItems vs inventoryLots
+//     - avgFCR               — already `null` for the reason above (no
+//                              feed/weight data source exists at all yet);
+//                              farm-scoping a number that doesn't exist is
+//                              moot
+//   The response echoes `farmId` (resolved value or 'ALL') and
+//   `tenantWideMetrics` (the field-name list above) so the UI can label
+//   those tiles honestly ("all farms") instead of implying they respect the
+//   farm switcher when they don't and can't.
+//
 // Same tenant-resolution + envelope conventions as the rest of #227's routes:
 // session tenant wins, `tenantId` query param is the standalone-mock-mode
 // fallback.
@@ -192,6 +251,12 @@ function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+// Metrics that stay tenant-wide no matter what `farmId` resolves to — see
+// the file header's farmId writeup for why each one has no farm relationship
+// to scope by. Echoed in the response so the UI can label these tiles
+// honestly instead of implying they respect the farm switcher.
+const TENANT_WIDE_METRICS = ['unreadNotifications', 'productCount', 'avgFCR'] as const
+
 export async function GET(req: Request) {
   const session = await getSessionUser()
   const url = new URL(req.url)
@@ -200,17 +265,56 @@ export async function GET(req: Request) {
 
   const period = resolvePeriod(url.searchParams.get('period'))
 
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   // Keep unreadNotifications consistent with GET /api/notifications even when
   // this is the first dashboard-backed endpoint hit in the session.
   await syncTaskNotifications(tenantId)
 
+  // Batch ids for this farm (batches.unitId -> production_units.farmId,
+  // batches has no farm_id of its own — see file header). `null` means "no
+  // farm filter", not "farm with no batches" — kept distinct from `[]` so
+  // the query builders below know whether to add a batch-id condition at
+  // all versus add one that matches nothing.
+  const farmBatchIds: string[] | null = farmFilter ? await batchIdsForFarm(tenantId, farmFilter) : null
+
+  const taskConditions = [eq(tasks.tenantId, tenantId)]
+  // Direct column — a farm-scoped view shows only that farm's tasks; a
+  // tenant-level task (farmId IS NULL) shows only in the ALL view. See file
+  // header for why this deliberately differs from the approvals decision.
+  if (farmFilter) taskConditions.push(eq(tasks.farmId, farmFilter))
+
+  // Postgres can't express an empty inArray() ("IN ()"), so a farm with zero
+  // batches gets a literal always-false condition instead — provably matches
+  // nothing, same effect as "this farm has no batches" without a special
+  // empty-array code path.
+  const NOTHING = sql`false`
+
+  const batchConditions = [eq(batches.tenantId, tenantId)]
+  if (farmBatchIds !== null) batchConditions.push(farmBatchIds.length > 0 ? inArray(batches.id, farmBatchIds) : NOTHING)
+
+  const salesConditions = [eq(sales.tenantId, tenantId)]
+  if (farmBatchIds !== null) salesConditions.push(farmBatchIds.length > 0 ? inArray(sales.batchId, farmBatchIds) : NOTHING)
+
+  const approvalConditions = [eq(approvalRequests.tenantId, tenantId), eq(approvalRequests.status, 'pending')]
+  if (farmBatchIds !== null) {
+    // Tenant-level approvals (batchId IS NULL) always included — see GET
+    // /api/approvals's header for the full writeup.
+    approvalConditions.push(
+      farmBatchIds.length > 0
+        ? or(inArray(approvalRequests.batchId, farmBatchIds), isNull(approvalRequests.batchId))!
+        : isNull(approvalRequests.batchId)
+    )
+  }
+
   const [taskRows, notificationRows, productRows, batchRows, salesRows, pendingApprovalRows] = await Promise.all([
-    db.select().from(tasks).where(eq(tasks.tenantId, tenantId)),
+    db.select().from(tasks).where(and(...taskConditions)),
     db.select().from(notifications).where(eq(notifications.tenantId, tenantId)),
     db.select().from(products).where(eq(products.tenantId, tenantId)),
-    db.select().from(batches).where(eq(batches.tenantId, tenantId)),
-    db.select().from(sales).where(eq(sales.tenantId, tenantId)),
-    db.select().from(approvalRequests).where(and(eq(approvalRequests.tenantId, tenantId), eq(approvalRequests.status, 'pending'))),
+    db.select().from(batches).where(and(...batchConditions)),
+    db.select().from(sales).where(and(...salesConditions)),
+    db.select().from(approvalRequests).where(and(...approvalConditions)),
   ])
 
   const now = new Date()
@@ -283,6 +387,12 @@ export async function GET(req: Request) {
     : null
 
   return ok({
+    // The farm this response was actually scoped to ('ALL' when no filter
+    // was requested) plus which fields never change with it — see the file
+    // header's farmId writeup. The UI reads this to label tenant-wide tiles
+    // honestly instead of implying every number follows the switcher.
+    farmId: farmFilter ?? 'ALL',
+    tenantWideMetrics: TENANT_WIDE_METRICS,
     activeTasksCount,
     overdueTasksCount,
     unreadNotifications,

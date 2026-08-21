@@ -87,6 +87,12 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
           periodRevenue: 0,
           // No revenue in the period -> no honest percentage to report.
           marginPct: null,
+          // farm-scoped-data task: no farmId was passed, so this response is
+          // unfiltered ('ALL'), and the tenant-wide-metrics marker lists the
+          // fields that never change with a farm filter — see GET
+          // /api/dashboard/kpis's header.
+          farmId: 'ALL',
+          tenantWideMetrics: ['unreadNotifications', 'productCount', 'avgFCR'],
         })
         expect(Array.isArray(revenueTrend)).toBe(true)
         expect(revenueTrend.length).toBeGreaterThan(0)
