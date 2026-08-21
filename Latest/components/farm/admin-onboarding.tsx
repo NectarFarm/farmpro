@@ -9,15 +9,17 @@ import { ENTERPRISE_REGISTRY, type OnboardRequest } from './data';
 import { GpsMapBlock, useReverseGeocode } from './auth';
 import { apiClient } from '@/lib/request';
 
-// ── Real backend wiring (issue #252) ────────────────────────────────────────
+// ── Real backend wiring (issues #251/#252) ──────────────────────────────────
 // GET/PATCH /api/onboard-requests[/:id] already exist and work (issue #251,
 // merged) — this screen used to render the mock request list from data.ts; it
 // now loads the real queue and posts real approve/reject/info-needed decisions.
-// The API doesn't return `address`/`lat`/`lng` (no such columns on
-// onboard_requests — db/schemas/onboarding.ts) or a `plan` concept (no plans
-// table anywhere in this backend), so LocationEditor's map stays client-local
-// exactly as before, and the old "Plan to Assign" selector — which never
-// posted anywhere real — has been removed rather than left wired to nothing.
+// The API now also returns and persists `address`/`latitude`/`longitude`
+// (nullable columns on onboard_requests — db/schemas/onboarding.ts), so
+// LocationEditor reads its initial state from the server and PATCHes edits
+// back rather than staying client-local. There is still no `plan` concept (no
+// plans table anywhere in this backend), so the old "Plan to Assign" selector
+// — which never posted anywhere real — has been removed rather than left
+// wired to nothing.
 interface ApiOnboardRequest {
   id: string;
   farmerName: string;
@@ -25,6 +27,14 @@ interface ApiOnboardRequest {
   phone: string;
   farmName: string;
   location: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  // Applicant's consent record — set once, at submission time, from the
+  // server's clock. Null on rows that predate consent capture; never set or
+  // changed by anything this screen does (PATCH refuses to touch it).
+  consentAt: string | null;
+  consentVersion: string | null;
   enterprises: string[];
   status: OnboardRequest['status'];
   notes: string | null;
@@ -41,7 +51,15 @@ function formatRequestedAt(iso: string): string {
   return d.toLocaleString('en-GB', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-function toOnboardRequest(row: ApiOnboardRequest): OnboardRequest {
+// `OnboardRequest` (from data.ts) predates the consent columns, so it has no
+// slot for them. Extend it locally rather than touching the shared mock-data
+// type — this file is display-only for consent, nothing else needs the field.
+type AdminOnboardRequest = OnboardRequest & {
+  consentAt?: string | null;
+  consentVersion?: string | null;
+};
+
+function toOnboardRequest(row: ApiOnboardRequest): AdminOnboardRequest {
   return {
     id: row.id,
     farmerName: row.farmerName,
@@ -49,6 +67,11 @@ function toOnboardRequest(row: ApiOnboardRequest): OnboardRequest {
     phone: row.phone,
     farmName: row.farmName,
     location: row.location,
+    address: row.address ?? undefined,
+    lat: row.latitude ?? undefined,
+    lng: row.longitude ?? undefined,
+    consentAt: row.consentAt ?? null,
+    consentVersion: row.consentVersion ?? null,
     enterprises: row.enterprises,
     requestedAt: formatRequestedAt(row.requestedAt),
     status: row.status,
@@ -63,19 +86,70 @@ const STATUS_CONFIG: Record<OnboardRequest['status'], { color: string; bg: strin
   'info-needed': { color: 'var(--accent-blue)', bg: 'rgba(96,165,250,0.08)', label: 'Info Needed' },
 };
 
+// Client-side mirror of the server's validation (server stays authoritative —
+// this only saves the admin a round trip for obviously-bad input). Returns
+// the first message plus a per-field map, matching the shape of the 400 body
+// documented in the PATCH contract.
+function validateLocationDraft(address: string, lat: string, lng: string): { message: string; fields: Record<string, string> } | null {
+  const fields: Record<string, string> = {};
+  if (address.trim().length > 300) {
+    fields.address = 'Address must be 300 characters or fewer.';
+  }
+  const latTrim = lat.trim();
+  const lngTrim = lng.trim();
+  if ((latTrim === '') !== (lngTrim === '')) {
+    // Latitude/longitude are all-or-nothing on the server — catch the
+    // half-filled case before it round-trips.
+    fields.latitude = 'Latitude and longitude must be set together.';
+    fields.longitude = 'Latitude and longitude must be set together.';
+  } else if (latTrim !== '' && lngTrim !== '') {
+    const latN = Number(latTrim);
+    const lngN = Number(lngTrim);
+    if (!Number.isFinite(latN) || latN < -90 || latN > 90) {
+      fields.latitude = 'Latitude must be a number between -90 and 90.';
+    }
+    if (!Number.isFinite(lngN) || lngN < -180 || lngN > 180) {
+      fields.longitude = 'Longitude must be a number between -180 and 180.';
+    }
+  }
+  const first = fields.address || fields.latitude || fields.longitude;
+  return first ? { message: first, fields } : null;
+}
+
 /* ── Location editor sub-component (hooks must live at component level) ── */
 function LocationEditor({
   req,
+  onSaved,
 }: {
-  req: OnboardRequest;
+  req: AdminOnboardRequest;
+  onSaved: (id: string, patch: { address: string | null; lat: number | null; lng: number | null }) => void;
 }) {
-  const [adminAddress, setAdminAddress] = useState(req.address ?? '');
-  const [adminLat, setAdminLat] = useState(req.lat != null ? String(req.lat) : '');
-  const [adminLng, setAdminLng] = useState(req.lng != null ? String(req.lng) : '');
-  const [locationSaved, setLocationSaved] = useState(!!(req.address || req.lat));
+  // `persisted` mirrors what the server actually has on record — it only
+  // changes on load or after a confirmed successful save, never while the
+  // admin is merely typing. `locationSaved` below is derived from it, not
+  // from session-only draft state, so it can't lie about what's stored.
+  const [persisted, setPersisted] = useState({
+    address: req.address ?? '',
+    lat: req.lat != null ? String(req.lat) : '',
+    lng: req.lng != null ? String(req.lng) : '',
+  });
+  const [adminAddress, setAdminAddress] = useState(persisted.address);
+  const [adminLat, setAdminLat] = useState(persisted.lat);
+  const [adminLng, setAdminLng] = useState(persisted.lng);
   const [showLocationForm, setShowLocationForm] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // Session-only freshness flag — we have no backend field recording *who*
+  // set a location, so this can only ever say "you just changed this",
+  // never assert provenance for coordinates that were already on the row
+  // when the panel opened (those might be applicant-submitted GPS, or an
+  // admin edit from an earlier session — genuinely indistinguishable here).
+  const [justSaved, setJustSaved] = useState(false);
+
+  const locationSaved = !!(persisted.address || (persisted.lat !== '' && persisted.lng !== ''));
 
   // Reverse-geocode: prefill address when coords change (only if address blank)
   useReverseGeocode(adminLat, adminLng, (addr) => {
@@ -95,6 +169,70 @@ function LocationEditor({
     );
   }
 
+  function openForm() {
+    // Re-seed the draft from the last-known-persisted values every time the
+    // form opens, so a cancelled earlier edit never leaks into the next one.
+    setAdminAddress(persisted.address);
+    setAdminLat(persisted.lat);
+    setAdminLng(persisted.lng);
+    setSaveError('');
+    setFieldErrors({});
+    setShowLocationForm(true);
+  }
+
+  async function saveLocation() {
+    const validation = validateLocationDraft(adminAddress, adminLat, adminLng);
+    if (validation) {
+      setFieldErrors(validation.fields);
+      setSaveError(validation.message);
+      return;
+    }
+    setFieldErrors({});
+    setSaveError('');
+    setSaving(true);
+
+    const trimmedAddress = adminAddress.trim();
+    const latTrim = adminLat.trim();
+    const lngTrim = adminLng.trim();
+    // Location is independent of the approve/reject/info-needed decision —
+    // this PATCH only ever carries address/latitude/longitude, never status,
+    // and (per the consent scope) never consentAt/consentVersion either.
+    const payload = {
+      address: trimmedAddress === '' ? null : trimmedAddress,
+      latitude: latTrim === '' ? null : Number(latTrim),
+      longitude: lngTrim === '' ? null : Number(lngTrim),
+    };
+
+    const res = await apiClient.patch<ApiOnboardRequest>(`/api/onboard-requests/${req.id}`, payload);
+    setSaving(false);
+
+    if (!res.success) {
+      // The server's 400 body carries a per-field `fields` map alongside the
+      // summary `error` string, and apiClient now passes both through — so a
+      // genuine server-side rejection (e.g. a race where another admin's
+      // edit landed first, or a rule validateLocationDraft doesn't mirror)
+      // gets the exact same field-level treatment as our own pre-flight
+      // checks below. The admin can't tell which layer complained, which is
+      // the point.
+      setFieldErrors(res.fields ?? {});
+      setSaveError(res.error || 'Failed to save location.');
+      return;
+    }
+
+    const next = {
+      address: res.data.address ?? '',
+      lat: res.data.latitude != null ? String(res.data.latitude) : '',
+      lng: res.data.longitude != null ? String(res.data.longitude) : '',
+    };
+    setPersisted(next);
+    setAdminAddress(next.address);
+    setAdminLat(next.lat);
+    setAdminLng(next.lng);
+    setShowLocationForm(false);
+    setJustSaved(true);
+    onSaved(req.id, { address: res.data.address ?? null, lat: res.data.latitude ?? null, lng: res.data.longitude ?? null });
+  }
+
   return (
     <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: locationSaved || showLocationForm ? 10 : 4 }}>
@@ -102,24 +240,25 @@ function LocationEditor({
           <div className="section-eyebrow" style={{ marginBottom: 2 }}>Farm Location</div>
           {locationSaved && !showLocationForm && (
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
-              📍 {adminAddress || req.location}
-              {adminLat && adminLng && <span style={{ marginLeft: 6, color: 'var(--accent-cyan)', fontFamily: 'monospace', fontSize: 10 }}>{parseFloat(adminLat).toFixed(4)}, {parseFloat(adminLng).toFixed(4)}</span>}
+              📍 {persisted.address || req.location}
+              {persisted.lat && persisted.lng && <span style={{ marginLeft: 6, color: 'var(--accent-cyan)', fontFamily: 'monospace', fontSize: 10 }}>{parseFloat(persisted.lat).toFixed(4)}, {parseFloat(persisted.lng).toFixed(4)}</span>}
+              {justSaved && <span style={{ marginLeft: 6, color: 'var(--primary-green)', fontWeight: 700 }}>· saved</span>}
             </div>
           )}
           {!locationSaved && !showLocationForm && (
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 3 }}>📍 {req.location}{req.address ? ` · ${req.address}` : ''}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 3 }}>📍 {req.location} · no coordinates on file</div>
           )}
         </div>
-        <button onClick={() => setShowLocationForm(f => !f)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: locationSaved ? 'rgba(74,222,128,0.1)' : 'var(--surface)', border: '1px solid var(--border-subtle)', color: locationSaved ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'pointer' }}>
+        <button onClick={() => (showLocationForm ? setShowLocationForm(false) : openForm())} style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: locationSaved ? 'rgba(74,222,128,0.1)' : 'var(--surface)', border: '1px solid var(--border-subtle)', color: locationSaved ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'pointer' }}>
           {showLocationForm ? 'Cancel' : locationSaved ? 'Edit' : 'Set Location'}
         </button>
       </div>
 
       {/* Map preview when saved and coords exist */}
-      {locationSaved && !showLocationForm && adminLat && adminLng && (
+      {locationSaved && !showLocationForm && persisted.lat && persisted.lng && (
         <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)', height: 140, marginTop: 6 }}>
           <iframe
-            src={`https://www.openstreetmap.org/export/embed.html?bbox=${(parseFloat(adminLng)-0.01).toFixed(4)},${(parseFloat(adminLat)-0.01).toFixed(4)},${(parseFloat(adminLng)+0.01).toFixed(4)},${(parseFloat(adminLat)+0.01).toFixed(4)}&layer=mapnik&marker=${adminLat},${adminLng}`}
+            src={`https://www.openstreetmap.org/export/embed.html?bbox=${(parseFloat(persisted.lng)-0.01).toFixed(4)},${(parseFloat(persisted.lat)-0.01).toFixed(4)},${(parseFloat(persisted.lng)+0.01).toFixed(4)},${(parseFloat(persisted.lat)+0.01).toFixed(4)}&layer=mapnik&marker=${persisted.lat},${persisted.lng}`}
             width="100%" height="140"
             style={{ border: 'none', display: 'block' }}
             title="Farm location map"
@@ -135,12 +274,23 @@ function LocationEditor({
             onLatChange={setAdminLat} onLngChange={setAdminLng} onAddressChange={setAdminAddress}
             loading={gpsLoading} error={gpsError} onDetect={detectGPS}
           />
+          {(fieldErrors.address || fieldErrors.latitude || fieldErrors.longitude) && (
+            <div style={{ fontSize: 11, color: 'var(--status-critical)' }}>
+              {fieldErrors.address && <div>⚠ {fieldErrors.address}</div>}
+              {fieldErrors.latitude && <div>⚠ {fieldErrors.latitude}</div>}
+              {fieldErrors.longitude && !fieldErrors.latitude && <div>⚠ {fieldErrors.longitude}</div>}
+            </div>
+          )}
+          {saveError && !fieldErrors.address && !fieldErrors.latitude && !fieldErrors.longitude && (
+            <div style={{ fontSize: 11, color: 'var(--status-critical)' }}>⚠ {saveError}</div>
+          )}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setShowLocationForm(false)} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 9 }}>Cancel</button>
+            <button onClick={() => setShowLocationForm(false)} disabled={saving} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 9 }}>Cancel</button>
             <button
-              onClick={() => { setLocationSaved(true); setShowLocationForm(false); }}
-              className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 9 }}>
-              <Check size={13} /> Save Location
+              onClick={() => void saveLocation()}
+              disabled={saving}
+              className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 9, opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>
+              <Check size={13} /> {saving ? 'Saving…' : 'Save Location'}
             </button>
           </div>
         </div>
@@ -211,10 +361,12 @@ function TempPasswordModal({
 function RequestDetail({
   req,
   onAction,
+  onLocationSaved,
   onClose,
 }: {
-  req: OnboardRequest;
+  req: AdminOnboardRequest;
   onAction: (id: string, action: OnboardRequest['status'], notes?: string) => Promise<boolean>;
+  onLocationSaved: (id: string, patch: { address: string | null; lat: number | null; lng: number | null }) => void;
   onClose: () => void;
 }) {
   const [infoNote, setInfoNote] = useState(req.notes ?? '');
@@ -273,7 +425,26 @@ function RequestDetail({
         </div>
 
         {/* Farm Location — admin-editable */}
-        <LocationEditor req={req} />
+        <LocationEditor req={req} onSaved={onLocationSaved} />
+
+        {/* Applicant consent — display-only; PATCH never touches this */}
+        <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Consent</div>
+          {req.consentAt ? (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              <CheckCircle2 size={13} color="var(--status-ok)" style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              Consented {formatRequestedAt(req.consentAt)}
+              <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-dim)', fontFamily: 'monospace' }}>({req.consentVersion || 'version unknown'})</span>
+            </div>
+          ) : (
+            // Legacy rows genuinely have no consent record — this is neutral,
+            // not an error state: it predates consent capture, not a
+            // violation of it.
+            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+              Not recorded (predates consent capture)
+            </div>
+          )}
+        </div>
 
         {/* Farm enterprises */}
         <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
@@ -345,11 +516,11 @@ function RequestDetail({
 }
 
 export function AdminOnboardingScreen() {
-  const [requests, setRequests] = useState<OnboardRequest[]>([]);
+  const [requests, setRequests] = useState<AdminOnboardRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filter, setFilter] = useState('all');
-  const [selected, setSelected] = useState<OnboardRequest | null>(null);
+  const [selected, setSelected] = useState<AdminOnboardRequest | null>(null);
   const [actionError, setActionError] = useState('');
   const [tempPassword, setTempPassword] = useState<{ email: string; password: string } | null>(null);
 
@@ -382,6 +553,20 @@ export function AdminOnboardingScreen() {
       setTempPassword({ email: res.data.email, password: res.data.ownerTempPassword });
     }
     return true;
+  }
+
+  // LocationEditor already PATCHed and got back the persisted values — this
+  // just fans the confirmed result out to the list and the open detail panel
+  // so both stay in sync with the server without a full reload.
+  function handleLocationSaved(id: string, patch: { address: string | null; lat: number | null; lng: number | null }) {
+    const merge = (r: AdminOnboardRequest) => ({
+      ...r,
+      address: patch.address ?? undefined,
+      lat: patch.lat ?? undefined,
+      lng: patch.lng ?? undefined,
+    });
+    setRequests((rs) => rs.map((r) => (r.id === id ? merge(r) : r)));
+    setSelected((s) => (s && s.id === id ? merge(s) : s));
   }
 
   const filtered = filter === 'all' ? requests : requests.filter((r) => r.status === filter);
@@ -486,6 +671,21 @@ export function AdminOnboardingScreen() {
                     </span>
                   </div>
 
+                  {/* Coordinates, when set — either submitted by the applicant or set by
+                      an admin; there's no backend field to tell those apart, so this
+                      shows the fact of the coordinates without claiming a source. */}
+                  {(req.address || (req.lat != null && req.lng != null)) && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <MapPin size={10} />
+                      {req.address || 'GPS pin on file'}
+                      {req.lat != null && req.lng != null && (
+                        <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--accent-cyan)' }}>
+                          {req.address ? '· ' : ''}{req.lat.toFixed(4)}, {req.lng.toFixed(4)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Notes strip */}
                   {req.notes && (
                     <div style={{ fontSize: 11, color: 'var(--accent-blue)', padding: '6px 10px', background: 'rgba(96,165,250,0.06)', borderRadius: 8, marginBottom: 8, border: '1px solid rgba(96,165,250,0.15)' }}>
@@ -538,6 +738,7 @@ export function AdminOnboardingScreen() {
         <RequestDetail
           req={selected}
           onAction={act}
+          onLocationSaved={handleLocationSaved}
           onClose={() => setSelected(null)}
         />
       )}
