@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { employees, batches } from '@/db/schemas'
+import { employees, batches, auditLog } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, eq, inArray } from 'drizzle-orm'
 
@@ -93,5 +94,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     .returning()
 
   if (rows.length === 0) return notFound()
+
+  // Field-edit audit for the employee timeline — who changed what.
+  await db.insert(auditLog).values({
+    id: randomUUID(),
+    tenantId,
+    actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
+    action: 'employee.updated',
+    entity: 'employee',
+    entityId: id,
+    meta: { name: rows[0].name, fields: Object.keys(patch) },
+  })
+
   return ok(rows[0])
 }

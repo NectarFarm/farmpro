@@ -15,6 +15,11 @@
 // Extend these tables in place when that work lands rather than forking a
 // second table.
 import { pgTable, text, timestamp, numeric, boolean, index, uniqueIndex } from 'drizzle-orm/pg-core'
+// `employees` reference — tasks.assigneeId is a real FK to employees.id (the
+// assignee is always an employee row). Direct module import, same direction
+// as records.employeeId in people.ts referencing back into this file's
+// exports via the barrel; no cycle (people.ts doesn't import dashboard.ts).
+import { employees } from './people'
 
 // A tenant's sellable product types. `saleUnits` is the reference system's
 // field name for "current sale price per unit" (issue #227 task 1: "returning
@@ -66,10 +71,21 @@ export const tasks = pgTable('tasks', {
   // existing tenant task when marking a task blocked, so dependencies are
   // real references, not free text. NULL = not blocked.
   blockedByTaskId: text('blocked_by_task_id'),
+  // Real assignee reference (replaces the name-in-notes convention): the
+  // `employees.id` the task is assigned to — a real FK like
+  // `records.employeeId`, since the assignee is always an employee row, never
+  // a bare name. New/reassigned tasks carry this id and the UI resolves the
+  // display name from the employees table; legacy rows keep their
+  // "Assigned: <name>" notes line as a fallback for name-based matching.
+  assigneeId: text('assignee_id').references(() => employees.id),
+  // Set when a completed task (DONE / REJECTED) is reopened — lets the
+  // timeline and the UI distinguish "reopened" from a fresh task.
+  reopenedAt: timestamp('reopened_at'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_tasks_tenant').on(t.tenantId),
   index('idx_tasks_tenant_due').on(t.tenantId, t.dueAt),
+  index('idx_tasks_tenant_assignee').on(t.tenantId, t.assigneeId),
 ])
 
 // Dashboard notification feed (issue #227 task 3). This table is the source

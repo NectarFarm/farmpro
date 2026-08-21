@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { tasks, approvalRequests, auditLog } from '@/db/schemas'
+import { tasks, approvalRequests, auditLog, employees } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/PATCH/DELETE /api/tasks/[id] (issue #243) ───────────────────────────
 // Tenant-scoped: an id only reads/updates/deletes when its tenantId matches
@@ -42,7 +43,24 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 // PATCH /api/tasks/[id] — partial update. Every field is optional; only
 // fields present in the body are changed. Supported fields: title, dueAt,
-// status, priority, requiresApproval, notes, blockedByTaskId, clarification.
+// status, priority, requiresApproval, notes, assigneeId, blockedByTaskId,
+// clarification, reopen.
+//
+// ── Reassign ──
+// `assigneeId` moves the task to another employee (validated against this
+// tenant's employees, same as POST). The legacy "Assigned: <name>" notes
+// first-line is rewritten to stay in sync with the id.
+//
+// ── Reopen ──
+// `reopen: true` is only valid on a completed task (DONE or REJECTED): it
+// returns the task to PENDING, clears any block, stamps `reopenedAt`, and
+// writes a `task.reopened` audit entry — so an approved/closed task can be
+// reactivated (same worker or reassigned via assigneeId in the same call).
+//
+// ── Field-edit audit ──
+// Non-status field changes (title/priority/dueAt/notes/assignee) write a
+// `task.updated` audit entry listing the changed fields, so the timeline
+// shows who edited what, not just status transitions.
 //
 // ── Status history / governance trail ──
 // Every status change here writes an `audit_log` row (entity: 'task',
@@ -82,6 +100,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const b = (raw ?? {}) as Record<string, unknown>
 
+  // Role-matrix enforcement (lib/permissions.ts): every mutation here is a
+  // write on the 'tasks' module — status transitions (worker mark-done),
+  // edits, reassigns, reopens. Workers move their own tasks through the
+  // worker portal (which is not gated by this matrix), so only gate when a
+  // real session role resolves AND the matrix restricts; the worker path
+  // below explicitly bypasses. In practice: an owner-configured "view" role
+  // (e.g. manager set to view-only on tasks) is blocked from editing.
+  if (session && !(await canEdit(tenantId, session.role, MODULES.tasks))) {
+    return NextResponse.json({ success: false, error: 'You do not have permission to edit tasks' }, { status: 403 })
+  }
+
   const existingRows = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId)))
   const existing = existingRows[0]
   if (!existing) return notFound()
@@ -92,6 +121,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (typeof b.priority === 'string' && VALID_PRIORITIES.has(b.priority.trim())) patch.priority = b.priority.trim()
   if (b.requiresApproval !== undefined) patch.requiresApproval = b.requiresApproval === true
   if (typeof b.notes === 'string') patch.notes = b.notes.trim()
+
+  // Reassign: a real employee of this tenant (validated like POST). The notes
+  // first-line is rewritten to stay in sync with the id for legacy readers.
+  if (typeof b.assigneeId === 'string' && b.assigneeId.trim()) {
+    const newAssigneeId = b.assigneeId.trim()
+    const assigneeRows = await db
+      .select({ id: employees.id, name: employees.name })
+      .from(employees)
+      .where(and(eq(employees.id, newAssigneeId), eq(employees.tenantId, tenantId)))
+    const assignee = assigneeRows[0]
+    if (!assignee) return badRequest('assigneeId must be an employee of this tenant')
+    patch.assigneeId = newAssigneeId
+    const restOfNotes = (patch.notes ?? existing.notes ?? '').replace(/^Assigned: .*\n?/, '')
+    patch.notes = `Assigned: ${assignee.name}${restOfNotes ? `\n${restOfNotes}` : ''}`
+  }
 
   const requestedStatus = typeof b.status === 'string' && b.status.trim() ? b.status.trim().toUpperCase() : undefined
   const effectiveRequiresApproval = patch.requiresApproval ?? existing.requiresApproval
@@ -125,6 +169,44 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       entityId: id,
       meta: { note: clarification, title: existing.title },
     })
+  }
+
+  // ── Reopen ──
+  // Only a completed task (DONE / REJECTED) can be reopened. Returns it to
+  // PENDING, clears any block, stamps reopenedAt, and audits the reopen with
+  // the real actor. Reassigning in the same call (assigneeId) moves the task
+  // to a different worker.
+  if (b.reopen === true) {
+    if (existing.status !== 'DONE' && existing.status !== 'REJECTED') {
+      return badRequest('Only a completed task (DONE or REJECTED) can be reopened')
+    }
+    patch.status = 'PENDING'
+    patch.blockedByTaskId = null
+    patch.reopenedAt = new Date()
+
+    // Reopen is a governance action (reactivating completed work) — gate to
+    // owner/manager, same ALLOWED_ROLES the approve/reject routes use. The
+    // session must be present: an audit entry needs a real actor.
+    if (!session || !['owner', 'manager'].includes(session.role)) {
+      return NextResponse.json({ success: false, error: 'Only an owner or manager can reopen a task' }, { status: 403 })
+    }
+
+    const [updated] = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
+    await db.insert(auditLog).values({
+      id: randomUUID(),
+      tenantId,
+      actor: session.id,
+      action: 'task.reopened',
+      entity: 'task',
+      entityId: id,
+      meta: {
+        title: updated.title,
+        from: existing.status,
+        to: 'PENDING',
+        assigneeId: patch.assigneeId ?? existing.assigneeId ?? null,
+      },
+    })
+    return ok(updated)
   }
 
   if (requestedStatus && requestedStatus.toUpperCase() === 'DONE' && effectiveRequiresApproval) {
@@ -195,6 +277,25 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       entity: 'task',
       entityId: id,
       meta: { title: existing.title, from: existing.status, to: requestedStatus, blockedByTaskId: patch.blockedByTaskId ?? null },
+    })
+  }
+
+  // Field-edit audit: any non-status field change (title/priority/dueAt/notes/
+  // requiresApproval/assignee) writes a task.updated entry naming the changed
+  // fields, so the timeline shows who edited what. Status-only transitions are
+  // already audited above — exclude `status`/`blockedByTaskId` here.
+  const fieldKeys = ['title', 'dueAt', 'priority', 'notes', 'requiresApproval', 'assigneeId', 'reopenedAt'] as const
+  const changedFields = fieldKeys.filter((k) => k in patch && patch[k] !== existing[k])
+  const hasStatusChange = 'status' in patch || 'blockedByTaskId' in patch
+  if (changedFields.length > 0 && !hasStatusChange) {
+    await db.insert(auditLog).values({
+      id: randomUUID(),
+      tenantId,
+      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
+      action: 'task.updated',
+      entity: 'task',
+      entityId: id,
+      meta: { title: existing.title, fields: changedFields, assigneeId: patch.assigneeId ?? existing.assigneeId ?? null },
     })
   }
 

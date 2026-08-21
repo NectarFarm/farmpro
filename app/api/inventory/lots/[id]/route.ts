@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { inventoryLots, auditLog } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── PATCH /api/inventory/lots/[id] (issue #235 task 5) ──────────────────────
 // Reason-required quantity adjustment. Every adjustment writes a real
@@ -39,6 +40,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
+
+  // Role-matrix enforcement (lib/permissions.ts): a qty adjustment is a write
+  // on the 'inventory' module.
+  if (session && !(await canEdit(tenantId, session.role, MODULES.inventory))) {
+    return NextResponse.json({ success: false, error: 'You do not have permission to adjust inventory' }, { status: 403 })
+  }
 
   const reason = typeof b.reason === 'string' ? b.reason.trim() : ''
   if (!reason) return badRequest('reason is required')

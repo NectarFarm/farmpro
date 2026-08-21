@@ -4,6 +4,7 @@ import { batches } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { listSales, recordSale } from '@/lib/finance'
 import { and, eq } from 'drizzle-orm'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -53,6 +54,12 @@ export async function POST(req: Request) {
   const amount = Number(b.amount)
   const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'paid'
   const batchId = typeof b.batchId === 'string' && b.batchId.trim() ? b.batchId.trim() : null
+
+  // Role-matrix enforcement (lib/permissions.ts): recording a sale is a write
+  // on the 'finance' module.
+  if (session && !(await canEdit(tenantId, session.role, MODULES.finance))) {
+    return NextResponse.json({ success: false, error: 'You do not have permission to record sales' }, { status: 403 })
+  }
 
   if (!tenantId) return badRequest('tenantId is required')
   if (!item) return badRequest('item is required')

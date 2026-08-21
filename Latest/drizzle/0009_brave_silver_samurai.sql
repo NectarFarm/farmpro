@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "idx_production_units_tenant_code" ON "production_units" USING btree ("tenant_id","code");

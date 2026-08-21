@@ -630,7 +630,7 @@ export function GovernanceScreen() {
                             </div>
                           )}
                           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-                            <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{entry.actorName ?? entry.actorEmail ?? entry.actor}</span>
+                            <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{entry.actorName ?? entry.actorEmail ?? "System"}</span>
                             <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "monospace" }}>{fmtTimestamp(entry.at)}</span>
                           </div>
                         </div>

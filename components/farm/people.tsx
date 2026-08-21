@@ -6,6 +6,7 @@ import { CsvImportModal } from "./csv-import";
 import { DataTable, ColDef, usePersistedView } from "./data-table";
 import { useToast } from "./ui-shared";
 import { apiClient } from "@/lib/request";
+import { StatusTimeline } from "./status-timeline";
 
 // ── Real API shapes (issue #248 — wired to GET/POST /api/employees,
 // GET/PATCH /api/employees/[id], GET/PUT /api/role-permissions from #247/#243).
@@ -695,6 +696,11 @@ export function PeopleDetailScreen() {
             </div>
           </div>
         )}
+
+        {/* Status Timeline */}
+        <div style={{ marginBottom: 14 }}>
+          <StatusTimeline tenantId={tenantId} entity="employee" entityId={employee.id} />
+        </div>
       </div>
 
       {showEdit && (

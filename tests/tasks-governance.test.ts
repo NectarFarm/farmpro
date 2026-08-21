@@ -27,7 +27,8 @@ import { POST as approvePOST } from '@/app/api/approvals/[id]/approve/route'
 import { POST as rejectPOST } from '@/app/api/approvals/[id]/reject/route'
 import { GET as rolePermsGET, PUT as rolePermsPUT } from '@/app/api/role-permissions/route'
 import { db } from '@/db'
-import { tenants, users, sessions, tasks, approvalRequests, auditLog, rolePermissions } from '@/db/schemas'
+import { tenants, users, sessions, tasks, approvalRequests, auditLog, rolePermissions, employees } from '@/db/schemas'
+import { GET as approversGET } from '@/app/api/approvers/route'
 import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
@@ -71,6 +72,18 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
       { id: managerId, tenantId: tenantAId, name: 'Gov Manager', email: managerEmail, role: 'manager', passwordHash: hashSecret('mgrpw', salt), passwordSalt: salt, status: 'ACTIVE' },
       { id: workerId, tenantId: tenantAId, name: 'Gov Worker', email: workerEmail, role: 'worker', passwordHash: hashSecret('wrkpw', salt), passwordSalt: salt, status: 'ACTIVE' },
     ])
+    // Create an employee linked to the worker user (needed for assignee FK tests)
+    await db.insert(employees).values({
+      id: `emp-gov-${workerId}`,
+      tenantId: tenantAId,
+      name: 'Gov Worker Employee',
+      phone: '+254700000999',
+      role: 'worker',
+      userId: workerId,
+      assignedBatchIds: [],
+      mortalityPhotoThreshold: 3,
+    })
+
     ownerSessionToken = await createSession(ownerId)
     managerSessionToken = await createSession(managerId)
     workerSessionToken = await createSession(workerId)
@@ -81,6 +94,7 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
     await db.delete(approvalRequests).where(inArray(approvalRequests.tenantId, [tenantAId, tenantBId]))
     await db.delete(rolePermissions).where(inArray(rolePermissions.tenantId, [tenantAId, tenantBId]))
     await db.delete(tasks).where(inArray(tasks.tenantId, [tenantAId, tenantBId]))
+    await db.delete(employees).where(inArray(employees.tenantId, [tenantAId, tenantBId]))
     await db.delete(sessions).where(inArray(sessions.userId, [ownerId, managerId, workerId]))
     await db.delete(users).where(inArray(users.id, [ownerId, managerId, workerId]))
     await db.delete(tenants).where(inArray(tenants.id, [tenantAId, tenantBId]))
@@ -502,6 +516,136 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
       )
       expect(res.status).toBe(400)
       mockCookie = undefined
+    })
+  
+  })
+  // ── Task reopen (owner/manager only) ────────────────────────────────────────
+  describe('task reopen', () => {
+    let reopenTaskId: string
+
+    it('creates a task and completes it', async () => {
+      mockCookie = ownerSessionToken
+      const created = await tasksPOST(
+        jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Reopen test', priority: 'medium', tenantId: tenantAId })
+      )
+      const body = await created.json()
+      expect(body.success).toBe(true)
+      reopenTaskId = body.data.id
+
+      const res = await taskPATCH(
+        jsonRequest(`http://localhost/api/tasks/${reopenTaskId}?tenantId=${tenantAId}`, 'PATCH', { status: 'DONE' }),
+        { params: Promise.resolve({ id: reopenTaskId }) }
+      )
+      const data = await res.json()
+      expect(data.success).toBe(true)
+      expect(data.data.status).toBe('DONE')
+      mockCookie = undefined
+    })
+
+    it('reopens the completed task', async () => {
+      mockCookie = ownerSessionToken
+      const res = await taskPATCH(
+        jsonRequest(`http://localhost/api/tasks/${reopenTaskId}?tenantId=${tenantAId}`, 'PATCH', { reopen: true }),
+        { params: Promise.resolve({ id: reopenTaskId }) }
+      )
+      const data = await res.json()
+      expect(data.success).toBe(true)
+      expect(data.data.status).toBe('PENDING')
+      expect(data.data.reopenedAt).toBeTruthy()
+      mockCookie = undefined
+    })
+
+    it('rejects reopen for non-DONE/REJECTED tasks', async () => {
+      mockCookie = ownerSessionToken
+      const res = await taskPATCH(
+        jsonRequest(`http://localhost/api/tasks/${reopenTaskId}?tenantId=${tenantAId}`, 'PATCH', { reopen: true }),
+        { params: Promise.resolve({ id: reopenTaskId }) }
+      )
+      const data = await res.json()
+      expect(data.success).toBe(false)
+      mockCookie = undefined
+    })
+  })
+
+  // ── Task assignee FK ────────────────────────────────────────────────────────
+  describe('task assignee FK', () => {
+    it('creates a task with assigneeId (employee) and reads it back', async () => {
+      mockCookie = ownerSessionToken
+      const empId = `emp-gov-${workerId}`
+      const res = await tasksPOST(
+        jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Assigned task', priority: 'medium', tenantId: tenantAId, assigneeId: empId })
+      )
+      const body = await res.json()
+      expect(body.success).toBe(true)
+      expect(body.data.assigneeId).toBe(empId)
+
+      const getRes = await taskGET(
+        new Request(`http://localhost/api/tasks/${body.data.id}?tenantId=${tenantAId}`),
+        { params: Promise.resolve({ id: body.data.id }) }
+      )
+      const getData = await getRes.json()
+      expect(getData.data.assigneeId).toBe(empId)
+      mockCookie = undefined
+    })
+
+    it('rejects assigneeId to a non-existent employee', async () => {
+      mockCookie = ownerSessionToken
+      const res = await tasksPOST(
+        jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Bad assignee', priority: 'medium', tenantId: tenantAId, assigneeId: 'nonexistent-emp-id' })
+      )
+      const body = await res.json()
+      expect(body.success).toBe(false)
+      expect(body.error).toMatch(/assignee/i)
+      mockCookie = undefined
+    })
+  })
+
+  // ── Audit log entity/entityId filter ─────────────────────────────────────────
+  describe('audit log entity filter', () => {
+    it('filters by entity and entityId', async () => {
+      mockCookie = ownerSessionToken
+      const created = await tasksPOST(
+        jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Audit filter test', priority: 'high', tenantId: tenantAId })
+      )
+      const body = await created.json()
+      const tId = body.data.id
+
+      const { GET: auditGET } = await import('@/app/api/audit-log/route')
+      const res = await auditGET(
+        new Request(`http://localhost/api/audit-log?tenantId=${tenantAId}&entity=task&entityId=${tId}`)
+      )
+      const data = await res.json()
+      expect(data.success).toBe(true)
+      for (const entry of data.data) {
+        expect(entry.entity).toBe('task')
+        expect(entry.entityId).toBe(tId)
+      }
+      mockCookie = undefined
+    })
+  })
+
+  // ── Approvers route ─────────────────────────────────────────────────────────
+  describe('approvers route', () => {
+    it('returns owner and manager users for the tenant', async () => {
+      mockCookie = ownerSessionToken
+      const res = await approversGET(
+        new Request(`http://localhost/api/approvers?tenantId=${tenantAId}`)
+      )
+      const body = await res.json()
+      expect(body.success).toBe(true)
+      const roles = body.data.map((a: any) => a.role)
+      expect(roles).toContain('owner')
+      expect(roles).toContain('manager')
+      mockCookie = undefined
+    })
+
+    it('works without session when tenantId is provided (standalone mode)', async () => {
+      mockCookie = undefined
+      const res = await approversGET(
+        new Request(`http://localhost/api/approvers?tenantId=${tenantAId}`)
+      )
+      const body = await res.json()
+      expect(body.success).toBe(true)
     })
   })
 })
