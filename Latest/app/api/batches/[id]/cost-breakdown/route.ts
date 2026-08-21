@@ -92,21 +92,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   // (tenant + batch scoped), same as components/farm/finance.tsx's Batch P&L
   // (`salesByBatch`) does client-side over the tenant's full sales list.
   //
-  // Units: `sales.amount` is a whole-KSh integer, NOT cents like
-  // `acquisitionCostCents`/`totalTrackedCents` (see db/schemas/finance.ts's
-  // comment on the `sales` table). Issue #290 fixed that exact mismatch as it
-  // corrupted the GL trial balance in lib/finance.ts (postPurchaseJournal now
-  // converts purchases cents -> whole units to match `sales.amount` there) —
-  // this endpoint isn't that code path, but it reads the same column, so it
-  // must not reproduce the bug here: convert explicitly (`amount * 100`)
-  // before doing arithmetic against cost figures, so `revenueCents` is
-  // directly comparable to `totalTrackedCents`.
+  // Units (issue: money-unit-enforcement): `sales.amountCents` is cents now,
+  // same as `acquisitionCostCents`/`totalTrackedCents` — no conversion
+  // needed. (This is the exact site that used to carry a "must not
+  // reproduce the #290 bug here: convert explicitly, `amount * 100`" warning
+  // when `sales.amount` was still whole units and every other money column
+  // was cents. Converting `sales.amountCents` to cents at the source removes
+  // that asymmetry instead of managing it at every read site.)
   const saleRows = await db
-    .select({ amount: sales.amount })
+    .select({ amountCents: sales.amountCents })
     .from(sales)
     .where(and(eq(sales.batchId, id), eq(sales.tenantId, tenantId)))
   const hasSales = saleRows.length > 0
-  const revenueCents = saleRows.reduce((s, r) => s + r.amount, 0) * 100
+  const revenueCents = saleRows.reduce((s, r) => s + r.amountCents, 0)
 
   // Gross margin against tracked cost only (same "tracked cost only" honesty
   // already used for Break-even above — feed/health/labour/overhead aren't

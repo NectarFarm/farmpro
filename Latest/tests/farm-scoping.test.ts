@@ -132,12 +132,12 @@ run('farm-scoped data (farm-scoped-data task)', () => {
       { id: batchYId, tenantId, unitId: unitYId, code: 'BAT-Y-001', name: 'Batch Y', enterprise: 'broiler', status: 'ACTIVE', initialQty: 50, currentQty: 45 },
     ])
     await db.insert(sales).values([
-      { id: saleXId, tenantId, batchId: batchXId, item: 'Eggs X', amount: 1000, status: 'paid' },
-      { id: saleYId, tenantId, batchId: batchYId, item: 'Eggs Y', amount: 300, status: 'paid' },
+      { id: saleXId, tenantId, batchId: batchXId, item: 'Eggs X', amountCents: 100000, status: 'paid' },
+      { id: saleYId, tenantId, batchId: batchYId, item: 'Eggs Y', amountCents: 30000, status: 'paid' },
       // No batch at all (a general/tenant-level sale) — has no farm
       // relationship through the join, so it must show under the
       // unfiltered/ALL view but never under a single farm's filtered view.
-      { id: saleNoBatchId, tenantId, batchId: null, item: 'General sale', amount: 50, status: 'paid' },
+      { id: saleNoBatchId, tenantId, batchId: null, item: 'General sale', amountCents: 5000, status: 'paid' },
     ])
     await db.insert(employees).values([
       { id: empXId, tenantId, name: 'Employee X', role: 'worker', farmId: farmXId },
@@ -388,7 +388,7 @@ run('farm-scoped data (farm-scoped-data task)', () => {
       const x = await readJson(await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}&farmId=${farmXId}`)))
       expect(x.payload.data.farmId).toBe(farmXId)
       expect(x.payload.data.activeBatches).toBe(1)
-      expect(x.payload.data.revenue).toBe(1000)
+      expect(x.payload.data.revenueCents).toBe(100000)
       expect(x.payload.data.mortalityPct).toBe(20)
       // farm X's own task + the tenant-level task are NOT counted here —
       // activeTasksCount is a direct-column filter, strict equality (see
@@ -400,13 +400,13 @@ run('farm-scoped data (farm-scoped-data task)', () => {
 
       const y = await readJson(await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}&farmId=${farmYId}`)))
       expect(y.payload.data.activeBatches).toBe(1)
-      expect(y.payload.data.revenue).toBe(300)
+      expect(y.payload.data.revenueCents).toBe(30000)
       expect(y.payload.data.mortalityPct).toBe(10)
       expect(y.payload.data.activeTasksCount).toBe(1)
       expect(y.payload.data.pendingApprovals).toBe(2)
 
       // Genuinely different results per farm — not just "didn't error".
-      expect(x.payload.data.revenue).not.toBe(y.payload.data.revenue)
+      expect(x.payload.data.revenueCents).not.toBe(y.payload.data.revenueCents)
       expect(x.payload.data.mortalityPct).not.toBe(y.payload.data.mortalityPct)
     })
 
@@ -415,7 +415,7 @@ run('farm-scoped data (farm-scoped-data task)', () => {
       expect(all.payload.data.farmId).toBe('ALL')
       expect(all.payload.data.activeBatches).toBe(2)
       // 1000 (X) + 300 (Y) + 50 (the batch-less sale, only visible unfiltered).
-      expect(all.payload.data.revenue).toBe(1350)
+      expect(all.payload.data.revenueCents).toBe(135000)
       // Pooled: (20 + 5 deaths) / (100 + 50 initial) = 16.7%.
       expect(all.payload.data.mortalityPct).toBe(16.7)
       // All three tasks (X, Y, and the tenant-level one).

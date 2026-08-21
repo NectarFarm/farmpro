@@ -5,6 +5,7 @@ import { apiClient } from '@/lib/request';
 import { Plus, Search, X, RefreshCw, Download, Lock } from './icons';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
+import { parseMoneyToCents, centsToMajor } from '@/lib/money';
 
 // ── Real-data wiring (issue #236) ───────────────────────────────────────────
 // This screen used to render entirely from hardcoded mock arrays (stock
@@ -124,14 +125,17 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
 
   async function save() {
     const qty = Number(quantity);
-    const cost = Number(unitCost);
+    const unitCostCents = parseMoneyToCents(unitCost);
     if (!supplier.trim() || !itemName.trim() || !unit.trim()) {
       setError('Supplier, item, and unit are required.');
       return;
     }
     if (!Number.isFinite(qty) || qty <= 0) { setError('Quantity must be a positive number.'); return; }
-    if (!Number.isFinite(cost) || cost < 0) { setError('Cost per unit must be a non-negative number.'); return; }
+    if (unitCostCents === null || unitCostCents < 0) { setError('Cost per unit must be a non-negative number.'); return; }
     if (!farmId) { setError('Select which farm this stock is for.'); return; }
+
+    const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
+    if (amountPaid && amountPaidCents === null) { setError('Amount paid must be a number.'); return; }
 
     setSaving(true);
     setError('');
@@ -143,9 +147,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
       unit: unit.trim(),
       lowStockThreshold: lowStockThreshold ? Math.trunc(Number(lowStockThreshold)) : undefined,
       quantity: Math.trunc(qty),
-      unitCostCents: Math.round(cost * 100),
+      unitCostCents,
       paymentMethod: paymentMethod.trim() || undefined,
-      amountPaidCents: amountPaid ? Math.round(Number(amountPaid) * 100) : undefined,
+      amountPaidCents: amountPaidCents ?? undefined,
       lotNo: lotNo.trim() || undefined,
       expiryDate: expiryDate || undefined,
       farmId,
@@ -272,7 +276,7 @@ const STOCK_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: 'avgCost', header: 'Cost/u', sortable: true, align: 'right', minWidth: 68,
     summary: 'avg',
-    render: (r) => <span style={{ fontSize: 11 }}>KSh {((r.avgCost as number) / 100).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 11 }}>KSh {centsToMajor(r.avgCost as number).toLocaleString()}</span>,
   },
   {
     key: 'status', header: 'Status', align: 'center', minWidth: 72,
@@ -371,7 +375,7 @@ export function InventoryScreen() {
       const unit = row.unit?.trim();
       const qty = Number(row.qty);
       if (!itemName || !unit || !Number.isFinite(qty) || qty <= 0) continue;
-      const costPerUnit = Number(row.costPerUnit);
+      const costPerUnitCents = parseMoneyToCents(row.costPerUnit);
       await apiClient.post('/api/purchases', {
         tenantId,
         supplier: 'CSV Import',
@@ -379,7 +383,7 @@ export function InventoryScreen() {
         category: row.category || undefined,
         unit,
         quantity: Math.trunc(qty),
-        unitCostCents: Number.isFinite(costPerUnit) && costPerUnit > 0 ? Math.round(costPerUnit * 100) : 0,
+        unitCostCents: costPerUnitCents !== null && costPerUnitCents > 0 ? costPerUnitCents : 0,
         lowStockThreshold: row.reorder ? Math.trunc(Number(row.reorder)) : undefined,
         lotNo: row.lotNumber || undefined,
         expiryDate: row.expiryDate || undefined,
@@ -521,7 +525,7 @@ export function InventoryScreen() {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtDate(p.createdAt)}</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(p.totalCostCents / 100).toLocaleString()}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
                   </div>
                 </div>
               );
@@ -725,7 +729,7 @@ export function InventoryDetailScreen() {
         <div className="farm-card" style={{ padding: 16, marginBottom: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div><div style={{ fontSize: 24, fontWeight: 700, color: 'var(--primary-green)' }}>{item.qtyOnHand.toLocaleString()}<span style={{ fontSize: 14 }}>{item.unit}</span></div><div style={{ fontSize: 10, color: 'var(--text-muted)' }}>In Stock</div></div>
-            <div><div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)' }}>KSh {(cost / 100).toLocaleString()}</div><div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Avg per {item.unit}</div></div>
+            <div><div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)' }}>KSh {centsToMajor(cost).toLocaleString()}</div><div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Avg per {item.unit}</div></div>
           </div>
           <div className="progress-track" style={{ marginBottom: 8 }}>
             <div className={`progress-fill ${isLow ? 'progress-fill-red' : ''}`} style={{ width: `${item.lowStockThreshold > 0 ? Math.min((item.qtyOnHand / (item.lowStockThreshold * 3)) * 100, 100) : 100}%` }} />
@@ -774,7 +778,7 @@ export function InventoryDetailScreen() {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{p.quantity.toLocaleString()}{item.unit}</div>
-                  <div style={{ color: 'var(--text-muted)' }}>KSh {(p.totalCostCents / 100).toLocaleString()}</div>
+                  <div style={{ color: 'var(--text-muted)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</div>
                 </div>
               </div>
             ))}

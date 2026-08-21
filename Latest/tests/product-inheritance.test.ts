@@ -276,7 +276,7 @@ run('product/unit/batch inheritance (product-unit-inheritance task)', () => {
     it('a sale can reference a product (item auto-filled from the product name)', async () => {
       mockCookie = ownerSession
       const { status, payload } = await readJson(
-        await salesPOST(jsonRequest('http://localhost/api/data/sales', 'POST', { tenantId, productId: eggsId, amount: 480, batchId: batch1Id }))
+        await salesPOST(jsonRequest('http://localhost/api/data/sales', 'POST', { tenantId, productId: eggsId, amountCents: 48000, batchId: batch1Id }))
       )
       expect(status).toBe(201)
       expect(payload.data.productId).toBe(eggsId)
@@ -286,7 +286,7 @@ run('product/unit/batch inheritance (product-unit-inheritance task)', () => {
     it('sales.item free text still works for a sale with no product', async () => {
       mockCookie = ownerSession
       const { status, payload } = await readJson(
-        await salesPOST(jsonRequest('http://localhost/api/data/sales', 'POST', { tenantId, item: 'One-off firewood sale', amount: 200 }))
+        await salesPOST(jsonRequest('http://localhost/api/data/sales', 'POST', { tenantId, item: 'One-off firewood sale', amountCents: 20000 }))
       )
       expect(status).toBe(201)
       expect(payload.data.productId).toBeNull()

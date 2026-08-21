@@ -34,20 +34,19 @@ import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/
 //                            `null` (not 0) when there are no active batches or
 //                            every active batch has initialQty 0 — there is no
 //                            honest percentage to report in that case.
-//   - revenue              — sum of ALL of the tenant's real `sales.amount`
+//   - revenueCents         — sum of ALL of the tenant's real `sales.amountCents`
 //                            rows, all-time (unchanged from #292 — kept for
 //                            back-compat with any existing caller of this
 //                            field). Every sale — 'paid' or 'pending' — is
 //                            included, matching how lib/finance.ts posts
 //                            every sale to the 4001 Sales Revenue account
-//                            regardless of payment status. `sales.amount` is
-//                            a plain whole-KSh figure (not `*Cents`, see
-//                            db/schemas/finance.ts) — summed as-is. Issue #290
-//                            (open) documents that this unit convention is
-//                            inconsistent with `purchases.totalCostCents`; that
-//                            mismatch is a finance-posting-layer bug, not
-//                            something this read-only KPI route should paper
-//                            over.
+//                            regardless of payment status. `sales.amountCents`
+//                            is cents, same as every other money column in
+//                            this schema (issue: money-unit-enforcement
+//                            renamed/converted it from a plain whole-KSh
+//                            `amount` column and fixed the #290 unit
+//                            mismatch at its source) — summed as-is, exposed
+//                            as `revenueCents`.
 //
 // ── issue #296: real primary KPI grid + Revenue card ────────────────────────
 // The frontend's primary Home-screen tile grid was showing an unrelated
@@ -91,23 +90,23 @@ import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/
 //                            'month' on an omitted/invalid value — this route
 //                            never 400s on the toggle, it just falls back).
 //                            Echoed back so the frontend can confirm what the
-//                            server actually computed periodRevenue/
+//                            server actually computed periodRevenueCents/
 //                            revenueTrend against.
-//   - periodRevenue        — sum of the tenant's `sales.amount` rows whose
+//   - periodRevenueCents   — sum of the tenant's `sales.amountCents` rows whose
 //                            `soldAt` falls in [periodStart, now] for the
 //                            resolved `period` (calendar month/quarter/year
 //                            to date, UTC). This is the number the Revenue
 //                            card's toggle actually drives — kept as a
-//                            separate field from the all-time `revenue`
+//                            separate field from the all-time `revenueCents`
 //                            above rather than overloading that field's
 //                            existing meaning.
 //   - marginPct            — see the dedicated writeup below (same
 //                            "document the formula choice" instruction issue
 //                            #239's trial-balance decision followed).
-//   - revenueTrend         — one { date: 'YYYY-MM-DD', amount } entry per
+//   - revenueTrend         — one { date: 'YYYY-MM-DD', amountCents } entry per
 //                            calendar day (UTC) in [periodStart, now]
-//                            inclusive, amount = that day's summed
-//                            `sales.amount` for the tenant. Zero-filled for
+//                            inclusive, amountCents = that day's summed
+//                            `sales.amountCents` for the tenant. Zero-filled for
 //                            days with no sales so the frontend's bar chart
 //                            has a complete, continuous x-axis instead of
 //                            gaps — replaces the static PROD_BARS mock array.
@@ -121,7 +120,7 @@ import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/
 //
 // ── Margin % formula decision (issue #296, same "document the choice"
 // instruction as #239's trial-balance posting-engine writeup) ───────────────
-// What's realistically computable today: `sales.amount` (real revenue) minus
+// What's realistically computable today: `sales.amountCents` (real revenue) minus
 // the ONLY real per-batch cost figure this branch tracks anywhere —
 // `batches.acquisitionCostCents` (see GET /api/batches/[id]/cost-breakdown's
 // header comment: no purchases/expenses/labor_logs table links a cost to a
@@ -357,12 +356,16 @@ export async function GET(req: Request) {
   const livestockUnitsQty = livestockGroups.reduce((s, g) => s + g.qty, 0)
   const cropBatchGroupsCount = cropGroups.length
 
-  const revenue = salesRows.reduce((s, sale) => s + sale.amount, 0)
+  // Unit (issue: money-unit-enforcement): `sales.amountCents` is cents now,
+  // so `revenueCents`/`periodRevenueCents`/the trend bucket totals are all
+  // cents too — no `sales.amountCents`-whole-units conversion anywhere in this
+  // route anymore.
+  const revenueCents = salesRows.reduce((s, sale) => s + sale.amountCents, 0)
 
   // Period-scoped revenue + day-bucketed trend — see file header.
   const start = periodStart(period, now)
   const periodSalesRows = salesRows.filter((s) => (s.soldAt as Date) >= start && (s.soldAt as Date) <= now)
-  const periodRevenue = periodSalesRows.reduce((s, sale) => s + sale.amount, 0)
+  const periodRevenueCents = periodSalesRows.reduce((s, sale) => s + sale.amountCents, 0)
 
   const startDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
   const endDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
@@ -375,15 +378,16 @@ export async function GET(req: Request) {
     // Guard rather than crash: every periodSalesRows entry should fall within
     // [startDay, endDay] by construction, but a sale exactly at a boundary
     // instant is safer handled defensively than assumed.
-    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + s.amount)
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + s.amountCents)
   }
-  const revenueTrend = [...buckets.entries()].map(([date, amount]) => ({ date, amount }))
+  const revenueTrend = [...buckets.entries()].map(([date, amountCents]) => ({ date, amountCents }))
 
   // Margin % — see file header's dedicated writeup for the formula choice.
+  // `totalCostCents` (acquisitionCostCents) and `periodRevenueCents` are now
+  // the same unit (cents) — no `/ 100` needed to compare them.
   const totalCostCents = batchRows.reduce((s, b) => s + (b.acquisitionCostCents ?? 0), 0)
-  const totalCostKsh = Math.round(totalCostCents / 100)
-  const marginPct = periodRevenue > 0
-    ? Math.round(((periodRevenue - totalCostKsh) / periodRevenue) * 1000) / 10
+  const marginPct = periodRevenueCents > 0
+    ? Math.round(((periodRevenueCents - totalCostCents) / periodRevenueCents) * 1000) / 10
     : null
 
   return ok({
@@ -401,13 +405,13 @@ export async function GET(req: Request) {
     mortalityPct,
     // No FCR-capable data source exists yet — see file header.
     avgFCR: null,
-    revenue,
+    revenueCents,
     pendingApprovals,
     livestockUnitsCount,
     livestockUnitsQty,
     cropBatchGroupsCount,
     period,
-    periodRevenue,
+    periodRevenueCents,
     marginPct,
     revenueTrend,
   })

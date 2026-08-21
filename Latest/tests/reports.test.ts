@@ -107,12 +107,12 @@ run('reports: P&L, Batch P&L, Mortality, Feed Consumption (issue #263)', () => {
     // Sales: one paid sale in range (attached to batch A), one out of range.
     await salesPOST(
       postRequest('http://localhost/api/data/sales', {
-        tenantId, batchId: batchAId, item: 'Broilers x 50 birds', amount: 80000, status: 'paid', soldAt: inRange.toISOString(),
+        tenantId, batchId: batchAId, item: 'Broilers x 50 birds', amountCents: 8000000, status: 'paid', soldAt: inRange.toISOString(),
       })
     )
     await salesPOST(
       postRequest('http://localhost/api/data/sales', {
-        tenantId, batchId: batchAId, item: 'Broilers x 20 birds (old)', amount: 30000, status: 'paid', soldAt: outOfRange.toISOString(),
+        tenantId, batchId: batchAId, item: 'Broilers x 20 birds (old)', amountCents: 3000000, status: 'paid', soldAt: outOfRange.toISOString(),
       })
     )
 

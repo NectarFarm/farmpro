@@ -13,9 +13,10 @@
 //
 //   node scripts/seed-demo-data.mjs [--reset]
 //
-// Money units follow the schema, which is not uniform: `sales.amount` is whole
-// shillings, while `purchases.*_cents` and `batches.acquisition_cost_cents`
-// are minor units. See lib/finance.ts.
+// Money is in minor units (cents) everywhere — `sales.amount_cents`,
+// `purchases.*_cents`, `batches.acquisition_cost_cents`. That used to be
+// inconsistent (the ledger held whole shillings while purchases held cents)
+// which is exactly how a 100x accounting error happens; see lib/money.ts.
 import postgres from 'postgres'
 
 const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://postgres:ifms@localhost:55433/ifms'
@@ -86,17 +87,17 @@ const PURCHASES = [
   { id: 'demo-p4', farm: F2, supplier: 'Eldoret Agrovet',  item: 'demo-i4', qty: 150,  unit: 6800, paid: 1020000,  method: 'mpesa', at: 15 },
 ]
 
-// sales.amount is WHOLE shillings (not cents) — see lib/finance.ts.
+// sales.amount_cents is minor units, like every other money column.
 const SALES = [
-  { id: 'demo-s1', batch: 'demo-b1', item: 'Eggs — 210 trays',   amount: 73500,  method: 'mpesa', status: 'paid',    at: 3 },
-  { id: 'demo-s2', batch: 'demo-b1', item: 'Eggs — 190 trays',   amount: 66500,  method: 'mpesa', status: 'paid',    at: 10 },
-  { id: 'demo-s3', batch: 'demo-b1', item: 'Eggs — 205 trays',   amount: 71750,  method: 'cash',  status: 'paid',    at: 17 },
-  { id: 'demo-s4', batch: 'demo-b2', item: 'Broilers — 400 birds', amount: 152000, method: 'bank', status: 'paid',   at: 6 },
-  { id: 'demo-s5', batch: 'demo-b2', item: 'Broilers — 250 birds', amount: 95000,  method: 'mpesa', status: 'pending', at: 1 },
-  { id: 'demo-s6', batch: 'demo-b3', item: 'Maize — 40 bags',    amount: 128000, method: 'bank',  status: 'paid',    at: 25 },
-  { id: 'demo-s7', batch: 'demo-b4', item: 'Milk — 1,800 L',     amount: 90000,  method: 'mpesa', status: 'paid',    at: 4 },
-  { id: 'demo-s8', batch: 'demo-b4', item: 'Milk — 1,650 L',     amount: 82500,  method: 'mpesa', status: 'paid',    at: 12 },
-  { id: 'demo-s9', batch: 'demo-b5', item: 'Maize — 12 bags',    amount: 38400,  method: 'cash',  status: 'paid',    at: 28 },
+  { id: 'demo-s1', batch: 'demo-b1', item: 'Eggs — 210 trays',   amountCents: 7350000,  method: 'mpesa', status: 'paid',    at: 3 },
+  { id: 'demo-s2', batch: 'demo-b1', item: 'Eggs — 190 trays',   amountCents: 6650000,  method: 'mpesa', status: 'paid',    at: 10 },
+  { id: 'demo-s3', batch: 'demo-b1', item: 'Eggs — 205 trays',   amountCents: 7175000,  method: 'cash',  status: 'paid',    at: 17 },
+  { id: 'demo-s4', batch: 'demo-b2', item: 'Broilers — 400 birds', amountCents: 15200000, method: 'bank', status: 'paid',   at: 6 },
+  { id: 'demo-s5', batch: 'demo-b2', item: 'Broilers — 250 birds', amountCents: 9500000,  method: 'mpesa', status: 'pending', at: 1 },
+  { id: 'demo-s6', batch: 'demo-b3', item: 'Maize — 40 bags',    amountCents: 12800000, method: 'bank',  status: 'paid',    at: 25 },
+  { id: 'demo-s7', batch: 'demo-b4', item: 'Milk — 1,800 L',     amountCents: 9000000,  method: 'mpesa', status: 'paid',    at: 4 },
+  { id: 'demo-s8', batch: 'demo-b4', item: 'Milk — 1,650 L',     amountCents: 8250000,  method: 'mpesa', status: 'paid',    at: 12 },
+  { id: 'demo-s9', batch: 'demo-b5', item: 'Maize — 12 bags',    amountCents: 3840000,  method: 'cash',  status: 'paid',    at: 28 },
 ]
 
 // Only 'feeding' | 'mortality' | 'physical_count' are accepted (see
@@ -222,8 +223,8 @@ async function main() {
       ON CONFLICT (id) DO NOTHING`
   }
   for (const s of SALES) {
-    await sql`INSERT INTO sales (id, tenant_id, batch_id, item, amount, method, status, sold_at, created_at)
-      VALUES (${s.id}, ${T}, ${s.batch}, ${s.item}, ${s.amount}, ${s.method}, ${s.status}, ${daysAgo(s.at)}, ${daysAgo(s.at)})
+    await sql`INSERT INTO sales (id, tenant_id, batch_id, item, amount_cents, method, status, sold_at, created_at)
+      VALUES (${s.id}, ${T}, ${s.batch}, ${s.item}, ${s.amountCents}, ${s.method}, ${s.status}, ${daysAgo(s.at)}, ${daysAgo(s.at)})
       ON CONFLICT (id) DO NOTHING`
   }
   for (const r of RECORDS) {
@@ -241,7 +242,11 @@ async function main() {
   for (const n of NOTIFS) {
     await sql`INSERT INTO notifications (id, tenant_id, source_type, source_id, title, message, read, created_at)
       VALUES (${n.id}, ${T}, ${n.src}, ${n.sid}, ${n.title}, ${n.msg}, false, ${daysAgo(n.at)})
-      ON CONFLICT (id) DO NOTHING`
+      -- Untargeted ON CONFLICT: notifications carry a second unique index on
+      -- (tenant_id, source_type, source_id), and the task sync creates rows for
+      -- the same sources under ids of its own. Conflicting on the primary key
+      -- alone missed those and the seed aborted.
+      ON CONFLICT DO NOTHING`
   }
   for (const p of PRODUCTS) {
     await sql`INSERT INTO products (id, tenant_id, type, name, sale_units)

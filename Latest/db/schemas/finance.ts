@@ -49,17 +49,22 @@
 //                                                  of this issue)
 // No payroll account and no payroll postings — there is no payroll table
 // anywhere in this app (explicitly out of scope, per People epic #247/#248).
-import { pgTable, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
 // A tenant's sales — the real backend for components/farm/finance.tsx's
 // `SALES` mock (Sales tab). `batchId` is kept as a plain logical reference
 // (no DB FK) — same "no import cycle with db/schemas/index.ts" convention
 // `approvalRequests.batchId` (governance.ts) and `employees.assignedBatchIds`
 // (people.ts) already use, since `batches` is defined in index.ts itself.
-// `amount` and `method`/`status` match the issue's exact field list and the
-// mock's shape 1:1 (no `*Cents` renaming — the issue names the column
-// `amount` and the mock treats it as a plain number, not a minor-unit figure
-// like `purchases.totalCostCents`).
+// `amountCents` and `method`/`status` match the issue's exact field list and
+// the mock's shape 1:1 for everything except the money column itself:
+// originally named `amount` and stored as a plain whole-currency-unit
+// figure — inconsistent with every other money column in this schema
+// (`purchases.totalCostCents` etc, all minor-unit/cents). Renamed to
+// `amountCents` and converted x100 (issue: money-unit-enforcement; see
+// drizzle/0024_*.sql) so the whole app has exactly one money unit. The old
+// name is retired for good reason: a column called `amount` no longer
+// exists to accidentally re-multiply if a migration ever ran twice.
 // `productId` (product-unit-inheritance task): nullable logical reference to
 // products.id (no DB FK — products lives in dashboard.ts; same "no import
 // cycle with db/schemas/index.ts" convention `batchId` below already uses).
@@ -81,7 +86,7 @@ export const sales = pgTable('sales', {
   batchId: text('batch_id'),
   productId: text('product_id'),
   item: text('item').notNull(),
-  amount: integer('amount').notNull(),
+  amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
   method: text('method').notNull().default(''),
   status: text('status').notNull().default('paid'), // 'paid' | 'pending'
   soldAt: timestamp('sold_at').defaultNow().notNull(),
@@ -127,16 +132,22 @@ export const journalEntries = pgTable('journal_entries', {
 
 // The debit/credit lines of a journal entry. Real FKs are fine here —
 // `journal_entries`/`accounts` both live in this same file, no cross-file
-// import-cycle concern. Exactly one of debit/credit is non-zero per line
-// (enforced in lib/finance.ts's posting functions, not at the DB level, same
-// "validated in application code" convention the rest of this branch uses for
-// invariants a CHECK constraint could also express).
+// import-cycle concern. Exactly one of debitCents/creditCents is non-zero
+// per line (enforced in lib/finance.ts's posting functions, not at the DB
+// level, same "validated in application code" convention the rest of this
+// branch uses for invariants a CHECK constraint could also express).
+//
+// Renamed debit/credit -> debitCents/creditCents and widened to bigint
+// (issue: money-unit-enforcement) — the ledger used to store whole-currency
+// units (matching `sales.amount`'s unit at the time); now that every money
+// column in this schema is cents, these follow the same convention. Existing
+// values converted x100 by drizzle/0024_*.sql.
 export const journalLines = pgTable('journal_lines', {
   id: text('id').primaryKey(),
   entryId: text('entry_id').notNull().references(() => journalEntries.id),
   accountId: text('account_id').notNull().references(() => accounts.id),
-  debit: integer('debit').notNull().default(0),
-  credit: integer('credit').notNull().default(0),
+  debitCents: bigint('debit_cents', { mode: 'number' }).notNull().default(0),
+  creditCents: bigint('credit_cents', { mode: 'number' }).notNull().default(0),
 }, (t) => [
   index('idx_journal_lines_entry').on(t.entryId),
   index('idx_journal_lines_account').on(t.accountId),

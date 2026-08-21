@@ -48,6 +48,7 @@ import {
   Clock, X, Check, Settings, Info, Leaf, Activity,
 } from "./icons";
 import { apiClient } from "@/lib/request";
+import { centsToMajor } from "@/lib/money";
 
 // ── Real backend shapes (issue #228, revisited #292, #296) ──────────────────
 // KPI fields computed from tables that exist on this branch
@@ -62,7 +63,7 @@ import { apiClient } from "@/lib/request";
 // this app yet — and is rendered as an explicit "not yet tracked" note
 // rather than a fabricated number.
 type Period = "month" | "quarter" | "year";
-interface RevenueTrendPoint { date: string; amount: number }
+interface RevenueTrendPoint { date: string; amountCents: number }
 interface KpiData {
   activeTasksCount: number;
   overdueTasksCount: number;
@@ -71,13 +72,13 @@ interface KpiData {
   activeBatches: number;
   mortalityPct: number | null;
   avgFCR: number | null;
-  revenue: number;
+  revenueCents: number;
   pendingApprovals: number;
   livestockUnitsCount: number;
   livestockUnitsQty: number;
   cropBatchGroupsCount: number;
   period: Period;
-  periodRevenue: number;
+  periodRevenueCents: number;
   marginPct: number | null;
   revenueTrend: RevenueTrendPoint[];
   // farm-scoped-data task: which farm this response was actually scoped to,
@@ -179,7 +180,7 @@ function OperationalDashboard({
           <section style={{ marginBottom: 28 }}>
             <h2 className="section-title" style={{ margin: "0 0 10px" }}>Farm performance</h2>
             <div className="farm-card" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", padding: "16px 0" }}>
-              <div style={{ paddingLeft: 16 }}><div className="kpi-value" style={{ color: settings?.accentColor ?? "var(--primary-green)" }}>{kpis ? `KSh ${kpis.periodRevenue.toLocaleString()}` : "—"}</div><div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>Revenue this {period}</div></div>
+              <div style={{ paddingLeft: 16 }}><div className="kpi-value" style={{ color: settings?.accentColor ?? "var(--primary-green)" }}>{kpis ? `KSh ${centsToMajor(kpis.periodRevenueCents).toLocaleString()}` : "—"}</div><div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>Revenue this {period}</div></div>
               <button onClick={() => navigate("crops")} style={{ background: "none", border: "none", borderLeft: "1px solid var(--border-subtle)", textAlign: "left", paddingLeft: 16, cursor: "pointer" }}><div style={{ fontSize: 24, fontWeight: 700 }}>{kpis?.activeBatches ?? "—"}</div><div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>Active batches</div></button>
               <button onClick={() => navigate("tasks")} style={{ background: "none", border: "none", borderLeft: "1px solid var(--border-subtle)", textAlign: "left", paddingLeft: 16, cursor: "pointer" }}><div style={{ fontSize: 24, fontWeight: 700 }}>{kpis?.activeTasksCount ?? "—"}</div><div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>Open tasks</div></button>
             </div>
@@ -369,7 +370,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
   }, [tenantId, activeFarmId]);
 
   const unread = notifs?.filter(n => !n.read).length ?? 0;
-  const maxTrend = Math.max(1, ...(kpis?.revenueTrend.map(p => p.amount) ?? [0]));
+  const maxTrend = Math.max(1, ...(kpis?.revenueTrend.map(p => centsToMajor(p.amountCents)) ?? [0]));
 
   // Quick actions vary by role
   const quickActions = [

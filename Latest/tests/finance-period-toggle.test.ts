@@ -76,16 +76,16 @@ run('Finance Budget Overview: period toggle actually filters real sales (issue #
     mockCookie = ownerSessionToken
 
     await salesPOST(postRequest('http://localhost/api/data/sales', {
-      tenantId, item: 'August batch sale', amount: 40000, status: 'paid', soldAt: saleInMonth.toISOString(),
+      tenantId, item: 'August batch sale', amountCents: 4000000, status: 'paid', soldAt: saleInMonth.toISOString(),
     }))
     await salesPOST(postRequest('http://localhost/api/data/sales', {
-      tenantId, item: 'July batch sale', amount: 25000, status: 'paid', soldAt: saleInQuarterOnly.toISOString(),
+      tenantId, item: 'July batch sale', amountCents: 2500000, status: 'paid', soldAt: saleInQuarterOnly.toISOString(),
     }))
     await salesPOST(postRequest('http://localhost/api/data/sales', {
-      tenantId, item: 'March batch sale', amount: 15000, status: 'paid', soldAt: saleInYtdOnly.toISOString(),
+      tenantId, item: 'March batch sale', amountCents: 1500000, status: 'paid', soldAt: saleInYtdOnly.toISOString(),
     }))
     await salesPOST(postRequest('http://localhost/api/data/sales', {
-      tenantId, item: 'Prior-year sale', amount: 90000, status: 'paid', soldAt: saleLastYear.toISOString(),
+      tenantId, item: 'Prior-year sale', amountCents: 9000000, status: 'paid', soldAt: saleLastYear.toISOString(),
     }))
   })
 
