@@ -48,6 +48,47 @@ A general-purpose Next.js web application template with database initialization 
    - `pnpm db:migrate` — run migrations
    - `pnpm db:studio` — open Drizzle Studio
 
+## Running with Docker
+
+The whole local stack (Postgres + app) is described by `docker-compose.yml`, so
+starting and stopping is two commands rather than a hand-rolled `docker build`
+and `docker run --env-file` per change:
+
+```bash
+make up      # start Postgres + the app  -> http://localhost:13001
+make down    # stop everything, keep the database
+```
+
+`make` on its own lists every target. The useful ones:
+
+| Command | What it does |
+| --- | --- |
+| `make up` | Postgres + the production-shaped app image |
+| `make dev` | Postgres + hot-reloading dev server; source is bind-mounted, so a `git pull` applies live with **no rebuild** |
+| `make down` | Stop and remove containers, keep the `ifms-pgdata` volume |
+| `make logs` | Follow logs |
+| `make migrate` / `make seed` | Drizzle migrations / demo data |
+| `make psql` | psql shell on the dev database |
+| `make reset-db` | Destructive: drop the volume, migrate and re-seed |
+| `make rebuild` | Force a no-cache image rebuild (rarely needed) |
+
+Compose reuses one named container per service, so repeated starts replace the
+previous container instead of leaving another one behind.
+
+### Why rebuilds are fast now
+
+The Dockerfile installs dependencies in a `deps` stage that copies only
+`package.json` and the lockfile. Application code arrives in a later stage, so a
+`git pull` that touches only source reuses the cached install instead of
+re-resolving the dependency tree: a cold build is ~210s, a code-change rebuild
+~24s. pnpm's store is kept across builds on a BuildKit cache mount, so even a
+lockfile change re-fetches only what actually changed.
+
+The runner stage serves Next's `output: 'standalone'` bundle, which traces the
+exact server dependencies it needs. That removed the second
+`pnpm install --prod` the old runner did and took the image from ~1.01GB to
+~384MB.
+
 ## Project Structure
 
 - `app/` — Next.js App Router (`layout.tsx`, `page.tsx`, `api/`).
@@ -57,4 +98,5 @@ A general-purpose Next.js web application template with database initialization 
 - `hooks/` — Shared hooks (`use-mobile.ts`, `use-toast.ts`).
 - `utils/` — `cn.ts` (clsx + tailwind-merge).
 - `docs/` — `AI_GUIDE.md` (AI/developer conventions).
-- `Dockerfile` — Multi-stage node:22-slim build exposing port 13000.
+- `Dockerfile` — Multi-stage node:22-slim build (deps / builder / runner) exposing port 13001.
+- `docker-compose.yml`, `Makefile` — Local stack and its shortcuts (see "Running with Docker").
