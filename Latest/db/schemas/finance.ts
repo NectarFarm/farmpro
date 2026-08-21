@@ -89,6 +89,9 @@ export const sales = pgTable('sales', {
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),
+  // Added with sales.product_id: attributing revenue to a product scans by
+  // product alone, which the tenant-led composites above cannot serve.
+  index('idx_sales_product').on(t.productId),
 ])
 
 // The chart of accounts — fixed, global, seeded (see lib/finance.ts's
