@@ -169,6 +169,13 @@
       "when": 1787345535183,
       "tag": "0023_retarget_legacy_password_reset_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787347108834,
+      "tag": "0024_money_unit_enforcement",
+      "breakpoints": true
     }
   ]
 }

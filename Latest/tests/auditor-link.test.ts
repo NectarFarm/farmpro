@@ -80,8 +80,8 @@ run('auditor-link (issue #313)', () => {
     // A distinctive, tenant-scoped revenue figure per tenant so the report's
     // meta.periodRevenue proves which tenant's data actually came back.
     await db.insert(sales).values([
-      { id: saleAId, tenantId: tenantAId, item: 'Tenant A eggs', amount: 111, status: 'paid' },
-      { id: saleBId, tenantId: tenantBId, item: 'Tenant B eggs', amount: 999, status: 'paid' },
+      { id: saleAId, tenantId: tenantAId, item: 'Tenant A eggs', amountCents: 11100, status: 'paid' },
+      { id: saleBId, tenantId: tenantBId, item: 'Tenant B eggs', amountCents: 99900, status: 'paid' },
     ])
 
     ownerASessionToken = await createSession(ownerAId)

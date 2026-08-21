@@ -73,7 +73,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
           productCount: 0,
           // Real counts/sums — 0 is an honest empty result, not "not tracked".
           activeBatches: 0,
-          revenue: 0,
+          revenueCents: 0,
           // No active batches to divide by -> no honest percentage to report.
           mortalityPct: null,
           // No FCR-capable data source exists anywhere in this app yet.
@@ -84,7 +84,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
           livestockUnitsQty: 0,
           cropBatchGroupsCount: 0,
           period: 'month',
-          periodRevenue: 0,
+          periodRevenueCents: 0,
           // No revenue in the period -> no honest percentage to report.
           marginPct: null,
           // farm-scoped-data task: no farmId was passed, so this response is
@@ -97,7 +97,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         expect(Array.isArray(revenueTrend)).toBe(true)
         expect(revenueTrend.length).toBeGreaterThan(0)
         for (const point of revenueTrend) {
-          expect(point.amount).toBe(0)
+          expect(point.amountCents).toBe(0)
           expect(point.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
         }
       } finally {
@@ -141,7 +141,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
       // not a fabricated number.
       expect(payload.data.activeBatches).toBe(0)
       expect(payload.data.mortalityPct).toBeNull()
-      expect(payload.data.revenue).toBe(0)
+      expect(payload.data.revenueCents).toBe(0)
       // Never fabricated — no FCR-capable data source exists anywhere yet.
       expect(payload.data.avgFCR).toBeNull()
       // No approval_requests/batches seeded for this tenant in this test.
@@ -149,7 +149,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
       expect(payload.data.livestockUnitsCount).toBe(0)
       expect(payload.data.livestockUnitsQty).toBe(0)
       expect(payload.data.cropBatchGroupsCount).toBe(0)
-      expect(payload.data.periodRevenue).toBe(0)
+      expect(payload.data.periodRevenueCents).toBe(0)
       expect(payload.data.marginPct).toBeNull()
 
       // Cross-tenant isolation: tenant B's rows never affected tenant A's counts.
@@ -205,8 +205,8 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         // payment status. No explicit soldAt -> defaults to now(), so both
         // fall inside every period (month/quarter/year) to-date.
         await db.insert(sales).values([
-          { id: randomUUID(), tenantId, item: 'Broilers', amount: 45000, status: 'paid' },
-          { id: randomUUID(), tenantId, item: 'Eggs', amount: 12500, status: 'pending' },
+          { id: randomUUID(), tenantId, item: 'Broilers', amountCents: 4500000, status: 'paid' },
+          { id: randomUUID(), tenantId, item: 'Eggs', amountCents: 1250000, status: 'pending' },
         ])
 
         const res = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}`))
@@ -218,7 +218,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         // Pooled mortality across the 2 active batches only, not the closed one.
         expect(payload.data.mortalityPct).toBeCloseTo(2.4, 1)
         // Real sum of both sales rows, regardless of paid/pending status.
-        expect(payload.data.revenue).toBe(57500)
+        expect(payload.data.revenueCents).toBe(5750000)
         // Still no FCR-capable data source.
         expect(payload.data.avgFCR).toBeNull()
 
@@ -232,7 +232,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         // Default period is 'month'; both sales default to soldAt = now(),
         // so periodRevenue matches the all-time revenue here.
         expect(payload.data.period).toBe('month')
-        expect(payload.data.periodRevenue).toBe(57500)
+        expect(payload.data.periodRevenueCents).toBe(5750000)
         // Margin = periodRevenue(57500) - totalAcquisitionCost(10,000 + 5,000 +
         // 2,000 = 17,000, ALL 3 batches incl. the closed one) = 40,500.
         // marginPct = 40500/57500 = 70.434...% -> rounds to 70.4, same
@@ -314,8 +314,8 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         const longAgo = new Date(Date.UTC(now.getUTCFullYear() - 1, 0, 1))
 
         await db.insert(sales).values([
-          { id: randomUUID(), tenantId, item: 'In-period sale', amount: 10000, soldAt: thisMonth },
-          { id: randomUUID(), tenantId, item: 'Long-ago sale', amount: 99999, soldAt: longAgo },
+          { id: randomUUID(), tenantId, item: 'In-period sale', amountCents: 1000000, soldAt: thisMonth },
+          { id: randomUUID(), tenantId, item: 'Long-ago sale', amountCents: 9999900, soldAt: longAgo },
         ])
 
         const monthRes = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}&period=month`))
@@ -323,16 +323,16 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         expect(monthPayload.data.pendingApprovals).toBe(2)
         expect(monthPayload.data.period).toBe('month')
         // Only the in-period sale counts; the long-ago sale is excluded.
-        expect(monthPayload.data.periodRevenue).toBe(10000)
+        expect(monthPayload.data.periodRevenueCents).toBe(1000000)
         // All-time `revenue` still includes both sales — unaffected by period.
-        expect(monthPayload.data.revenue).toBe(109999)
+        expect(monthPayload.data.revenueCents).toBe(10999900)
 
         const yearRes = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}&period=year`))
         const yearPayload = await yearRes.json()
         expect(yearPayload.data.period).toBe('year')
         // The long-ago sale (a full year before this Jan 1) is still outside
         // even the year-to-date range.
-        expect(yearPayload.data.periodRevenue).toBe(10000)
+        expect(yearPayload.data.periodRevenueCents).toBe(1000000)
 
         // Unknown/omitted period falls back to 'month' rather than erroring.
         const badRes = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}&period=decade`))

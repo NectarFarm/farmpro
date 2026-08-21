@@ -6,6 +6,7 @@ import { Plus, Search, X, Download, Lock } from './icons';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
+import { parseMoneyToCents, centsToMajor } from '@/lib/money';
 
 // ── Real-data wiring (issue #240) ───────────────────────────────────────────
 // This screen used to render entirely from hardcoded mock data (a sales
@@ -57,30 +58,24 @@ import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period
 // #247/#248) — the Payroll tab below is an honest "not available yet" state,
 // same treatment as components/farm/worker.tsx's WorkerPayScreen.
 //
-// ── Backend data bug found while wiring, since fixed (issue #290) ──────────
-// `sales.amount` posts to the ledger as a plain whole-currency-unit number
-// (e.g. 36000 means KSh 36,000 — see lib/finance.ts's postSaleJournal and
-// db/schemas/finance.ts's comment). `purchases.totalCostCents` used to post
-// straight through in cents (e.g. 15000 meaning KSh 150), which inflated the
-// EXPENSE side of GET /api/gl/trial-balance ~100x relative to the REVENUE
-// side for any tenant with both real sales and real purchases. Fixed at the
-// posting layer: lib/finance.ts's postPurchaseJournal now converts
-// totalCostCents/amountPaidCents to whole units (dividing by 100) before
-// posting, matching the convention lib/reports.ts's own computation already
-// used for this same pair of columns — see postPurchaseJournal's "Unit
-// normalization" comment for the full reasoning. The GL Accounts tab below
-// displays the trial balance exactly as the backend returns it, which is now
-// consistently in whole KSh on both sides.
-// (Budget Overview's Revenue/Expenses/Net, below, never had this bug: they
-// come from GET /api/reports/pl's `meta.periodRevenue`/`periodExpense`, which
-// already converts purchases cents -> whole units — see lib/reports.ts.)
+// ── Money units (issue: money-unit-enforcement) ─────────────────────────────
+// `sales.amountCents` used to be `sales.amount`, a plain whole-currency-unit
+// number, while `purchases.totalCostCents` was already cents — the mismatch
+// inflated the EXPENSE side of GET /api/gl/trial-balance ~100x relative to
+// the REVENUE side for any tenant with both real sales and real purchases
+// (issue #290's fix moved the conversion around; this issue removed it by
+// putting every money column in cents). The GL Accounts tab below now
+// displays the trial balance's `debitCents`/`creditCents`/`balanceCents`
+// converted to whole units via lib/money.ts's `centsToMajor` for display —
+// both sides share the same unit by construction, not by a conversion this
+// screen has to get right.
 
 /* ── API row shapes (exactly as the routes above return them) ── */
 interface ApiSale {
   id: string;
   batchId: string | null;
   item: string;
-  amount: number;
+  amountCents: number;
   method: string;
   status: string;
   soldAt: string;
@@ -136,14 +131,14 @@ interface TrialBalanceRow {
   name: string;
   class: string;
   normalBalance: string;
-  debit: number;
-  credit: number;
-  balance: number;
+  debitCents: number;
+  creditCents: number;
+  balanceCents: number;
 }
 interface ApiTrialBalance {
   rows: TrialBalanceRow[];
-  totalDebits: number;
-  totalCredits: number;
+  totalDebitsCents: number;
+  totalCreditsCents: number;
   balanced: boolean;
 }
 
@@ -171,16 +166,16 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
   const [error, setError] = useState('');
 
   async function save() {
-    const amt = Number(amount);
+    const amountCents = parseMoneyToCents(amount);
     if (!item.trim()) { setError('Item is required.'); return; }
-    if (!Number.isFinite(amt) || amt <= 0) { setError('Amount must be a positive number.'); return; }
+    if (amountCents === null || amountCents <= 0) { setError('Amount must be a positive number.'); return; }
 
     setSaving(true);
     setError('');
     const res = await apiClient.post('/api/data/sales', {
       tenantId,
       item: item.trim(),
-      amount: Math.trunc(amt),
+      amountCents,
       method: method.trim() || undefined,
       status,
       batchId: batchId || undefined,
@@ -283,14 +278,17 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
 
   async function save() {
     const qty = Number(quantity);
-    const cost = Number(unitCost);
+    const unitCostCents = parseMoneyToCents(unitCost);
     if (!supplier.trim() || !itemName.trim() || !unit.trim()) {
       setError('Supplier, item, and unit are required.');
       return;
     }
     if (!Number.isFinite(qty) || qty <= 0) { setError('Quantity must be a positive number.'); return; }
-    if (!Number.isFinite(cost) || cost < 0) { setError('Cost per unit must be a non-negative number.'); return; }
+    if (unitCostCents === null || unitCostCents < 0) { setError('Cost per unit must be a non-negative number.'); return; }
     if (!farmId) { setError('Select which farm this stock is for.'); return; }
+
+    const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
+    if (amountPaid && amountPaidCents === null) { setError('Amount paid must be a number.'); return; }
 
     setSaving(true);
     setError('');
@@ -301,9 +299,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
       category: category.trim() || undefined,
       unit: unit.trim(),
       quantity: Math.trunc(qty),
-      unitCostCents: Math.round(cost * 100),
+      unitCostCents,
       paymentMethod: paymentMethod.trim() || undefined,
-      amountPaidCents: amountPaid ? Math.round(Number(amountPaid) * 100) : undefined,
+      amountPaidCents: amountPaidCents ?? undefined,
       farmId,
     });
     setSaving(false);
@@ -611,7 +609,7 @@ export function FinanceScreen() {
     date: fmtDate(s.soldAt),
     batchLabel: s.batchId ? batchLabelById.get(s.batchId) ?? s.batchId : '',
     method: s.method,
-    amount: s.amount,
+    amount: centsToMajor(s.amountCents),
     status: s.status,
   })), [sales, batchLabelById]);
 
@@ -625,11 +623,15 @@ export function FinanceScreen() {
   // batch's real cost-breakdown total (currently just acquisitionCostCents —
   // see app/api/batches/[id]/cost-breakdown/route.ts for why feed/health/
   // labour/overhead are 0/untracked today).
-  const salesByBatch = useMemo(() => {
+  // Kept in cents (matches sales.amountCents) until the final rows.map below
+  // — converted to whole units there, right next to cost's own conversion,
+  // same "convert once, right where both sides of the margin meet" pattern
+  // lib/reports.ts's computeBatchPlReport uses.
+  const salesByBatchCents = useMemo(() => {
     const m = new Map<string, number>();
     for (const s of sales ?? []) {
       if (!s.batchId) continue;
-      m.set(s.batchId, (m.get(s.batchId) ?? 0) + s.amount);
+      m.set(s.batchId, (m.get(s.batchId) ?? 0) + s.amountCents);
     }
     return m;
   }, [sales]);
@@ -637,12 +639,12 @@ export function FinanceScreen() {
   const batchPLRows = useMemo(() => (batches ?? []).map((b) => {
     const breakdown = costBreakdowns.get(b.id);
     const costCents = breakdown?.totalTrackedCents ?? b.acquisitionCostCents ?? 0;
-    const cost = Math.round(costCents / 100);
-    const revenue = salesByBatch.get(b.id) ?? 0;
+    const cost = centsToMajor(costCents);
+    const revenue = centsToMajor(salesByBatchCents.get(b.id) ?? 0);
     const margin = revenue - cost;
     const pct = revenue > 0 ? Math.round((margin / revenue) * 1000) / 10 : 0;
     return { id: b.id, code: b.code, name: b.name, revenue, cost, margin, pct, status: b.status };
-  }), [batches, costBreakdowns, salesByBatch]);
+  }), [batches, costBreakdowns, salesByBatchCents]);
 
   // Budget Overview (issue #299): real revenue/expense totals for the
   // selected Month/Quarter/YTD period, from GET /api/reports/pl's
@@ -654,7 +656,20 @@ export function FinanceScreen() {
   const margin = totalRevenue - totalExpenses;
   const budgetTotal = totalRevenue + totalExpenses;
 
-  const glRows = useMemo(() => (trialBalance?.rows ?? []), [trialBalance]);
+  // Converted to whole units here (once, via lib/money.ts's centsToMajor)
+  // rather than at every render/export site below — the server's real
+  // ledger (GET /api/gl/trial-balance) is cents (debitCents/creditCents/
+  // balanceCents); this screen displays whole currency units.
+  const glRows = useMemo(() => (trialBalance?.rows ?? []).map((g) => ({
+    accountId: g.accountId,
+    code: g.code,
+    name: g.name,
+    class: g.class,
+    normalBalance: g.normalBalance,
+    debit: centsToMajor(g.debitCents),
+    credit: centsToMajor(g.creditCents),
+    balance: centsToMajor(g.balanceCents),
+  })), [trialBalance]);
   const filteredGL = glRows.filter((g) => {
     if (!glSearch.trim()) return true;
     const q = glSearch.toLowerCase();
@@ -816,7 +831,7 @@ export function FinanceScreen() {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.quantity.toLocaleString()} units</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(p.totalCostCents / 100).toLocaleString()}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
                   </div>
                 </div>
               ))}
@@ -835,11 +850,11 @@ export function FinanceScreen() {
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-blue)', marginBottom: 2 }}>General Ledger — {accounts.length} accounts</div>
             <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(trialBalance?.totalCredits ?? 0).toLocaleString()}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {centsToMajor(trialBalance?.totalCreditsCents ?? 0).toLocaleString()}</div>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Total Credits</div>
               </div>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(trialBalance?.totalDebits ?? 0).toLocaleString()}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(trialBalance?.totalDebitsCents ?? 0).toLocaleString()}</div>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Total Debits</div>
               </div>
               <div>

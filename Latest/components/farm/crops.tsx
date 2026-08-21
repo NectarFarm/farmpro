@@ -5,6 +5,7 @@ import { ENTERPRISE_REGISTRY } from './data';
 import { apiClient } from '@/lib/request';
 import { Plus, X, Check, Upload, Lock, Package, Archive, Edit2 } from './icons';
 import { StatusTimeline } from './status-timeline';
+import { parseMoneyToCents, centsToMajor } from '@/lib/money';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
 // This screen used to render entirely from the batches mock array exported by
@@ -565,7 +566,7 @@ export function CropsScreen() {
             { label: 'Livestock Batches', value: livestockBatches.filter(b=>b.status==='ACTIVE').length, color: 'var(--primary-green)' },
             { label: 'Crop Batches', value: cropBatches.filter(b=>b.status==='ACTIVE').length, color: 'var(--accent-amber)' },
             { label: 'Animals', value: livestockBatches.reduce((s,b)=>s+b.qty,0).toLocaleString(), color: 'var(--accent-blue)' },
-            { label: 'Total Cost', value: `KSh ${(farmBatches.reduce((s,b)=>s+b.costCents,0)/100000).toFixed(0)}K`, color: 'var(--text-secondary)' },
+            { label: 'Total Cost', value: `KSh ${(centsToMajor(farmBatches.reduce((s,b)=>s+b.costCents,0))/1000).toFixed(0)}K`, color: 'var(--text-secondary)' },
           ].map(s => (
             <div key={s.label} style={{ flexShrink: 0, background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '8px 12px', textAlign: 'center', minWidth: 80 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -934,7 +935,7 @@ export function BatchDetailScreen() {
   const unit = units.find(u => u.id === batch.unitId);
   const farm = unit ? farms.find(f => f.id === unit.farmId) : undefined;
   const mort = batch.initialQty > 0 ? (((batch.initialQty - batch.currentQty) / batch.initialQty) * 100).toFixed(1) : '0.0';
-  const costKsh = batch.acquisitionCostCents / 100;
+  const costKsh = centsToMajor(batch.acquisitionCostCents);
 
   const transferCandidates = units.filter(u => u.id !== batch.unitId && (!unit || u.farmId === unit.farmId));
 
@@ -1127,23 +1128,21 @@ export function BatchDetailScreen() {
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                   <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(costBreakdown.totalTrackedCents/100).toLocaleString()}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(costBreakdown.totalTrackedCents).toLocaleString()}</div>
                     <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Total Tracked Cost</div>
                   </div>
-                  {/* Revenue (issue #300): real sales.batchId-scoped revenue,
-                      converted from `sales.amount` (whole KSh) to cents server-
-                      side so it's directly comparable to the cost figures here
-                      (see app/api/batches/[id]/cost-breakdown/route.ts — issue
-                      #290 fixed this exact unit mismatch elsewhere (the GL
-                      posting layer); this endpoint converts explicitly
-                      instead of relying on that). An honest "KSh 0" (not a fabricated
-                      number) when the batch has no recorded sales yet. */}
+                  {/* Revenue (issue #300): real sales.batchId-scoped revenue.
+                      `sales.amountCents` is cents, same unit as every cost
+                      figure here (issue: money-unit-enforcement) — no
+                      conversion needed server-side any more. An honest
+                      "KSh 0" (not a fabricated number) when the batch has no
+                      recorded sales yet. */}
                   <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: costBreakdown.revenue.tracked ? 'var(--status-ok)' : 'var(--text-dim)' }}>KSh {(costBreakdown.revenue.amountCents/100).toLocaleString()}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: costBreakdown.revenue.tracked ? 'var(--status-ok)' : 'var(--text-dim)' }}>KSh {centsToMajor(costBreakdown.revenue.amountCents).toLocaleString()}</div>
                     <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Revenue</div>
                   </div>
                   <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-amber)' }}>{batch.currentQty > 0 ? `KSh ${Math.round(costBreakdown.totalTrackedCents/100/batch.currentQty)}/unit` : '—'}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-amber)' }}>{batch.currentQty > 0 ? `KSh ${Math.round(centsToMajor(costBreakdown.totalTrackedCents)/batch.currentQty)}/unit` : '—'}</div>
                     <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Break-even (tracked cost only)</div>
                   </div>
                   {/* Gross Margin (issue #300): tracked-cost-only margin (same
@@ -1160,7 +1159,7 @@ export function BatchDetailScreen() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, fontSize: 11 }}>
                       <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{c.label}</span>
                       {c.tracked ? (
-                        <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>KSh {(c.amountCents/100).toLocaleString()}</span>
+                        <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>KSh {centsToMajor(c.amountCents).toLocaleString()}</span>
                       ) : (
                         <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }} title={c.reason}>not tracked</span>
                       )}
@@ -1318,7 +1317,7 @@ export function CropScheduleScreen() {
       return;
     }
 
-    const costCents = initialCost ? Math.round(Number(initialCost) * 100) : 0;
+    const costCents = initialCost ? parseMoneyToCents(initialCost) : 0;
     const batchRes = await apiClient.post<{ id: string; code: string }>('/api/batches', {
       tenantId,
       unitId: unitRes.data.id,
@@ -1326,7 +1325,7 @@ export function CropScheduleScreen() {
       enterprise: subtype,
       species: species.trim(),
       initialQty: initialQty ? Math.trunc(Number(initialQty)) : 0,
-      acquisitionCostCents: Number.isFinite(costCents) ? costCents : 0,
+      acquisitionCostCents: costCents ?? 0,
       startDate: startDate || undefined,
       ...(isCrop ? { harvestDate: endOrHarvestDate || undefined } : { endDate: endOrHarvestDate || undefined }),
     });

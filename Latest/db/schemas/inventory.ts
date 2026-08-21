@@ -20,7 +20,7 @@
 // merged stock-list endpoint (GET /api/inventory/items) re-flattens
 // items+lots server-side for the UI's table shape — see that route for the
 // join and the `status` computation.
-import { pgTable, text, timestamp, integer, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, index } from 'drizzle-orm/pg-core'
 
 // A tenant's catalog of inventory items (feed, vaccines, medicine, seed,
 // etc — `category` is free text, matching the UI's cat filter chips, not an
@@ -58,7 +58,9 @@ export const inventoryLots = pgTable('inventory_lots', {
   itemId: text('item_id').notNull().references(() => inventoryItems.id),
   lotNo: text('lot_no').notNull(),
   qtyOnHand: integer('qty_on_hand').notNull().default(0),
-  unitCostCents: integer('unit_cost_cents').notNull().default(0),
+  // Widened to bigint (issue: money-unit-enforcement) — see the comment on
+  // batches.acquisitionCostCents in db/schemas/index.ts for why.
+  unitCostCents: bigint('unit_cost_cents', { mode: 'number' }).notNull().default(0),
   expiryDate: timestamp('expiry_date'),
   receivedDate: timestamp('received_date').defaultNow().notNull(),
   // Multi-farm filtering (farm-scoped-data task): the farm belongs on the
@@ -93,10 +95,12 @@ export const purchases = pgTable('purchases', {
   supplier: text('supplier').notNull(),
   itemId: text('item_id').notNull().references(() => inventoryItems.id),
   quantity: integer('quantity').notNull(),
-  unitCostCents: integer('unit_cost_cents').notNull().default(0),
-  totalCostCents: integer('total_cost_cents').notNull().default(0),
+  // Widened to bigint (issue: money-unit-enforcement) — see the comment on
+  // batches.acquisitionCostCents in db/schemas/index.ts for why.
+  unitCostCents: bigint('unit_cost_cents', { mode: 'number' }).notNull().default(0),
+  totalCostCents: bigint('total_cost_cents', { mode: 'number' }).notNull().default(0),
   paymentMethod: text('payment_method').notNull().default(''),
-  amountPaidCents: integer('amount_paid_cents').notNull().default(0),
+  amountPaidCents: bigint('amount_paid_cents', { mode: 'number' }).notNull().default(0),
   // Multi-farm filtering (farm-scoped-data task) — a purchase is a receiving
   // event for a specific farm's stock, same rationale as inventoryLots.farmId
   // above (and recordPurchase sets both to the same value: a purchase and

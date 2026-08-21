@@ -343,8 +343,8 @@ run('batches: CRUD + code generation + cost-breakdown (issue #231)', () => {
       // Two real sales for this batch, whole-KSh `amount` (matching
       // db/schemas/finance.ts's `sales.amount` contract) — KSh 70,000 + KSh
       // 60,000 = KSh 130,000 total revenue.
-      await recordSale({ tenantId: tenantAId, batchId: created.id, item: 'Broilers batch 1', amount: 70000 })
-      await recordSale({ tenantId: tenantAId, batchId: created.id, item: 'Broilers batch 2', amount: 60000 })
+      await recordSale({ tenantId: tenantAId, batchId: created.id, item: 'Broilers batch 1', amountCents: 7000000 })
+      await recordSale({ tenantId: tenantAId, batchId: created.id, item: 'Broilers batch 2', amountCents: 6000000 })
       // A sale for a *different* batch must not leak into this batch's revenue.
       const otherRes = await batchesPOST(
         postRequest('http://localhost/api/batches', {
@@ -352,7 +352,7 @@ run('batches: CRUD + code generation + cost-breakdown (issue #231)', () => {
         })
       )
       const other = (await otherRes.json()).data
-      await recordSale({ tenantId: tenantAId, batchId: other.id, item: 'Unrelated sale', amount: 999999 })
+      await recordSale({ tenantId: tenantAId, batchId: other.id, item: 'Unrelated sale', amountCents: 99999900 })
 
       const res = await costBreakdownGET(
         getRequest(`http://localhost/api/batches/${created.id}/cost-breakdown?tenantId=${tenantAId}`),

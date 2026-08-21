@@ -1,7 +1,7 @@
 // IFMS new-backend schema (mobile-ui-upgrade). Tenant is the account/billing
 // scope; `farms` sits below it, and production units belong to a farm — the same
 // shape the reference backend designs toward (issue #219).
-import { pgTable, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
 export * from './auth'
 export * from './dashboard'
@@ -94,7 +94,12 @@ export const batches = pgTable('batches', {
   status: text('status').notNull().default('ACTIVE'),
   initialQty: integer('initial_qty').notNull().default(0),
   currentQty: integer('current_qty').notNull().default(0),
-  acquisitionCostCents: integer('acquisition_cost_cents').notNull().default(0),
+  // Money units (issue: money-unit-enforcement) — widened to bigint (mode
+  // 'number': safe up to 2^53, far beyond any real farm-finance figure) so
+  // this cents-denominated column isn't capped at ~21.5M KSh by `integer`'s
+  // 2,147,483,647 ceiling. See lib/money.ts for the one place cents<->major
+  // conversion happens.
+  acquisitionCostCents: bigint('acquisition_cost_cents', { mode: 'number' }).notNull().default(0),
   startDate: timestamp('start_date').defaultNow(),
   endDate: timestamp('end_date'),
   harvestDate: timestamp('harvest_date'),

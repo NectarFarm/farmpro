@@ -10,7 +10,7 @@ import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/
 // Fresh build: no `sales` table or route existed anywhere on this branch
 // before this issue (the issue's own branch-correction note confirms it).
 // Field set matches the issue's exact spec and components/farm/finance.tsx's
-// `SALES` mock 1:1 (id, batchId, item, amount, method, status, soldAt).
+// `SALES` mock 1:1 (id, batchId, item, amountCents, method, status, soldAt).
 //
 // POST also posts the sale's journal entry in the same DB transaction — see
 // lib/finance.ts's recordSale / postSaleJournal for the posting rule and the
@@ -52,8 +52,13 @@ export async function GET(req: Request) {
 }
 
 // POST /api/data/sales — record a sale (and post its journal entry).
-// Body: { tenantId?, batchId?, productId?, item?, amount, method?, status?,
-//         soldAt? }
+// Body: { tenantId?, batchId?, productId?, item?, amountCents, method?,
+//         status?, soldAt? }
+//
+// `amountCents` (issue: money-unit-enforcement): renamed from `amount` and
+// now in cents, matching `purchases`' `unitCostCents`/`totalCostCents`/
+// `amountPaidCents` convention (every money field, in every route body, is
+// cents) — see db/schemas/finance.ts's `sales.amountCents` and lib/money.ts.
 //
 // `productId` (product-unit-inheritance task, optional): when present and
 // `item` is not explicitly supplied, `item` is filled in from the product's
@@ -73,7 +78,7 @@ export async function POST(req: Request) {
   const session = await getSessionUser()
   const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
   let item = typeof b.item === 'string' ? b.item.trim() : ''
-  const amount = Number(b.amount)
+  const amountCents = Number(b.amountCents)
   const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'paid'
   const batchId = typeof b.batchId === 'string' && b.batchId.trim() ? b.batchId.trim() : null
   const productId = typeof b.productId === 'string' && b.productId.trim() ? b.productId.trim() : null
@@ -89,7 +94,7 @@ export async function POST(req: Request) {
   }
 
   if (!item) return badRequest('item is required')
-  if (!Number.isFinite(amount) || amount <= 0) return badRequest('amount must be a positive number')
+  if (!Number.isFinite(amountCents) || amountCents <= 0) return badRequest('amountCents must be a positive number')
   if (!VALID_STATUSES.has(status)) return badRequest("status must be 'paid' or 'pending'")
 
   if (batchId) {
@@ -105,7 +110,7 @@ export async function POST(req: Request) {
     batchId,
     productId,
     item,
-    amount: Math.trunc(amount),
+    amountCents: Math.trunc(amountCents),
     method,
     status,
     soldAt,
