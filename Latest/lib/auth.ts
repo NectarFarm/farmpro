@@ -156,11 +156,39 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 }
 
 /* ── Cookie attach/clear on the outgoing response ── */
-export function attachSessionCookie(res: NextResponse, token: string): NextResponse {
+
+/* Whether the session cookie should carry `Secure`.
+ *
+ * Deliberately NOT `NODE_ENV === 'production'`. The Docker runner stage sets
+ * NODE_ENV=production, so running that image locally over plain HTTP (via
+ * `make up`, or reaching it on a LAN IP from a phone) stamped `Secure` on the
+ * cookie — and browsers REFUSE to store a Secure cookie delivered over http://.
+ * Login returned 200 with a valid session, the browser silently dropped the
+ * cookie, and every following request was anonymous: the admin queue answered
+ * "Unauthorized" to a super_admin who had just signed in successfully.
+ *
+ * Deriving it from how the request actually arrived is correct in every case:
+ * a real HTTPS deployment still gets Secure, one behind a TLS-terminating
+ * proxy is covered by x-forwarded-proto, and a plain-HTTP local run does not
+ * lock itself out. Flipping NODE_ENV instead would have been wrong — it also
+ * gates the dev-only RoleSelector, which must never ship. */
+export function isSecureRequest(req?: Request): boolean {
+  if (!req) return process.env.NODE_ENV === 'production'
+  // A TLS-terminating proxy reports the ORIGINAL scheme here; may be a list.
+  const forwarded = req.headers.get('x-forwarded-proto')
+  if (forwarded) return forwarded.split(',')[0].trim().toLowerCase() === 'https'
+  try {
+    return new URL(req.url).protocol === 'https:'
+  } catch {
+    return process.env.NODE_ENV === 'production'
+  }
+}
+
+export function attachSessionCookie(res: NextResponse, token: string, req?: Request): NextResponse {
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecureRequest(req),
     path: '/',
     maxAge: Math.floor(SESSION_TTL_MS / 1000),
   })

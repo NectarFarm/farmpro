@@ -104,5 +104,5 @@ export async function POST(req: Request) {
     success: true,
     data: { id: user.id, name: user.name, email: user.email, role: user.role, tenantId: user.tenantId },
   }, 200)
-  return attachSessionCookie(res, token)
+  return attachSessionCookie(res, token, req)
 }
