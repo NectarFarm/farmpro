@@ -192,9 +192,18 @@
   .bottom-nav { display: none; }
 }
 
-@media (min-width: 1024px) {
-  .farm-device-frame { max-width: 1440px; }
-}
+/* The app shell deliberately has NO max-width. It used to cap at 1440px and
+ * centre itself, so any viewport wider than that — a large monitor, or simply
+ * zooming out, which grows the viewport in CSS pixels — left the
+ * .farm-viewport background showing as bands down the left and right edges,
+ * and the app appeared to shrink inward instead of filling the screen. Phones
+ * never hit it because their viewports are far narrower than 1440px, which is
+ * why this only ever looked wrong on desktop.
+ *
+ * The sidebar sits flush against the left edge and the main area takes the
+ * rest. Long-form content is still capped for readability by .px-screen
+ * (1320px) below — that is the right place for a reading measure, rather than
+ * boxing in the entire application chrome. */
 
 .screen-scroll {
   height: 100%;
