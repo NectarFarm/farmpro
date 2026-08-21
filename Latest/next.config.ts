@@ -2,6 +2,10 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Traces the exact server dependencies into .next/standalone so the Docker
+  // runner stage can drop node_modules entirely — that removed a second
+  // full `pnpm install --prod` and took the image from ~1.01GB to ~384MB.
+  output: 'standalone',
   // LAN device(s) accessing the dev server's HMR websocket (Next.js blocks
   // cross-origin dev resources by default). Add more IPs here as needed.
   allowedDevOrigins: ['192.168.100.14', '192.168.8.166'],
