@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "idx_users_phone" ON "users" USING btree ("phone") WHERE "users"."phone" is not null;

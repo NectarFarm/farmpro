@@ -131,7 +131,9 @@ export function useReverseGeocode(lat: string, lng: string, onResult: (addr: str
 const DEMO_ACCOUNTS = [
   { label: '👑 Owner',      cred: 'james@nakurufarm.com / farm2026' },
   { label: '🧑‍💼 Manager',   cred: 'peter@nakurufarm.com / mgr123' },
-  { label: '👷 Worker PIN',  cred: '1234' },
+  // Worker PIN login now requires phone + PIN (a PIN alone let one worker
+  // sign in as another) — both are required to reach the seeded worker.
+  { label: '👷 Worker PIN',  cred: '+254712345001 / 1234' },
   { label: '🩺 Vet',        cred: 'vet@nakurufarm.com / vet123' },
   { label: '🔍 Auditor',    cred: 'auditor@ifms.co / aud123' },
   { label: '⚙️ Super Admin', cred: 'admin@ifms.co / admin2026' },
@@ -153,12 +155,14 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
   const [tab, setTab] = useState<'email' | 'pin'>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  async function doLogin(payload: { email?: string; password?: string; pin?: string }) {
+  async function doLogin(payload: { email?: string; password?: string; phone?: string; pin?: string }) {
     setBusy(true); setError('');
     const res = await apiClient.post<{ role: Role; tenantId: string | null; name?: string }>('/api/auth/login', payload);
     setBusy(false);
@@ -175,19 +179,26 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
     void doLogin({ email: email.trim(), password });
   }
 
-  function handlePinLogin() {
-    if (!pin) { setError('Enter your 4-digit PIN.'); return; }
-    void doLogin({ pin });
-  }
-
+  // Worker sign-in is phone + PIN (a PIN alone let one worker sign in as
+  // another, since many workers can share the same 4-digit PIN — the phone
+  // is what identifies exactly one account). Submitting is blocked — with a
+  // visible reason, not a silently dead keypad — until both a valid-looking
+  // phone AND all 4 PIN digits are present.
   function handlePinKey(digit: string) {
     if (digit === 'DEL') { setPin(p => p.slice(0, -1)); return; }
     const next = pin + digit;
     if (next.length <= 4) {
       setPin(next);
       if (next.length === 4) {
+        const phoneErr = validatePhone(phone);
+        if (phoneErr) {
+          setPhoneError(phoneErr);
+          setError('Enter your phone number to sign in.');
+          setTimeout(() => setPin(''), 600);
+          return;
+        }
         setError('');
-        void doLogin({ pin: next });
+        void doLogin({ phone: phone.trim(), pin: next });
       }
     }
   }
@@ -199,7 +210,7 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
       {/* Tab toggle */}
       <div style={{ display: 'flex', background: 'var(--card)', borderRadius: 12, padding: 4, marginBottom: 20, border: '1px solid var(--border-subtle)' }}>
         {(['email', 'pin'] as const).map(t => (
-          <button key={t} onClick={() => { setTab(t); setError(''); }}
+          <button key={t} onClick={() => { setTab(t); setError(''); setPhoneError(''); }}
             style={{ flex: 1, padding: '9px', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: 'none',
               background: tab === t ? 'rgba(74,222,128,0.18)' : 'transparent',
               color: tab === t ? 'var(--primary-green)' : 'var(--text-muted)' }}>
@@ -247,6 +258,21 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
         </div>
       ) : (
         <div>
+          {/* Phone first, then PIN — "who are you", then "prove it" */}
+          <div style={{ marginBottom: 18 }}>
+            <label htmlFor="login-phone" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone Number</label>
+            <div style={{ position: 'relative' }}>
+              <Phone size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                id="login-phone" className="farm-input"
+                style={{ paddingLeft: 34, ...(phoneError ? { border: '1px solid var(--status-critical)' } : {}) }}
+                value={phone} onChange={e => { setPhone(e.target.value); setPhoneError(''); }}
+                placeholder="+254-7XX-XXX-XXX" type="tel" inputMode="tel" autoComplete="tel"
+                aria-invalid={!!phoneError} aria-describedby={phoneError ? 'login-phone-error' : undefined}
+              />
+            </div>
+            {phoneError && <div id="login-phone-error" style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{phoneError}</div>}
+          </div>
           {/* PIN dots */}
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginBottom: 20 }}>
             {[0,1,2,3].map(i => (
@@ -256,12 +282,18 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
                 transition: 'all 0.15s' }} />
             ))}
           </div>
+          {!phone.trim() && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 12 }}>
+              Enter your phone number above to unlock the PIN pad.
+            </div>
+          )}
           {error && <div style={{ padding: '8px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 12, color: 'var(--status-critical)', marginBottom: 12, textAlign: 'center' }}>{error}</div>}
-          {/* PIN pad */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          {/* PIN pad — disabled (with the hint above) until a phone number is
+              entered, since a PIN alone can no longer authenticate anyone. */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, opacity: phone.trim() ? 1 : 0.5 }}>
             {['1','2','3','4','5','6','7','8','9','','0','DEL'].map((d, i) => (
-              <button key={i} onClick={() => d && handlePinKey(d)}
-                style={{ padding: '16px 8px', borderRadius: 14, fontSize: d === 'DEL' ? 12 : 20, fontWeight: 700, cursor: d ? 'pointer' : 'default',
+              <button key={i} onClick={() => d && phone.trim() && handlePinKey(d)} disabled={!phone.trim()}
+                style={{ padding: '16px 8px', borderRadius: 14, fontSize: d === 'DEL' ? 12 : 20, fontWeight: 700, cursor: d && phone.trim() ? 'pointer' : 'default',
                   background: d === 'DEL' ? 'rgba(248,113,113,0.1)' : d ? 'var(--card)' : 'transparent',
                   border: d === 'DEL' ? '1px solid rgba(248,113,113,0.2)' : d ? '1px solid var(--border-subtle)' : 'none',
                   color: d === 'DEL' ? 'var(--status-critical)' : 'var(--text-primary)' }}>
