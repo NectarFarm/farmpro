@@ -1,0 +1,108 @@
+# One file describes the whole local stack, so starting and stopping is
+# `make up` / `make down` instead of hand-rolled `docker build -t ifms-<feature>`
+# and `docker run --env-file ...` per change. Compose reuses one named
+# container per service, so repeated starts replace rather than accumulate.
+name: ifms
+
+services:
+  db:
+    image: postgres:16
+    container_name: ifms-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ifms
+      POSTGRES_DB: ifms
+    ports:
+      # Same host port the .env DATABASE_URL already uses, so host-side
+      # `pnpm db:migrate` / psql / the non-Docker dev server keep working.
+      - "55433:5432"
+    volumes:
+      # A named volume, unlike the anonymous one the hand-made container
+      # used — `docker compose down` no longer risks taking the data with it.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ifms"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # Production-shaped container: standalone build, no source mounted.
+  # Use this to check what actually ships.
+  app:
+    build:
+      context: .
+      target: runner
+    image: ifms-app:latest
+    container_name: ifms-app
+    env_file: [.env]
+    environment:
+      # Overrides the .env value: inside the compose network the database is
+      # reachable as `db:5432`, not localhost:55433.
+      DATABASE_URL: postgres://postgres:ifms@db:5432/ifms
+    ports:
+      - "13001:13001"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Day-to-day development: source is bind-mounted and Next runs its own
+  # watcher, so a `git pull` needs NO image rebuild at all — the running
+  # container picks the changes up. Start with `make dev`.
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: deps
+    image: ifms-dev:latest
+    container_name: ifms-dev
+    command: pnpm exec next dev -p 13001 -H 0.0.0.0
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://postgres:ifms@db:5432/ifms
+    ports:
+      - "13001:13001"
+    volumes:
+      - .:/app
+      # Anonymous volumes keep the image's node_modules and build output from
+      # being shadowed by the bind mount above.
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Migrations need drizzle-kit, which is a devDependency and therefore only
+  # present in the builder stage — not in the slimmed-down runner.
+  migrate:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: builder
+    image: ifms-tools:latest
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://postgres:ifms@db:5432/ifms
+    depends_on:
+      db:
+        condition: service_healthy
+    command: pnpm db:migrate
+
+  seed:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: builder
+    image: ifms-tools:latest
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://postgres:ifms@db:5432/ifms
+    depends_on:
+      db:
+        condition: service_healthy
+    command: pnpm db:seed
+
+volumes:
+  pgdata:
+    name: ifms-pgdata
