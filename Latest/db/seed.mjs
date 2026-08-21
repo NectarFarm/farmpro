@@ -27,14 +27,18 @@ const TENANTS = [
   { id: 't2', name: 'Suspended Farm Co.', active: false },
 ]
 
+// `phone` is required for a worker's PIN to be usable at all (login now
+// resolves the PIN-login candidate by phone, not by PIN alone — issue: PIN
+// alone let one worker sign in as another). Only the two workers get one;
+// other roles sign in with email/password and phone stays null for them.
 const USERS = [
-  { email: 'james@nakurufarm.com', password: 'farm2026', pin: null, role: 'owner', name: 'James Kamau', tenantId: 't1' },
-  { email: 'peter@nakurufarm.com', password: 'mgr123', pin: null, role: 'manager', name: 'Peter Njoroge', tenantId: 't1' },
-  { email: 'john@nakurufarm.com', password: 'worker123', pin: '1234', role: 'worker', name: 'John Kamau', tenantId: 't1' },
-  { email: 'vet@nakurufarm.com', password: 'vet123', pin: null, role: 'vet', name: 'Dr. Grace Wanjiru', tenantId: 't1' },
-  { email: 'auditor@ifms.co', password: 'aud123', pin: null, role: 'auditor', name: 'Alice Auditor', tenantId: 't1' },
-  { email: 'susan@nakurufarm.com', password: 'susp123', pin: '5678', role: 'worker', name: 'Susan Mwangi', tenantId: 't2' },
-  { email: 'admin@ifms.co', password: 'admin2026', pin: null, role: 'super_admin', name: 'IFMS Admin', tenantId: null },
+  { email: 'james@nakurufarm.com', password: 'farm2026', pin: null, phone: null, role: 'owner', name: 'James Kamau', tenantId: 't1' },
+  { email: 'peter@nakurufarm.com', password: 'mgr123', pin: null, phone: null, role: 'manager', name: 'Peter Njoroge', tenantId: 't1' },
+  { email: 'john@nakurufarm.com', password: 'worker123', pin: '1234', phone: '+254712345001', role: 'worker', name: 'John Kamau', tenantId: 't1' },
+  { email: 'vet@nakurufarm.com', password: 'vet123', pin: null, phone: null, role: 'vet', name: 'Dr. Grace Wanjiru', tenantId: 't1' },
+  { email: 'auditor@ifms.co', password: 'aud123', pin: null, phone: null, role: 'auditor', name: 'Alice Auditor', tenantId: 't1' },
+  { email: 'susan@nakurufarm.com', password: 'susp123', pin: '5678', phone: '+254712345002', role: 'worker', name: 'Susan Mwangi', tenantId: 't2' },
+  { email: 'admin@ifms.co', password: 'admin2026', pin: null, phone: null, role: 'super_admin', name: 'IFMS Admin', tenantId: null },
 ]
 
 const FARMS = [
@@ -56,11 +60,11 @@ try {
   for (const u of USERS) {
     const salt = saltFor()
     const res = await sql`
-      INSERT INTO users (id, tenant_id, name, email, role, password_hash, password_salt, pin_hash, pin_prefilter, status)
+      INSERT INTO users (id, tenant_id, name, email, role, password_hash, password_salt, pin_hash, pin_prefilter, phone, status)
       VALUES (${randomUUID()}, ${u.tenantId}, ${u.name}, ${u.email}, ${u.role},
               ${hash(u.password, salt)}, ${salt}, ${u.pin ? hash(u.pin, salt) : null},
-              ${u.pin ? pinPrefilter(u.pin) : null}, 'ACTIVE')
-      ON CONFLICT (email) DO UPDATE SET pin_prefilter = EXCLUDED.pin_prefilter
+              ${u.pin ? pinPrefilter(u.pin) : null}, ${u.phone}, 'ACTIVE')
+      ON CONFLICT (email) DO UPDATE SET pin_prefilter = EXCLUDED.pin_prefilter, phone = EXCLUDED.phone
     `
     if (res.count > 0) inserted += 1
   }

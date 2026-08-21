@@ -3,6 +3,7 @@
 // roles exactly — owner | manager | worker | vet | auditor | super_admin
 // (issue #219): platform roles (super_admin) have no tenant; farm-scoped roles do.
 import { pgTable, text, timestamp, boolean, integer, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 // A tenant is the account/billing scope. `active` gates logins for every
 // tenant-scoped role (issue #223): workers and owners at a suspended tenant
@@ -41,12 +42,23 @@ export const users = pgTable('users', {
   // /api/auth/forgot-password) matches the submitted phone against, so an
   // admin only sees a reset request when the applicant proves they know BOTH
   // the account's email and its registered phone.
+  //
+  // A PARTIAL unique index (WHERE phone IS NOT NULL) rather than a plain one:
+  // Postgres already treats every NULL as distinct from every other NULL, so
+  // a plain unique index would not have rejected the many phone-less rows
+  // either — but the partial form makes that "many nulls are fine" behavior
+  // explicit and documented rather than an accident of NULL semantics, and it
+  // is the form that generalizes if this column ever stops being nullable-by-
+  // default. This is what makes phone+PIN login safe to resolve with a plain
+  // lookup (fix for the PIN-collision flaw, issue text: "employee login with
+  // phone and then pin"): a set phone now identifies at most one account.
   phone: text('phone'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_users_tenant').on(t.tenantId),
   uniqueIndex('idx_users_email').on(t.email),
   index('idx_users_pin_prefilter').on(t.pinPrefilter),
+  uniqueIndex('idx_users_phone').on(t.phone).where(sql`${t.phone} is not null`),
 ])
 
 export const sessions = pgTable('sessions', {

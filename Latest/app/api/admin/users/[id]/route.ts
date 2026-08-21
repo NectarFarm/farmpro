@@ -4,7 +4,8 @@ import { db } from '@/db'
 import { users } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { writeAuditLog } from '@/lib/audit'
-import { isUniqueViolation, SAFE_USER_COLUMNS, toSafeUser, VALID_ROLES, VALID_STATUSES } from '@/lib/admin-users'
+import { SAFE_USER_COLUMNS, toSafeUser, VALID_ROLES, VALID_STATUSES } from '@/lib/admin-users'
+import { isUniqueViolation, uniqueViolationConstraint } from '@/lib/db-errors'
 import { isValidEmail, normalizeEmail, normalizePhone, isValidPhone, toStoredPhone } from '@/lib/validation'
 
 // ── GET/PATCH /api/admin/users/[id] (admin user-management feature) ────────
@@ -127,6 +128,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     updated = toSafeUser(result[0])
   } catch (err) {
     if (isUniqueViolation(err)) {
+      // users has two unique columns (email, phone) — use the constraint
+      // name Postgres actually reported rather than assuming it was email,
+      // now that `phone` also carries a unique index (idx_users_phone).
+      const constraint = uniqueViolationConstraint(err)
+      if (constraint?.includes('phone')) {
+        return badFields({ phone: 'This phone number is already in use by another account' }, 409)
+      }
       return badFields({ email: 'This email is already in use by another account' }, 409)
     }
     return bad('Failed to update user', 500)

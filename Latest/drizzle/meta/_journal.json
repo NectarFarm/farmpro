@@ -127,6 +127,13 @@
       "when": 1787322755195,
       "tag": "0017_whole_ben_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787325276534,
+      "tag": "0018_cold_prism",
+      "breakpoints": true
     }
   ]
 }
