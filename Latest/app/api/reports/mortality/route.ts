@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/auth'
+import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { computeMortalityReport, parseDateRange, InvalidDateRangeError } from '@/lib/reports'
 
 // ── GET /api/reports/mortality (issue #263 task 3) ──────────────────────────
@@ -16,9 +17,12 @@ export async function GET(req: Request) {
   const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
   if (!tenantId) return badRequest('tenantId is required')
 
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   try {
     const { from, to } = parseDateRange(url.searchParams.get('from'), url.searchParams.get('to'))
-    const report = await computeMortalityReport(tenantId, from, to)
+    const report = await computeMortalityReport(tenantId, from, to, farmFilter ?? undefined)
     return ok(report)
   } catch (err) {
     if (err instanceof InvalidDateRangeError) return badRequest(err.message)

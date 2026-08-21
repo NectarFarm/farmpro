@@ -56,10 +56,22 @@ export const tasks = pgTable('tasks', {
   priority: text('priority').notNull().default('medium'),
   requiresApproval: boolean('requires_approval').notNull().default(false),
   notes: text('notes'),
+  // Multi-farm filtering (farm-scoped-data task — the farm switcher used to
+  // change a label and nothing else; this is what makes it real for tasks).
+  // Plain logical reference to farms.id, no DB FK — same "no import cycle
+  // with db/schemas/index.ts" convention approvalRequests.batchId already
+  // uses in governance.ts; validated against the caller's tenant in the
+  // route instead. Nullable: every pre-existing task was created before farm
+  // scoping existed, so there is no correct value to invent for a NOT NULL
+  // column — the migration backfills every existing row to the tenant's
+  // earliest-created farm (by createdAt) rather than leaving it permanently
+  // unfilterable/invisible once farm filters land in the UI.
+  farmId: text('farm_id'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_tasks_tenant').on(t.tenantId),
   index('idx_tasks_tenant_due').on(t.tenantId, t.dueAt),
+  index('idx_tasks_farm').on(t.farmId),
 ])
 
 // Dashboard notification feed (issue #227 task 3). This table is the source

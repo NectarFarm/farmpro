@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { records, batches, employees } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
+import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 
 // ── GET/POST /api/records (issue #247 task 2) ───────────────────────────────
 // Generic worker-submission log — feeding / mortality / physical_count today
@@ -29,8 +30,13 @@ const notFound = (msg: string) => NextResponse.json({ success: false, error: msg
 
 const RECORD_TYPES = new Set(['feeding', 'mortality', 'physical_count'])
 
-// GET /api/records?tenantId=&batchId=&type=&employeeId= — activity feed /
-// worker's own history, newest first.
+// GET /api/records?tenantId=&batchId=&type=&employeeId=&farmId= — activity
+// feed / worker's own history, newest first.
+//
+// `farmId` is a two-hop JOIN filter (farm-scoped-data task):
+// records.batchId -> batches.unitId -> production_units.farmId. `records`
+// has no farm_id of its own — same "don't denormalise a fact reachable
+// through an existing FK chain" reasoning as GET /api/batches's farmId.
 export async function GET(req: Request) {
   const session = await getSessionUser()
   const url = new URL(req.url)
@@ -41,10 +47,18 @@ export async function GET(req: Request) {
   const type = url.searchParams.get('type')?.trim()
   const employeeId = url.searchParams.get('employeeId')?.trim()
 
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   const conditions = [eq(records.tenantId, tenantId)]
   if (batchId) conditions.push(eq(records.batchId, batchId))
   if (type) conditions.push(eq(records.type, type))
   if (employeeId) conditions.push(eq(records.employeeId, employeeId))
+  if (farmFilter) {
+    const batchIds = await batchIdsForFarm(tenantId, farmFilter)
+    if (batchIds.length === 0) return ok([])
+    conditions.push(inArray(records.batchId, batchIds))
+  }
 
   const rows = await db
     .select()

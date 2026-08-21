@@ -52,17 +52,31 @@ export interface NavContext {
   history: HistoryEntry[];
   role: Role;
   params: Record<string, string>;
-  activeFarm: string; // Code of the farm currently in view — switchable (multi-farm, issue #219).
+  // ── Multi-farm filtering (farm-scoped-data task) ──
+  // `activeFarmId` is the CANONICAL filter value every data fetch must use —
+  // a real `farms.id`, or the sentinel 'ALL' for no filter. It is NEVER a
+  // farm code: codes are user-editable display labels (PATCH /api/farms/[id]
+  // lets an owner rename one), so a filter keyed on code would silently stop
+  // matching the moment someone renames their farm. `activeFarm` below is
+  // the CODE, derived from `activeFarmId` via `farms` — display-only, e.g.
+  // the switcher's farm-code badge text. Never fetch data by `activeFarm` —
+  // fetch by `activeFarmId`.
+  activeFarmId: string;
+  activeFarm: string; // Display-only farm CODE derived from activeFarmId ('ALL' when unset).
   farms: FarmSummary[]; // The tenant's farms (from GET /api/farms; mock FARMS_DATA fallback).
   tenantId: string; // Resolved tenant scope for tenant-scoped GETs (issue #228) — same
                      // session-tenant-wins / PROVISIONAL_TENANT_ID fallback as the farms fetch below.
   navigate: (to: ScreenId, params?: Record<string, string>) => void;
   goBack: () => void;
-  setActiveFarm: (code: string) => void;
-  pendingApprovals: number; // Real count from GET /api/approvals?status=pending (issue #293).
+  setActiveFarmId: (id: string) => void; // Pass a real farms.id, or 'ALL' to clear the filter.
+  pendingApprovals: number; // Real count from GET /api/approvals?status=pending (issue #293),
+                             // farm-scoped by activeFarmId (farm-scoped-data task).
   unreadNotifs: number; // Real count from GET /api/notifications, filtered to read:false (issue #293).
+                         // NOT farm-scoped — notifications has no farm relationship (see
+                         // GET /api/dashboard/kpis's header for the same tenant-wide list).
   openTasksCount: number; // Real count from GET /api/dashboard/kpis's activeTasksCount — the
-                          // tenant's tasks not DONE/CANCELLED (issue #298; reused, not re-derived).
+                          // tenant's tasks not DONE/CANCELLED (issue #298; reused, not re-derived),
+                          // farm-scoped by activeFarmId (farm-scoped-data task).
   pendingOnboardingRequests: number; // Real count of `onboard_requests` rows with status
                                       // 'pending' (issue #251/#252), super_admin sessions only —
                                       // 0 for every other role (issue #298).
@@ -75,10 +89,15 @@ const PROVISIONAL_TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? 't1';
 
 const NavCtx = createContext<NavContext>({
   current: 'dashboard', history: [], role: 'owner', params: {},
-  activeFarm: 'FRM-KMU-001',
+  // 'ALL' — not a phantom farm code. The old default here was a mock code
+  // ('FRM-KMU-001') that never existed in the database, so the app briefly
+  // filtered by a farm that could never match anything real until the farms
+  // fetch landed. 'ALL' is always valid: it's the real "no filter" sentinel.
+  activeFarmId: 'ALL',
+  activeFarm: 'ALL',
   farms: [],
   tenantId: PROVISIONAL_TENANT_ID,
-  navigate: () => {}, goBack: () => {}, setActiveFarm: () => {},
+  navigate: () => {}, goBack: () => {}, setActiveFarmId: () => {},
   pendingApprovals: 0, unreadNotifs: 0,
   openTasksCount: 0, pendingOnboardingRequests: 0,
 });
@@ -197,7 +216,11 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   const [current, setCurrent] = useState<ScreenId>(startScreen);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [params, setParams] = useState<Record<string, string>>({});
-  const [activeFarm, setActiveFarm] = useState('FRM-KMU-001');
+  // Canonical filter value (farm-scoped-data task) — a real farms.id, or
+  // 'ALL'. Starts at 'ALL' (not a phantom farm code — see the NavCtx default
+  // above for why that used to be a bug), so every screen renders its
+  // unfiltered/aggregate view until the user actually picks a farm.
+  const [activeFarmId, setActiveFarmId] = useState('ALL');
   const tenantId = initialTenantId ?? PROVISIONAL_TENANT_ID;
 
   // The tenant's farms for the switcher: prefer the real backend (GET /api/farms),
@@ -216,13 +239,21 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
       if (res.success && Array.isArray(res.data) && res.data.length) {
         const real = res.data.map(f => ({ id: f.id, code: f.code || f.id, name: f.name, location: f.location ?? '' }));
         setFarms(real);
-        // The shell starts on the mock default code; if real farms replace the
-        // mock set, land on the first real farm so the badge/filters stay coherent.
-        setActiveFarm(prev => (real.some(f => f.code === prev) ? prev : real[0].code));
+        // 'ALL' is always valid and needs no correction. If activeFarmId
+        // somehow points at an id this fetch didn't return (e.g. it was
+        // archived, or a stale mock id from the initial state above), fall
+        // back to 'ALL' rather than guess at a replacement farm — landing on
+        // an arbitrary "first farm" would silently swap what the user is
+        // looking at out from under them.
+        setActiveFarmId(prev => (prev === 'ALL' || real.some(f => f.id === prev)) ? prev : 'ALL');
       }
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [tenantId]);
+
+  // Display-only farm CODE derived from activeFarmId (see the NavContext
+  // interface comment for why fetches must never key on this instead).
+  const activeFarm = activeFarmId === 'ALL' ? 'ALL' : (farms.find(f => f.id === activeFarmId)?.code ?? 'ALL');
 
   // vet/auditor have no screens in this pass — funnel every navigation attempt to
   // the role notice (single enforcement point; startScreenForRole handles the
@@ -334,6 +365,13 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   // change — a v1-proportionate replacement for the old hardcoded literals,
   // not new polling infra. Defaults stay 0 so a tenant with no real pending
   // approvals/unread notifications shows no fake badge.
+  //
+  // Re-fetched on `activeFarmId` change too (farm-scoped-data task):
+  // pendingApprovals and openTasksCount are both farm-scopable server-side
+  // (see GET /api/approvals and GET /api/dashboard/kpis's header comments)
+  // — switching farms now changes these badges for real. unreadNotifs stays
+  // tenant-wide (notifications has no farm relationship at all) and is
+  // fetched the same way regardless of activeFarmId.
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   // issue #298: tasks tab badge reuses GET /api/dashboard/kpis's activeTasksCount
@@ -343,7 +381,7 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   const [openTasksCount, setOpenTasksCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    apiClient.get<{ id: string }[]>(`/api/approvals?tenantId=${tenantId}&status=pending`).then(res => {
+    apiClient.get<{ id: string }[]>(`/api/approvals?tenantId=${tenantId}&status=pending&farmId=${activeFarmId}`).then(res => {
       if (!cancelled && res.success && Array.isArray(res.data)) setPendingApprovals(res.data.length);
     });
     apiClient.get<{ read: boolean }[]>(`/api/notifications?tenantId=${tenantId}`).then(res => {
@@ -351,13 +389,13 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
         setUnreadNotifs(res.data.filter(n => !n.read).length);
       }
     });
-    apiClient.get<{ activeTasksCount: number }>(`/api/dashboard/kpis?tenantId=${tenantId}`).then(res => {
+    apiClient.get<{ activeTasksCount: number }>(`/api/dashboard/kpis?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
       if (!cancelled && res.success && res.data && typeof res.data.activeTasksCount === 'number') {
         setOpenTasksCount(res.data.activeTasksCount);
       }
     });
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
 
   // issue #298: admin-onboarding tab badge — real count of `onboard_requests`
   // rows with status 'pending' (issue #251/#252). GET /api/onboard-requests is
@@ -376,7 +414,7 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   }, [role]);
 
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarm, farms, tenantId, navigate, goBack, setActiveFarm, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests }}>
       {process.env.NODE_ENV !== "production" && (
         <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       )}
@@ -522,7 +560,7 @@ function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
  * Same tab set BottomNav drives (getTabsForRole). Shown >=1024px via CSS, where
  * BottomNav is hidden; rendered on all sizes so the tab set lives in one place. */
 export function AppSidebar() {
-  const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarm, farms, setActiveFarm } = useNav();
+  const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarmId, farms, setActiveFarmId } = useNav();
   const tabs = getTabsForRole(role);
   // Three groups instead of the old seven. Five of the old headers (People,
   // Resources, Finance, Reporting, System) existed purely to restate the one
@@ -608,14 +646,14 @@ export function AppSidebar() {
         <label style={{ display: 'block' }}>
           <span style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Farm</span>
           <select
-            value={activeFarm}
-            onChange={(e) => setActiveFarm(e.target.value)}
+            value={activeFarmId}
+            onChange={(e) => setActiveFarmId(e.target.value)}
             style={{ width: '100%', marginTop: 2, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)',
               background: 'var(--card)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
           >
             <option value="ALL">All farms</option>
             {farms.map((farm) => (
-              <option key={farm.code} value={farm.code}>{farm.name}</option>
+              <option key={farm.id} value={farm.id}>{farm.name}</option>
             ))}
           </select>
         </label>

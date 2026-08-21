@@ -96,6 +96,7 @@ interface ApiPurchase {
   paymentMethod: string;
   amountPaidCents: number;
   createdAt: string;
+  farmId: string | null; // farm-scoped-data task (migration 0019)
 }
 interface ApiInventoryItemLite {
   id: string;
@@ -256,9 +257,15 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
  * Inventory's Purchases tab uses; there is no expense-only concept in the
  * backend separate from a stock purchase). No edit/PATCH UI — GET/POST are
  * the only verbs the route supports. ── */
-function RecordPurchaseSheet({ tenantId, itemNames, onCreated, onClose }: {
+function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreated, onClose }: {
   tenantId: string;
   itemNames: string[];
+  // farm-scoped-data task — see components/farm/inventory.tsx's
+  // RecordPurchaseSheet for the identical rationale: a purchase and the lot
+  // it creates always land at the same farm, so this can never be optional
+  // the way a task's farm can.
+  farms: { id: string; name: string }[];
+  activeFarmId: string;
   onCreated: () => void;
   onClose: () => void;
 }) {
@@ -270,6 +277,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, onCreated, onClose }: {
   const [unitCost, setUnitCost] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
+  const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -282,6 +290,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, onCreated, onClose }: {
     }
     if (!Number.isFinite(qty) || qty <= 0) { setError('Quantity must be a positive number.'); return; }
     if (!Number.isFinite(cost) || cost < 0) { setError('Cost per unit must be a non-negative number.'); return; }
+    if (!farmId) { setError('Select which farm this stock is for.'); return; }
 
     setSaving(true);
     setError('');
@@ -295,6 +304,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, onCreated, onClose }: {
       unitCostCents: Math.round(cost * 100),
       paymentMethod: paymentMethod.trim() || undefined,
       amountPaidCents: amountPaid ? Math.round(Number(amountPaid) * 100) : undefined,
+      farmId,
     });
     setSaving(false);
     if (res.success) {
@@ -316,6 +326,13 @@ function RecordPurchaseSheet({ tenantId, itemNames, onCreated, onClose }: {
           This also brings the item into Inventory stock — there is no expense-only record separate from a purchase.
         </div>
 
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
+          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
+            <option value="" disabled>Select a farm…</option>
+            {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
           <input className="farm-input" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)} />
@@ -475,7 +492,7 @@ const GL_COLS: ColDef<Record<string, unknown>>[] = [
 /* ── Screen ─────────────────────────────────────────────────────────────── */
 
 export function FinanceScreen() {
-  const { navigate, tenantId } = useNav();
+  const { navigate, tenantId, activeFarmId, farms } = useNav();
   const [tab, setTab] = useState<'overview' | 'sales' | 'purchases' | 'gl' | 'payroll'>('overview');
   const [period, setPeriod] = useState<BudgetPeriod>('month');
   const [glSearch, setGlSearch] = useState('');
@@ -497,27 +514,39 @@ export function FinanceScreen() {
   const [budgetReport, setBudgetReport] = useState<ReportPayload | null>(null);
   const [budgetError, setBudgetError] = useState('');
 
+  // farm-scoped-data task: sales/purchases/batches all re-fetch on
+  // activeFarmId change. Sales is a JOIN filter (batchId -> batches.unitId
+  // -> production_units.farmId — sales has no farm_id of its own);
+  // purchases is a direct column; batches is the same JOIN GET /api/batches
+  // already documents.
   const loadSales = useCallback(() => {
-    apiClient.get<ApiSale[]>(`/api/data/sales?tenantId=${tenantId}`).then((res) => {
+    apiClient.get<ApiSale[]>(`/api/data/sales?tenantId=${tenantId}&farmId=${activeFarmId}`).then((res) => {
       if (res.success) { setSales(res.data); setSalesError(''); }
       else setSalesError(res.error || 'Failed to load sales.');
     });
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
 
   const loadPurchases = useCallback(() => {
-    apiClient.get<ApiPurchase[]>(`/api/purchases?tenantId=${tenantId}`).then((res) => {
+    apiClient.get<ApiPurchase[]>(`/api/purchases?tenantId=${tenantId}&farmId=${activeFarmId}`).then((res) => {
       if (res.success) { setPurchases(res.data); setPurchasesError(''); }
       else setPurchasesError(res.error || 'Failed to load purchases.');
     });
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
 
   const loadBatches = useCallback(() => {
-    apiClient.get<ApiBatchLite[]>(`/api/batches?tenantId=${tenantId}`).then((res) => {
+    apiClient.get<ApiBatchLite[]>(`/api/batches?tenantId=${tenantId}&farmId=${activeFarmId}`).then((res) => {
       if (res.success) { setBatches(res.data); setBatchesError(''); }
       else setBatchesError(res.error || 'Failed to load batches.');
     });
-  }, [tenantId]);
+  }, [tenantId, activeFarmId]);
 
+  // GL (chart of accounts + trial balance) stays tenant-wide regardless of
+  // activeFarmId — journal_entries/journal_lines (db/schemas/finance.ts)
+  // have no farm relationship: a posted journal entry traces back to a sale
+  // or purchase by id, not by farm, and building one would mean joining the
+  // GL through sales/purchases at report time, which is real new scope this
+  // task didn't take on. Same "don't fake a filter that doesn't exist"
+  // stance as GET /api/dashboard/kpis's tenant-wide metrics.
   const loadGL = useCallback(() => {
     apiClient.get<ApiAccount[]>('/api/gl/accounts').then((res) => {
       if (res.success) setAccounts(res.data);
@@ -531,6 +560,9 @@ export function FinanceScreen() {
   // Budget Overview (issue #299): Month/Quarter/YTD toggle refetches
   // GET /api/reports/pl with that period's from/to (lib/period-range.ts),
   // instead of the all-time trial balance — see the file-top comment.
+  // Same GL caveat as loadGL above — lib/reports.ts's computePlReport has no
+  // farmId support (it's built on the same farm-relationship-free GL), so
+  // this stays tenant-wide too.
   const loadBudget = useCallback(() => {
     const { from, to } = periodDateRange(period);
     const params = new URLSearchParams({ tenantId, from, to });
@@ -873,6 +905,8 @@ export function FinanceScreen() {
         <RecordPurchaseSheet
           tenantId={tenantId}
           itemNames={items.map((i) => i.name)}
+          farms={farms}
+          activeFarmId={activeFarmId}
           onCreated={() => { loadPurchases(); loadGL(); }}
           onClose={() => setShowRecordPurchase(false)}
         />

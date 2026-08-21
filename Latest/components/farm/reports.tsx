@@ -70,7 +70,7 @@ function fmtExpiry(iso: string): string {
 }
 
 export function ReportsScreen() {
-  const { tenantId, role } = useNav();
+  const { tenantId, role, activeFarmId } = useNav();
   const [dateFrom, setDateFrom] = useState('2026-08-01');
   const [dateTo, setDateTo] = useState('2026-08-31');
   const [selected, setSelected] = useState<string | null>(null);
@@ -129,16 +129,19 @@ export function ReportsScreen() {
   const reportType = selected ? REPORT_TYPES.find((r) => r.id === selected) ?? null : null;
   const endpoint = selected ? REPORT_ENDPOINTS[selected] : undefined;
 
+  // farm-scoped-data task: all four report endpoints now accept an optional
+  // farmId (lib/reports.ts's compute* functions) — re-generates when the
+  // active farm changes, same as every other screen's fetch.
   const loadReport = useCallback(() => {
     if (!endpoint) { setReport(null); setReportError(''); return; }
     setLoading(true);
-    const params = new URLSearchParams({ tenantId, from: dateFrom, to: dateTo });
+    const params = new URLSearchParams({ tenantId, from: dateFrom, to: dateTo, farmId: activeFarmId });
     apiClient.get<ReportPayload>(`${endpoint}?${params.toString()}`).then((res) => {
       setLoading(false);
       if (res.success) { setReport(res.data); setReportError(''); }
       else { setReport(null); setReportError(res.error || 'Failed to generate report.'); }
     });
-  }, [endpoint, tenantId, dateFrom, dateTo]);
+  }, [endpoint, tenantId, dateFrom, dateTo, activeFarmId]);
 
   useEffect(() => { loadReport(); }, [loadReport]);
 

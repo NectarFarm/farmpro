@@ -8,7 +8,7 @@
 // decision writeup and the chart-of-accounts rationale.
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
 import { db } from '@/db'
 import { accounts, journalEntries, journalLines, sales, purchases } from '@/db/schemas'
@@ -257,8 +257,18 @@ export async function computeTrialBalance(tenantId: string): Promise<TrialBalanc
 }
 
 // GET /api/data/sales' list query.
-export async function listSales(tenantId: string) {
-  return db.select().from(sales).where(eq(sales.tenantId, tenantId)).orderBy(desc(sales.soldAt), desc(sales.id))
+// `batchIds` (farm-scoped-data task): when provided, restricts to sales
+// whose batchId is in this list — the caller (GET /api/data/sales) resolves
+// it from a farmId via lib/farm-scope.ts's batchIdsForFarm (sales has no
+// farm_id of its own; batchId -> batches.unitId -> production_units.farmId
+// is the join). `undefined` means unfiltered, matching every call site that
+// predates this parameter. An explicit `[]` (farm has no batches) returns no
+// rows — the caller is expected to short-circuit before calling with `[]`
+// the same way GET /api/batches does, but this stays correct either way.
+export async function listSales(tenantId: string, batchIds?: string[]) {
+  const conditions = [eq(sales.tenantId, tenantId)]
+  if (batchIds) conditions.push(inArray(sales.batchId, batchIds))
+  return db.select().from(sales).where(and(...conditions)).orderBy(desc(sales.soldAt), desc(sales.id))
 }
 
 export { sales, purchases }

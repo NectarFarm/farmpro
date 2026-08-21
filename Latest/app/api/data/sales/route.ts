@@ -4,6 +4,7 @@ import { batches } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { listSales, recordSale } from '@/lib/finance'
 import { and, eq } from 'drizzle-orm'
+import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -26,12 +27,25 @@ const notFound = (msg: string) => NextResponse.json({ success: false, error: msg
 
 const VALID_STATUSES = new Set(['paid', 'pending'])
 
-// GET /api/data/sales?tenantId=... — list a tenant's sales, newest first.
+// GET /api/data/sales?tenantId=...&farmId= — list a tenant's sales, newest
+// first. `farmId` is a two-hop JOIN filter (farm-scoped-data task):
+// sales.batchId -> batches.unitId -> production_units.farmId — sales has no
+// farm_id of its own, same reasoning as GET /api/records's farmId.
 export async function GET(req: Request) {
   const session = await getSessionUser()
   const url = new URL(req.url)
   const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
   if (!tenantId) return badRequest('tenantId is required')
+
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
+  if (farmFilter) {
+    const batchIds = await batchIdsForFarm(tenantId, farmFilter)
+    if (batchIds.length === 0) return ok([])
+    const rows = await listSales(tenantId, batchIds)
+    return ok(rows)
+  }
 
   const rows = await listSales(tenantId)
   return ok(rows)

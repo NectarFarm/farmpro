@@ -47,10 +47,19 @@ export const employees = pgTable('employees', {
   // /api/employees/me hands back so that "3" isn't hardcoded per client).
   mortalityPhotoThreshold: integer('mortality_photo_threshold').notNull().default(3),
   status: text('status').notNull().default('ACTIVE'),
+  // Multi-farm filtering (farm-scoped-data task) — the employee's home farm,
+  // distinct from `assignedBatchIds` (which batches they work, not which
+  // farm they're based at). Plain logical reference to farms.id, no DB FK —
+  // same convention `assignedBatchIds`/`userId` already use in this table;
+  // validated against the caller's tenant in the route. Nullable:
+  // pre-existing employees predate farm scoping — backfilled to the
+  // tenant's earliest-created farm by the migration.
+  farmId: text('farm_id'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_employees_tenant').on(t.tenantId),
   index('idx_employees_tenant_user').on(t.tenantId, t.userId),
+  index('idx_employees_farm').on(t.farmId),
 ])
 
 // Generic worker-submission log: feeding / mortality / physical_count today,
