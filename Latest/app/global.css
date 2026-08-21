@@ -1,0 +1,510 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Operational default: neutral, daylight-friendly, with colour reserved for meaning. */
+  --background: #f7f8f5;
+  --surface: #ffffff;
+  --card: #ffffff;
+  --card-hover: #fafbf8;
+  --border-subtle: #e4e7e1;
+  --border-hover: #9fbea6;
+
+  --primary-green: #2f6f3e;
+  --accent-lime: #6d9f45;
+  --accent-amber: #b7791f;
+  --accent-red: #c94a45;
+  --accent-blue: #2866a3;
+  /* Legacy aliases retain meaning without decorative colour. */
+  --accent-purple: #5f685f;
+  --accent-cyan: #2866a3;
+
+  --text-primary: #182018;
+  --text-secondary: #3f6b49;
+  --text-muted: #5f685f;
+  --text-dim: #8a9289;
+
+  /* Semantic status */
+  --status-ok: #2f7d43;
+  --status-warning: #b7791f;
+  --status-critical: #c94a45;
+  --status-info: #2866a3;
+
+  --gradient-primary: #2f6f3e;
+  --gradient-warm: #b7791f;
+  --gradient-hero: #f7f8f5;
+
+  --nav-height: 64px;
+  --bottom-nav-height: 68px;
+  --radius: 0.75rem;
+
+  /* Shadcn compat */
+  --foreground: 120 12% 11%;
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 132 40% 31%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 90 14% 96%;
+  --secondary-foreground: 120 12% 11%;
+  --muted: 90 14% 96%;
+  --muted-foreground: 110 7% 40%;
+  --accent: 90 14% 96%;
+  --accent-foreground: 120 12% 11%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 90 10% 89%;
+  --input: 90 10% 89%;
+  --ring: 132 40% 31%;
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--card);
+  --color-card-foreground: var(--text-primary);
+  --color-border: rgba(255,255,255,0.07);
+  --color-primary: var(--primary-green);
+  --color-primary-foreground: #0a0f0a;
+  --color-muted: #0f1a0f;
+  --color-muted-foreground: #4b7c52;
+  --color-destructive: #f87171;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background: var(--background);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+}
+
+/* ── App shell (issue #220): fluid, no phone graphic ──
+ * The fixed 390x844 device frame is gone. The app is full-bleed on phones,
+ * a centered column on tablets, and a sidebar layout on desktop. */
+.farm-viewport {
+  min-height: 100dvh;
+  background: #edf0ea;
+}
+.farm-device-frame {
+  width: 100%;
+  height: 100dvh;
+  margin: 0 auto;
+  background: var(--background);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Shell row: column on mobile, sidebar + main on desktop */
+.farm-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  min-height: 0;
+}
+.farm-sidebar { display: none; }
+.shell-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  min-height: 0;
+}
+.screen-slot {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Bottom tab bar ──
+ * Base rules live BEFORE the responsive overrides below: both this and the
+ * @media (min-width: 768px) display:none have equal specificity, so the later
+ * rule in the file wins — base styles first, responsive overrides last. */
+.bottom-nav {
+  /* box-sizing: border-box (global) means padding-bottom below eats into a
+   * fixed `height`, so on gesture-nav Android (34px+ inset) the 68px bar was
+   * left with only ~34px of usable space above the inset — icon+label
+   * squashed and clipped. Add the inset on top of the content height instead
+   * of carving it out of it: 0px inset -> bar stays exactly 68px unchanged;
+   * 34px inset -> bar becomes 102px with the full 68px of content above it. */
+  height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border-top: 1px solid var(--border-subtle);
+  padding: 0 4px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 50;
+}
+
+/* Sidebar layout starts at 768px (tablet), not 1024px. The old 768-1023 block
+ * just capped .farm-device-frame at 760px and left the mobile bottom tab bar
+ * in place, which meant tablets got a 760px centred column with five tabs
+ * stretched across it and 10px labels nowhere near a thumb — worst of both
+ * worlds. Full 250px sidebar (no icon-rail variant) now applies from 768px
+ * up; only the >=1024px frame width cap remains a separate breakpoint. */
+@media (min-width: 768px) {
+  .farm-shell { flex-direction: row; }
+  .farm-sidebar {
+    display: flex;
+    flex-direction: column;
+    width: 250px;
+    flex-shrink: 0;
+    height: 100%;
+    background: var(--surface);
+    border-right: 1px solid var(--border-subtle);
+  }
+  .farm-sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+  .bottom-nav { display: none; }
+}
+
+@media (min-width: 1024px) {
+  .farm-device-frame { max-width: 1440px; }
+}
+
+.screen-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.screen-scroll::-webkit-scrollbar { display: none; }
+
+
+/* ── Top navigation bar ── */
+.top-nav {
+  height: var(--nav-height);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  background: var(--background);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+
+/* ── Bottom tab bar items ── */
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border-radius: 12px;
+  position: relative;
+}
+.bottom-nav-item.active .nav-icon {
+  color: var(--primary-green);
+  filter: none;
+}
+.bottom-nav-item.active .nav-label { color: var(--primary-green); }
+.bottom-nav-item .nav-icon { color: var(--text-muted); font-size: 22px; transition: all 0.15s ease; }
+.bottom-nav-item .nav-label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.02em; transition: all 0.15s ease; }
+/* Keyboard-only focus ring (not :focus, so a mouse click doesn't show it).
+ * outline + outline-offset instead of border/box-shadow so it never shifts
+ * layout or fights the active-state border-radius. */
+.bottom-nav-item:focus-visible,
+.farm-sidebar nav button:focus-visible {
+  outline: 2px solid var(--primary-green);
+  outline-offset: 2px;
+}
+.bottom-nav-item .nav-badge {
+  position: absolute; top: 6px; right: 18%;
+  background: var(--accent-red); color: #fff;
+  font-size: 9px; font-weight: 700;
+  border-radius: 100px; min-width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px;
+}
+
+/* ── Screen content area ── */
+.screen-content {
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  /* Base case assumes no bottom nav: detail screens that hide .bottom-nav
+   * still need the safe-area inset here so content isn't obscured by the
+   * gesture-nav bar. Kept as the fallback for browsers without :has(). */
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+}
+.screen-content::-webkit-scrollbar { width: 5px; }
+.screen-content::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 999px; }
+/* When .bottom-nav IS present it sits in normal flow below .screen-content
+ * and already grows by the safe-area inset (see .bottom-nav above), so
+ * adding the inset here too double-counts it (~34px of dead scroll padding
+ * on gesture-nav Android). Drop the inset from screen-content in that case;
+ * browsers without :has() simply keep the (harmless, just extra) padding
+ * above. */
+.shell-main:has(.bottom-nav) .screen-content { padding-bottom: 24px; }
+
+/* ── Cards ── */
+.farm-card {
+  background: var(--card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.farm-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: none;
+  background: var(--card-hover);
+}
+.farm-card-active {
+  border-color: var(--border-hover);
+  box-shadow: none;
+}
+
+/* ── Status chips ── */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; border-radius: 4px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0;
+  text-transform: none;
+}
+.chip-ok { background: #e8f3e9; color: var(--status-ok); }
+.chip-warning { background: #fbf0dc; color: var(--status-warning); }
+.chip-critical { background: #fbe9e7; color: var(--status-critical); }
+.chip-info { background: #e9f0f8; color: var(--status-info); }
+.chip-purple, .chip-cyan { background: #f0f2ee; color: var(--text-muted); }
+
+/* ── KPI stat blocks ── */
+.kpi-value {
+  font-size: 32px; font-weight: 700;
+  color: var(--text-primary); line-height: 1.1;
+}
+.kpi-value-sm {
+  font-size: 26px; font-weight: 700;
+  color: var(--text-primary); line-height: 1.1;
+}
+.kpi-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+
+/* ── Action buttons ── */
+.btn-primary {
+  background: var(--primary-green);
+  color: #fff; font-weight: 650;
+  border-radius: 8px; border: 1px solid var(--primary-green);
+  padding: 11px 18px; font-size: 14px;
+  cursor: pointer; transition: all 0.2s ease;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-primary:hover { background: #285f35; box-shadow: none; }
+.btn-secondary {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary); font-weight: 600;
+  border-radius: 8px; padding: 10px 16px;
+  font-size: 14px; cursor: pointer; transition: all 0.2s ease;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-secondary:hover { background: var(--card-hover); border-color: var(--border-hover); }
+.btn-icon {
+  width: 40px; height: 40px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card); border: 1px solid var(--border-subtle);
+  cursor: pointer; transition: all 0.15s ease; color: var(--text-secondary);
+}
+.btn-icon:hover { border-color: var(--border-hover); color: var(--primary-green); }
+.btn-fab {
+  width: 52px; height: 52px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary-green); color: #fff;
+  box-shadow: 0 2px 6px rgba(24,32,24,0.18);
+  cursor: pointer; transition: all 0.2s ease;
+  border: none;
+}
+.btn-fab:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(24,32,24,0.2); }
+
+/* ── Form inputs ── */
+.farm-input {
+  width: 100%; background: var(--card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px; padding: 14px 16px;
+  font-size: 15px; color: var(--text-primary);
+  transition: border-color 0.15s ease;
+  outline: none;
+}
+.farm-input:focus { border-color: rgba(74,222,128,0.5); box-shadow: 0 0 0 3px rgba(74,222,128,0.08); }
+.farm-input::placeholder { color: var(--text-dim); }
+
+/* ── Table ── */
+.farm-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; }
+.farm-table thead th {
+  padding: 12px;
+  text-align: left; font-size: 12px; font-weight: 650;
+  text-transform: none; letter-spacing: 0;
+  color: var(--text-muted); white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface);
+  position: sticky; top: 0; z-index: 10;
+}
+.farm-table tbody tr {
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background 0.1s ease;
+}
+.farm-table tbody tr:hover { background: #f7f9f5; }
+.farm-table tbody td {
+  padding: 12px 12px; color: var(--text-primary);
+  vertical-align: middle;
+}
+.farm-table-scroll { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border-subtle); }
+
+/* ── Section headers ── */
+.section-eyebrow {
+  font-size: 12px; font-weight: 600; letter-spacing: 0;
+  text-transform: none; color: var(--text-muted);
+}
+.section-title { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.section-subtitle { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
+
+/* ── Progress bars ── */
+.progress-track { height: 6px; background: rgba(255,255,255,0.06); border-radius: 100px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 100px; background: var(--primary-green); transition: width 0.5s ease; }
+.progress-fill-amber { background: var(--accent-amber); }
+.progress-fill-red { background: #f87171; }
+
+/* ── Divider ── */
+.farm-divider { height: 1px; background: var(--border-subtle); margin: 0; }
+
+/* ── Alert row ── */
+.alert-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px; border-radius: 14px;
+  border: 1px solid var(--border-subtle);
+  background: var(--card); margin-bottom: 8px;
+}
+.alert-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  flex-shrink: 0; margin-top: 4px;
+}
+
+/* ── Step indicator ── */
+.step-track { display: flex; align-items: center; gap: 0; margin-bottom: 24px; }
+.step-node {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+.step-node.done { background: var(--primary-green); color: #0a0f0a; }
+.step-node.active { background: var(--gradient-primary); color: #0a0f0a; box-shadow: 0 0 0 4px rgba(74,222,128,0.2); }
+.step-node.pending { background: var(--card); border: 1px solid var(--border-subtle); color: var(--text-muted); }
+.step-line { flex: 1; height: 2px; background: var(--border-subtle); }
+.step-line.done { background: var(--primary-green); }
+
+/* ── Heatmap density ── */
+.density-ok { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.25) !important; }
+.density-warn { background: rgba(251,191,36,0.10); border-color: rgba(251,191,36,0.3) !important; }
+.density-crit { background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.3) !important; }
+
+/* ── Scrollable chip row ── */
+.chip-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.chip-row::-webkit-scrollbar { display: none; }
+.filter-chip {
+  flex-shrink: 0; padding: 6px 14px; border-radius: 100px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: all 0.15s ease;
+  background: var(--card); border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+.filter-chip.active {
+  background: rgba(74,222,128,0.15);
+  border-color: rgba(74,222,128,0.4);
+  color: var(--primary-green);
+}
+
+/* ── Sync badge ── */
+.sync-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.25);
+  border-radius: 100px; padding: 4px 12px;
+  font-size: 11px; font-weight: 600; color: var(--accent-blue);
+}
+
+/* ── Weather widget ── */
+.weather-temp {
+  font-size: 52px; font-weight: 300;
+  color: var(--text-primary); line-height: 1;
+}
+
+/* ── GL account row ── */
+.gl-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; }
+.gl-debit { color: var(--status-ok); font-weight: 700; }
+.gl-credit { color: var(--status-critical); font-weight: 700; }
+
+/* ── Approval badge ── */
+.approval-pending {
+  background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.3);
+  border-radius: 12px; padding: 10px 14px;
+}
+.approval-approved {
+  background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.2);
+  border-radius: 12px; padding: 10px 14px;
+}
+.approval-rejected {
+  background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2);
+  border-radius: 12px; padding: 10px 14px;
+}
+
+/* ── Page padding ── */
+.px-screen { padding-left: 20px; padding-right: 20px; }
+
+/* ── Gradient text ── */
+.text-gradient { color: var(--primary-green); }
+.text-gradient-warm { color: var(--accent-amber); }
+
+@media (min-width: 1024px) {
+  .screen-content { padding-bottom: 36px; }
+  .px-screen { max-width: 1320px; margin: 0 auto; padding-left: 32px; padding-right: 32px; }
+  .top-nav { padding-left: 32px; padding-right: 32px; }
+  .top-nav-title { font-size: 26px !important; letter-spacing: -0.02em; }
+}
+
+nextjs-portal { display: none !important; }
