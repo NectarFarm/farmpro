@@ -22,15 +22,107 @@ import { pgTable, text, timestamp, numeric, boolean, index, uniqueIndex } from '
 // under that name here so the contract this endpoint exposes matches what the
 // dashboard's price strip already expects, even though the column is a flat
 // price rather than a computed sale-units breakdown.
+// `status` (product-unit-inheritance task): 'ACTIVE' | 'ARCHIVED'. Same
+// loose-text-validated-in-route convention as farms.status/employees.status.
+// A product is archived rather than deleted once anything references it —
+// see DELETE /api/products/[id] for the exact rule (a product with zero
+// references — no sale, no product_units/batch_products row — is genuinely
+// deleted; one with any reference is archived instead, mirroring the
+// farms.status precedent: a hard DELETE would either fail against
+// sales.productId or silently orphan a historical sale's product link).
 export const products = pgTable('products', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
   type: text('type').notNull(),
   name: text('name').notNull(),
   saleUnits: numeric('sale_units', { precision: 12, scale: 2 }).notNull().default('0'),
+  status: text('status').notNull().default('ACTIVE'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_products_tenant').on(t.tenantId),
+])
+
+// ── product_units (product-unit-inheritance task) ──────────────────────────
+// Many-to-many: which production units offer/produce a product. This is the
+// "shared across units" half of the requirement — a product row is defined
+// ONCE at tenant level (above) and a farmer attaches it to as many units as
+// actually produce it (e.g. "Tray Eggs (30)" attached to both Layer Pen A and
+// Layer Pen B) instead of re-entering the product per unit.
+//
+// `unitId` is a plain logical reference to production_units.id, not a DB FK
+// — same "no import cycle with db/schemas/index.ts" convention already used
+// by sales.batchId (finance.ts) and employees.assignedBatchIds (people.ts),
+// since `productionUnits` is defined in index.ts, which itself re-exports
+// this file. Validated against the caller's tenant in the route
+// (PUT /api/units/[id]/products) instead.
+//
+// `productId` DOES get a real FK — products is defined in this same file, so
+// there's no cycle to avoid.
+export const productUnits = pgTable('product_units', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  productId: text('product_id').notNull().references(() => products.id),
+  unitId: text('unit_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => [
+  index('idx_product_units_tenant').on(t.tenantId),
+  index('idx_product_units_unit').on(t.unitId),
+  // Enforces "a unit offers a given product at most once" at the DB level —
+  // PUT /api/units/[id]/products relies on this for the concurrent-write
+  // race, same shape as every other join-table unique index in this codebase.
+  uniqueIndex('idx_product_units_product_unit').on(t.productId, t.unitId),
+])
+
+// ── batch_products — OVERRIDES ONLY (product-unit-inheritance task) ────────
+// A batch does NOT get its own product list by default: it inherits every
+// product attached to its unit via `product_units` above. This table holds
+// ONLY the exceptions — the common case (a batch selling exactly what its
+// unit offers, which is nearly every batch, nearly all the time) costs zero
+// rows here and zero data entry from the farmer. That is the entire point of
+// building inheritance instead of copying the unit's product list onto every
+// batch at creation time: copying would need updating on every batch whenever
+// the unit's catalogue changes, and would erase the distinction between "the
+// farmer chose this" and "this just came from the unit."
+//
+// `mode` expresses the two ways a batch can differ from its unit:
+//   'ADD'     — this product is offered on this batch even though its unit
+//               does NOT offer it (e.g. a one-off cull sale on a single
+//               batch that isn't part of that unit's normal catalogue).
+//   'EXCLUDE' — this product IS offered by the batch's unit, but this
+//               specific batch does not sell it (e.g. one Layer Pen batch is
+//               kept for breeding stock only and never sells eggs, while its
+//               sibling batches under the same unit do).
+// There is deliberately no third "INCLUDE, matching the unit" mode — a
+// product inherited unchanged is represented by the ABSENCE of a row here,
+// not by a row that just confirms what the unit already says. A future
+// reader who sees a batch with no batch_products rows at all should read
+// that as "this batch's list is 100% inherited," not "nobody has configured
+// this batch yet."
+//
+// One query resolves the full list for a batch — see
+// lib/products.ts's `resolveBatchProducts` for the exact SQL: inherited
+// candidates come from product_units joined through the batch's unitId,
+// MINUS anything EXCLUDEd here, UNION the ADDed extras. The `inherited` flag
+// and source unit name in that result are what let the UI say "inherited
+// from Layer Pen A" instead of presenting an override as if the farmer had
+// picked it.
+//
+// `batchId` is a plain logical reference (no DB FK), same reasoning as
+// `unitId` on product_units above — batches is defined in index.ts.
+export const batchProducts = pgTable('batch_products', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  batchId: text('batch_id').notNull(),
+  productId: text('product_id').notNull().references(() => products.id),
+  mode: text('mode').notNull(), // 'ADD' | 'EXCLUDE'
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => [
+  index('idx_batch_products_tenant').on(t.tenantId),
+  index('idx_batch_products_batch').on(t.batchId),
+  // A batch can override a given product at most once (either ADD or
+  // EXCLUDE it, not both — the route enforces which, this index just
+  // prevents two rows for the same product existing at all).
+  uniqueIndex('idx_batch_products_batch_product').on(t.batchId, t.productId),
 ])
 
 // A tenant's work items. `dueAt` null means "no due date" — excluded from any

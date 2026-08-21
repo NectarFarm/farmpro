@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { ENTERPRISE_REGISTRY } from './data';
 import { apiClient } from '@/lib/request';
-import { Plus, X, Check, Upload, Lock } from './icons';
+import { Plus, X, Check, Upload, Lock, Package, Archive, Edit2 } from './icons';
 import { StatusTimeline } from './status-timeline';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
@@ -50,6 +50,29 @@ interface ApiUnit {
   name: string;
   code: string;
   status: string;
+}
+
+/* A tenant catalogue row exactly as GET/POST /api/products returns it
+ * (product-unit-inheritance task). Defined once at tenant level, shared
+ * across units/batches via product_units/batch_products — see
+ * db/schemas/dashboard.ts for the model. */
+interface ApiProduct {
+  id: string;
+  tenantId: string;
+  type: string;
+  name: string;
+  saleUnits: string;
+  status: string;
+  createdAt: string | null;
+}
+
+/* A row from GET /api/batches/[id]/products — a product resolved for one
+ * batch, flagged whether it's inherited from the batch's unit (and which
+ * unit) or an explicit batch-level override. */
+interface ResolvedProduct extends ApiProduct {
+  inherited: boolean;
+  sourceUnitId: string | null;
+  sourceUnitName: string | null;
 }
 
 /* The view-model this screen actually renders — a batch joined with its unit
@@ -239,22 +262,247 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
   );
 }
 
+/* ── Add Product sheet (product-unit-inheritance task) — creates a tenant-
+ * catalogue product once via POST /api/products. This is deliberately the
+ * ONLY place a product gets created; picking one for a unit or batch is a
+ * checkbox against this catalogue, never a re-entry of the same fields. */
+function AddProductSheet({ tenantId, onCreated, onClose }: {
+  tenantId: string;
+  onCreated: () => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState('');
+  const [saleUnits, setSaleUnits] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+
+  async function save() {
+    setSaving(true);
+    setError('');
+    setErrors({});
+    const res = await apiClient.post<ApiProduct>('/api/products', {
+      tenantId, name: name.trim(), type: type.trim(), saleUnits: saleUnits.trim() || undefined,
+    });
+    setSaving(false);
+    if (res.success) {
+      onCreated();
+      onClose();
+    } else {
+      setErrors(res.fields ?? {});
+      setError(res.error || 'Failed to create product.');
+    }
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Add Product</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Product Name *</label>
+          <input className="farm-input" placeholder="e.g. Tray Eggs (30)" value={name} onChange={e => setName(e.target.value)}
+            style={errors.name ? { border: '1px solid var(--status-critical)' } : undefined} />
+          {errors.name && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.name}</div>}
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Type *</label>
+          <input className="farm-input" placeholder="e.g. egg, livebird, produce" value={type} onChange={e => setType(e.target.value)}
+            style={errors.type ? { border: '1px solid var(--status-critical)' } : undefined} />
+          {errors.type && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.type}</div>}
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sale Price (KSh)</label>
+          <input className="farm-input" type="number" placeholder="0" value={saleUnits} onChange={e => setSaleUnits(e.target.value)}
+            style={errors.saleUnits ? { border: '1px solid var(--status-critical)' } : undefined} />
+          {errors.saleUnits && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.saleUnits}</div>}
+        </div>
+        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
+          {saving ? 'Saving…' : 'Create Product'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Edit Product sheet — PATCH /api/products/[id] (name/type/saleUnits). ── */
+function EditProductSheet({ tenantId, product, onSaved, onClose }: {
+  tenantId: string;
+  product: ApiProduct;
+  onSaved: () => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(product.name);
+  const [type, setType] = useState(product.type);
+  const [saleUnits, setSaleUnits] = useState(product.saleUnits);
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+
+  async function save() {
+    setSaving(true);
+    setError('');
+    setErrors({});
+    const res = await apiClient.patch(`/api/products/${product.id}`, { tenantId, name: name.trim(), type: type.trim(), saleUnits: saleUnits.trim() });
+    setSaving(false);
+    if (res.success) {
+      onSaved();
+      onClose();
+    } else {
+      setErrors(res.fields ?? {});
+      setError(res.error || 'Failed to save changes.');
+    }
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Edit Product</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Product Name *</label>
+          <input className="farm-input" value={name} onChange={e => setName(e.target.value)}
+            style={errors.name ? { border: '1px solid var(--status-critical)' } : undefined} />
+          {errors.name && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.name}</div>}
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Type *</label>
+          <input className="farm-input" value={type} onChange={e => setType(e.target.value)}
+            style={errors.type ? { border: '1px solid var(--status-critical)' } : undefined} />
+          {errors.type && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.type}</div>}
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sale Price (KSh)</label>
+          <input className="farm-input" type="number" value={saleUnits} onChange={e => setSaleUnits(e.target.value)}
+            style={errors.saleUnits ? { border: '1px solid var(--status-critical)' } : undefined} />
+          {errors.saleUnits && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.saleUnits}</div>}
+        </div>
+        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
+          {saving ? 'Saving…' : 'Save Changes'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Unit Products sheet (product-unit-inheritance task) — picks which
+ * tenant-catalogue products this unit offers (PUT /api/units/[id]/products).
+ * Every batch under this unit inherits exactly this list, so this is the ONE
+ * place a farmer configures "what does House A02 sell" instead of repeating
+ * it per batch. Selecting an existing product is the whole flow here;
+ * creating a new one is a link out to the Products tab, not inline — the
+ * catalogue is meant to be defined once, not grown ad hoc from every unit. */
+function UnitProductsSheet({ tenantId, unit, allProducts, onSaved, onClose }: {
+  tenantId: string;
+  unit: ApiUnit;
+  allProducts: ApiProduct[];
+  onSaved: () => void;
+  onClose: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<string> | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiClient.get<ApiProduct[]>(`/api/units/${unit.id}/products`).then(res => {
+      if (res.success) setSelected(new Set(res.data.map(p => p.id)));
+      else setSelected(new Set());
+    });
+  }, [unit.id]);
+
+  function toggle(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev ?? []);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function save() {
+    if (!selected) return;
+    setSaving(true);
+    setError('');
+    const res = await apiClient.put(`/api/units/${unit.id}/products`, { tenantId, productIds: Array.from(selected) });
+    setSaving(false);
+    if (res.success) {
+      onSaved();
+      onClose();
+    } else {
+      setError(res.error || 'Failed to save products.');
+    }
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Products — {unit.name}</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 }}>
+          Every batch in this unit inherits whatever you select here — no need to pick products per batch.
+        </div>
+        {selected === null ? (
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>Loading…</div>
+        ) : allProducts.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>No products in your catalogue yet — add one from the Products tab first.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+            {allProducts.map(p => (
+              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'capitalize' }}>{p.type}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
+        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving || selected === null} onClick={save}>
+          {saving ? 'Saving…' : 'Save Products'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function CropsScreen() {
   const { navigate, activeFarm, farms, tenantId } = useNav();
-  const [tab, setTab] = useState<'livestock' | 'crops' | 'units'>('livestock');
+  const [tab, setTab] = useState<'livestock' | 'crops' | 'units' | 'products'>('livestock');
   const [filter, setFilter] = useState('All');
   const [farmFilter, setFarmFilter] = useState(activeFarm === 'ALL' ? 'All' : activeFarm);
   const [showEnterpriseSelector, setShowEnterpriseSelector] = useState(false);
   const [showAddUnit, setShowAddUnit] = useState(false);
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<ApiProduct | null>(null);
+  const [productsUnit, setProductsUnit] = useState<ApiUnit | null>(null);
 
   const [apiBatches, setApiBatches] = useState<ApiBatch[] | null>(null);
   const [apiUnits, setApiUnits] = useState<ApiUnit[] | null>(null);
+  const [apiProducts, setApiProducts] = useState<ApiProduct[] | null>(null);
 
   const loadUnits = useCallback(() => {
     apiClient.get<ApiUnit[]>(`/api/units?tenantId=${tenantId}`).then(res => {
       if (res.success) setApiUnits(res.data);
     });
   }, [tenantId]);
+
+  const loadProducts = useCallback(() => {
+    apiClient.get<ApiProduct[]>('/api/products').then(res => {
+      if (res.success) setApiProducts(res.data);
+    });
+  }, []);
+
+  useEffect(() => { loadProducts(); }, [loadProducts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -328,13 +576,13 @@ export function CropsScreen() {
 
         {/* Type tabs */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-          {[['livestock','🐄 Livestock'],['crops','🌱 Crops'],['units','📍 Units']].map(([id, label]) => (
+          {[['livestock','🐄 Livestock'],['crops','🌱 Crops'],['units','📍 Units'],['products','📦 Products']].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)' }}>{label}</button>
           ))}
         </div>
 
         {/* Status filter */}
-        {tab !== 'units' && (
+        {tab !== 'units' && tab !== 'products' && (
           <div className="chip-row" style={{ marginBottom: 10 }}>
             {filters.map(f => (
               <button key={f} onClick={() => setFilter(f)} className={`filter-chip ${filter === f ? 'active' : ''}`}>{f}</button>
@@ -388,11 +636,14 @@ export function CropsScreen() {
                   </div>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'capitalize' }}>{u.type}</div>
                   <div style={{ fontSize: 9, color: 'var(--text-dim)', fontFamily: 'monospace', marginBottom: 8 }}>{u.code}</div>
-                  <div style={{ fontSize: 11 }}>
+                  <div style={{ fontSize: 11, marginBottom: 8 }}>
                     {unitBatches.length > 0
                       ? <span><strong style={{ color: 'var(--text-primary)' }}>{occupancy.toLocaleString()}</strong> across {unitBatches.length} batch{unitBatches.length === 1 ? '' : 'es'}</span>
                       : <span style={{ color: 'var(--text-dim)' }}>No active batch assigned</span>}
                   </div>
+                  <button onClick={() => setProductsUnit(u)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, padding: '5px 9px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
+                    <Package size={11} /> Products
+                  </button>
                 </div>
               );
             })}
@@ -403,13 +654,178 @@ export function CropsScreen() {
         </div>
       )}
 
+      {/* PRODUCTS — the tenant catalogue, defined once here and shared across
+          units/batches (product-unit-inheritance task). Create/edit/archive
+          only; attaching a product to a unit happens from the Units tab's
+          "Products" button above, not here — this tab is the catalogue, not
+          a per-unit picker. */}
+      {tab === 'products' && (
+        <div className="px-screen">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {apiProducts === null ? (
+              <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>Loading products…</div>
+            ) : apiProducts.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center' }}>
+                <div style={{ fontSize: 36, marginBottom: 8 }}>📦</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No products yet</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Add a product once, then attach it to any unit that offers it</div>
+              </div>
+            ) : apiProducts.map(p => (
+              <div key={p.id} className="farm-card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'capitalize', marginTop: 2 }}>{p.type} · KSh {Number(p.saleUnits).toLocaleString()}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn-icon" title="Edit" onClick={() => setEditingProduct(p)}><Edit2 size={13} /></button>
+                  <button className="btn-icon" title="Archive"
+                    onClick={async () => { if (confirm(`Archive "${p.name}"?`)) { await apiClient.delete(`/api/products/${p.id}?tenantId=${tenantId}`); loadProducts(); } }}>
+                    <Archive size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }} onClick={() => setShowAddProduct(true)}>
+            <Plus size={14} /> Add Product
+          </button>
+        </div>
+      )}
+
       {showEnterpriseSelector && <EnterpriseSelector onSelect={(s) => navigate('crop-schedule', { subtype: s })} onClose={() => setShowEnterpriseSelector(false)} />}
       {showAddUnit && <AddUnitSheet farms={farms} tenantId={tenantId} onCreated={loadUnits} onClose={() => setShowAddUnit(false)} />}
+      {showAddProduct && <AddProductSheet tenantId={tenantId} onCreated={loadProducts} onClose={() => setShowAddProduct(false)} />}
+      {editingProduct && <EditProductSheet tenantId={tenantId} product={editingProduct} onSaved={loadProducts} onClose={() => setEditingProduct(null)} />}
+      {productsUnit && (
+        <UnitProductsSheet
+          tenantId={tenantId}
+          unit={productsUnit}
+          allProducts={apiProducts ?? []}
+          onSaved={() => {}}
+          onClose={() => setProductsUnit(null)}
+        />
+      )}
     </div>
   );
 }
 
 /* ── Batch Detail ── */
+/* ── Batch Product Overrides sheet (product-unit-inheritance task) ──────────
+ * The whole point of inheritance is that this sheet is rarely opened: a
+ * batch shows its unit's products pre-filled with zero setup. This sheet
+ * only exists for the exception — excluding one inherited product, or
+ * adding one the unit doesn't normally offer. It fetches the unit's raw
+ * product list (not the resolved one) so a previously-excluded product can
+ * be shown unchecked-but-available rather than silently disappearing from
+ * the picker entirely. */
+function BatchProductOverridesSheet({ tenantId, batchId, unitId, unitName, allProducts, onSaved, onClose }: {
+  tenantId: string;
+  batchId: string;
+  unitId: string;
+  unitName: string;
+  allProducts: ApiProduct[];
+  onSaved: () => void;
+  onClose: () => void;
+}) {
+  const [unitProductIds, setUnitProductIds] = useState<string[] | null>(null);
+  const [offered, setOffered] = useState<Set<string>>(new Set()); // inherited candidates the farmer still wants
+  const [added, setAdded] = useState<Set<string>>(new Set()); // extra catalogue products for this batch only
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      const [unitRes, resolvedRes] = await Promise.all([
+        unitId ? apiClient.get<ApiProduct[]>(`/api/units/${unitId}/products`) : Promise.resolve({ success: true as const, data: [] as ApiProduct[] }),
+        apiClient.get<ResolvedProduct[]>(`/api/batches/${batchId}/products`),
+      ]);
+      const unitIds = unitRes.success ? unitRes.data.map(p => p.id) : [];
+      setUnitProductIds(unitIds);
+      if (resolvedRes.success) {
+        const resolvedIds = new Set(resolvedRes.data.map(r => r.id));
+        setOffered(new Set(unitIds.filter(id => resolvedIds.has(id))));
+        setAdded(new Set(resolvedRes.data.filter(r => !r.inherited).map(r => r.id)));
+      }
+    })();
+  }, [unitId, batchId]);
+
+  function toggleOffered(id: string) {
+    setOffered(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
+  function toggleAdded(id: string) {
+    setAdded(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
+
+  async function save() {
+    if (!unitProductIds) return;
+    setSaving(true);
+    setError('');
+    const excludes = unitProductIds.filter(id => !offered.has(id));
+    const res = await apiClient.put(`/api/batches/${batchId}/products`, { tenantId, adds: Array.from(added), excludes });
+    setSaving(false);
+    if (res.success) {
+      onSaved();
+      onClose();
+    } else {
+      setError(res.error || 'Failed to save product overrides.');
+    }
+  }
+
+  const extraCandidates = allProducts.filter(p => !(unitProductIds ?? []).includes(p.id));
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Products for this Batch</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        {unitProductIds === null ? (
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>Loading…</div>
+        ) : (
+          <>
+            {unitProductIds.length > 0 && (
+              <>
+                <div className="section-eyebrow" style={{ marginTop: 14, marginBottom: 6 }}>Inherited from {unitName}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 8 }}>Uncheck a product this batch specifically doesn&apos;t offer.</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+                  {allProducts.filter(p => unitProductIds.includes(p.id)).map(p => (
+                    <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={offered.has(p.id)} onChange={() => toggleOffered(p.id)} />
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div className="section-eyebrow" style={{ marginBottom: 6 }}>Extra products for this batch only</div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 8 }}>Not offered by {unitName || 'this batch\'s unit'} — check any that apply just to this batch.</div>
+            {extraCandidates.length === 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 14 }}>Nothing else in the catalogue.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+                {extraCandidates.map(p => (
+                  <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={added.has(p.id)} onChange={() => toggleAdded(p.id)} />
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving || unitProductIds === null} onClick={save}>
+          {saving ? 'Saving…' : 'Save Overrides'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function BatchDetailScreen() {
   const { goBack, params, navigate, farms, tenantId } = useNav();
   const batchId = params.id;
@@ -428,6 +844,13 @@ export function BatchDetailScreen() {
   } | null>(null);
 
   const [costTab, setCostTab] = useState<'breakdown' | 'processes'>('breakdown');
+  // Products resolved for this batch (product-unit-inheritance task). The list
+  // is mostly INHERITED from the batch's unit — a batch with no overrides has
+  // no rows of its own — so this is a read of the resolved view, not of
+  // anything the farmer had to fill in.
+  const [resolvedProducts, setResolvedProducts] = useState<ResolvedProduct[] | null>(null);
+  const [allProducts, setAllProducts] = useState<ApiProduct[]>([]);
+  const [showProductOverrides, setShowProductOverrides] = useState(false);
   const [showTransferForm, setShowTransferForm] = useState(false);
   const [transferUnitId, setTransferUnitId] = useState('');
   const [transferSaving, setTransferSaving] = useState(false);
@@ -463,6 +886,20 @@ export function BatchDetailScreen() {
       if (res.success) setUnits(res.data);
     });
   }, [tenantId]);
+
+  // Resolved products + the tenant catalogue the override sheet picks from.
+  // Re-run after a save so an override shows up without a reload.
+  const loadProducts = useCallback(async () => {
+    if (!batch) return;
+    const [resolved, catalogue] = await Promise.all([
+      apiClient.get<ResolvedProduct[]>(`/api/batches/${batch.id}/products`),
+      apiClient.get<ApiProduct[]>('/api/products'),
+    ]);
+    if (resolved.success) setResolvedProducts(resolved.data);
+    if (catalogue.success) setAllProducts(catalogue.data);
+  }, [batch]);
+
+  useEffect(() => { loadProducts(); }, [loadProducts]);
 
   useEffect(() => {
     if (!batch) return;
@@ -568,7 +1005,7 @@ export function BatchDetailScreen() {
               // Neither is trackable yet (no area column on `batches`, no
               // feed/weight data source for FCR) — same honest "—" placeholder
               // pattern already used for "Growth" above, not a silent drop.
-              { label: cfg?.type === "crop" ? "Area" : "FCR", value: '—' },
+              { label: cfg?.type === 'crop' ? 'Area' : 'FCR', value: '—' },
               { label: 'Cost KSh', value: `${(costKsh/1000).toFixed(0)}K` },
             ].map(s => (
               <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px', textAlign: 'center' }}>
@@ -621,6 +1058,53 @@ export function BatchDetailScreen() {
                   <Check size={13} /> {transferSaving ? 'Moving…' : 'Save Transfer'}
                 </button>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Products — inherited from the unit unless overridden. The whole point
+          * of the inheritance model is that this list is already correct when a
+          * batch is created, so the farmer confirms rather than re-enters. */}
+        <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div className="section-eyebrow">Products</div>
+            <button
+              type="button"
+              onClick={() => setShowProductOverrides(true)}
+              style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, cursor: 'pointer',
+                background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}
+            >
+              Customise
+            </button>
+          </div>
+
+          {resolvedProducts === null ? (
+            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>Loading…</div>
+          ) : resolvedProducts.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              No products yet. Add them to <strong>{units.find(u => u.id === batch.unitId)?.name ?? 'this unit'}</strong> and
+              every batch under it inherits them automatically — including this one.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {resolvedProducts.map(pr => (
+                <div key={pr.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  padding: '8px 10px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{pr.name}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>{pr.type}</div>
+                  </div>
+                  {/* Say WHERE an inherited product came from — otherwise the
+                    * farmer cannot tell what to change to affect every batch
+                    * versus only this one. */}
+                  <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 100,
+                    background: pr.inherited ? 'rgba(74,222,128,0.12)' : 'rgba(96,165,250,0.12)',
+                    border: pr.inherited ? '1px solid rgba(74,222,128,0.3)' : '1px solid rgba(96,165,250,0.3)',
+                    color: pr.inherited ? 'var(--primary-green)' : '#60a5fa' }}>
+                    {pr.inherited ? `Inherited · ${pr.sourceUnitName ?? 'unit'}` : 'This batch only'}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -765,6 +1249,18 @@ export function BatchDetailScreen() {
           <StatusTimeline tenantId={tenantId} entity="batch" entityId={batch.id} />
         </div>
       </div>
+
+      {showProductOverrides && (
+        <BatchProductOverridesSheet
+          tenantId={tenantId}
+          batchId={batch.id}
+          unitId={batch.unitId}
+          unitName={units.find(u => u.id === batch.unitId)?.name ?? 'its unit'}
+          allProducts={allProducts}
+          onSaved={() => { setShowProductOverrides(false); loadProducts(); }}
+          onClose={() => setShowProductOverrides(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1033,6 +1529,7 @@ export function ProcessConfigScreen() {
         </div>
         <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 20 }} onClick={goBack}>Back</button>
       </div>
+
     </div>
   );
 }

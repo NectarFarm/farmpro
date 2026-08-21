@@ -60,10 +60,26 @@ import { pgTable, text, timestamp, integer, index, uniqueIndex } from 'drizzle-o
 // mock's shape 1:1 (no `*Cents` renaming — the issue names the column
 // `amount` and the mock treats it as a plain number, not a minor-unit figure
 // like `purchases.totalCostCents`).
+// `productId` (product-unit-inheritance task): nullable logical reference to
+// products.id (no DB FK — products lives in dashboard.ts; same "no import
+// cycle with db/schemas/index.ts" convention `batchId` below already uses).
+// `item` (free text) is NOT replaced or backfilled by this column — it stays
+// required and keeps its own meaning for two reasons: (1) every sale row
+// that predates this column has no product to guess-match it to (an item
+// string like "Tray eggs (30) x 120" is not a reliable key into the products
+// catalogue — guessing would silently misattribute historical revenue), and
+// (2) the UI's Record-Sale sheet still supports a genuine one-off/ad-hoc
+// sale with no catalogue product at all. So a sale now carries BOTH: `item`
+// is always the human-readable label shown everywhere sales already render
+// it, and `productId` is the optional link that lets revenue be attributed
+// back to a catalogue product when the sale actually came from one (see
+// POST /api/data/sales, which fills `item` from the chosen product's name
+// when the caller doesn't supply its own).
 export const sales = pgTable('sales', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
   batchId: text('batch_id'),
+  productId: text('product_id'),
   item: text('item').notNull(),
   amount: integer('amount').notNull(),
   method: text('method').notNull().default(''),
