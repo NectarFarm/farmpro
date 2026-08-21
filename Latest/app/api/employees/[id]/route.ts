@@ -3,19 +3,38 @@ import { db } from '@/db'
 import { employees, batches } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { and, eq, inArray } from 'drizzle-orm'
+import { writeAuditLog } from '@/lib/audit'
 
-// ── GET/PATCH /api/employees/[id] (issue #247) ──────────────────────────────
-// Tenant-scoped: an id only reads/updates when its tenantId matches the
-// caller's (session tenant, or the `tenantId` query param in standalone mock
-// mode) — otherwise 404, same convention as GET/PATCH /api/batches/[id].
-// `Note`: this file lives under app/api/employees/ alongside a literal `me`
-// segment (app/api/employees/me/route.ts) — Next.js resolves a literal path
-// segment before a dynamic one, so GET /api/employees/me is never captured
-// by this `[id]` route.
+// ── GET/PATCH /api/employees/[id] (issue #247; PATCH extended for farms/
+// employees CRUD) ────────────────────────────────────────────────────────────
+// GET is tenant-scoped the original way: an id only reads when its tenantId
+// matches the caller's (session tenant, or the `tenantId` query param in
+// standalone mock mode) — otherwise 404, same convention as GET/PATCH
+// /api/batches/[id]. `Note`: this file lives under app/api/employees/
+// alongside a literal `me` segment (app/api/employees/me/route.ts) —
+// Next.js resolves a literal path segment before a dynamic one, so
+// GET /api/employees/me is never captured by this `[id]` route.
+//
+// PATCH does NOT use that query-param tenant fallback: it requires a real
+// session and derives tenant scope from it only — owner/manager write
+// within their own session tenant, a super_admin (no tenant of its own)
+// must name one explicitly in the body, and every other role is forbidden.
+// This is deliberately narrower than GET's long-standing convention (see the
+// CRITICAL SECURITY note on the farms/employees CRUD task: fix the routes
+// being touched, don't copy the hole into them, but don't retrofit the
+// other 30-odd routes either).
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = (msg = 'Employee not found') => NextResponse.json({ success: false, error: msg }, { status: 404 })
+const badFields = (fields: Record<string, string>, status = 400) => {
+  const firstKey = Object.keys(fields)[0]
+  return NextResponse.json({ success: false, error: fields[firstKey], fields }, { status })
+}
+
+// The only two values components/farm/people.tsx's toggle / CSV import ever
+// send (grepped — no third value used anywhere in this codebase).
+const VALID_EMPLOYEE_STATUSES = new Set(['ACTIVE', 'INACTIVE'])
 
 function resolveTenantId(req: Request, sessionTenantId: string | null | undefined): string {
   return sessionTenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim() ?? ''
@@ -53,11 +72,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // replace, same "PATCH with a new array replaces the assignment" shape the
 // UI's "Batches" step in the Add Employee modal implies — there is no
 // separate add/remove-one-batch endpoint).
+//
+// Deactivating an employee is never a hard delete (records.employee_id is a
+// real FK into employees.id — deleting would orphan production history);
+// `status` toggling to INACTIVE is the whole mechanism, same "archive, don't
+// destroy" shape as farms. The route itself doesn't block a deactivation
+// over assigned batches / open work — that judgement call belongs to the
+// admin, not a hard server-side gate — but the audit trail records exactly
+// what changed, and the UI surfaces the employee's current assignments in
+// the confirmation step before the call is made.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
 
   let raw: unknown
   try {
@@ -67,11 +94,38 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const b = (raw ?? {}) as Record<string, unknown>
 
+  let tenantId: string
+  if (session.role === 'super_admin') {
+    tenantId = typeof b.tenantId === 'string' ? b.tenantId.trim() : ''
+    if (!tenantId) return badRequest('tenantId is required for a platform admin')
+  } else if (session.role === 'owner' || session.role === 'manager') {
+    tenantId = session.tenantId ?? ''
+    if (!tenantId) return badRequest('Forbidden')
+  } else {
+    return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
+  }
+
+  const existingRows = await db
+    .select()
+    .from(employees)
+    .where(and(eq(employees.id, id), eq(employees.tenantId, tenantId)))
+    .limit(1)
+  const existing = existingRows[0]
+  if (!existing) return notFound()
+
+  const fields: Record<string, string> = {}
   const patch: Partial<typeof employees.$inferInsert> = {}
   if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim()
   if (typeof b.phone === 'string') patch.phone = b.phone.trim()
   if (typeof b.role === 'string' && b.role.trim()) patch.role = b.role.trim()
-  if (typeof b.status === 'string' && b.status.trim()) patch.status = b.status.trim()
+  if ('status' in b) {
+    const status = typeof b.status === 'string' ? b.status.trim() : ''
+    if (!VALID_EMPLOYEE_STATUSES.has(status)) {
+      fields.status = `status must be one of: ${[...VALID_EMPLOYEE_STATUSES].join(', ')}`
+    } else {
+      patch.status = status
+    }
+  }
   if (typeof b.userId === 'string') patch.userId = b.userId.trim() || null
   if (b.mortalityPhotoThreshold !== undefined && Number.isFinite(Number(b.mortalityPhotoThreshold))) {
     patch.mortalityPhotoThreshold = Math.max(0, Math.trunc(Number(b.mortalityPhotoThreshold)))
@@ -84,7 +138,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     patch.assignedBatchIds = validated
   }
 
+  if (Object.keys(fields).length > 0) return badFields(fields)
   if (Object.keys(patch).length === 0) return badRequest('No updatable fields provided')
+
+  const changes: Record<string, { old: unknown; new: unknown }> = {}
+  for (const key of Object.keys(patch)) {
+    const oldValue = (existing as Record<string, unknown>)[key]
+    const newValue = (patch as Record<string, unknown>)[key]
+    if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) changes[key] = { old: oldValue, new: newValue }
+  }
+  if (Object.keys(changes).length === 0) return ok(existing)
 
   const rows = await db
     .update(employees)
@@ -93,5 +156,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     .returning()
 
   if (rows.length === 0) return notFound()
+
+  await writeAuditLog({
+    tenantId,
+    actor: session.id,
+    action: 'status' in changes ? 'employee.status_changed' : 'employee.updated',
+    entity: 'employee',
+    entityId: id,
+    meta: { changes },
+  })
+
   return ok(rows[0])
 }

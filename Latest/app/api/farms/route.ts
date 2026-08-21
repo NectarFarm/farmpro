@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { farms } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
-import { eq, asc } from 'drizzle-orm'
+import { and, eq, asc } from 'drizzle-orm'
 
 // ── Farms API (issue #219) ─────────────────────────────────────────────────
 // New-backend routes powering the shell's farm switcher. Built fresh in this
@@ -34,15 +34,23 @@ function isUniqueViolation(err: unknown): boolean {
   return !!err && typeof err === 'object' && (err as { code?: string }).code === '23505'
 }
 
-// GET /api/farms?tenantId=... — list a tenant's farms (oldest first).
+// GET /api/farms?tenantId=&includeArchived= — list a tenant's farms (oldest
+// first). Archived farms are excluded by default so the farm switcher and
+// every other existing caller keep seeing only farms they can actually
+// switch into; the admin farms screen opts in with includeArchived=true to
+// show (and manage) archived ones too.
 export async function GET(req: Request) {
   const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim()
+  const url = new URL(req.url)
+  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
   if (!tenantId) return badRequest('tenantId is required')
+  const includeArchived = url.searchParams.get('includeArchived') === 'true'
+  const conditions = [eq(farms.tenantId, tenantId)]
+  if (!includeArchived) conditions.push(eq(farms.status, 'ACTIVE'))
   const rows = await db
     .select()
     .from(farms)
-    .where(eq(farms.tenantId, tenantId))
+    .where(and(...conditions))
     .orderBy(asc(farms.createdAt), asc(farms.id))
   return ok(rows)
 }

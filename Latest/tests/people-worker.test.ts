@@ -8,13 +8,20 @@
 //   - POST /api/records persists a real submission, readable via GET /api/records
 //   - GET /api/employees/me returns a real mortalityPhotoThreshold for a seeded employee
 //   - employee CRUD works, including assignedBatchIds
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
+
+// PATCH /api/employees/[id] now requires a real session (farms/employees CRUD
+// task) — mockable per-test, unlike the fixed "always no session" mock this
+// file used while PATCH still trusted a `tenantId` query param. GET/POST
+// still use that query-param fallback (untouched by this task) so most of
+// this suite runs with no cookie at all, same as before.
+let mockCookie: string | undefined
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
+  cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
 import { GET as employeesGET, POST as employeesPOST } from '@/app/api/employees/route'
@@ -22,7 +29,8 @@ import { GET as employeeGET, PATCH as employeePATCH } from '@/app/api/employees/
 import { GET as employeeMeGET } from '@/app/api/employees/me/route'
 import { GET as recordsGET, POST as recordsPOST } from '@/app/api/records/route'
 import { db } from '@/db'
-import { tenants, farms, productionUnits, batches, employees, records } from '@/db/schemas'
+import { tenants, users, sessions, auditLog, farms, productionUnits, batches, employees, records } from '@/db/schemas'
+import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -57,6 +65,17 @@ run('people & worker backend: employees + records (issue #247)', () => {
   const batchBId = `b-${randomUUID()}`
   const workerUserId = `usr-${randomUUID()}`
 
+  // Sessions for the PATCH authorisation tests: an owner of tenant A (allowed
+  // to write tenant A's employees), an owner of tenant B (so a cross-tenant
+  // attempt is a real session with the wrong tenant, not just a query-param
+  // mismatch), and a worker of tenant A (must be forbidden from writing).
+  const ownerAId = `usr-owner-a-${randomUUID()}`
+  const ownerBId = `usr-owner-b-${randomUUID()}`
+  const workerAId = `usr-worker-a-${randomUUID()}`
+  let ownerASession: string
+  let ownerBSession: string
+  let workerASession: string
+
   beforeAll(async () => {
     await db.insert(tenants).values([
       { id: tenantAId, name: 'People Test Co. A', active: true },
@@ -73,14 +92,26 @@ run('people & worker backend: employees + records (issue #247)', () => {
       { id: batchA2Id, tenantId: tenantAId, unitId: unitAId, code: 'BRO-KMU-002', name: 'Broilers Nov Run', enterprise: 'broiler' },
       { id: batchBId, tenantId: tenantBId, unitId: unitAId, code: 'BRO-KMU-003', name: 'Cross-tenant batch', enterprise: 'broiler' },
     ])
+    const salt = randomUUID()
+    await db.insert(users).values([
+      { id: ownerAId, tenantId: tenantAId, name: 'Owner A', email: `owner-a-${randomUUID()}@test.ifms`, role: 'owner', passwordHash: hashSecret('pw', salt), passwordSalt: salt, status: 'ACTIVE' },
+      { id: ownerBId, tenantId: tenantBId, name: 'Owner B', email: `owner-b-${randomUUID()}@test.ifms`, role: 'owner', passwordHash: hashSecret('pw', salt), passwordSalt: salt, status: 'ACTIVE' },
+      { id: workerAId, tenantId: tenantAId, name: 'Worker A', email: `worker-a-${randomUUID()}@test.ifms`, role: 'worker', passwordHash: hashSecret('pw', salt), passwordSalt: salt, status: 'ACTIVE' },
+    ])
+    ownerASession = await createSession(ownerAId)
+    ownerBSession = await createSession(ownerBId)
+    workerASession = await createSession(workerAId)
   })
 
   afterAll(async () => {
+    await db.delete(auditLog).where(inArray(auditLog.tenantId, [tenantAId, tenantBId]))
     await db.delete(records).where(inArray(records.tenantId, [tenantAId, tenantBId]))
     await db.delete(employees).where(inArray(employees.tenantId, [tenantAId, tenantBId]))
     await db.delete(batches).where(inArray(batches.tenantId, [tenantAId, tenantBId]))
     await db.delete(productionUnits).where(inArray(productionUnits.tenantId, [tenantAId, tenantBId]))
     await db.delete(farms).where(inArray(farms.tenantId, [tenantAId, tenantBId]))
+    await db.delete(sessions).where(inArray(sessions.userId, [ownerAId, ownerBId, workerAId]))
+    await db.delete(users).where(inArray(users.id, [ownerAId, ownerBId, workerAId]))
     await db.delete(tenants).where(inArray(tenants.id, [tenantAId, tenantBId]))
   })
 
@@ -149,15 +180,18 @@ run('people & worker backend: employees + records (issue #247)', () => {
     })
   })
 
-  describe('PATCH /api/employees/[id]', () => {
-    it('updates assignedBatchIds (full replace) and other fields', async () => {
+  describe('PATCH /api/employees/[id] (session-derived tenant scope, role-gated)', () => {
+    afterEach(() => { mockCookie = undefined })
+
+    it('updates assignedBatchIds (full replace) and other fields, as tenant A\'s owner', async () => {
       const createRes = await employeesPOST(
         postRequest('http://localhost/api/employees', { tenantId: tenantAId, name: 'Ann Wambui', assignedBatchIds: [batchAId] })
       )
       const created = (await createRes.json()).data
 
+      mockCookie = ownerASession
       const patchRes = await employeePATCH(
-        patchRequest(`http://localhost/api/employees/${created.id}?tenantId=${tenantAId}`, {
+        patchRequest(`http://localhost/api/employees/${created.id}`, {
           assignedBatchIds: [batchA2Id],
           role: 'harvest_lead',
           status: 'INACTIVE',
@@ -170,28 +204,83 @@ run('people & worker backend: employees + records (issue #247)', () => {
       expect(patched.role).toBe('harvest_lead')
       expect(patched.status).toBe('INACTIVE')
       expect(patched.name).toBe('Ann Wambui')
+
+      // Status change is audited (old -> new).
+      const auditRows = await db.select().from(auditLog).where(eq(auditLog.entityId, created.id))
+      const statusEntry = auditRows.find((r) => r.action === 'employee.status_changed')
+      expect(statusEntry).toBeTruthy()
+      expect((statusEntry?.meta as { changes?: Record<string, unknown> })?.changes).toMatchObject({
+        status: { old: 'ACTIVE', new: 'INACTIVE' },
+      })
     })
 
-    it('returns 404 for an employee belonging to a different tenant', async () => {
+    it('rejects with no session (401)', async () => {
+      mockCookie = undefined
+      const patchRes = await employeePATCH(
+        patchRequest('http://localhost/api/employees/anything', { role: 'manager' }),
+        { params: Promise.resolve({ id: 'anything' }) }
+      )
+      expect(patchRes.status).toBe(401)
+    })
+
+    it('forbids a worker from writing (403)', async () => {
+      const createRes = await employeesPOST(postRequest('http://localhost/api/employees', { tenantId: tenantAId, name: 'Worker-Blocked Target' }))
+      const created = (await createRes.json()).data
+
+      mockCookie = workerASession
+      const patchRes = await employeePATCH(
+        patchRequest(`http://localhost/api/employees/${created.id}`, { role: 'manager' }),
+        { params: Promise.resolve({ id: created.id }) }
+      )
+      expect(patchRes.status).toBe(403)
+    })
+
+    it('returns 404 for an employee belonging to a different tenant (session tenant vs. target tenant mismatch)', async () => {
       const createRes = await employeesPOST(postRequest('http://localhost/api/employees', { tenantId: tenantBId, name: 'B-Tenant Worker 2' }))
       const created = (await createRes.json()).data
 
+      // Tenant A's owner, targeting an employee that actually belongs to tenant B.
+      mockCookie = ownerASession
       const patchRes = await employeePATCH(
-        patchRequest(`http://localhost/api/employees/${created.id}?tenantId=${tenantAId}`, { role: 'manager' }),
+        patchRequest(`http://localhost/api/employees/${created.id}`, { role: 'manager' }),
         { params: Promise.resolve({ id: created.id }) }
       )
       expect(patchRes.status).toBe(404)
+
+      // And tenant B's own owner CAN reach it.
+      mockCookie = ownerBSession
+      const ownRes = await employeePATCH(
+        patchRequest(`http://localhost/api/employees/${created.id}`, { role: 'manager' }),
+        { params: Promise.resolve({ id: created.id }) }
+      )
+      expect(ownRes.status).toBe(200)
     })
 
     it('rejects an assignedBatchIds update referencing a foreign batch', async () => {
       const createRes = await employeesPOST(postRequest('http://localhost/api/employees', { tenantId: tenantAId, name: 'Moses Kiptoo' }))
       const created = (await createRes.json()).data
 
+      mockCookie = ownerASession
       const patchRes = await employeePATCH(
-        patchRequest(`http://localhost/api/employees/${created.id}?tenantId=${tenantAId}`, { assignedBatchIds: [batchBId] }),
+        patchRequest(`http://localhost/api/employees/${created.id}`, { assignedBatchIds: [batchBId] }),
         { params: Promise.resolve({ id: created.id }) }
       )
       expect(patchRes.status).toBe(404)
+    })
+
+    it('rejects a status value outside ACTIVE/INACTIVE with fields.status (400)', async () => {
+      const createRes = await employeesPOST(postRequest('http://localhost/api/employees', { tenantId: tenantAId, name: 'Bad Status Target' }))
+      const created = (await createRes.json()).data
+
+      mockCookie = ownerASession
+      const patchRes = await employeePATCH(
+        patchRequest(`http://localhost/api/employees/${created.id}`, { status: 'DELETED' }),
+        { params: Promise.resolve({ id: created.id }) }
+      )
+      expect(patchRes.status).toBe(400)
+      const payload = await patchRes.json()
+      expect(payload.success).toBe(false)
+      expect(typeof payload.fields.status).toBe('string')
     })
   })
 
