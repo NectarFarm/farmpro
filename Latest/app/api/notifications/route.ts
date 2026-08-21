@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { notifications, tasks } from '@/db/schemas'
+import { notifications, notificationReads, tasks } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
-import { and, desc, eq, lt, notInArray } from 'drizzle-orm'
+import { PLATFORM_TENANT_SENTINEL } from '@/lib/audit'
+import { and, desc, eq, isNull, lt, notInArray, or } from 'drizzle-orm'
 import { startOfUtcDay } from '@/app/api/tasks/route'
 
-// ── GET /api/notifications (issue #227 task 3) ─────────────────────────────
+// ── GET /api/notifications (issue #227 task 3; recipient-scoping fix) ─────
 // This is real new work, not a rewire — no `notifications` table existed on
 // this branch before this issue. Minimal shape: one row per notification,
-// `read` boolean, aggregated from other tables (see db/schemas/dashboard.ts
-// for the full rationale). Sources implemented here:
+// aggregated from other tables (see db/schemas/dashboard.ts for the full
+// rationale). Sources implemented here:
 //
 //   - `task`  — synced lazily on every GET: any of the tenant's tasks that
 //     are due today or overdue (and not DONE/CANCELLED) get a notification
@@ -23,17 +24,50 @@ import { startOfUtcDay } from '@/app/api/tasks/route'
 //   - `approval` — TODO: blocked on Epic: Tasks & Governance's approvals
 //     table (issue #243), per this issue's own instruction not to block on it.
 //
-// Same tenant-resolution + envelope conventions as GET /api/farms. No CORS
-// headers (same-origin SPA only).
+// ── Recipient scoping (data-leak fix) ───────────────────────────────────────
+// Previously every notification was tenant-wide by construction (no
+// recipient column at all) — any user in the tenant could read every other
+// user's notifications, including a password-reset row naming another user
+// and their email, AND an unauthenticated request could read them all just
+// by guessing a tenantId (tenantId used to fall back to a query param). Both
+// holes are closed here:
+//   - a session is REQUIRED; there is no `tenantId` query-param fallback on
+//     this route any more (unlike most other GETs in this codebase, which
+//     still support standalone-mock-mode — that is a separate, wider task).
+//     Tenant comes from the session ONLY.
+//   - visibility predicate per row: userId = me OR role = my role OR
+//     (userId IS NULL AND role IS NULL) — see db/schemas/dashboard.ts's
+//     notifications table comment for why both-null means "broadcast".
+//   - `read` in the response is computed PER CALLER from `notification_reads`
+//     (one row per user who has actually marked it read), not from the
+//     legacy shared `notifications.read` column — a shared boolean can't
+//     express "read by the owner, unread for the manager".
+//
+// A tenantless session (super_admin) resolves to the documented
+// PLATFORM_TENANT_SENTINEL tenant scope — the same scope POST
+// /api/auth/forgot-password now files its password-reset notification
+// under, so a super_admin's own feed is where that notification actually
+// lives (see that route's header for the full reasoning).
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
+const unauthorized = () => NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
 
 // Exported so GET /api/dashboard/kpis (issue #228) can reuse the same
 // "what counts as done" definition and lazy-sync step instead of forking a
 // second copy of this logic.
 export const DONE_STATUSES = ['DONE', 'CANCELLED']
 
+// One row per notification, targeting decision documented at the call site
+// in the producer that creates it. Task due/overdue notifications stay a
+// genuine tenant-wide broadcast (userId and role both left null): `tasks` in
+// this tree has no assignee column (the assignee FK from issue #335 landed
+// in a different copy of this app, not here), so per-assignee targeting
+// isn't possible, and there is no single role that legitimately covers
+// "everyone who should know a task is overdue" — an owner tracks it, a
+// manager acts on it, and a worker may be the one doing it. Restricting to
+// any one role would arbitrarily exclude a real stakeholder with no
+// PII/privacy reason to; unlike the password-reset notification, a task
+// title carries nothing sensitive, so broadcasting stays the honest choice.
 export async function syncTaskNotifications(tenantId: string): Promise<void> {
   const endOfToday = new Date(startOfUtcDay(new Date()).getTime() + 24 * 60 * 60 * 1000)
 
@@ -62,23 +96,57 @@ export async function syncTaskNotifications(tenantId: string): Promise<void> {
         title: (t.dueAt as Date) < startOfUtcDay(new Date()) ? `Task overdue: ${t.title}` : `Task due today: ${t.title}`,
         message: '',
         read: false,
+        // Broadcast — see the function-level comment above for why.
+        userId: null,
+        role: null,
       }))
     )
     .onConflictDoNothing()
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  if (!session) return unauthorized()
+  const tenantId = session.tenantId ?? PLATFORM_TENANT_SENTINEL
 
   await syncTaskNotifications(tenantId)
 
+  // Row visible to this caller: addressed to them by id, addressed to their
+  // role, or a genuine broadcast (both null) — see this file's header.
+  const visibility = or(
+    eq(notifications.userId, session.id),
+    eq(notifications.role, session.role),
+    and(isNull(notifications.userId), isNull(notifications.role))
+  )!
+
   const rows = await db
-    .select()
+    .select({
+      id: notifications.id,
+      tenantId: notifications.tenantId,
+      sourceType: notifications.sourceType,
+      sourceId: notifications.sourceId,
+      title: notifications.title,
+      message: notifications.message,
+      userId: notifications.userId,
+      role: notifications.role,
+      createdAt: notifications.createdAt,
+      readAt: notificationReads.readAt,
+    })
     .from(notifications)
-    .where(eq(notifications.tenantId, tenantId))
+    .leftJoin(
+      notificationReads,
+      and(eq(notificationReads.notificationId, notifications.id), eq(notificationReads.userId, session.id))
+    )
+    .where(and(eq(notifications.tenantId, tenantId), visibility))
     .orderBy(desc(notifications.createdAt))
 
-  return ok(rows)
+  return ok(
+    rows.map(({ readAt, ...row }) => ({
+      ...row,
+      // Per-caller read state, not the legacy shared column. Loose check:
+      // an unmatched LEFT JOIN row comes back as either null or undefined
+      // depending on the driver, and both mean "no read row -> unread".
+      read: readAt != null,
+    }))
+  )
 }

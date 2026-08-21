@@ -178,20 +178,77 @@ export const tasks = pgTable('tasks', {
 //   - `sourceType: 'approval'` — TODO: blocked on Epic: Tasks & Governance's
 //     approvals table (issue #243), per the issue's own instruction not to
 //     block this work on it.
+//   - `sourceType: 'password_reset'` — created by POST /api/auth/forgot-password.
+//
+// notification-recipient-scoping fix: every row used to be tenant-wide by
+// construction (no recipient column at all), so any user in the tenant could
+// read every other user's notifications — including a password-reset row
+// that names another user and their email. `userId`/`role` below fix that;
+// see their own comments for the exact visibility rule GET /api/notifications
+// applies.
 export const notifications = pgTable('notifications', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
-  sourceType: text('source_type').notNull(), // 'task' | 'alert' | 'approval'
+  sourceType: text('source_type').notNull(), // 'task' | 'alert' | 'approval' | 'password_reset'
   sourceId: text('source_id'),
   title: text('title').notNull(),
   message: text('message').notNull().default(''),
+  // Recipient targeting (notification-recipient-scoping fix). Nullable
+  // because a single row must be able to mean THREE different things:
+  //   - userId set              -> exactly that user (e.g. a password-reset
+  //     alert, which carries another user's name/email and must never be
+  //     tenant-wide).
+  //   - role set (userId null)  -> every user in the tenant with that role.
+  //   - both null                -> a genuine tenant-wide broadcast. This is
+  //     the pre-existing behaviour (every row created before this fix has
+  //     both columns null), so leaving them null is what keeps old rows
+  //     visible to everyone exactly as before, instead of silently orphaning
+  //     them the moment recipient targeting shipped.
+  // See GET /api/notifications for the exact visibility predicate this backs:
+  //   userId = me OR role = my role OR (userId IS NULL AND role IS NULL)
+  userId: text('user_id'),
+  role: text('role'),
+  // Legacy shared "read by anyone" flag. Kept only for backward-compatible
+  // reads of old rows/tools (e.g. GET /api/dashboard/kpis's tenant-wide
+  // unreadNotifications count, out of scope for this fix) — it must no
+  // longer decide what any individual caller sees as read. Per-user state
+  // lives in `notification_reads` now; GET /api/notifications computes each
+  // row's `read` for the calling user from that table, and PATCH
+  // .../[id] writes to it instead of this column.
   read: boolean('read').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_notifications_tenant').on(t.tenantId),
   index('idx_notifications_tenant_read').on(t.tenantId, t.read),
+  index('idx_notifications_user').on(t.userId),
   // Lets the GET sync step upsert idempotently (ON CONFLICT DO NOTHING) instead
   // of select-then-insert, so concurrent GETs can't double-create the same
-  // task-derived notification.
+  // task-derived notification. Deliberately NOT extended with userId/role:
+  // this fix keeps ONE row per notification (never fans out a row per
+  // recipient) specifically so this index — and the ON CONFLICT upsert in
+  // syncTaskNotifications that depends on it — keeps working unchanged.
+  // Adding userId here would also be wrong even if we wanted per-recipient
+  // rows: Postgres treats every NULL as distinct, so a broadcast
+  // (userId IS NULL) row would never conflict with another broadcast row for
+  // the same source and silently stop deduplicating.
   uniqueIndex('idx_notifications_source').on(t.tenantId, t.sourceType, t.sourceId),
+])
+
+// Per-user read state (notification-recipient-scoping fix). A single shared
+// `notifications.read` boolean cannot express "read by the owner, still
+// unread for the manager" — one person marking a broadcast read hid it for
+// the whole tenant. One row per (notification, user) that has actually
+// marked it read; absence of a row means unread for that user. The unique
+// constraint is what makes PATCH's mark-read upsert idempotent (ON CONFLICT
+// DO NOTHING / DO UPDATE) — marking the same notification read twice must
+// not error.
+export const notificationReads = pgTable('notification_reads', {
+  id: text('id').primaryKey(),
+  notificationId: text('notification_id').notNull(),
+  userId: text('user_id').notNull(),
+  readAt: timestamp('read_at').defaultNow(),
+}, (t) => [
+  index('idx_notification_reads_notification').on(t.notificationId),
+  index('idx_notification_reads_user').on(t.userId),
+  uniqueIndex('idx_notification_reads_unique').on(t.notificationId, t.userId),
 ])

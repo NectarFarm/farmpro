@@ -118,17 +118,26 @@ export async function POST(req: Request) {
   })
 
   // Surface it to the admin queue the same way every other "an admin needs to
-  // look at this" flow in this codebase does (db/schemas/dashboard.ts). A
-  // tenant-scoped user's own tenantId is used; a tenantless super_admin target
-  // falls back to the documented platform sentinel (see lib/audit.ts) since
-  // notifications.tenantId is also NOT NULL.
+  // look at this" flow in this codebase does (db/schemas/dashboard.ts). This
+  // row carries the requester's name and email, so it must NOT be a
+  // tenant-wide broadcast (that was the exact leak this fix closes — any
+  // user in the requester's own tenant could previously read it). Only a
+  // super_admin can act on it at all (GET /api/admin/password-resets is
+  // super_admin-only and, notably, does not filter by tenant — any
+  // super_admin can see and handle any tenant's pending request), so target
+  // consistently with that: role: 'super_admin', filed under the same
+  // tenantless PLATFORM_TENANT_SENTINEL scope every super_admin session
+  // resolves to (see lib/audit.ts and GET /api/notifications), regardless of
+  // which real tenant the requesting user belongs to. userId is left null —
+  // any super_admin, not one specific admin, is the intended recipient.
   await db.insert(notifications).values({
     id: randomUUID(),
-    tenantId: user.tenantId ?? PLATFORM_TENANT_SENTINEL,
+    tenantId: PLATFORM_TENANT_SENTINEL,
     sourceType: 'password_reset',
     sourceId: requestId,
     title: 'Password reset requested',
     message: `${user.name} (${user.email}) asked for a password reset.`,
+    role: 'super_admin',
   })
 
   return genericAck()
