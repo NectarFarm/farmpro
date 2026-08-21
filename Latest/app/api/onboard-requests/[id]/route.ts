@@ -5,6 +5,11 @@ import { onboardRequests } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { provisionTenant } from '@/lib/tenant-provisioning'
 import { validateLocation } from '@/lib/validation'
+// Postgres unique-violation (23505) — e.g. the applicant's email already
+// belongs to a user. Surfaced as a clean envelope, not a bare 500. The local
+// copy this replaces checked `err.code`, which drizzle's wrapper never sets,
+// so it never actually matched.
+import { isUniqueViolation } from '@/lib/db-errors'
 
 // ── PATCH /api/onboard-requests/[id] (issue #251) ───────────────────────────
 // super_admin only. Body: { status: 'approved' | 'rejected' | 'info-needed', notes? }.
@@ -29,11 +34,7 @@ const bad = (msg: string, status = 400) =>
 
 const VALID_STATUSES = new Set(['pending', 'approved', 'rejected', 'info-needed'])
 
-// Postgres unique-violation (23505) — e.g. the applicant's email already
-// belongs to a user. Surfaced as a clean envelope, not a bare 500.
-function isUniqueViolation(err: unknown): boolean {
-  return !!err && typeof err === 'object' && (err as { code?: string }).code === '23505'
-}
+
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSessionUser()

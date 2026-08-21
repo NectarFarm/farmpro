@@ -33,6 +33,15 @@ export const users = pgTable('users', {
   // verify, instead of scanning every worker row per attempt.
   pinPrefilter: text('pin_prefilter'),
   status: text('status').notNull().default('ACTIVE'),
+  // Nullable (admin user-management feature): every pre-existing row was
+  // created with no phone captured at all (onboarding only started collecting
+  // an applicant's phone for `onboard_requests`, never copying it onto the
+  // provisioned `users` row) — a NOT NULL column would have nothing correct to
+  // backfill it with. This is what the forgot-password flow (POST
+  // /api/auth/forgot-password) matches the submitted phone against, so an
+  // admin only sees a reset request when the applicant proves they know BOTH
+  // the account's email and its registered phone.
+  phone: text('phone'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_users_tenant').on(t.tenantId),
@@ -45,8 +54,43 @@ export const sessions = pgTable('sessions', {
   userId: text('user_id').notNull().references(() => users.id),
   createdAt: timestamp('created_at').defaultNow(),
   expiresAt: timestamp('expires_at').notNull(),
+  // Nullable — null for every normal login. Set to the ADMIN's user id only
+  // for a time-boxed impersonation session (admin user-management feature):
+  // POST /api/admin/users/[id]/impersonate creates a session row for the
+  // TARGET user with this set, and `expiresAt` on that same row IS the time
+  // box — getSessionUser()'s existing `gt(sessions.expiresAt, new Date())`
+  // check enforces expiry with no extra code path. Pre-existing session rows
+  // have no admin to backfill this with, hence nullable.
+  impersonatedBy: text('impersonated_by'),
 }, (t) => [
   index('idx_sessions_user').on(t.userId),
+])
+
+// A user-initiated request to reset their own password, created only by
+// POST /api/auth/forgot-password (public, no session) once it has matched the
+// submitted email AND phone against an ACTIVE user. There is no email/SMS
+// delivery anywhere in this codebase, so this table — plus the notification
+// row the same route writes — is the entire "notify an admin" mechanism: an
+// admin sees it in the pending queue (GET /api/admin/password-resets) and
+// acts via POST /api/admin/users/[id]/reset-password, which marks the
+// matching pending row completed.
+export const passwordResetRequests = pgTable('password_reset_requests', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id),
+  // Denormalized copies of what the requester submitted (not a live join back
+  // to `users`) — the point is an audit trail of exactly what was verified at
+  // request time, even if the user's email/phone are edited afterward.
+  email: text('email').notNull(),
+  phone: text('phone').notNull(),
+  status: text('status').notNull().default('pending'), // 'pending' | 'completed' | 'rejected'
+  requestedAt: timestamp('requested_at').defaultNow().notNull(),
+  // Nullable: unset until an admin actually handles the request.
+  handledBy: text('handled_by'),
+  handledAt: timestamp('handled_at'),
+  notes: text('notes'),
+}, (t) => [
+  index('idx_password_reset_requests_status').on(t.status),
+  index('idx_password_reset_requests_user').on(t.userId),
 ])
 
 // Login throttling / lockout (issue #221 review): per-identifier failed-attempt
