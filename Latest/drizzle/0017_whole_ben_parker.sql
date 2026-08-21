@@ -1,0 +1,1 @@
+ALTER TABLE "farms" ADD COLUMN "status" text DEFAULT 'ACTIVE' NOT NULL;

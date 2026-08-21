@@ -110,6 +110,11 @@ const PEOPLE_COLS: ColDef<Record<string, unknown>>[] = [
 export function PeopleScreen() {
   const { navigate, tenantId } = useNav();
   const [filter, setFilter] = useState('All');
+  // Status filter (farms/employees CRUD task) — the summary strip above
+  // already counted Active/Inactive, but nothing let an admin actually see
+  // just the inactive ones; deactivated staff must stay findable, not
+  // silently disappear.
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Inactive'>('All');
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -168,6 +173,7 @@ export function PeopleScreen() {
   const roles = ['All', ...Array.from(new Set(list.map((e) => e.role)))];
   const filtered = list
     .filter((e) => filter === 'All' || e.role === filter)
+    .filter((e) => statusFilter === 'All' || (statusFilter === 'Active' ? e.status === 'ACTIVE' : e.status !== 'ACTIVE'))
     .filter((e) => {
       if (!search.trim()) return true;
       const q = search.toLowerCase();
@@ -202,17 +208,26 @@ export function PeopleScreen() {
       />
 
       <div className="px-screen" style={{ paddingTop: 12 }}>
-        {/* Summary */}
+        {/* Summary — also doubles as the Active/Inactive filter (farms/employees
+            CRUD task): deactivated staff must stay findable, not disappear
+            once toggled off. */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          {[
-            { label: 'Active', value: list.filter((e) => e.status === 'ACTIVE').length, color: 'var(--status-ok)' },
-            { label: 'Inactive', value: list.filter((e) => e.status !== 'ACTIVE').length, color: 'var(--text-muted)' },
-            { label: 'Total', value: list.length, color: 'var(--accent-blue)' },
-          ].map((s) => (
-            <div key={s.label} style={{ flex: 1, background: 'var(--card)', borderRadius: 12, padding: '10px 8px', textAlign: 'center', border: '1px solid var(--border-subtle)' }}>
+          {([
+            { label: 'Active', value: list.filter((e) => e.status === 'ACTIVE').length, color: 'var(--status-ok)', target: 'Active' as const },
+            { label: 'Inactive', value: list.filter((e) => e.status !== 'ACTIVE').length, color: 'var(--text-muted)', target: 'Inactive' as const },
+            { label: 'Total', value: list.length, color: 'var(--accent-blue)', target: 'All' as const },
+          ]).map((s) => (
+            <button
+              key={s.label}
+              onClick={() => setStatusFilter((cur) => (cur === s.target ? 'All' : s.target))}
+              style={{
+                flex: 1, background: 'var(--card)', borderRadius: 12, padding: '10px 8px', textAlign: 'center', cursor: 'pointer',
+                border: statusFilter === s.target ? `1px solid ${s.color}` : '1px solid var(--border-subtle)',
+              }}
+            >
               <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
               <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
-            </div>
+            </button>
           ))}
         </div>
 
@@ -454,6 +469,11 @@ export function PeopleDetailScreen() {
   const [roleSaved, setRoleSaved] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Deactivate/reactivate confirmation (farms/employees CRUD task) — a status
+  // toggle used to fire straight from the button with no confirmation step
+  // and no visibility into what the employee is still attached to.
+  const [showToggleConfirm, setShowToggleConfirm] = useState(false);
+  const [toggleError, setToggleError] = useState('');
 
   const loadEmployee = useCallback(() => {
     if (!id) return;
@@ -510,10 +530,16 @@ export function PeopleDetailScreen() {
 
   async function handleToggleActive() {
     setBusy(true);
+    setToggleError('');
     const nextStatus = employee!.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     const res = await apiClient.patch<ApiEmployee>(`/api/employees/${employee!.id}?tenantId=${tenantId}`, { status: nextStatus });
     setBusy(false);
-    if (res.success) setEmployee(res.data);
+    if (!res.success) {
+      setToggleError(res.error || `Failed to ${nextStatus === 'INACTIVE' ? 'deactivate' : 'reactivate'} employee.`);
+      return;
+    }
+    setEmployee(res.data);
+    setShowToggleConfirm(false);
   }
 
   return (
@@ -602,7 +628,7 @@ export function PeopleDetailScreen() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
               <button className="btn-secondary" style={{ justifyContent: 'center', padding: 12, borderRadius: 12 }} onClick={() => setShowEdit(true)}>Edit Details</button>
-              <button disabled={busy} onClick={handleToggleActive} style={{ padding: 12, borderRadius: 12, fontSize: 13, fontWeight: 700, background: employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)', border: `1px solid ${employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}`, color: employee.status === 'ACTIVE' ? 'var(--status-critical)' : 'var(--status-ok)', cursor: 'pointer' }}>
+              <button disabled={busy} onClick={() => { setToggleError(''); setShowToggleConfirm(true); }} style={{ padding: 12, borderRadius: 12, fontSize: 13, fontWeight: 700, background: employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)', border: `1px solid ${employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}`, color: employee.status === 'ACTIVE' ? 'var(--status-critical)' : 'var(--status-ok)', cursor: 'pointer' }}>
                 {employee.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
               </button>
             </div>
@@ -668,6 +694,56 @@ export function PeopleDetailScreen() {
           onSaved={(updated) => { setEmployee(updated); setShowEdit(false); }}
         />
       )}
+
+      {showToggleConfirm && (
+        <ToggleActiveConfirm
+          employee={employee}
+          busy={busy}
+          error={toggleError}
+          batchLabel={batchLabel}
+          onCancel={() => { setShowToggleConfirm(false); setToggleError(''); }}
+          onConfirm={handleToggleActive}
+        />
+      )}
+    </div>
+  );
+}
+
+// Deactivate/reactivate confirmation — names the employee and, when
+// deactivating, surfaces what they're still assigned to (batches) so the
+// admin isn't guessing. This does not hard-block the action: assignment
+// isn't reassigned automatically, but the admin has to see it first.
+function ToggleActiveConfirm({ employee, busy, error, batchLabel, onCancel, onConfirm }: {
+  employee: ApiEmployee;
+  busy: boolean;
+  error: string;
+  batchLabel: (id: string) => string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const deactivating = employee.status === 'ACTIVE';
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20 }} onClick={onCancel}>
+      <div className="farm-card" style={{ padding: 18, width: '100%', maxWidth: 340 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{deactivating ? 'Deactivate' : 'Reactivate'} {employee.name}?</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: deactivating && employee.assignedBatchIds.length > 0 ? 8 : 14 }}>
+          {deactivating
+            ? <>This account keeps its history — <strong>{employee.name}</strong> is never deleted — but they&apos;re marked inactive and won&apos;t appear as an option for new assignments.</>
+            : <>This makes <strong>{employee.name}</strong> active again.</>}
+        </div>
+        {deactivating && employee.assignedBatchIds.length > 0 && (
+          <div style={{ padding: '8px 10px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, marginBottom: 14, fontSize: 11, color: 'var(--text-secondary)' }}>
+            Still assigned to {employee.assignedBatchIds.length} batch{employee.assignedBatchIds.length === 1 ? '' : 'es'}: {employee.assignedBatchIds.map(batchLabel).join(', ')}. Deactivating does not unassign them.
+          </div>
+        )}
+        {error && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 12 }}>{error}</div>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onCancel} disabled={busy} className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+          <button onClick={onConfirm} disabled={busy} className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
+            {busy ? 'Working…' : deactivating ? 'Deactivate' : 'Reactivate'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

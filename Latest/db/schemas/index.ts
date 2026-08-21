@@ -21,6 +21,13 @@ export const farms = pgTable('farms', {
   name: text('name').notNull(),
   location: text('location').notNull().default(''),
   code: text('code').notNull(),
+  // 'ACTIVE' | 'ARCHIVED' — loose text validated in the route (same
+  // convention as users.status/onboardRequests.status), not a DB enum.
+  // Farms are archived, never deleted: production_units.farm_id is a real FK
+  // into farms.id (below), so a hard DELETE would fail once a unit exists,
+  // or orphan production history if that FK were ever dropped. Archiving
+  // keeps the row (hidden from the default farm list/switcher) instead.
+  status: text('status').notNull().default('ACTIVE'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_farms_tenant').on(t.tenantId),

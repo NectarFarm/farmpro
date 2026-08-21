@@ -30,6 +30,7 @@ import {
   UserRound as UserSingle,
   Phone, Mail, Palette,
   Sparkles,
+  Archive, RotateCcw,
 } from 'lucide-react';
 
 export {
@@ -62,4 +63,5 @@ export {
   UserSingle,
   Phone, Mail, Palette,
   Sparkles,
+  Archive, RotateCcw,
 };
