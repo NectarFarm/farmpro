@@ -70,6 +70,10 @@ export const approvalRequests = pgTable('approval_requests', {
 }, (t) => [
   index('idx_approval_requests_tenant').on(t.tenantId),
   index('idx_approval_requests_tenant_status').on(t.tenantId, t.status),
+  // Farm scoping resolves approvals through their batch (batch_id IN (...)),
+  // and batch_id appears in no other index — tenant/status are led by
+  // tenant_id, which does not help that lookup.
+  index('idx_approval_requests_batch').on(t.batchId),
 ])
 
 // The real backend for the UI's `OWNER_ROLES[].permissions` /

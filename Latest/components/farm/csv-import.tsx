@@ -18,7 +18,8 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { X, Check, AlertTriangle, Download, RefreshCw, Edit2, ChevronDown, ChevronUp } from './icons';
-import { EMPLOYEES_DATA, BATCHES_DATA, OWNER_ROLES, TASKS_DATA, downloadCSV, type Task, type Employee } from './data';
+import { OWNER_ROLES, downloadCSV } from './data';
+import { apiClient } from '@/lib/request';
 
 /* ─────────────────────────────────────────────────────────────
    Validation types
@@ -122,9 +123,12 @@ const VALID_PRIORITIES  = ['high','medium','low'];
 const VALID_STATUSES    = ['PENDING','DONE','OVERDUE','APPROVED','REJECTED'];
 const VALID_ROLES       = OWNER_ROLES.map(r => r.id);
 
-const EMPLOYEE_CODES  = EMPLOYEES_DATA.map(e => e.code);
-const BATCH_CODES     = BATCHES_DATA.map(b => b.code);
-const TASK_CODES      = TASKS_DATA.map(t => t.code);
+// Reference checks (does this batch/farm/role exist?) are NOT done here any
+// more. They used to run against EMPLOYEES_DATA / BATCHES_DATA / TASKS_DATA —
+// static fixtures in ./data — so a farmer's real batch codes were rejected
+// while fixture-only codes passed. POST /api/imports/validate now answers
+// those against the tenant's own rows; what stays below is pure format
+// checking that needs no database.
 
 function validateTask(row: Record<string, string>, allRows: Record<string, string>[], rowIdx: number): CellIssue[] {
   const issues: CellIssue[] = [];
@@ -142,7 +146,6 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
   const dupeInBatch = allRows.some((r, i) => i !== rowIdx && (r.code ?? '') === code && code !== '');
   if (dupeInBatch) issues.push({ col: 'code', severity: 'error', message: 'Duplicate code in this import file' });
   // already exists in system
-  if (code && TASK_CODES.includes(code)) issues.push({ col: 'code', severity: 'warning', message: `Task ${code} already exists — will be skipped on import` });
 
   // ── title ──
   const title = v('title');
@@ -166,11 +169,9 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
   if (!aCode) {
     issues.push({ col: 'assigneeCode', severity: 'error', message: 'assigneeCode is required (employee code or GROUP:roleId)' });
   } else if (!aCode.startsWith('GROUP:')) {
+    // Format only — whether this employee exists is the server's call.
     if (!RE_EMP_CODE.test(aCode)) {
-      const match = fuzzyMatchCode(aCode, EMPLOYEE_CODES);
-      issues.push({ col: 'assigneeCode', severity: 'warning', message: `"${aCode}" doesn't match EMP-XXX-000 format${match ? ` — did you mean "${match}"?` : ''}`, suggestion: match ?? undefined, autoFix: !!match });
-    } else if (!EMPLOYEE_CODES.includes(aCode)) {
-      issues.push({ col: 'assigneeCode', severity: 'warning', message: `Employee ${aCode} not found in system — will create as unknown assignee` });
+      issues.push({ col: 'assigneeCode', severity: 'warning', message: `"${aCode}" is not in the EMP-XXX-000 format` });
     }
   } else {
     const roleId = aCode.replace('GROUP:', '');
@@ -180,12 +181,11 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
   }
 
   // ── batchCode ──
+  // Format only. Whether the batch exists is checked server-side against the
+  // tenant's real batches, not against a fixture list.
   const bCode = v('batchCode');
   if (bCode && !RE_BATCH_CODE.test(bCode)) {
-    const match = fuzzyMatchCode(bCode, BATCH_CODES);
-    issues.push({ col: 'batchCode', severity: 'warning', message: `"${bCode}" doesn't match batch code pattern${match ? ` — did you mean "${match}"?` : ''}`, suggestion: match ?? undefined, autoFix: !!match });
-  } else if (bCode && !BATCH_CODES.includes(bCode)) {
-    issues.push({ col: 'batchCode', severity: 'info', message: `Batch "${bCode}" not in system — will be stored as-is` });
+    issues.push({ col: 'batchCode', severity: 'warning', message: `"${bCode}" is not in the expected batch-code format` });
   }
 
   // ── dates ──
@@ -265,7 +265,6 @@ function validateEmployee(row: Record<string, string>, allRows: Record<string, s
   }
   const dupeInBatch = allRows.some((r, i) => i !== rowIdx && (r.code ?? '') === code && code !== '');
   if (dupeInBatch) issues.push({ col: 'code', severity: 'error', message: 'Duplicate code within this import file' });
-  if (code && EMPLOYEE_CODES.includes(code)) issues.push({ col: 'code', severity: 'warning', message: `Employee ${code} already exists — will update existing record` });
 
   // ── name ──
   const name = v('name');
@@ -341,16 +340,9 @@ function validateEmployee(row: Record<string, string>, allRows: Record<string, s
   }
 
   // ── batches ──
-  const batches = v('batches');
-  if (batches && batches !== 'ALL') {
-    const codes = batches.split(';').map(c => c.trim());
-    codes.forEach(bc => {
-      if (bc && !BATCH_CODES.includes(bc) && !RE_BATCH_CODE.test(bc)) {
-        const match = fuzzyMatchCode(bc, BATCH_CODES);
-        issues.push({ col: 'batches', severity: 'warning', message: `Batch "${bc}" not found${match ? ` — did you mean "${match}"?` : ''}`, suggestion: match ?? undefined, autoFix: !!match });
-      }
-    });
-  }
+  // Batch codes are validated server-side against the tenant's real batches
+  // (POST /api/imports/validate) — there is nothing useful to check here
+  // without the database.
 
   // ── active ──
   const active = v('active');
@@ -447,7 +439,11 @@ export function validateRows(entity: ImportEntity, rows: Record<string, string>[
 ───────────────────────────────────────────────────────────── */
 const ENTITY_EXPECTED_COLS: Record<ImportEntity, string[]> = {
   tasks: ['code','title','type','assigneeCode','batchCode','unitCode','location','lat','lng','startDate','endDate','dueTime','frequency','requiresApproval','priority','maxPhotos','notes'],
-  employees: ['code','name','role','phone','salary','payday','startDate','endDate','batches','active'],
+  // Aligned to what POST /api/employees actually stores. The old template
+  // demanded a `code` (employees have no code column at all), plus salary and
+  // payday — there is no payroll table in this app, so those were collected
+  // and silently dropped on import.
+  employees: ['name','role','phone','batches','farmCode','active'],
   inventory: ['id','name','category','unit','qty','reorder','costPerUnit','lotNumber','expiryDate'],
   external_workers: ['taskCode','name','phone','email','portion','idNumber'],
 };
@@ -465,6 +461,42 @@ const SEV_CONFIG: Record<IssueSeverity, { color: string; bg: string; icon: strin
 /* ─────────────────────────────────────────────────────────────
    Main CsvImportModal component
 ───────────────────────────────────────────────────────────── */
+
+/* Server-authoritative validation (POST /api/imports/validate).
+ *
+ * The local validateRows() above is FORMAT ONLY — it cannot know whether a
+ * batch code, farm code or role actually exists for this tenant. It used to
+ * "know" by consulting static fixtures, which is why real batch codes were
+ * rejected. Anything requiring the database is answered here, and the two
+ * sets are merged so the reviewer sees one list.
+ *
+ * Only entities the endpoint supports are sent; the rest keep local-only
+ * checking. A network failure degrades to local checks plus an explicit
+ * warning rather than silently claiming the file is clean — and the import
+ * writes (POST /api/employees, /api/purchases) validate independently
+ * regardless. */
+const SERVER_VALIDATED: ImportEntity[] = ['employees', 'inventory'];
+
+export async function validateRowsWithServer(
+  entity: ImportEntity,
+  rows: Record<string, string>[],
+): Promise<RowResult[]> {
+  const local = validateRows(entity, rows);
+  if (!SERVER_VALIDATED.includes(entity) || rows.length === 0) return local;
+
+  const res = await apiClient.post<{ rows: { index: number; issues: CellIssue[] }[] }>(
+    '/api/imports/validate',
+    { entity, rows },
+  );
+  if (!res.success) {
+    return local.map((r, i) => i === 0
+      ? { ...r, issues: [...r.issues, { col: '_row', severity: 'warning' as IssueSeverity, message: `Could not reach the server to check batch and farm codes (${res.error}). Format problems are still shown.` }] }
+      : r);
+  }
+  const byIndex = new Map(res.data.rows.map(r => [r.index, r.issues]));
+  return local.map((r, i) => ({ ...r, issues: [...r.issues, ...(byIndex.get(i) ?? [])] }));
+}
+
 interface CsvImportModalProps {
   entity: ImportEntity;
   onClose: () => void;
@@ -497,12 +529,16 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
     if (!file) return;
     setFileName(file.name);
     const reader = new FileReader();
-    reader.onload = ev => {
+    reader.onload = async ev => {
       const text = ev.target?.result as string;
       const { headers: h, rows } = parseCSVText(text);
       setHeaders(h);
+      // Show the file immediately with format checks, then fold in the
+      // server's reference checks — the preview should not sit blank while a
+      // round-trip happens.
       setResults(validateRows(entity, rows));
       setPhase('review');
+      setResults(await validateRowsWithServer(entity, rows));
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -549,9 +585,24 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
     }));
   }
 
-  /* ── Final import ── */
-  function confirmImport() {
-    onImport(importableRows.map(r => r.edited));
+  /* ── Final import ──
+   * Re-check against the server before writing. Cell edits only re-run the
+   * local format checks, so a row fixed in the reviewer could still carry a
+   * stale reference error (a batch code corrected to one that does not
+   * exist). Re-validating here means the server has the last word on what
+   * gets imported, not the browser. */
+  async function confirmImport() {
+    const candidates = importableRows.map(r => r.edited);
+    const checked = await validateRowsWithServer(entity, candidates);
+    const clean = candidates.filter((_, i) => !checked[i]?.issues.some(x => x.severity === 'error'));
+
+    if (clean.length < candidates.length) {
+      // Put the rejected rows back in front of the reviewer instead of
+      // dropping them silently.
+      setResults(await validateRowsWithServer(entity, results.map(r => r.edited)));
+      return;
+    }
+    onImport(clean);
     setPhase('done');
   }
 

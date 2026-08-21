@@ -148,6 +148,13 @@
       "when": 1787333021068,
       "tag": "0020_same_vanisher",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787337848988,
+      "tag": "0021_melted_wolf_cub",
+      "breakpoints": true
     }
   ]
 }
