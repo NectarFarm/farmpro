@@ -80,6 +80,13 @@ function toOnboardRequest(row: ApiOnboardRequest): AdminOnboardRequest {
   };
 }
 
+/* A request is actionable while it is still open. 'info-needed' counts:
+ * clicking "Info Needed" used to make the status non-pending, which hid the
+ * approve and reject buttons for good — so an admin who requested info by
+ * mistake, or who received the information, had no way to move the request
+ * forward. Only the terminal states close it out. */
+const ACTIONABLE = new Set<OnboardRequest['status']>(['pending', 'info-needed']);
+
 const STATUS_CONFIG: Record<OnboardRequest['status'], { color: string; bg: string; label: string }> = {
   pending:      { color: 'var(--status-warning)', bg: 'rgba(251,191,36,0.1)', label: 'Pending' },
   approved:     { color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.08)', label: 'Approved' },
@@ -486,7 +493,7 @@ function RequestDetail({
         )}
 
         {/* Action buttons */}
-        {req.status === 'pending' && (
+        {ACTIONABLE.has(req.status) && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               disabled={saving}
@@ -504,7 +511,7 @@ function RequestDetail({
             </button>
           </div>
         )}
-        {req.status === 'pending' && (
+        {ACTIONABLE.has(req.status) && (
           <button
             disabled={saving}
             onClick={() => handle('info-needed')}
@@ -711,7 +718,7 @@ export function AdminOnboardingScreen() {
                   </div>
 
                   {/* Inline quick actions for pending */}
-                  {req.status === 'pending' && (
+                  {ACTIONABLE.has(req.status) && (
                     <div style={{ display: 'flex', gap: 6, marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => { e.stopPropagation(); void act(req.id, 'approved'); }}
