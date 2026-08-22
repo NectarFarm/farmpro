@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { tasks, approvalRequests } from '@/db/schemas'
 import { and, eq } from 'drizzle-orm'
-import { requireTenantSession } from '@/lib/api-auth'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/PATCH/DELETE /api/tasks/[id] (issue #243) ───────────────────────────
 // Tenant-scoped: an id only reads/updates/deletes when its tenantId matches
@@ -48,6 +49,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
   if ('error' in auth) return auth.error
   const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.tasks))) {
+    return forbidden('Your role does not have edit access to tasks')
+  }
 
   let raw: unknown
   try {
@@ -128,7 +133,11 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const { id } = await params
   const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
   if ('error' in auth) return auth.error
-  const { tenantId } = auth
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.tasks))) {
+    return forbidden('Your role does not have edit access to tasks')
+  }
 
   const rows = await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
   if (rows.length === 0) return notFound()

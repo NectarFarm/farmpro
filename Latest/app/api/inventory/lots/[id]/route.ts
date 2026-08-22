@@ -4,7 +4,7 @@ import { db } from '@/db'
 import { inventoryLots, auditLog } from '@/db/schemas'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { and, eq } from 'drizzle-orm'
-import { requireTenantSession } from '@/lib/api-auth'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
 
 // ── PATCH /api/inventory/lots/[id] (issue #235 task 5) ──────────────────────
 // Reason-required quantity adjustment. Every adjustment writes a real
@@ -28,6 +28,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
   if ('error' in auth) return auth.error
   const { session, tenantId } = auth
+
+  // role-permission-enforcement task: `canEdit`/`MODULES` were imported here
+  // before but never actually called — this route was the "one route that
+  // imports lib/permissions.ts" the task brief measured, yet it enforced
+  // nothing. Wired for real now.
+  if (!(await canEdit(tenantId, session.role, MODULES.inventory))) {
+    return forbidden('Your role does not have edit access to inventory')
+  }
 
   let raw: unknown
   try {

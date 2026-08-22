@@ -4,7 +4,8 @@ import { batches, products } from '@/db/schemas'
 import { listSales, recordSale } from '@/lib/finance'
 import { and, eq } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
-import { requireTenantSession } from '@/lib/api-auth'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -77,7 +78,12 @@ export async function POST(req: Request) {
   const b = (raw ?? {}) as Record<string, unknown>
   const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
   if ('error' in auth) return auth.error
-  const { tenantId } = auth
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.finance))) {
+    return forbidden('Your role does not have edit access to finance')
+  }
+
   let item = typeof b.item === 'string' ? b.item.trim() : ''
   const amountCents = Number(b.amountCents)
   const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'paid'

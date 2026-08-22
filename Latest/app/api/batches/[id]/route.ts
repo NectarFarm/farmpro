@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { batches, productionUnits } from '@/db/schemas'
 import { and, eq } from 'drizzle-orm'
-import { requireTenantSession } from '@/lib/api-auth'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/PATCH /api/batches/[id] (issue #231; auth fix: fix/authenticate-all-apis) ─
 // PATCH is the single update endpoint for a batch's mutable lifecycle fields
@@ -57,7 +58,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params
   const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
   if ('error' in auth) return auth.error
-  const { tenantId } = auth
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.batches))) {
+    return forbidden('Your role does not have edit access to batches')
+  }
 
   let raw: unknown
   try {
