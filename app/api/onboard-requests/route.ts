@@ -47,7 +47,10 @@ function inRange(s: string, min: number, max: number): boolean {
 const MAX_CONSENT_VERSION_LEN = 32
 const DEFAULT_CONSENT_VERSION = 'v1'
 
-interface ValidatedOnboardBody {
+// Exported so POST /api/onboard-requests/update/[token] (the applicant's own
+// info-needed correction flow) can reuse the exact same field rules instead
+// of a second, drifting copy — see that route's header.
+export interface ValidatedOnboardBody {
   farmerName: string
   email: string
   phone: string
@@ -60,14 +63,17 @@ interface ValidatedOnboardBody {
   consentVersion: string
 }
 
-type ValidationOutcome =
+export type ValidationOutcome =
   | { ok: false; fields: Record<string, string> }
   | ({ ok: true; fields: Record<string, never> } & ValidatedOnboardBody)
 
 // Validates + normalizes the whole POST body in one pass, collecting every
 // failure instead of bailing on the first (the form highlights all bad
-// fields at once).
-function validateBody(b: Record<string, unknown>): ValidationOutcome {
+// fields at once). Exported: this is the ONE set of onboarding field rules —
+// the applicant's own resubmission route (POST
+// /api/onboard-requests/update/[token]) calls this exact function rather
+// than re-implementing any of it.
+export function validateBody(b: Record<string, unknown>): ValidationOutcome {
   const fields: Record<string, string> = {}
 
   const farmerName = str(b.farmerName)

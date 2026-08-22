@@ -86,6 +86,18 @@ const PUBLIC_ROUTES: Record<string, 'all' | ReadonlySet<HttpMethod>> = {
   // token still 401s (checked below), it just isn't the SESSION-shaped 401
   // every other route returns for "no cookie".
   'auditor/[token]/reports/[type]': 'all',
+  // feat/email-notifications: same token-in-URL shape as the auditor route
+  // above. An applicant marked 'info-needed' has no account at all, so the
+  // only way they can correct and resubmit their own request is a public,
+  // tokenised link — see lib/onboard-update.ts's resolveOnboardUpdateToken.
+  // An invalid/expired/already-closed-out token still 401s.
+  'onboard-requests/update/[token]': 'all',
+  // feat/email-notifications: same reasoning — an approved onboarding
+  // applicant has no account yet either, so the one-time set-password link
+  // their approval email contains (lib/set-password.ts, instead of ever
+  // emailing the working temp password) has to be reachable with no
+  // session. An invalid/expired/already-used token still 401s.
+  'set-password/[token]': 'all',
 }
 
 function isPublic(relDir: string, method: HttpMethod): boolean {

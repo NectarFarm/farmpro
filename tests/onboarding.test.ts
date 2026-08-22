@@ -22,7 +22,7 @@ import { POST as onboardPOST, GET as onboardGET } from '@/app/api/onboard-reques
 import { PATCH as onboardPATCH } from '@/app/api/onboard-requests/[id]/route'
 import { POST as loginPOST } from '@/app/api/auth/login/route'
 import { db } from '@/db'
-import { tenants, users, sessions, farms, onboardRequests } from '@/db/schemas'
+import { tenants, users, sessions, farms, onboardRequests, setPasswordTokens } from '@/db/schemas'
 import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
@@ -75,6 +75,13 @@ run('onboarding requests: submit -> admin queue -> approve provisions a tenant (
   afterAll(async () => {
     if (requestId) await db.delete(onboardRequests).where(eq(onboardRequests.id, requestId))
     if (provisionedTenantId) {
+      // feat/email-notifications: approval now mints a set_password_tokens
+      // row (FK -> users.id) instead of only handing the temp password back
+      // — clear it before deleting the owner row it references.
+      const ownerRows = await db.select({ id: users.id }).from(users).where(eq(users.tenantId, provisionedTenantId))
+      for (const owner of ownerRows) {
+        await db.delete(setPasswordTokens).where(eq(setPasswordTokens.userId, owner.id))
+      }
       await db.delete(users).where(eq(users.tenantId, provisionedTenantId))
       await db.delete(farms).where(eq(farms.tenantId, provisionedTenantId))
       await db.delete(tenants).where(eq(tenants.id, provisionedTenantId))

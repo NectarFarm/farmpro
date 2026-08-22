@@ -10,6 +10,9 @@ import { validateLocation } from '@/lib/validation'
 // copy this replaces checked `err.code`, which drizzle's wrapper never sets,
 // so it never actually matched.
 import { isUniqueViolation, uniqueViolationConstraint } from '@/lib/db-errors'
+import { resolveAppBaseUrl, sendOnboardingApprovedEmail, sendOnboardingInfoNeededEmail, sendOnboardingRejectedEmail } from '@/lib/email'
+import { issueSetPasswordToken } from '@/lib/set-password'
+import { issueOnboardUpdateToken } from '@/lib/onboard-update'
 
 // ── PATCH /api/onboard-requests/[id] (issue #251) ───────────────────────────
 // super_admin only. Body: { status: 'approved' | 'rejected' | 'info-needed', notes? }.
@@ -103,7 +106,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       // admin who sets the pin and approves in one request doesn't lose it.
       const provisionLatitude = loc ? loc.latitude : existing.latitude
       const provisionLongitude = loc ? loc.longitude : existing.longitude
-      const { tenantId, ownerTempPassword } = await provisionTenant({
+      const { tenantId, ownerUserId, ownerTempPassword } = await provisionTenant({
         farmerName: existing.farmerName,
         email: existing.email,
         farmName: existing.farmName,
@@ -116,10 +119,32 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         .set({ status, tenantId, ...(notes !== undefined ? { notes } : {}), ...locationSet })
         .where(eq(onboardRequests.id, id))
         .returning()
+
+      // Email a one-time, expiring set-password link instead of the temp
+      // password itself — see lib/set-password.ts's header for why. This is
+      // best-effort and must never affect the response: the tenant is
+      // already provisioned by this point, and the admin-side one-time
+      // reveal below is the fallback if mail isn't configured or bounces.
+      try {
+        const { token } = await issueSetPasswordToken(ownerUserId)
+        const setPasswordUrl = `${resolveAppBaseUrl(req)}/set-password/${token}`
+        const result = await sendOnboardingApprovedEmail({
+          to: existing.email,
+          farmerName: existing.farmerName,
+          farmName: existing.farmName,
+          setPasswordUrl,
+        })
+        if (!result.ok) console.error('[onboard-approve] approval email failed', { requestId: id, result })
+      } catch (err) {
+        console.error('[onboard-approve] failed to issue/send set-password email', { requestId: id, err })
+      }
+
       // ownerTempPassword is hashed into the DB and never stored in plaintext —
       // this is the ONE response where it's readable. It is only included on
       // the branch that actually provisions (never on the "already
       // provisioned" early-return above), since it can't be retrieved again.
+      // Kept as the admin-side fallback even though mail is now sent —
+      // useful the moment RESEND_API_KEY isn't configured, or the send fails.
       return NextResponse.json({ success: true, data: { ...updated, ownerTempPassword } }, { status: 200 })
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -156,5 +181,37 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     })
     .where(eq(onboardRequests.id, id))
     .returning()
+
+  // Best-effort notification emails — never affect the response either way,
+  // same reasoning as the approval branch above.
+  if (hasStatusChange && status === 'info-needed') {
+    try {
+      const { token } = await issueOnboardUpdateToken(id)
+      const updateUrl = `${resolveAppBaseUrl(req)}/onboard-requests/update/${token}`
+      const result = await sendOnboardingInfoNeededEmail({
+        to: updated.email,
+        farmerName: updated.farmerName,
+        farmName: updated.farmName,
+        notes: updated.notes ?? null,
+        updateUrl,
+      })
+      if (!result.ok) console.error('[onboard-info-needed] email failed', { requestId: id, result })
+    } catch (err) {
+      console.error('[onboard-info-needed] failed to issue/send update-link email', { requestId: id, err })
+    }
+  } else if (hasStatusChange && status === 'rejected') {
+    try {
+      const result = await sendOnboardingRejectedEmail({
+        to: updated.email,
+        farmerName: updated.farmerName,
+        farmName: updated.farmName,
+        notes: updated.notes ?? null,
+      })
+      if (!result.ok) console.error('[onboard-rejected] email failed', { requestId: id, result })
+    } catch (err) {
+      console.error('[onboard-rejected] failed to send rejection email', { requestId: id, err })
+    }
+  }
+
   return NextResponse.json({ success: true, data: updated }, { status: 200 })
 }

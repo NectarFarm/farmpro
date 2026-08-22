@@ -197,6 +197,13 @@
       "when": 1787412591322,
       "tag": "0027_salty_next_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1787439277201,
+      "tag": "0028_email_notifications_tokens",
+      "breakpoints": true
     }
   ]
 }

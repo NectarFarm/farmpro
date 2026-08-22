@@ -6,6 +6,7 @@ import { notifications, passwordResetRequests, users } from '@/db/schemas'
 import { checkLoginThrottle, clearLoginThrottle, recordLoginFailure } from '@/lib/auth'
 import { PLATFORM_TENANT_SENTINEL } from '@/lib/audit'
 import { isValidEmail, isValidPhone, normalizeEmail, normalizePhone, toStoredPhone } from '@/lib/validation'
+import { notifyRecipientsByEmail } from '@/lib/notification-email'
 
 // ── POST /api/auth/forgot-password (admin user-management feature) ────────
 // Public, no session. There is no email/SMS infrastructure anywhere in this
@@ -130,8 +131,9 @@ export async function POST(req: Request) {
   // resolves to (see lib/audit.ts and GET /api/notifications), regardless of
   // which real tenant the requesting user belongs to. userId is left null —
   // any super_admin, not one specific admin, is the intended recipient.
+  const notificationId = randomUUID()
   await db.insert(notifications).values({
-    id: randomUUID(),
+    id: notificationId,
     tenantId: PLATFORM_TENANT_SENTINEL,
     sourceType: 'password_reset',
     sourceId: requestId,
@@ -139,6 +141,13 @@ export async function POST(req: Request) {
     message: `${user.name} (${user.email}) asked for a password reset.`,
     role: 'super_admin',
   })
+  // Emails every super_admin (the role this row is targeted at) — never the
+  // requester, and never the requester's own tenant. See
+  // lib/notification-email.ts for the recipient-resolution rule this reuses
+  // from GET /api/notifications, and this route's own header for why
+  // super_admin (not the requester) is the intended recipient in the first
+  // place.
+  await notifyRecipientsByEmail(notificationId)
 
   return genericAck()
 }

@@ -1,10 +1,10 @@
 'use client';
 import React from 'react';
 import { TopNav } from './navigation';
-import { Leaf, CheckSquare, Package, DollarSign, Shield, CloudSun, Users } from './icons';
+import { Leaf, Home, Layers, CheckSquare, Package, DollarSign, CreditCard, Shield, CloudSun, Users, WifiOff } from './icons';
 import { ENTERPRISE_REGISTRY } from './data';
 
-// ── About IFMS (ui-polish-theme-weather) ────────────────────────────────────
+// ── About IFMS (ui-polish-theme-weather; refreshed feat/email-notifications) ─
 // Settings' "About IFMS" row used to be a single non-tappable line: "About
 // IFMS · Version X.Y.Z". Real, but not a page — just a fact with nowhere to
 // go. This is that page, reached from Settings → About IFMS.
@@ -17,14 +17,23 @@ import { ENTERPRISE_REGISTRY } from './data';
 // version line reads the real build-time package.json version). This screen
 // extends that: modules listed are real, shipped screens; enterprises listed
 // are ENTERPRISE_REGISTRY's real config (components/farm/data.ts), not demo
-// batch names.
+// batch names. "Offline-friendly recording" below is deliberately worded to
+// match what actually exists — a per-tenant "Offline Mode: cache data for
+// use without internet" setting (components/farm/settings.tsx) — not a
+// background sync engine; there is no service worker or write queue
+// anywhere in this codebase (checked next.config.ts and grepped the repo),
+// and this screen doesn't claim one.
 const MODULES = [
-  { icon: CheckSquare, label: 'Tasks', desc: 'Assign, track and approve day-to-day work' },
+  { icon: Home, label: 'Farms', desc: 'Multiple farms per account, filtered per-farm across every screen' },
+  { icon: Layers, label: 'Batches & units', desc: 'Production units and batches per enterprise, acquisition to close-out' },
   { icon: Package, label: 'Inventory', desc: 'Stock, lots, purchases and low-stock alerts' },
-  { icon: DollarSign, label: 'Finance', desc: 'Sales, costs and a real double-entry ledger' },
-  { icon: Shield, label: 'Governance', desc: 'Roles, approvals and an audit trail' },
+  { icon: DollarSign, label: 'Finance', desc: 'Sales, purchases and a real double-entry ledger' },
+  { icon: CreditCard, label: 'Payroll', desc: 'Employees, payroll runs and payslips' },
+  { icon: CheckSquare, label: 'Tasks', desc: 'Assign, track and approve day-to-day work' },
+  { icon: Shield, label: 'Governance', desc: 'Role-based access, approval workflows and an audit trail' },
   { icon: CloudSun, label: 'Weather', desc: 'Live forecast for each farm, via Open-Meteo' },
   { icon: Users, label: 'People', desc: 'Employees, worker accounts and PIN sign-in' },
+  { icon: WifiOff, label: 'Offline-friendly recording', desc: 'Cache data for use in low-connectivity fields' },
 ];
 
 // De-duplicated, real enterprise types the app currently models — pulled
@@ -53,9 +62,10 @@ export function AboutScreen() {
           <div className="section-eyebrow" style={{ marginBottom: 8 }}>What it does</div>
           <div className="farm-card" style={{ padding: 14 }}>
             <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-              IFMS runs the day-to-day of a farm business — records, stock, money and
-              approvals — from one app, built to work on an ordinary Android phone in
-              the field as well as at a desk.
+              IFMS runs the day-to-day of a multi-farm business from one app: batches and
+              production units, stock and purchases, a double-entry ledger, payroll, tasks
+              and approvals, all filtered per farm and gated by role — built to work on an
+              ordinary Android phone in the field as well as at a desk.
             </div>
           </div>
         </div>

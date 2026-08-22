@@ -5,6 +5,7 @@ import { getSessionUser } from '@/lib/auth'
 import { PLATFORM_TENANT_SENTINEL } from '@/lib/audit'
 import { and, desc, eq, isNull, lt, notInArray, or } from 'drizzle-orm'
 import { startOfUtcDay } from '@/app/api/tasks/route'
+import { notifyRecipientsByEmail } from '@/lib/notification-email'
 
 // ── GET /api/notifications (issue #227 task 3; recipient-scoping fix) ─────
 // This is real new work, not a rewire — no `notifications` table existed on
@@ -85,7 +86,15 @@ export async function syncTaskNotifications(tenantId: string): Promise<void> {
     )
   if (dueRows.length === 0) return
 
-  await db
+  // .returning() on an ON CONFLICT DO NOTHING insert gives back ONLY the
+  // rows actually inserted (Postgres never returns a skipped conflict) —
+  // that is what makes emailing exactly these rows safe from a mail-storm:
+  // a task already synced on an earlier GET conflicts on
+  // idx_notifications_source and is silently omitted here, so it is never
+  // handed to notifyRecipientsByEmail a second time. notifyRecipientsByEmail
+  // itself adds a second, independent guard (an atomic emailed_at claim) on
+  // top of this for the concurrent-request case.
+  const insertedRows = await db
     .insert(notifications)
     .values(
       dueRows.map((t) => ({
@@ -102,6 +111,11 @@ export async function syncTaskNotifications(tenantId: string): Promise<void> {
       }))
     )
     .onConflictDoNothing()
+    .returning({ id: notifications.id })
+
+  for (const row of insertedRows) {
+    await notifyRecipientsByEmail(row.id)
+  }
 }
 
 export async function GET() {

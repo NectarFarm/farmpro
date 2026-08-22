@@ -1,0 +1,277 @@
+// ── The one place mail is sent (feat/email-notifications) ──────────────────
+// Before this file there was no mail capability anywhere in this codebase —
+// no nodemailer/resend/sendgrid/smtp (confirmed by grepping package.json and
+// the repo), yet the UI and several server-side comments already talked
+// about "an admin will be notified" / "contact your administrator" as if
+// mail existed. This is that capability, built deliberately small:
+//
+//   - Resend's REST API over plain `fetch` — three endpoints' worth of use
+//     does not justify an SDK dependency.
+//   - Fails safe: with no RESEND_API_KEY configured, every send is a
+//     logged no-op that still reports success to its caller. The app is
+//     already deployed and the key may land after this code does; a route
+//     that emails as a side effect (an approval, a rejection, a
+//     notification) must keep working exactly as it did before mail
+//     existed, key or no key.
+//   - Sending NEVER throws. Every failure — no key, a network error, a
+//     non-2xx from Resend — is caught here and reported back as a result
+//     object the caller can log, never an exception the caller must
+//     remember to catch. An approval that already provisioned a tenant, or
+//     a notification that already exists in the DB, must not be rolled
+//     back or fail just because a mailbox bounced.
+//   - One render path (composeMessage below): plain-text plus a small,
+//     inline-styled HTML wrapper, same sender and footer every time. No
+//     template engine — three call sites don't need one.
+import 'server-only'
+
+const RESEND_API_URL = 'https://api.resend.com/emails'
+
+// Resend's own shared sandbox sender — works with zero domain setup, which
+// matters here because RESEND_API_KEY may exist before any domain is
+// verified. EMAIL_FROM overrides it once the user has a verified domain.
+const DEFAULT_FROM = 'IFMS <onboarding@resend.dev>'
+
+const APP_NAME = 'IFMS'
+const FOOTER_TEXT = `This is an automated message from ${APP_NAME}. If you weren't expecting it, you can ignore it.`
+
+export type EmailTemplate =
+  | 'onboarding-info-needed'
+  | 'onboarding-approved'
+  | 'onboarding-rejected'
+  | 'notification'
+
+// Every send — success, no-op, or failure — reports this shape so the
+// caller can log it. `providerId` is Resend's message id (useful for
+// support/debugging); `error` is set on any failure, including the no-op
+// case being logged as informational rather than an error. Never includes
+// the API key, a password, or a token — see the rule this file is held to.
+export interface EmailResult {
+  ok: boolean
+  recipient: string
+  template: EmailTemplate
+  providerId?: string
+  error?: string
+  /** Set when no RESEND_API_KEY is configured — the send was skipped, not failed. */
+  skipped?: boolean
+}
+
+export interface ComposedMessage {
+  subject: string
+  text: string
+  html: string
+}
+
+interface ComposeOptions {
+  subject: string
+  // Plain paragraphs — rendered as blank-line-separated text and as <p> tags
+  // in the HTML body. Keep these short; this is notification/transactional
+  // copy, not marketing.
+  paragraphs: string[]
+  // A single call-to-action link, rendered as a button in HTML and as a
+  // "label: url" line in plain text (a plain-text-only mail client still
+  // needs the raw URL to click/copy).
+  cta?: { label: string; url: string }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// The single place a message is rendered — plain text plus a small inline-
+// styled HTML document, same sender/footer every time. No template engine:
+// three templates (below) all just call this with different copy.
+export function composeMessage(opts: ComposeOptions): ComposedMessage {
+  const textParts = [...opts.paragraphs]
+  if (opts.cta) textParts.push(`${opts.cta.label}: ${opts.cta.url}`)
+  textParts.push('—', FOOTER_TEXT)
+  const text = textParts.join('\n\n')
+
+  const htmlParagraphs = opts.paragraphs
+    .map((p) => `<p style="margin:0 0 16px;color:#1a1a1a;font-size:15px;line-height:1.5;">${escapeHtml(p)}</p>`)
+    .join('\n')
+  const htmlCta = opts.cta
+    ? `<p style="margin:0 0 20px;"><a href="${escapeHtml(opts.cta.url)}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;">${escapeHtml(opts.cta.label)}</a></p>`
+    : ''
+  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+<div style="font-size:13px;font-weight:700;letter-spacing:0.5px;color:#16a34a;text-transform:uppercase;margin-bottom:12px;">${APP_NAME}</div>
+${htmlParagraphs}
+${htmlCta}
+<hr style="border:none;border-top:1px solid #e5e5e5;margin:20px 0;" />
+<p style="margin:0;color:#888888;font-size:12px;line-height:1.5;">${escapeHtml(FOOTER_TEXT)}</p>
+</div>`
+
+  return { subject: opts.subject, text, html }
+}
+
+export interface SendEmailInput {
+  to: string
+  template: EmailTemplate
+  message: ComposedMessage
+}
+
+// The only function that actually talks to Resend. Never throws — every
+// failure path returns `{ ok: false, error }` instead. With no
+// RESEND_API_KEY set, this is a logged no-op that still returns `ok: true`
+// (the send was legitimately skipped, not a failure the caller should act
+// on) so a caller that just does `const result = await sendEmail(...)` and
+// logs it never has to special-case "email isn't configured yet".
+export async function sendEmail({ to, template, message }: SendEmailInput): Promise<EmailResult> {
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) {
+    console.log('[email] RESEND_API_KEY not configured — skipping send', { to, template })
+    return { ok: true, recipient: to, template, skipped: true }
+  }
+
+  const from = process.env.EMAIL_FROM || DEFAULT_FROM
+
+  try {
+    const res = await fetch(RESEND_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
+      }),
+    })
+
+    let body: unknown = null
+    try {
+      body = await res.json()
+    } catch {
+      // Resend always returns JSON on both success and error; an unparsable
+      // body just means we can't extract a message/id from it below.
+    }
+
+    if (!res.ok) {
+      const errBody = body as { message?: string } | null
+      const error = errBody?.message || `Resend responded ${res.status}`
+      console.error('[email] send failed', { to, template, status: res.status, error })
+      return { ok: false, recipient: to, template, error }
+    }
+
+    const okBody = body as { id?: string } | null
+    return { ok: true, recipient: to, template, providerId: okBody?.id }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    console.error('[email] send threw', { to, template, error })
+    return { ok: false, recipient: to, template, error }
+  }
+}
+
+/* ── The three onboarding templates (Task 2) ── */
+
+// info-needed: the applicant has no account — this is the only way they
+// hear that their request needs a correction, plus the one link (a
+// tokenised public route, see lib/onboard-update.ts) that lets them fix it.
+export async function sendOnboardingInfoNeededEmail(opts: {
+  to: string
+  farmerName: string
+  farmName: string
+  notes: string | null
+  updateUrl: string
+}): Promise<EmailResult> {
+  const paragraphs = [
+    `Hi ${opts.farmerName},`,
+    `Thanks for applying to join ${APP_NAME} with ${opts.farmName}. We need a bit more information before we can approve your request.`,
+    ...(opts.notes ? [`What's missing: ${opts.notes}`] : []),
+    'Use the link below to review and update your request, then resubmit it for review.',
+  ]
+  const message = composeMessage({
+    subject: `${APP_NAME}: more information needed for your application`,
+    paragraphs,
+    cta: { label: 'Update your request', url: opts.updateUrl },
+  })
+  return sendEmail({ to: opts.to, template: 'onboarding-info-needed', message })
+}
+
+// approved: NEVER emails the working temp password (that stays a one-time
+// admin-side reveal, see PATCH /api/onboard-requests/[id]) — instead a
+// one-time, expiring set-password link (lib/set-password.ts) that achieves
+// the same outcome without leaving a reusable credential sitting in a
+// mailbox forever.
+export async function sendOnboardingApprovedEmail(opts: {
+  to: string
+  farmerName: string
+  farmName: string
+  setPasswordUrl: string
+}): Promise<EmailResult> {
+  const paragraphs = [
+    `Hi ${opts.farmerName},`,
+    `Good news — your application for ${opts.farmName} has been approved. Use the link below to set your password and sign in.`,
+    'This link can only be used once and expires in 48 hours. If it expires before you use it, or if you ever forget your password later, use the "Forgot password" link on the sign-in screen — your farm administrator will be notified to help you reset it.',
+  ]
+  const message = composeMessage({
+    subject: `${APP_NAME}: your application was approved — set your password`,
+    paragraphs,
+    cta: { label: 'Set your password', url: opts.setPasswordUrl },
+  })
+  return sendEmail({ to: opts.to, template: 'onboarding-approved', message })
+}
+
+// rejected: short and plain, deliberately no credentials and no link.
+export async function sendOnboardingRejectedEmail(opts: {
+  to: string
+  farmerName: string
+  farmName: string
+  notes: string | null
+}): Promise<EmailResult> {
+  const paragraphs = [
+    `Hi ${opts.farmerName},`,
+    `We're not able to approve your application for ${opts.farmName} at this time.`,
+    ...(opts.notes ? [`Reason: ${opts.notes}`] : []),
+  ]
+  const message = composeMessage({
+    subject: `${APP_NAME}: your application was not approved`,
+    paragraphs,
+  })
+  return sendEmail({ to: opts.to, template: 'onboarding-rejected', message })
+}
+
+/* ── Notification template (Task 3) ── */
+
+export async function sendNotificationEmail(opts: {
+  to: string
+  title: string
+  message: string
+}): Promise<EmailResult> {
+  const paragraphs = [opts.title, ...(opts.message ? [opts.message] : [])]
+  const message = composeMessage({
+    subject: `${APP_NAME}: ${opts.title}`,
+    paragraphs,
+  })
+  return sendEmail({ to: opts.to, template: 'notification', message })
+}
+
+/* ── Base URL for links embedded in mail ── */
+// There is no dedicated APP_URL env var anywhere in this codebase (checked
+// .env.example and every .env* file) — NEXT_PUBLIC_APP_URL is an opt-in
+// override for when one is set; otherwise this derives the origin from the
+// inbound request (works identically in local dev and on Vercel, where each
+// deployment's real hostname is only known at request time), falling back to
+// Vercel's own VERCEL_URL env var, then localhost for a route invoked with
+// no Request at all (e.g. a background job).
+export function resolveAppBaseUrl(req?: Request): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL
+  if (configured) return configured.replace(/\/+$/, '')
+  if (req) {
+    try {
+      const url = new URL(req.url)
+      return `${url.protocol}//${url.host}`
+    } catch {
+      // fall through
+    }
+  }
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  return 'http://localhost:13001'
+}
