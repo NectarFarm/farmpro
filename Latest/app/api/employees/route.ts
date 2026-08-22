@@ -102,6 +102,14 @@ export async function POST(req: Request) {
   const mortalityPhotoThreshold = Number.isFinite(Number(b.mortalityPhotoThreshold))
     ? Math.max(0, Math.trunc(Number(b.mortalityPhotoThreshold)))
     : 3
+  // monthlySalaryCents (payroll v1 — db/schemas/people.ts): the employee's
+  // pay basis, already converted to cents client-side (lib/money.ts's
+  // parseMoneyToCents — same convention POST /api/data/sales's amountCents
+  // uses). Not required: an employee created with no rate simply isn't paid
+  // by a payroll run (see POST /api/payroll/runs).
+  const monthlySalaryCents = Number.isFinite(Number(b.monthlySalaryCents))
+    ? Math.max(0, Math.trunc(Number(b.monthlySalaryCents)))
+    : 0
 
   const requestedBatchIds = parseAssignedBatchIds(b.assignedBatchIds) ?? []
   const assignedBatchIds = await validateBatchIds(tenantId, requestedBatchIds)
@@ -119,6 +127,7 @@ export async function POST(req: Request) {
       role,
       assignedBatchIds,
       mortalityPhotoThreshold,
+      monthlySalaryCents,
       status,
       farmId: farmFilter ?? null,
     })

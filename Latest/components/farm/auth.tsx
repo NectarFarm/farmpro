@@ -9,6 +9,7 @@ import { ENTERPRISE_REGISTRY } from './data';
 import { Eye, EyeOff, Check, ChevronRight, AlertTriangle, Phone, Mail } from './icons';
 import { type Role } from './navigation';
 import { apiClient } from '@/lib/request';
+import { detectGpsLocation } from '@/lib/geolocation';
 
 /* ── Shared GPS + Map block ──────────────────────────────────────────────── */
 export function GpsMapBlock({
@@ -575,15 +576,10 @@ export function RegisterScreen({ onBack }: {
   const consentMessage = errors.consentGiven ?? (!consentGiven ? 'You must consent to share this information to submit your request.' : undefined);
 
   function detectGPS() {
-    if (!navigator.geolocation) { setGpsError('Geolocation not supported'); return; }
     setGpsLoading(true); setGpsError('');
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        setLat(pos.coords.latitude.toFixed(6));
-        setLng(pos.coords.longitude.toFixed(6));
-        setGpsLoading(false);
-      },
-      () => { setGpsError('Could not get location. Enter manually.'); setGpsLoading(false); }
+    detectGpsLocation(
+      coords => { setLat(coords.latitude); setLng(coords.longitude); setGpsLoading(false); },
+      message => { setGpsError(message); setGpsLoading(false); }
     );
   }
 

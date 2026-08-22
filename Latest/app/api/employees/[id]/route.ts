@@ -116,6 +116,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (b.mortalityPhotoThreshold !== undefined && Number.isFinite(Number(b.mortalityPhotoThreshold))) {
     patch.mortalityPhotoThreshold = Math.max(0, Math.trunc(Number(b.mortalityPhotoThreshold)))
   }
+  // monthlySalaryCents (payroll v1): rides on this same owner/manager-gated
+  // route rather than a separate payroll-module-gated one. Deliberate:
+  // MODULES.payroll (lib/permissions.ts) governs running/viewing payroll —
+  // the point where real money leaves the ledger — not employee-record
+  // management in general, which this whole route already treats as an
+  // owner/manager concern via the `roles` allowlist above (there is no
+  // "people" module in the matrix; employee CRUD has never been
+  // matrix-gated). A manager editing a pay rate here still cannot trigger a
+  // run or see anyone else's payslips — those stay behind canEdit/canView(payroll).
+  if (b.monthlySalaryCents !== undefined && Number.isFinite(Number(b.monthlySalaryCents))) {
+    patch.monthlySalaryCents = Math.max(0, Math.trunc(Number(b.monthlySalaryCents)))
+  }
 
   if (Array.isArray(b.assignedBatchIds)) {
     const requested = b.assignedBatchIds.filter((v): v is string => typeof v === 'string')

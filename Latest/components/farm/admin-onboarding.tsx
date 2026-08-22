@@ -8,6 +8,7 @@ import {
 import { ENTERPRISE_REGISTRY, type OnboardRequest } from './data';
 import { GpsMapBlock, useReverseGeocode } from './auth';
 import { apiClient } from '@/lib/request';
+import { detectGpsLocation } from '@/lib/geolocation';
 
 // ── Real backend wiring (issues #251/#252) ──────────────────────────────────
 // GET/PATCH /api/onboard-requests[/:id] already exist and work (issue #251,
@@ -157,15 +158,10 @@ function LocationEditor({
   });
 
   function detectGPS() {
-    if (!navigator.geolocation) { setGpsError('Geolocation not supported on this device'); return; }
     setGpsLoading(true); setGpsError('');
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        setAdminLat(pos.coords.latitude.toFixed(6));
-        setAdminLng(pos.coords.longitude.toFixed(6));
-        setGpsLoading(false);
-      },
-      () => { setGpsError('Could not get location. Enter manually.'); setGpsLoading(false); }
+    detectGpsLocation(
+      coords => { setAdminLat(coords.latitude); setAdminLng(coords.longitude); setGpsLoading(false); },
+      message => { setGpsError(message); setGpsLoading(false); }
     );
   }
 
