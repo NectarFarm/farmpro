@@ -217,6 +217,17 @@ export const notifications = pgTable('notifications', {
   // .../[id] writes to it instead of this column.
   read: boolean('read').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
+  // Email delivery marker (feat/email-notifications). Null until this row's
+  // email(s) have been resolved and attempted — see
+  // lib/notification-email.ts's notifyRecipientsByEmail, which does an
+  // atomic `UPDATE ... WHERE emailed_at IS NULL RETURNING id` before ever
+  // sending anything, so a notification is emailed at most once even if two
+  // requests race to process the same row (e.g. two concurrent
+  // syncTaskNotifications callers). Set regardless of how many recipients a
+  // row resolves to (one user, a whole role, or a tenant-wide broadcast) —
+  // this is "has this notification been processed for email", not a
+  // per-recipient log.
+  emailedAt: timestamp('emailed_at'),
 }, (t) => [
   index('idx_notifications_tenant').on(t.tenantId),
   index('idx_notifications_tenant_read').on(t.tenantId, t.read),
