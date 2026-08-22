@@ -1,19 +1,21 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Plus, Key, ChevronRight, Check, X, Search, RefreshCw, Lock } from './icons';
+import { Plus, Key, ChevronRight, Check, X, Search, RefreshCw } from './icons';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef, usePersistedView } from './data-table';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import { StatusTimeline } from './status-timeline';
+import { parseMoneyToCents, formatMoney, centsToMajor } from '@/lib/money';
 
 // ── Real API shapes (issue #248 — wired to GET/POST /api/employees,
 // GET/PATCH /api/employees/[id], GET/PUT /api/role-permissions from #247/#243).
-// Replaces the old EMPLOYEES_DATA/OWNER_ROLES mock entirely on this screen —
-// note there is NO salary/payday/pin field on the real `employees` row:
-// payroll is a separate, not-yet-built epic (db/schemas/people.ts), and login
-// PIN provisioning is a separate auth concern this issue doesn't build either.
+// Replaces the old EMPLOYEES_DATA/OWNER_ROLES mock entirely on this screen.
+// `monthlySalaryCents` (payroll-and-gps task): the pay basis payroll runs
+// read from — see db/schemas/people.ts for why it's a flat monthly rate, not
+// a wage. Login PIN provisioning is still a separate auth concern this
+// screen doesn't build.
 interface ApiEmployee {
   id: string;
   tenantId: string;
@@ -21,11 +23,22 @@ interface ApiEmployee {
   name: string;
   phone: string;
   role: string;
+  monthlySalaryCents: number;
   assignedBatchIds: string[];
   mortalityPhotoThreshold: number;
   status: string;
   createdAt: string | null;
   farmId: string | null; // farm-scoped-data task (migration 0019)
+}
+
+// GET /api/payroll/payslips?employeeId= (payroll-and-gps task) — one
+// employee's pay history across every run, for the per-employee Payroll tab
+// below.
+interface ApiPayslip {
+  id: string;
+  amountCents: number;
+  periodStart: string;
+  periodEnd: string;
 }
 
 interface ApiBatchLite {
@@ -66,6 +79,10 @@ function getRoleBadge(roleId: string) {
 
 function initials(name: string) {
   return name.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 2) || '?';
+}
+
+function fmtDate(iso: string): string {
+  return iso.slice(0, 10);
 }
 
 /* Column definitions for the table view */
@@ -366,6 +383,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('worker');
   const [threshold, setThreshold] = useState('3');
+  const [monthlySalary, setMonthlySalary] = useState('');
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
   const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
   const [error, setError] = useState('');
@@ -378,6 +396,10 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
   async function handleSubmit() {
     if (!name.trim()) { setError('Full name is required.'); setAddStep(1); return; }
     if (!farmId) { setError('Select which farm this employee is based at.'); setAddStep(1); return; }
+    // Blank salary means "no pay rate set yet" (0), not an error — an
+    // employee can exist before payroll is configured for them.
+    const monthlySalaryCents = monthlySalary.trim() === '' ? 0 : parseMoneyToCents(monthlySalary);
+    if (monthlySalaryCents === null) { setError('Monthly salary must be a valid amount.'); setAddStep(2); return; }
     setSaving(true); setError('');
     const res = await apiClient.post<ApiEmployee>('/api/employees', {
       tenantId,
@@ -385,6 +407,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
       phone: phone.trim(),
       role,
       mortalityPhotoThreshold: Number(threshold) || 3,
+      monthlySalaryCents,
       assignedBatchIds: selectedBatches,
       status: 'ACTIVE',
       farmId,
@@ -450,6 +473,10 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
               <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Photo Required Above (deaths)</label>
               <input className="farm-input" placeholder="e.g. 3" type="number" min={0} value={threshold} onChange={(e) => setThreshold(e.target.value)} />
             </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Monthly Salary (KSh)</label>
+              <input className="farm-input" placeholder="Leave blank if not on payroll yet" type="number" min={0} value={monthlySalary} onChange={(e) => setMonthlySalary(e.target.value)} />
+            </div>
           </div>
         )}
 
@@ -494,6 +521,11 @@ export function PeopleDetailScreen() {
   const [roleMatrix, setRoleMatrix] = useState<RoleMatrixEntry[]>([]);
   const [activeSection, setActiveSection] = useState<'profile' | 'permissions' | 'payroll'>('profile');
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  // Payroll tab (payroll-and-gps task) — GET /api/payroll/payslips?employeeId=,
+  // fetched lazily (only once this tab is actually opened) since most visits
+  // to this screen never look at pay history.
+  const [payslips, setPayslips] = useState<ApiPayslip[] | null>(null);
+  const [payslipsError, setPayslipsError] = useState('');
   const [roleSaved, setRoleSaved] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -522,6 +554,14 @@ export function PeopleDetailScreen() {
   }, [tenantId]);
 
   const batchLabel = useCallback((bid: string) => batches.find((b) => b.id === bid)?.code ?? bid.slice(0, 8), [batches]);
+
+  useEffect(() => {
+    if (activeSection !== 'payroll' || !id || payslips !== null) return;
+    apiClient.get<ApiPayslip[]>(`/api/payroll/payslips?tenantId=${tenantId}&employeeId=${id}`).then((res) => {
+      if (res.success) { setPayslips(res.data); setPayslipsError(''); }
+      else { setPayslips([]); setPayslipsError(res.error || 'Failed to load payroll history.'); }
+    });
+  }, [activeSection, id, tenantId, payslips]);
 
   if (loadError) {
     return (
@@ -646,6 +686,7 @@ export function PeopleDetailScreen() {
                 { label: 'Phone', value: employee.phone || '—' },
                 { label: 'Login', value: employee.userId ? 'Account linked' : 'No login account' },
                 { label: 'Photo threshold', value: `${employee.mortalityPhotoThreshold}+ deaths` },
+                { label: 'Monthly salary', value: employee.monthlySalaryCents > 0 ? formatMoney(employee.monthlySalaryCents) : 'Not set' },
                 { label: 'Assigned batches', value: employee.assignedBatchIds.length > 0 ? employee.assignedBatchIds.map(batchLabel).join(', ') : 'None' },
               ].map((row, i, arr) => (
                 <div key={row.label} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
@@ -699,12 +740,34 @@ export function PeopleDetailScreen() {
         )}
 
         {activeSection === 'payroll' && (
-          <div className="farm-card" style={{ padding: 28, textAlign: 'center', marginBottom: 14 }}>
-            <Lock size={26} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Not available yet</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Payroll isn&apos;t tracked in the system yet — no payslip data exists for this employee. This tab will show real pay history once a payroll module is built.
-            </div>
+          <div>
+            {employee.monthlySalaryCents === 0 && (
+              <div style={{ padding: '10px 12px', background: 'rgba(251,191,36,0.06)', borderRadius: 10, border: '1px solid rgba(251,191,36,0.2)', marginBottom: 14, fontSize: 11, color: 'var(--text-muted)' }}>
+                No monthly salary set — this employee is skipped by every payroll run until one is set in Edit Details.
+              </div>
+            )}
+            {payslipsError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{payslipsError}</div>}
+            {!payslipsError && payslips === null && (
+              <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--text-dim)' }}>Loading…</div>
+            )}
+            {!payslipsError && payslips !== null && payslips.length === 0 && (
+              <div className="farm-card" style={{ padding: 24, textAlign: 'center' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No pay history yet</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  This employee hasn&apos;t been paid in a payroll run. Run payroll from Finance → Payroll to pay them for the first time.
+                </div>
+              </div>
+            )}
+            {!payslipsError && payslips !== null && payslips.length > 0 && (
+              <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
+                {payslips.map((p, i, arr) => (
+                  <div key={p.id} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fmtDate(p.periodStart)} – {fmtDate(p.periodEnd)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(p.amountCents)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -785,16 +848,20 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
   const [name, setName] = useState(employee.name);
   const [phone, setPhone] = useState(employee.phone);
   const [threshold, setThreshold] = useState(String(employee.mortalityPhotoThreshold));
+  const [monthlySalary, setMonthlySalary] = useState(employee.monthlySalaryCents > 0 ? String(centsToMajor(employee.monthlySalaryCents)) : '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     if (!name.trim()) { setError('Full name is required.'); return; }
+    const monthlySalaryCents = monthlySalary.trim() === '' ? 0 : parseMoneyToCents(monthlySalary);
+    if (monthlySalaryCents === null) { setError('Monthly salary must be a valid amount.'); return; }
     setSaving(true); setError('');
     const res = await apiClient.patch<ApiEmployee>(`/api/employees/${employee.id}?tenantId=${tenantId}`, {
       name: name.trim(),
       phone: phone.trim(),
       mortalityPhotoThreshold: Number(threshold) || 0,
+      monthlySalaryCents,
     });
     setSaving(false);
     if (!res.success) { setError(res.error || 'Failed to save changes.'); return; }
@@ -816,9 +883,13 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
           <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone</label>
           <input className="farm-input" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 10 }}>
           <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Photo Required Above (deaths)</label>
           <input className="farm-input" type="number" min={0} value={threshold} onChange={(e) => setThreshold(e.target.value)} />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Monthly Salary (KSh)</label>
+          <input className="farm-input" placeholder="Leave blank if not on payroll" type="number" min={0} value={monthlySalary} onChange={(e) => setMonthlySalary(e.target.value)} />
         </div>
         {error && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" disabled={saving} style={{ width: '100%', justifyContent: 'center', borderRadius: 12, padding: 12, opacity: saving ? 0.7 : 1 }} onClick={handleSave}>

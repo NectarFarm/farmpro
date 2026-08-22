@@ -2,11 +2,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
-import { Plus, Search, X, Download, Lock } from './icons';
+import { Plus, Search, X, Download, ChevronRight } from './icons';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
-import { parseMoneyToCents, centsToMajor } from '@/lib/money';
+import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
 
 // ── Real-data wiring (issue #240) ───────────────────────────────────────────
 // This screen used to render entirely from hardcoded mock data (a sales
@@ -54,9 +54,14 @@ import { parseMoneyToCents, centsToMajor } from '@/lib/money';
 //                                                     for display (purchases
 //                                                     rows only carry itemId)
 //
-// Payroll: no payroll backend exists anywhere in this app (out of scope per
-// #247/#248) — the Payroll tab below is an honest "not available yet" state,
-// same treatment as components/farm/worker.tsx's WorkerPayScreen.
+// Payroll (payroll-and-gps task): the Payroll tab now runs
+// GET/POST /api/payroll/runs and GET /api/payroll/runs/[id] for real — an
+// owner runs payroll for a period and sees the resulting run + payslips.
+// Write access is gated server-side by canEdit(payroll) (owner-only by
+// default; lib/permissions.ts) — the "Run Payroll" button is shown to
+// everyone who can see this tab and the server 403 is surfaced inline
+// rather than duplicating the role check client-side, same pattern the rest
+// of this screen doesn't bother pre-checking either.
 //
 // ── Money units (issue: money-unit-enforcement) ─────────────────────────────
 // `sales.amountCents` used to be `sales.amount`, a plain whole-currency-unit
@@ -140,6 +145,23 @@ interface ApiTrialBalance {
   totalDebitsCents: number;
   totalCreditsCents: number;
   balanced: boolean;
+}
+
+// GET/POST /api/payroll/runs, GET /api/payroll/runs/[id] (payroll-and-gps task).
+interface ApiPayrollRun {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  totalAmountCents: number;
+  employeeCount: number;
+  memo: string;
+  createdAt: string | null;
+}
+interface ApiPayslip {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  amountCents: number;
 }
 
 function fmtDate(d?: string | null): string {
@@ -487,6 +509,96 @@ const GL_COLS: ColDef<Record<string, unknown>>[] = [
   },
 ];
 
+/* ── Run Payroll sheet — real POST /api/payroll/runs (payroll-and-gps task).
+ * Only asks for the period: every ACTIVE employee with a monthlySalaryCents
+ * > 0 is paid their full rate automatically — there is no per-employee
+ * amount entry here, deliberately (see db/schemas/people.ts's comment on
+ * why this app has no attendance data to compute anything finer-grained
+ * from). A 403 here (a non-owner role) is shown as a plain inline error,
+ * same as every other sheet on this screen. ── */
+function RunPayrollSheet({ tenantId, onCreated, onClose }: {
+  tenantId: string;
+  onCreated: () => void;
+  onClose: () => void;
+}) {
+  const today = new Date();
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  const lastOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const [periodStart, setPeriodStart] = useState(firstOfMonth);
+  const [periodEnd, setPeriodEnd] = useState(lastOfMonth);
+  const [memo, setMemo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ run: ApiPayrollRun; payslips: ApiPayslip[] } | null>(null);
+
+  async function run() {
+    if (!periodStart || !periodEnd) { setError('Select a period start and end date.'); return; }
+    setSaving(true);
+    setError('');
+    const res = await apiClient.post<{ run: ApiPayrollRun; payslips: ApiPayslip[] }>('/api/payroll/runs', {
+      tenantId, periodStart, periodEnd, memo: memo.trim() || undefined,
+    });
+    setSaving(false);
+    if (!res.success) { setError(res.error || 'Failed to run payroll.'); return; }
+    setResult(res.data);
+    onCreated();
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Run Payroll</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        {result ? (
+          <div>
+            <div style={{ padding: '14px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 12, marginBottom: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Payroll run complete</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(result.run.totalAmountCents)}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{result.run.employeeCount} employee{result.run.employeeCount === 1 ? '' : 's'} paid · posted to the ledger</div>
+            </div>
+            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
+              {result.payslips.map((p, i, arr) => (
+                <div key={p.id} style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', fontSize: 12, borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>{p.employeeName}</span>
+                  <span style={{ fontWeight: 700 }}>{formatMoney(p.amountCents)}</span>
+                </div>
+              ))}
+            </div>
+            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={onClose}>Done</button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period start *</label>
+                <input className="farm-input" type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period end *</label>
+                <input className="farm-input" type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Memo (optional)</label>
+              <input className="farm-input" placeholder="e.g. August 2026 salaries" value={memo} onChange={e => setMemo(e.target.value)} />
+            </div>
+            <div style={{ padding: '10px 12px', background: 'rgba(251,191,36,0.06)', borderRadius: 10, border: '1px solid rgba(251,191,36,0.2)', marginBottom: 14, fontSize: 11, color: 'var(--text-muted)' }}>
+              Every active employee with a monthly salary set is paid their full rate for this period — gross pay only, no tax or statutory deductions. This posts a Payroll Expense entry to the ledger and cannot be undone from here.
+            </div>
+            {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={run}>
+              {saving ? 'Running…' : 'Run Payroll'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Screen ─────────────────────────────────────────────────────────────── */
 
 export function FinanceScreen() {
@@ -511,6 +623,14 @@ export function FinanceScreen() {
   const [glError, setGlError] = useState('');
   const [budgetReport, setBudgetReport] = useState<ReportPayload | null>(null);
   const [budgetError, setBudgetError] = useState('');
+
+  // Payroll (payroll-and-gps task)
+  const [payrollRuns, setPayrollRuns] = useState<ApiPayrollRun[] | null>(null);
+  const [payrollError, setPayrollError] = useState('');
+  const [showRunPayroll, setShowRunPayroll] = useState(false);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [expandedPayslips, setExpandedPayslips] = useState<ApiPayslip[] | null>(null);
+  const [expandedError, setExpandedError] = useState('');
 
   // farm-scoped-data task: sales/purchases/batches all re-fetch on
   // activeFarmId change. Sales is a JOIN filter (batchId -> batches.unitId
@@ -555,6 +675,29 @@ export function FinanceScreen() {
     });
   }, [tenantId]);
 
+  // Payroll (payroll-and-gps task): a manager sees this list (canView is
+  // 'view' by default) even though POST /api/payroll/runs 403s them — the
+  // 403 is what actually enforces "manager can't run payroll," not hiding
+  // the list. A worker would get a 403 here too (payroll: 'hidden'), but
+  // this screen's own tab bar already keeps workers off the Finance screen
+  // entirely (see components/farm/navigation.tsx's per-role tab config).
+  const loadPayrollRuns = useCallback(() => {
+    apiClient.get<ApiPayrollRun[]>(`/api/payroll/runs?tenantId=${tenantId}`).then((res) => {
+      if (res.success) { setPayrollRuns(res.data); setPayrollError(''); }
+      else { setPayrollRuns([]); setPayrollError(res.error || 'Failed to load payroll runs.'); }
+    });
+  }, [tenantId]);
+
+  async function toggleRunPayslips(runId: string) {
+    if (expandedRunId === runId) { setExpandedRunId(null); return; }
+    setExpandedRunId(runId);
+    setExpandedPayslips(null);
+    setExpandedError('');
+    const res = await apiClient.get<{ run: ApiPayrollRun; payslips: ApiPayslip[] }>(`/api/payroll/runs/${runId}?tenantId=${tenantId}`);
+    if (res.success) setExpandedPayslips(res.data.payslips);
+    else setExpandedError(res.error || 'Failed to load payslips.');
+  }
+
   // Budget Overview (issue #299): Month/Quarter/YTD toggle refetches
   // GET /api/reports/pl with that period's from/to (lib/period-range.ts),
   // instead of the all-time trial balance — see the file-top comment.
@@ -575,6 +718,7 @@ export function FinanceScreen() {
   useEffect(() => { loadBatches(); }, [loadBatches]);
   useEffect(() => { loadGL(); }, [loadGL]);
   useEffect(() => { loadBudget(); }, [loadBudget]);
+  useEffect(() => { loadPayrollRuns(); }, [loadPayrollRuns]);
   useEffect(() => {
     apiClient.get<ApiInventoryItemLite[]>(`/api/inventory/items?tenantId=${tenantId}`).then((res) => {
       if (res.success) setItems(res.data);
@@ -897,14 +1041,57 @@ export function FinanceScreen() {
 
       {/* ── PAYROLL ── */}
       {tab === 'payroll' && (
-        <div className="px-screen">
-          <div className="farm-card" style={{ padding: 28, textAlign: 'center', marginTop: 8 }}>
-            <Lock size={28} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Not available yet</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Payroll isn&apos;t tracked in the system yet — there is no real pay data to show. This screen will connect to a real payroll module once one is built.
+        <div className="px-screen" style={{ marginTop: 8 }}>
+          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 14 }} onClick={() => setShowRunPayroll(true)}>
+            <Plus size={14} /> Run Payroll
+          </button>
+
+          {payrollError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 12 }}>{payrollError}</div>}
+
+          {payrollRuns === null && <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--text-dim)' }}>Loading…</div>}
+
+          {payrollRuns !== null && payrollRuns.length === 0 && !payrollError && (
+            <div className="farm-card" style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No payroll runs yet</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                Set a monthly salary on your employees (People → Edit Employee) then run payroll for a period above.
+              </div>
             </div>
-          </div>
+          )}
+
+          {payrollRuns !== null && payrollRuns.length > 0 && (
+            <div className="farm-card" style={{ overflow: 'hidden' }}>
+              {payrollRuns.map((r, i, arr) => (
+                <div key={r.id} style={{ borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <div
+                    style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                    onClick={() => toggleRunPayslips(r.id)}
+                  >
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{r.employeeCount} employee{r.employeeCount === 1 ? '' : 's'} paid{r.memo ? ` · ${r.memo}` : ''}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(r.totalAmountCents)}</span>
+                      <ChevronRight size={14} color="var(--text-dim)" style={{ transform: expandedRunId === r.id ? 'rotate(90deg)' : undefined, transition: 'transform 0.15s' }} />
+                    </div>
+                  </div>
+                  {expandedRunId === r.id && (
+                    <div style={{ padding: '0 14px 12px 14px', background: 'var(--card)' }}>
+                      {expandedError && <div style={{ fontSize: 11, color: 'var(--status-critical)', padding: '8px 0' }}>{expandedError}</div>}
+                      {!expandedError && expandedPayslips === null && <div style={{ fontSize: 11, color: 'var(--text-dim)', padding: '8px 0' }}>Loading payslips…</div>}
+                      {!expandedError && expandedPayslips !== null && expandedPayslips.map((p) => (
+                        <div key={p.id} style={{ padding: '7px 0', display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{p.employeeName}</span>
+                          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{formatMoney(p.amountCents)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -924,6 +1111,13 @@ export function FinanceScreen() {
           activeFarmId={activeFarmId}
           onCreated={() => { loadPurchases(); loadGL(); }}
           onClose={() => setShowRecordPurchase(false)}
+        />
+      )}
+      {showRunPayroll && (
+        <RunPayrollSheet
+          tenantId={tenantId}
+          onCreated={() => { loadPayrollRuns(); loadGL(); }}
+          onClose={() => setShowRunPayroll(false)}
         />
       )}
     </div>

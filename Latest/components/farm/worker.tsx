@@ -5,8 +5,9 @@ import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import {
   Plus, Camera,
-  ChevronRight, Wifi, Check, Lock, ClipboardList,
+  ChevronRight, Wifi, Check, Lock, ClipboardList, DollarSign, Calendar,
 } from './icons';
+import { formatMoney } from '@/lib/money';
 import {
   splitNotes, displayStatus, STATUS_LABEL, statusChipClass,
   type ApiTask,
@@ -44,6 +45,19 @@ interface ApiRecord {
   type: string;
   data: Record<string, unknown>;
   photoUrl: string | null;
+  createdAt: string | null;
+}
+
+// GET /api/payroll/me's row shape (payroll-and-gps task) — one payslip,
+// joined against its run's period. `amountCents` is a snapshot taken at run
+// time (db/schemas/payroll.ts), not a live figure, so it stays correct even
+// if the employee's rate changes later.
+interface ApiPayslip {
+  id: string;
+  runId: string;
+  amountCents: number;
+  periodStart: string;
+  periodEnd: string;
   createdAt: string | null;
 }
 
@@ -735,17 +749,87 @@ function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void
   );
 }
 
+// ── My Pay (payroll-and-gps task) ───────────────────────────────────────────
+// Wired to GET /api/payroll/me — the worker's own payslips only. That route
+// resolves the caller's employees row from the session itself (never a
+// param this screen could tamper with), so "only my own pay" is a server
+// guarantee, not a client-side filter. A 404 here means no employees row is
+// linked to this login yet (same contract as GET /api/employees/me) — shown
+// as its own message, not folded into the generic error, since the fix is
+// "ask your admin to link your account," not "try again."
+function periodLabel(startIso: string, endIso: string): string {
+  const fmt = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${fmt(startIso)} – ${fmt(endIso)}`;
+}
+
 export function WorkerPayScreen() {
+  const [payslips, setPayslips] = useState<ApiPayslip[] | null>(null);
+  const [error, setError] = useState('');
+  const [notLinked, setNotLinked] = useState(false);
+
+  useEffect(() => {
+    apiClient.get<ApiPayslip[]>('/api/payroll/me').then((res) => {
+      if (res.success) { setPayslips(res.data); setError(''); setNotLinked(false); return; }
+      if (res.error?.toLowerCase().includes('no employee record')) { setNotLinked(true); return; }
+      setError(res.error || 'Could not load your payslips.');
+    });
+  }, []);
+
+  const total = payslips?.reduce((sum, p) => sum + p.amountCents, 0) ?? 0;
+
   return (
     <div className="screen-content px-screen" style={{ paddingTop: 16 }}>
       <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16 }}>My Pay</div>
-      <div className="farm-card" style={{ padding: 28, textAlign: 'center' }}>
-        <Lock size={28} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Not available yet</div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          Payroll and payslips aren&apos;t tracked in the system yet — there is no real pay data to show. This screen will connect to a real payroll module once one is built.
+
+      {notLinked && (
+        <div className="farm-card" style={{ padding: 28, textAlign: 'center' }}>
+          <Lock size={28} color="var(--text-dim)" style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No employee record linked</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Your login isn&apos;t linked to an employee record yet, so there is no pay history to show. Ask your farm owner or manager to link your account.
+          </div>
         </div>
-      </div>
+      )}
+
+      {!notLinked && error && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 12 }}>{error}</div>}
+
+      {!notLinked && !error && payslips === null && (
+        <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--text-dim)' }}>Loading…</div>
+      )}
+
+      {!notLinked && !error && payslips !== null && payslips.length === 0 && (
+        <div className="farm-card" style={{ padding: 28, textAlign: 'center' }}>
+          <DollarSign size={28} color="var(--text-dim)" style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No payslips yet</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            You haven&apos;t been paid in a payroll run yet. Payslips appear here as soon as your owner runs payroll for a period that includes you.
+          </div>
+        </div>
+      )}
+
+      {!notLinked && !error && payslips !== null && payslips.length > 0 && (
+        <>
+          <div className="farm-card" style={{ padding: 16, marginBottom: 14, textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total paid to date</div>
+            <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(total)}</div>
+          </div>
+          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Payslip history</div>
+          <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 16 }}>
+            {payslips.map((p, i, arr) => (
+              <div key={p.id} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Calendar size={16} color="var(--text-dim)" />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{periodLabel(p.periodStart, p.periodEnd)}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Gross pay — no deductions applied</div>
+                  </div>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(p.amountCents)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

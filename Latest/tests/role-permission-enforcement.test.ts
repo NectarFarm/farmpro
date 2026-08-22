@@ -126,11 +126,12 @@ run('role-permission matrix enforcement (role-permission-enforcement task)', () 
       expect(after.length).toBe(before.length)
       expect(after.some((s) => s.item === 'Manager attempt')).toBe(false)
 
-      // payroll: no write route exists anywhere in this app for it (grepped
-      // db/schemas and app/api — confirmed no payroll table/route), so the
-      // "manager lacks payroll by default" half of this line is asserted
-      // directly against `getRoleAccess`, the exact function every
-      // enforcing route above calls, rather than inventing an endpoint.
+      // payroll: a real write route exists now (POST /api/payroll/runs,
+      // payroll-and-gps task) — see tests/payroll.test.ts for the full,
+      // enforced-for-real coverage (manager refused, worker refused, ledger
+      // balances, worker sees only their own payslips). This line just
+      // keeps asserting the default matrix fact this suite already covers
+      // for finance, so both money modules stay documented in one place.
       expect(await getRoleAccess(tenantId, 'manager', MODULES.payroll)).not.toBe('edit')
     })
 
