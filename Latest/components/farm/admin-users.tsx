@@ -132,10 +132,10 @@ export function ImpersonationBanner({ info, onReturned }: { info: ImpersonationI
       }}
     >
       <ShieldAlert size={16} color="#1a1400" style={{ flexShrink: 0 }} />
-      <div style={{ flex: 1, minWidth: 200, fontSize: 12, fontWeight: 700, color: '#1a1400', lineHeight: 1.35 }}>
+      <div style={{ flex: 1, minWidth: 200, fontSize: 'var(--fs-sm)', fontWeight: 700, color: '#1a1400', lineHeight: 1.35 }}>
         Impersonation active — {info.adminName} ({info.adminEmail}) is signed in as you and is accountable for actions taken during this window.
       </div>
-      <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 800, color: remainingMs < 60000 ? '#7f1d1d' : '#1a1400', flexShrink: 0 }}>
+      <div style={{ fontFamily: 'monospace', fontSize: 'var(--fs-lg)', fontWeight: 800, color: remainingMs < 60000 ? '#7f1d1d' : '#1a1400', flexShrink: 0 }}>
         {mm}:{ss}
       </div>
       <button
@@ -143,7 +143,7 @@ export function ImpersonationBanner({ info, onReturned }: { info: ImpersonationI
         onClick={() => void endSession()}
         disabled={ending}
         style={{
-          flexShrink: 0, padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+          flexShrink: 0, padding: '6px 12px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700,
           cursor: ending ? 'default' : 'pointer', background: '#1a1400', color: '#fbbf24',
           border: 'none', display: 'flex', alignItems: 'center', gap: 6,
         }}
@@ -165,25 +165,25 @@ function TempPasswordModal({ email, password, onClose }: { email: string; passwo
       <div className="farm-card" style={{ width: '100%', maxWidth: 380, padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <CheckCircle2 size={18} color="var(--status-ok)" />
-          <div style={{ fontSize: 15, fontWeight: 700 }}>Password Reset</div>
+          <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>Password Reset</div>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
           New temporary password for <strong>{email}</strong>. Share it with them now — through a channel you trust, out of band.
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
-          <code style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 700, flex: 1, letterSpacing: '0.02em', wordBreak: 'break-all', color: 'var(--text-primary)' }}>{password}</code>
+          <code style={{ fontFamily: 'monospace', fontSize: 'var(--fs-md)', fontWeight: 700, flex: 1, letterSpacing: '0.02em', wordBreak: 'break-all', color: 'var(--text-primary)' }}>{password}</code>
           <button
             onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(password); setCopied(true); }}
-            style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer', flexShrink: 0 }}
+            style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer', flexShrink: 0 }}
           >
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 10, color: 'var(--status-warning)', marginBottom: 16, lineHeight: 1.4 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', marginBottom: 16, lineHeight: 1.4 }}>
           <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>This password cannot be retrieved again once you close this dialog. If it&apos;s lost, reset it again.</span>
         </div>
-        <button onClick={onClose} className="btn-primary" style={{ width: '100%', justifyContent: 'center', fontSize: 13, padding: 10 }}>Done</button>
+        <button onClick={onClose} className="btn-primary" style={{ width: '100%', justifyContent: 'center', fontSize: 'var(--fs-base)', padding: 10 }}>Done</button>
       </div>
     </div>
   );
@@ -220,9 +220,9 @@ function ImpersonateDialog({ user, onClose, onStarted }: { user: AdminUser; onCl
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <UserCheck size={18} color="var(--primary-green)" />
-              <div style={{ fontSize: 15, fontWeight: 700 }}>Log in as {user.name}</div>
+              <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>Log in as {user.name}</div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
               Choose how long you need. The session ends automatically when time is up — pick the shortest window that covers the task.
             </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -234,10 +234,10 @@ function ImpersonateDialog({ user, onClose, onStarted }: { user: AdminUser; onCl
                     flex: 1, padding: '12px 6px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
                     background: minutes === m ? 'rgba(74,222,128,0.15)' : 'var(--surface)',
                     border: minutes === m ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)',
-                    color: minutes === m ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: 700, fontSize: 14,
+                    color: minutes === m ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: 700, fontSize: 'var(--fs-md)',
                   }}
                 >
-                  {m}<span style={{ fontSize: 10, fontWeight: 600, display: 'block', color: 'var(--text-dim)' }}>min</span>
+                  {m}<span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 600, display: 'block', color: 'var(--text-dim)' }}>min</span>
                 </button>
               ))}
             </div>
@@ -257,12 +257,12 @@ function ImpersonateDialog({ user, onClose, onStarted }: { user: AdminUser; onCl
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <ShieldAlert size={18} color="var(--status-warning)" />
-              <div style={{ fontSize: 15, fontWeight: 700 }}>Confirm accountability</div>
+              <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>Confirm accountability</div>
             </div>
-            <div style={{ padding: '12px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            <div style={{ padding: '12px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, marginBottom: 16, fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
               You are about to sign in as <strong>{user.name}</strong> ({user.email}) for <strong>{minutes} minutes</strong>. Every action taken during this window is recorded against your admin account, and you are personally responsible for it. The session ends automatically at expiry, or you can end it early at any time from the banner shown while impersonating.
             </div>
-            {error && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 12 }}>{error}</div>}
+            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>{error}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setConfirming(false)} disabled={starting} className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }}>Back</button>
               <button onClick={() => void start()} disabled={starting} className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
@@ -342,8 +342,8 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
       <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '90%', overflowY: 'auto', border: '1px solid var(--border-subtle)', padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>{user.name}</div>
-            <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(74,222,128,0.1)', color: 'var(--primary-green)', border: '1px solid rgba(74,222,128,0.3)' }}>
+            <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>{user.name}</div>
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(74,222,128,0.1)', color: 'var(--primary-green)', border: '1px solid rgba(74,222,128,0.3)' }}>
               {roleLabel(user.role).toUpperCase()}
             </span>
           </div>
@@ -355,18 +355,18 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
           <div className="section-eyebrow" style={{ marginBottom: 10 }}>Details</div>
 
           <div style={{ marginBottom: 12 }}>
-            <label htmlFor="edit-user-name" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Name</label>
+            <label htmlFor="edit-user-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Name</label>
             <input
               id="edit-user-name" className="farm-input"
               style={errors.name ? { border: '1px solid var(--status-critical)' } : undefined}
               value={name} onChange={(e) => { setName(e.target.value); clearFieldError('name'); }}
               aria-invalid={!!errors.name} aria-describedby={errors.name ? 'edit-user-name-error' : undefined}
             />
-            {errors.name && <div id="edit-user-name-error" style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.name}</div>}
+            {errors.name && <div id="edit-user-name-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.name}</div>}
           </div>
 
           <div style={{ marginBottom: 12 }}>
-            <label htmlFor="edit-user-email" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email</label>
+            <label htmlFor="edit-user-email" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email</label>
             <div style={{ position: 'relative' }}>
               <Mail size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
@@ -376,11 +376,11 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
                 type="email" aria-invalid={!!errors.email} aria-describedby={errors.email ? 'edit-user-email-error' : undefined}
               />
             </div>
-            {errors.email && <div id="edit-user-email-error" style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.email}</div>}
+            {errors.email && <div id="edit-user-email-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.email}</div>}
           </div>
 
           <div style={{ marginBottom: 12 }}>
-            <label htmlFor="edit-user-phone" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
+            <label htmlFor="edit-user-phone" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
               Phone <span style={{ fontWeight: 400, color: 'var(--text-dim)' }}>(matched against forgot-password requests)</span>
             </label>
             <div style={{ position: 'relative' }}>
@@ -393,12 +393,12 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
                 aria-invalid={!!errors.phone} aria-describedby={errors.phone ? 'edit-user-phone-error' : undefined}
               />
             </div>
-            {errors.phone && <div id="edit-user-phone-error" style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.phone}</div>}
+            {errors.phone && <div id="edit-user-phone-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.phone}</div>}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 4 }}>
             <div>
-              <label htmlFor="edit-user-role" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role</label>
+              <label htmlFor="edit-user-role" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role</label>
               <select
                 id="edit-user-role" className="farm-input"
                 style={errors.role ? { border: '1px solid var(--status-critical)' } : undefined}
@@ -407,10 +407,10 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
               >
                 {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
-              {errors.role && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.role}</div>}
+              {errors.role && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.role}</div>}
             </div>
             <div>
-              <label htmlFor="edit-user-status" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
+              <label htmlFor="edit-user-status" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
               <select
                 id="edit-user-status" className="farm-input"
                 style={errors.status ? { border: '1px solid var(--status-critical)' } : undefined}
@@ -419,12 +419,12 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
               >
                 {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
-              {errors.status && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.status}</div>}
+              {errors.status && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.status}</div>}
             </div>
           </div>
 
-          {saveError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginTop: 12 }}>{saveError}</div>}
-          {saved && <div style={{ fontSize: 12, color: 'var(--primary-green)', marginTop: 12, display: 'flex', alignItems: 'center', gap: 5 }}><CheckCircle2 size={13} /> Saved</div>}
+          {saveError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginTop: 12 }}>{saveError}</div>}
+          {saved && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--primary-green)', marginTop: 12, display: 'flex', alignItems: 'center', gap: 5 }}><CheckCircle2 size={13} /> Saved</div>}
 
           <button onClick={() => void save()} disabled={saving} className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 14 }}>
             {saving ? 'Saving…' : 'Save Changes'}
@@ -432,7 +432,7 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
         </div>
 
         {/* Meta */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14, fontSize: 11, color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
           <Clock size={12} style={{ flexShrink: 0 }} />
           <span>Created: {formatDateTime(user.createdAt)}</span>
           <span style={{ marginLeft: 4, fontWeight: 700, color: 'var(--text-dim)' }}>{user.tenantId ?? 'platform'}</span>
@@ -441,12 +441,12 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
         {/* Actions */}
         <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
           <div className="section-eyebrow" style={{ marginBottom: 10 }}>Actions</div>
-          {resetError && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 8 }}>{resetError}</div>}
+          {resetError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{resetError}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={() => void resetPassword()}
               disabled={resetting}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 12.5, fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-blue)', cursor: resetting ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-blue)', cursor: resetting ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               <Key size={13} /> {resetting ? 'Resetting…' : 'Reset Password'}
             </button>
@@ -454,7 +454,7 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
               onClick={() => setShowImpersonate(true)}
               disabled={user.role === 'super_admin'}
               title={user.role === 'super_admin' ? 'Cannot impersonate another super_admin' : undefined}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 12.5, fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: user.role === 'super_admin' ? 'not-allowed' : 'pointer', opacity: user.role === 'super_admin' ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: user.role === 'super_admin' ? 'not-allowed' : 'pointer', opacity: user.role === 'super_admin' ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               <UserCheck size={13} /> Log in as user
             </button>
@@ -503,13 +503,13 @@ function PasswordResetsTab() {
     }
   }
 
-  if (loading) return <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>;
-  if (loadError) return <div style={{ fontSize: 12, color: 'var(--status-critical)', padding: 14 }}>{loadError}</div>;
+  if (loading) return <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading…</div>;
+  if (loadError) return <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', padding: 14 }}>{loadError}</div>;
   if (rows.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
         <CheckCircle2 size={32} style={{ marginBottom: 10, opacity: 0.4 }} />
-        <div style={{ fontSize: 14, fontWeight: 600 }}>No pending password reset requests</div>
+        <div style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>No pending password reset requests</div>
       </div>
     );
   }
@@ -520,18 +520,18 @@ function PasswordResetsTab() {
         <div key={row.id} className="farm-card" style={{ padding: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{row.userName}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{row.email} · {row.phone}</div>
+              <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700 }}>{row.userName}</div>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{row.email} · {row.phone}</div>
             </div>
-            <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(251,191,36,0.1)', color: 'var(--status-warning)', border: '1px solid rgba(251,191,36,0.3)' }}>PENDING</span>
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(251,191,36,0.1)', color: 'var(--status-warning)', border: '1px solid rgba(251,191,36,0.3)' }}>PENDING</span>
           </div>
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 10 }}>
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 10 }}>
             <Clock size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} /> Requested {formatDateTime(row.requestedAt)}
           </div>
           <button
             onClick={() => void handle(row)}
             disabled={busyId === row.id}
-            style={{ width: '100%', padding: 9, borderRadius: 10, fontSize: 12, fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-blue)', cursor: busyId === row.id ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            style={{ width: '100%', padding: 9, borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-blue)', cursor: busyId === row.id ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
           >
             <Key size={12} /> {busyId === row.id ? 'Resetting…' : 'Reset Password'}
           </button>
@@ -558,13 +558,13 @@ function ImpersonationLogTab() {
     });
   }, []);
 
-  if (loading) return <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>;
-  if (loadError) return <div style={{ fontSize: 12, color: 'var(--status-critical)', padding: 14 }}>{loadError}</div>;
+  if (loading) return <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading…</div>;
+  if (loadError) return <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', padding: 14 }}>{loadError}</div>;
   if (rows.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
         <ShieldAlert size={32} style={{ marginBottom: 10, opacity: 0.4 }} />
-        <div style={{ fontSize: 14, fontWeight: 600 }}>No impersonation activity yet</div>
+        <div style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>No impersonation activity yet</div>
       </div>
     );
   }
@@ -581,12 +581,12 @@ function ImpersonationLogTab() {
               {isStart ? <UserCheck size={13} color="var(--primary-green)" /> : <LogOut size={13} color="var(--accent-blue)" />}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                 <strong>{row.admin.name}</strong> ({row.admin.email}) {isStart ? 'started impersonating' : 'stopped impersonating'} <strong>{row.target.name}</strong> ({row.target.email})
                 {isStart && minutes != null && <span style={{ color: 'var(--text-muted)' }}> for {minutes} min</span>}
                 {!isStart && <span style={{ color: 'var(--text-muted)' }}> ({endedEarly ? 'ended early' : 'expired'})</span>}
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>{formatDateTime(row.at)}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 3 }}>{formatDateTime(row.at)}</div>
             </div>
           </div>
         );
@@ -669,16 +669,16 @@ export function AdminUsersScreen() {
             {loadError && (
               <div className="farm-card" style={{ padding: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <AlertTriangle size={16} color="var(--status-critical)" />
-                <span style={{ fontSize: 12, color: 'var(--status-critical)' }}>{loadError}</span>
+                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{loadError}</span>
               </div>
             )}
             {loading && !loadError && (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading users…</div>
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading users…</div>
             )}
             {!loading && !loadError && users.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
                 <UserCheck size={32} style={{ marginBottom: 10, opacity: 0.4 }} />
-                <div style={{ fontSize: 14, fontWeight: 600 }}>No users match these filters</div>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>No users match these filters</div>
               </div>
             )}
             {!loading && !loadError && users.length > 0 && (
@@ -687,22 +687,22 @@ export function AdminUsersScreen() {
                   <button key={u.id} onClick={() => setSelected(u)} className="farm-card" style={{ padding: 14, width: '100%', textAlign: 'left', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
-                        <div style={{ fontSize: 14, fontWeight: 700 }}>{u.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{u.email}{u.phone ? ` · ${u.phone}` : ''}</div>
+                        <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700 }}>{u.name}</div>
+                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{u.email}{u.phone ? ` · ${u.phone}` : ''}</div>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(74,222,128,0.1)', color: 'var(--primary-green)', border: '1px solid rgba(74,222,128,0.3)' }}>
+                        <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(74,222,128,0.1)', color: 'var(--primary-green)', border: '1px solid rgba(74,222,128,0.3)' }}>
                           {roleLabel(u.role).toUpperCase()}
                         </span>
                         {u.status !== 'ACTIVE' && (
-                          <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(248,113,113,0.1)', color: 'var(--status-critical)', border: '1px solid rgba(248,113,113,0.3)' }}>
+                          <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(248,113,113,0.1)', color: 'var(--status-critical)', border: '1px solid rgba(248,113,113,0.3)' }}>
                             {u.status}
                           </span>
                         )}
                       </div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                      <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{u.tenantId ?? 'platform'}</span>
+                      <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>{u.tenantId ?? 'platform'}</span>
                       <ChevronRight size={14} color="var(--text-muted)" />
                     </div>
                   </button>

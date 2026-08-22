@@ -114,7 +114,7 @@ export function StatusTimeline({
 
   if (loading && entries.length === 0) {
     return (
-      <div className={className} style={{ padding: '10px 0', fontSize: 11, color: 'var(--text-dim)' }}>
+      <div className={className} style={{ padding: '10px 0', fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>
         Loading timeline…
       </div>
     );
@@ -126,7 +126,7 @@ export function StatusTimeline({
 
   return (
     <div className={className}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+      <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
         <Clock size={11} color="var(--text-dim)" />
         Status History
       </div>
@@ -147,16 +147,16 @@ export function StatusTimeline({
               <div style={{ position: 'absolute', left: -14, top: 3, width: 8, height: 8, borderRadius: '50%', background: entry.action.includes('rejected') || entry.action.includes('blocked') ? 'var(--status-critical)' : entry.action.includes('approved') || entry.action.includes('completed') ? 'var(--primary-green)' : 'var(--accent-blue)', border: '2px solid var(--surface)' }} />
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11 }}>{icon}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
-                  <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>by {actorName}</span>
+                  <span style={{ fontSize: 'var(--fs-xs)' }}>{icon}</span>
+                  <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+                  <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>by {actorName}</span>
                   {entry.actorRole && (
-                    <span style={{ fontSize: 9, color: 'var(--text-dim)', textTransform: 'capitalize', background: 'var(--card)', padding: '1px 5px', borderRadius: 4 }}>{entry.actorRole}</span>
+                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'capitalize', background: 'var(--card)', padding: '1px 5px', borderRadius: 4 }}>{entry.actorRole}</span>
                   )}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>{formatTime(entry.at, regional)}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 1 }}>{formatTime(entry.at, regional)}</div>
                 {metaReason && (
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontStyle: 'italic' }}>"{metaReason}"</div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 2, fontStyle: 'italic' }}>"{metaReason}"</div>
                 )}
               </div>
             </div>
@@ -166,7 +166,7 @@ export function StatusTimeline({
       {hasMore && !showAll && (
         <button
           onClick={() => setShowAll(true)}
-          style={{ marginTop: 8, fontSize: 11, color: 'var(--accent-blue)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, padding: 0 }}
+          style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--accent-blue)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, padding: 0 }}
         >
           <ChevronDown size={12} /> More ({entries.length - limit} more)
         </button>
@@ -174,7 +174,7 @@ export function StatusTimeline({
       {showAll && hasMore && (
         <button
           onClick={() => setShowAll(false)}
-          style={{ marginTop: 8, fontSize: 11, color: 'var(--text-dim)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, padding: 0 }}
+          style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, padding: 0 }}
         >
           <ChevronUp size={12} /> Show less
         </button>

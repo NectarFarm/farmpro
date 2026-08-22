@@ -47,8 +47,21 @@
 //                                                  matching in this pass — out of scope,
 //                                                  same "minimal" instruction as the rest
 //                                                  of this issue)
-// No payroll account and no payroll postings — there is no payroll table
-// anywhere in this app (explicitly out of scope, per People epic #247/#248).
+//   5002 Payroll Expense      EXPENSE    debit   — added by the payroll-and-gps task: every
+//                                                  payroll run, in full, posted Dr Payroll
+//                                                  Expense / Cr Cash (cash-basis, "paid in
+//                                                  full at run time" — same treatment as a
+//                                                  fully-paid purchase; see
+//                                                  db/schemas/payroll.ts and
+//                                                  lib/finance.ts's postPayrollJournal). This
+//                                                  replaces the earlier "no payroll account
+//                                                  and no payroll postings" state — a real
+//                                                  `payroll_runs`/`payslips` pair now exists
+//                                                  (db/schemas/payroll.ts) and deliberately
+//                                                  DOES post, since leaving a real payroll
+//                                                  expense out of the ledger would make the
+//                                                  GL/trial balance/P&L quietly wrong once
+//                                                  payroll is real money moving.
 import { pgTable, text, timestamp, integer, bigint, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
 // A tenant's sales — the real backend for components/farm/finance.tsx's

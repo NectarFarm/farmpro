@@ -2,11 +2,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
-import { Plus, Search, X, Download, Lock } from './icons';
+import { Plus, Search, X, Download, ChevronRight } from './icons';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
-import { parseMoneyToCents, centsToMajor } from '@/lib/money';
+import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
 
 // ── Real-data wiring (issue #240) ───────────────────────────────────────────
 // This screen used to render entirely from hardcoded mock data (a sales
@@ -54,9 +54,14 @@ import { parseMoneyToCents, centsToMajor } from '@/lib/money';
 //                                                     for display (purchases
 //                                                     rows only carry itemId)
 //
-// Payroll: no payroll backend exists anywhere in this app (out of scope per
-// #247/#248) — the Payroll tab below is an honest "not available yet" state,
-// same treatment as components/farm/worker.tsx's WorkerPayScreen.
+// Payroll (payroll-and-gps task): the Payroll tab now runs
+// GET/POST /api/payroll/runs and GET /api/payroll/runs/[id] for real — an
+// owner runs payroll for a period and sees the resulting run + payslips.
+// Write access is gated server-side by canEdit(payroll) (owner-only by
+// default; lib/permissions.ts) — the "Run Payroll" button is shown to
+// everyone who can see this tab and the server 403 is surfaced inline
+// rather than duplicating the role check client-side, same pattern the rest
+// of this screen doesn't bother pre-checking either.
 //
 // ── Money units (issue: money-unit-enforcement) ─────────────────────────────
 // `sales.amountCents` used to be `sales.amount`, a plain whole-currency-unit
@@ -142,6 +147,23 @@ interface ApiTrialBalance {
   balanced: boolean;
 }
 
+// GET/POST /api/payroll/runs, GET /api/payroll/runs/[id] (payroll-and-gps task).
+interface ApiPayrollRun {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  totalAmountCents: number;
+  employeeCount: number;
+  memo: string;
+  createdAt: string | null;
+}
+interface ApiPayslip {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  amountCents: number;
+}
+
 function fmtDate(d?: string | null): string {
   return d ? d.slice(0, 10) : '—';
 }
@@ -194,43 +216,43 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Record Sale</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Record Sale</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
           <input className="farm-input" placeholder="e.g. Tray eggs (30) × 120" value={item} onChange={e => setItem(e.target.value)} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount (KSh) *</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount (KSh) *</label>
             <input className="farm-input" type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Method</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Method</label>
             <input className="farm-input" placeholder="e.g. Mpesa" value={method} onChange={e => setMethod(e.target.value)} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Batch (optional)</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Batch (optional)</label>
             <select className="farm-input" value={batchId} onChange={e => setBatchId(e.target.value)}>
               <option value="">No batch (general sale)</option>
               {batches.map(b => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sold on</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sold on</label>
             <input className="farm-input" type="date" value={soldAt} onChange={e => setSoldAt(e.target.value)} />
           </div>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {(['paid', 'pending'] as const).map(s => (
               <button key={s} onClick={() => setStatus(s)} style={{
-                padding: '9px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                padding: '9px 8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
                 background: status === s ? 'rgba(74,222,128,0.1)' : 'var(--card)',
                 border: status === s ? '1px solid rgba(74,222,128,0.3)' : '1px solid var(--border-subtle)',
                 color: status === s ? 'var(--primary-green)' : 'var(--text-muted)',
@@ -239,7 +261,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
           </div>
         </div>
 
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
           {saving ? 'Saving…' : 'Record Sale'}
         </button>
@@ -317,26 +339,26 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Record Purchase / Expense</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Record Purchase / Expense</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
           This also brings the item into Inventory stock — there is no expense-only record separate from a purchase.
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
           <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
             <option value="" disabled>Select a farm…</option>
             {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
           <input className="farm-input" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)} />
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
           <input className="farm-input" list="finance-item-names" placeholder="e.g. Broiler Starter Mash" value={itemName} onChange={e => setItemName(e.target.value)} />
           <datalist id="finance-item-names">
             {itemNames.map(n => <option key={n} value={n} />)}
@@ -344,36 +366,36 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
             <input className="farm-input" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
             <input className="farm-input" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Quantity *</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Quantity *</label>
             <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Cost/unit (KSh) *</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Cost/unit (KSh) *</label>
             <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Payment Method</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Payment Method</label>
             <input className="farm-input" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
             <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} />
           </div>
         </div>
 
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
           {saving ? 'Saving…' : 'Record Purchase'}
         </button>
@@ -392,100 +414,190 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
 const BATCH_PNL_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: 'name', header: 'Batch', sortable: true, minWidth: 140,
-    summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-muted)' }}>TOTALS</span>,
+    summary: () => <span style={{ fontWeight: 700, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>TOTALS</span>,
     render: (r) => (
       <div>
-        <div style={{ fontWeight: 600, fontSize: 12 }}>{r.name as string}</div>
-        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{r.code as string}</div>
+        <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{r.name as string}</div>
+        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{r.code as string}</div>
       </div>
     ),
   },
   {
     key: 'revenue', header: 'Revenue', sortable: true, align: 'right', minWidth: 80,
     summary: 'sum',
-    render: (r) => <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(r.revenue as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(r.revenue as number).toLocaleString()}</span>,
   },
   {
     key: 'cost', header: 'Cost', sortable: true, align: 'right', minWidth: 72,
     summary: 'sum',
-    render: (r) => <span style={{ fontSize: 12, color: 'var(--status-critical)' }}>KSh {(r.cost as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>KSh {(r.cost as number).toLocaleString()}</span>,
   },
   {
     key: 'margin', header: 'Margin', sortable: true, align: 'right', minWidth: 72,
     summary: 'sum',
-    render: (r) => <span style={{ fontSize: 12, fontWeight: 700, color: (r.margin as number) > 0 ? 'var(--primary-green)' : 'var(--status-critical)' }}>KSh {(r.margin as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: (r.margin as number) > 0 ? 'var(--primary-green)' : 'var(--status-critical)' }}>KSh {(r.margin as number).toLocaleString()}</span>,
   },
   {
     key: 'pct', header: '%', sortable: true, align: 'right', minWidth: 50,
     summary: 'avg',
-    render: (r) => <span style={{ fontSize: 12, fontWeight: 700, color: (r.pct as number) > 20 ? 'var(--status-ok)' : 'var(--status-warning)' }}>{r.pct as number}%</span>,
+    render: (r) => <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: (r.pct as number) > 20 ? 'var(--status-ok)' : 'var(--status-warning)' }}>{r.pct as number}%</span>,
   },
   {
     key: 'status', header: 'Status', align: 'center', minWidth: 70,
     summary: 'count',
-    render: (r) => <span className={`chip ${r.status === 'ACTIVE' ? 'chip-ok' : 'chip-info'}`} style={{ fontSize: 9 }}>{r.status as string}</span>,
+    render: (r) => <span className={`chip ${r.status === 'ACTIVE' ? 'chip-ok' : 'chip-info'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{r.status as string}</span>,
   },
 ];
 
 const SALES_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: 'item', header: 'Item', sortable: true, minWidth: 160,
-    summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-muted)' }}>TOTALS</span>,
+    summary: () => <span style={{ fontWeight: 700, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>TOTALS</span>,
     render: (r) => (
       <div>
-        <div style={{ fontWeight: 600, fontSize: 12 }}>{r.item as string}</div>
-        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{(r.batchLabel as string) || '—'} · {(r.method as string) || '—'}</div>
+        <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{r.item as string}</div>
+        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{(r.batchLabel as string) || '—'} · {(r.method as string) || '—'}</div>
       </div>
     ),
   },
-  { key: 'date', header: 'Date', sortable: true, minWidth: 88, render: (r) => <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.date as string}</span> },
+  { key: 'date', header: 'Date', sortable: true, minWidth: 88, render: (r) => <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{r.date as string}</span> },
   {
     key: 'amount', header: 'Amount', sortable: true, align: 'right', minWidth: 90,
     summary: 'sum',
-    render: (r) => <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(r.amount as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(r.amount as number).toLocaleString()}</span>,
   },
   {
     key: 'status', header: 'Status', align: 'center', minWidth: 70,
     summary: 'count',
-    render: (r) => <span className={`chip ${r.status === 'paid' ? 'chip-ok' : 'chip-warning'}`} style={{ fontSize: 9 }}>{(r.status as string).toUpperCase()}</span>,
+    render: (r) => <span className={`chip ${r.status === 'paid' ? 'chip-ok' : 'chip-warning'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{(r.status as string).toUpperCase()}</span>,
   },
 ];
 
 const GL_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: 'code', header: 'Code', sortable: true, minWidth: 56,
-    summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-muted)' }}>TOTALS</span>,
-    render: (r) => <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--accent-blue)' }}>{r.code as string}</span>,
+    summary: () => <span style={{ fontWeight: 700, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>TOTALS</span>,
+    render: (r) => <span style={{ fontFamily: 'monospace', fontSize: 'var(--fs-sm)', color: 'var(--accent-blue)' }}>{r.code as string}</span>,
   },
-  { key: 'name', header: 'Account', sortable: true, minWidth: 130, render: (r) => <span style={{ fontWeight: 600, fontSize: 12 }}>{r.name as string}</span> },
+  { key: 'name', header: 'Account', sortable: true, minWidth: 130, render: (r) => <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{r.name as string}</span> },
   {
     key: 'class', header: 'Type', sortable: true, align: 'center', minWidth: 80,
     render: (r) => {
       const t = r.class as string;
       const cls = t === 'REVENUE' ? 'chip-ok' : t === 'EXPENSE' ? 'chip-critical' : t === 'ASSET' ? 'chip-info' : 'chip-warning';
-      return <span className={`chip ${cls}`} style={{ fontSize: 9 }}>{t}</span>;
+      return <span className={`chip ${cls}`} style={{ fontSize: 'var(--fs-2xs)' }}>{t}</span>;
     },
   },
   {
     key: 'debit', header: 'Debit', sortable: true, align: 'right', minWidth: 90,
     summary: 'sum',
     render: (r) => (r.debit as number) > 0
-      ? <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(r.debit as number).toLocaleString()}</span>
+      ? <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(r.debit as number).toLocaleString()}</span>
       : <span style={{ color: 'var(--text-dim)' }}>—</span>,
   },
   {
     key: 'credit', header: 'Credit', sortable: true, align: 'right', minWidth: 90,
     summary: 'sum',
     render: (r) => (r.credit as number) > 0
-      ? <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(r.credit as number).toLocaleString()}</span>
+      ? <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(r.credit as number).toLocaleString()}</span>
       : <span style={{ color: 'var(--text-dim)' }}>—</span>,
   },
   {
     key: 'balance', header: 'Balance', sortable: true, align: 'right', minWidth: 90,
     summary: 'sum',
-    render: (r) => <span style={{ fontSize: 12, fontWeight: 700 }}>KSh {(r.balance as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700 }}>KSh {(r.balance as number).toLocaleString()}</span>,
   },
 ];
+
+/* ── Run Payroll sheet — real POST /api/payroll/runs (payroll-and-gps task).
+ * Only asks for the period: every ACTIVE employee with a monthlySalaryCents
+ * > 0 is paid their full rate automatically — there is no per-employee
+ * amount entry here, deliberately (see db/schemas/people.ts's comment on
+ * why this app has no attendance data to compute anything finer-grained
+ * from). A 403 here (a non-owner role) is shown as a plain inline error,
+ * same as every other sheet on this screen. ── */
+function RunPayrollSheet({ tenantId, onCreated, onClose }: {
+  tenantId: string;
+  onCreated: () => void;
+  onClose: () => void;
+}) {
+  const today = new Date();
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  const lastOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const [periodStart, setPeriodStart] = useState(firstOfMonth);
+  const [periodEnd, setPeriodEnd] = useState(lastOfMonth);
+  const [memo, setMemo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ run: ApiPayrollRun; payslips: ApiPayslip[] } | null>(null);
+
+  async function run() {
+    if (!periodStart || !periodEnd) { setError('Select a period start and end date.'); return; }
+    setSaving(true);
+    setError('');
+    const res = await apiClient.post<{ run: ApiPayrollRun; payslips: ApiPayslip[] }>('/api/payroll/runs', {
+      tenantId, periodStart, periodEnd, memo: memo.trim() || undefined,
+    });
+    setSaving(false);
+    if (!res.success) { setError(res.error || 'Failed to run payroll.'); return; }
+    setResult(res.data);
+    onCreated();
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Run Payroll</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        {result ? (
+          <div>
+            <div style={{ padding: '14px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 12, marginBottom: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 4 }}>Payroll run complete</div>
+              <div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(result.run.totalAmountCents)}</div>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{result.run.employeeCount} employee{result.run.employeeCount === 1 ? '' : 's'} paid · posted to the ledger</div>
+            </div>
+            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
+              {result.payslips.map((p, i, arr) => (
+                <div key={p.id} style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>{p.employeeName}</span>
+                  <span style={{ fontWeight: 700 }}>{formatMoney(p.amountCents)}</span>
+                </div>
+              ))}
+            </div>
+            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={onClose}>Done</button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period start *</label>
+                <input className="farm-input" type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period end *</label>
+                <input className="farm-input" type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Memo (optional)</label>
+              <input className="farm-input" placeholder="e.g. August 2026 salaries" value={memo} onChange={e => setMemo(e.target.value)} />
+            </div>
+            <div style={{ padding: '10px 12px', background: 'rgba(251,191,36,0.06)', borderRadius: 10, border: '1px solid rgba(251,191,36,0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+              Every active employee with a monthly salary set is paid their full rate for this period — gross pay only, no tax or statutory deductions. This posts a Payroll Expense entry to the ledger and cannot be undone from here.
+            </div>
+            {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={run}>
+              {saving ? 'Running…' : 'Run Payroll'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /* ── Screen ─────────────────────────────────────────────────────────────── */
 
@@ -511,6 +623,14 @@ export function FinanceScreen() {
   const [glError, setGlError] = useState('');
   const [budgetReport, setBudgetReport] = useState<ReportPayload | null>(null);
   const [budgetError, setBudgetError] = useState('');
+
+  // Payroll (payroll-and-gps task)
+  const [payrollRuns, setPayrollRuns] = useState<ApiPayrollRun[] | null>(null);
+  const [payrollError, setPayrollError] = useState('');
+  const [showRunPayroll, setShowRunPayroll] = useState(false);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [expandedPayslips, setExpandedPayslips] = useState<ApiPayslip[] | null>(null);
+  const [expandedError, setExpandedError] = useState('');
 
   // farm-scoped-data task: sales/purchases/batches all re-fetch on
   // activeFarmId change. Sales is a JOIN filter (batchId -> batches.unitId
@@ -555,6 +675,29 @@ export function FinanceScreen() {
     });
   }, [tenantId]);
 
+  // Payroll (payroll-and-gps task): a manager sees this list (canView is
+  // 'view' by default) even though POST /api/payroll/runs 403s them — the
+  // 403 is what actually enforces "manager can't run payroll," not hiding
+  // the list. A worker would get a 403 here too (payroll: 'hidden'), but
+  // this screen's own tab bar already keeps workers off the Finance screen
+  // entirely (see components/farm/navigation.tsx's per-role tab config).
+  const loadPayrollRuns = useCallback(() => {
+    apiClient.get<ApiPayrollRun[]>(`/api/payroll/runs?tenantId=${tenantId}`).then((res) => {
+      if (res.success) { setPayrollRuns(res.data); setPayrollError(''); }
+      else { setPayrollRuns([]); setPayrollError(res.error || 'Failed to load payroll runs.'); }
+    });
+  }, [tenantId]);
+
+  async function toggleRunPayslips(runId: string) {
+    if (expandedRunId === runId) { setExpandedRunId(null); return; }
+    setExpandedRunId(runId);
+    setExpandedPayslips(null);
+    setExpandedError('');
+    const res = await apiClient.get<{ run: ApiPayrollRun; payslips: ApiPayslip[] }>(`/api/payroll/runs/${runId}?tenantId=${tenantId}`);
+    if (res.success) setExpandedPayslips(res.data.payslips);
+    else setExpandedError(res.error || 'Failed to load payslips.');
+  }
+
   // Budget Overview (issue #299): Month/Quarter/YTD toggle refetches
   // GET /api/reports/pl with that period's from/to (lib/period-range.ts),
   // instead of the all-time trial balance — see the file-top comment.
@@ -575,6 +718,7 @@ export function FinanceScreen() {
   useEffect(() => { loadBatches(); }, [loadBatches]);
   useEffect(() => { loadGL(); }, [loadGL]);
   useEffect(() => { loadBudget(); }, [loadBudget]);
+  useEffect(() => { loadPayrollRuns(); }, [loadPayrollRuns]);
   useEffect(() => {
     apiClient.get<ApiInventoryItemLite[]>(`/api/inventory/items?tenantId=${tenantId}`).then((res) => {
       if (res.success) setItems(res.data);
@@ -717,7 +861,7 @@ export function FinanceScreen() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, marginBottom: 12 }}>
             {BUDGET_PERIODS.map((p) => (
               <button key={p} onClick={() => setPeriod(p)} style={{
-                padding: '4px 10px', borderRadius: 100, fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                padding: '4px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer',
                 background: period === p ? 'rgba(74,222,128,0.2)' : 'transparent',
                 border: period === p ? '1px solid rgba(74,222,128,0.4)' : '1px solid transparent',
                 color: period === p ? 'var(--primary-green)' : 'var(--text-muted)',
@@ -727,36 +871,36 @@ export function FinanceScreen() {
 
           <div className="farm-card farm-card-active" style={{ padding: 18, marginBottom: 14 }}>
             <div className="section-eyebrow" style={{ marginBottom: 10 }}>Budget Overview — {periodLabel}</div>
-            {budgetError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{budgetError}</div>}
+            {budgetError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{budgetError}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(totalRevenue/1000).toFixed(0)}K</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>Revenue</div>
+                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(totalRevenue/1000).toFixed(0)}K</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Revenue</div>
               </div>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(totalExpenses/1000).toFixed(0)}K</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>Expenses</div>
+                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(totalExpenses/1000).toFixed(0)}K</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Expenses</div>
               </div>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: margin > 0 ? 'var(--primary-green)' : 'var(--status-critical)' }}>
+                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: margin > 0 ? 'var(--primary-green)' : 'var(--status-critical)' }}>
                   {margin > 0 ? '+' : ''}KSh {(margin/1000).toFixed(0)}K
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>Net</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Net</div>
               </div>
             </div>
             <div className="progress-track" style={{ marginTop: 14 }}>
               <div className="progress-fill" style={{ width: `${budgetTotal > 0 ? Math.min((totalRevenue/budgetTotal)*100,100) : 0}%` }} />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'var(--text-muted)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>
               <span>Revenue {budgetTotal > 0 ? Math.round((totalRevenue/budgetTotal)*100) : 0}%</span>
               <span>Expenses {budgetTotal > 0 ? Math.round((totalExpenses/budgetTotal)*100) : 0}%</span>
             </div>
           </div>
 
           <div className="section-eyebrow" style={{ marginBottom: 10 }}>Batch P&amp;L</div>
-          {batchesError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{batchesError}</div>}
+          {batchesError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{batchesError}</div>}
           {batches === null && !batchesError && (
-            <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-dim)', fontSize: 13 }}>Loading batch P&amp;L…</div>
+            <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading batch P&amp;L…</div>
           )}
           {batches !== null && (
             <DataTable
@@ -780,12 +924,12 @@ export function FinanceScreen() {
         <div className="px-screen">
           <div style={{ position: 'relative', marginBottom: 12 }}>
             <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <input className="farm-input" style={{ paddingLeft: 34, fontSize: 13 }} placeholder="Search item, batch, method…" value={salesSearch} onChange={e => setSalesSearch(e.target.value)} />
+            <input className="farm-input" style={{ paddingLeft: 34, fontSize: 'var(--fs-base)' }} placeholder="Search item, batch, method…" value={salesSearch} onChange={e => setSalesSearch(e.target.value)} />
             {salesSearch && <button onClick={() => setSalesSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}><X size={14} /></button>}
           </div>
-          {salesError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{salesError}</div>}
+          {salesError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{salesError}</div>}
           {sales === null && !salesError ? (
-            <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 13 }}>Loading sales…</div>
+            <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading sales…</div>
           ) : (
             <DataTable
               rows={filteredSales as unknown as Record<string, unknown>[]}
@@ -807,14 +951,14 @@ export function FinanceScreen() {
       {/* ── PURCHASES / EXPENSES ── */}
       {tab === 'purchases' && (
         <div className="px-screen">
-          {purchasesError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{purchasesError}</div>}
+          {purchasesError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{purchasesError}</div>}
           {purchases === null && !purchasesError ? (
-            <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 13 }}>Loading purchases…</div>
+            <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading purchases…</div>
           ) : (purchases ?? []).length === 0 ? (
             <div style={{ padding: 24, textAlign: 'center' }}>
-              <div style={{ fontSize: 36, marginBottom: 8 }}>🧾</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No expenses yet</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Record one below.</div>
+              <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>🧾</div>
+              <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No expenses yet</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Record one below.</div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
@@ -822,16 +966,16 @@ export function FinanceScreen() {
                 <div key={p.id} className="farm-card" style={{ padding: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{itemNameById.get(p.itemId) ?? p.itemId}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{p.supplier} · {fmtDate(p.createdAt)}</div>
+                      <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{itemNameById.get(p.itemId) ?? p.itemId}</div>
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{p.supplier} · {fmtDate(p.createdAt)}</div>
                     </div>
                     {itemCategoryById.get(p.itemId) && (
-                      <span className={`chip ${catChipClass(itemCategoryById.get(p.itemId) as string)}`} style={{ fontSize: 9 }}>{itemCategoryById.get(p.itemId)}</span>
+                      <span className={`chip ${catChipClass(itemCategoryById.get(p.itemId) as string)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{itemCategoryById.get(p.itemId)}</span>
                     )}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.quantity.toLocaleString()} units</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{p.quantity.toLocaleString()} units</span>
+                    <span style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
                   </div>
                 </div>
               ))}
@@ -847,35 +991,35 @@ export function FinanceScreen() {
       {tab === 'gl' && (
         <div className="px-screen">
           <div style={{ padding: '10px 14px', background: 'rgba(96,165,250,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(96,165,250,0.2)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-blue)', marginBottom: 2 }}>General Ledger — {accounts.length} accounts</div>
+            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--accent-blue)', marginBottom: 2 }}>General Ledger — {accounts.length} accounts</div>
             <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {centsToMajor(trialBalance?.totalCreditsCents ?? 0).toLocaleString()}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Total Credits</div>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {centsToMajor(trialBalance?.totalCreditsCents ?? 0).toLocaleString()}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Total Credits</div>
               </div>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(trialBalance?.totalDebitsCents ?? 0).toLocaleString()}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Total Debits</div>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(trialBalance?.totalDebitsCents ?? 0).toLocaleString()}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Total Debits</div>
               </div>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: trialBalance?.balanced ? 'var(--status-ok)' : 'var(--status-critical)' }}>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: trialBalance?.balanced ? 'var(--status-ok)' : 'var(--status-critical)' }}>
                   {trialBalance ? (trialBalance.balanced ? 'Balanced' : 'Out of balance') : '—'}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Status</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Status</div>
               </div>
             </div>
           </div>
 
-          {glError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{glError}</div>}
+          {glError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{glError}</div>}
 
           <div style={{ position: 'relative', marginBottom: 14 }}>
             <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <input className="farm-input" style={{ paddingLeft: 34, fontSize: 13 }} placeholder="Search account, code, type…" value={glSearch} onChange={e => setGlSearch(e.target.value)} />
+            <input className="farm-input" style={{ paddingLeft: 34, fontSize: 'var(--fs-base)' }} placeholder="Search account, code, type…" value={glSearch} onChange={e => setGlSearch(e.target.value)} />
             {glSearch && <button onClick={() => setGlSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}><X size={14} /></button>}
           </div>
 
           {trialBalance === null && !glError ? (
-            <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 13 }}>Loading trial balance…</div>
+            <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading trial balance…</div>
           ) : (
             <DataTable
               rows={filteredGL as unknown as Record<string, unknown>[]}
@@ -897,14 +1041,57 @@ export function FinanceScreen() {
 
       {/* ── PAYROLL ── */}
       {tab === 'payroll' && (
-        <div className="px-screen">
-          <div className="farm-card" style={{ padding: 28, textAlign: 'center', marginTop: 8 }}>
-            <Lock size={28} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Not available yet</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Payroll isn&apos;t tracked in the system yet — there is no real pay data to show. This screen will connect to a real payroll module once one is built.
+        <div className="px-screen" style={{ marginTop: 8 }}>
+          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 14 }} onClick={() => setShowRunPayroll(true)}>
+            <Plus size={14} /> Run Payroll
+          </button>
+
+          {payrollError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>{payrollError}</div>}
+
+          {payrollRuns === null && <div style={{ padding: 20, textAlign: 'center', fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>}
+
+          {payrollRuns !== null && payrollRuns.length === 0 && !payrollError && (
+            <div className="farm-card" style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No payroll runs yet</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                Set a monthly salary on your employees (People → Edit Employee) then run payroll for a period above.
+              </div>
             </div>
-          </div>
+          )}
+
+          {payrollRuns !== null && payrollRuns.length > 0 && (
+            <div className="farm-card" style={{ overflow: 'hidden' }}>
+              {payrollRuns.map((r, i, arr) => (
+                <div key={r.id} style={{ borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <div
+                    style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                    onClick={() => toggleRunPayslips(r.id)}
+                  >
+                    <div>
+                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</div>
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{r.employeeCount} employee{r.employeeCount === 1 ? '' : 's'} paid{r.memo ? ` · ${r.memo}` : ''}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(r.totalAmountCents)}</span>
+                      <ChevronRight size={14} color="var(--text-dim)" style={{ transform: expandedRunId === r.id ? 'rotate(90deg)' : undefined, transition: 'transform 0.15s' }} />
+                    </div>
+                  </div>
+                  {expandedRunId === r.id && (
+                    <div style={{ padding: '0 14px 12px 14px', background: 'var(--card)' }}>
+                      {expandedError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', padding: '8px 0' }}>{expandedError}</div>}
+                      {!expandedError && expandedPayslips === null && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', padding: '8px 0' }}>Loading payslips…</div>}
+                      {!expandedError && expandedPayslips !== null && expandedPayslips.map((p) => (
+                        <div key={p.id} style={{ padding: '7px 0', display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{p.employeeName}</span>
+                          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{formatMoney(p.amountCents)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -924,6 +1111,13 @@ export function FinanceScreen() {
           activeFarmId={activeFarmId}
           onCreated={() => { loadPurchases(); loadGL(); }}
           onClose={() => setShowRecordPurchase(false)}
+        />
+      )}
+      {showRunPayroll && (
+        <RunPayrollSheet
+          tenantId={tenantId}
+          onCreated={() => { loadPayrollRuns(); loadGL(); }}
+          onClose={() => setShowRunPayroll(false)}
         />
       )}
     </div>

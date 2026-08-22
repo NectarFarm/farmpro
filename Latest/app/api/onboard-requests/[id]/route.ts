@@ -98,11 +98,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ success: true, data: existing }, { status: 200 })
     }
     try {
+      // Coordinates may have just been set/corrected in THIS same PATCH
+      // (locationSet, above) — prefer that over the row's prior value so an
+      // admin who sets the pin and approves in one request doesn't lose it.
+      const provisionLatitude = loc ? loc.latitude : existing.latitude
+      const provisionLongitude = loc ? loc.longitude : existing.longitude
       const { tenantId, ownerTempPassword } = await provisionTenant({
         farmerName: existing.farmerName,
         email: existing.email,
         farmName: existing.farmName,
         location: existing.location,
+        latitude: provisionLatitude,
+        longitude: provisionLongitude,
       })
       const [updated] = await db
         .update(onboardRequests)

@@ -615,8 +615,8 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
           <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>Import {ENTITY_LABEL[entity]}</div>
-                {fileName && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>📄 {fileName}</div>}
+                <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: 'var(--text-primary)' }}>Import {ENTITY_LABEL[entity]}</div>
+                {fileName && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>📄 {fileName}</div>}
               </div>
               <button className="btn-icon" onClick={onClose}><X size={16} /></button>
             </div>
@@ -625,11 +625,11 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
             <div style={{ display: 'flex', gap: 4, marginTop: 12 }}>
               {(['upload','review','done'] as const).map((p, idx) => (
                 <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', background: phase === p ? 'var(--primary-green)' : phases_done(phase, p) ? 'rgba(74,222,128,0.3)' : 'var(--card)', color: phase === p ? '#000' : 'var(--text-muted)', border: `1px solid ${phase === p ? 'var(--primary-green)' : 'var(--border-subtle)'}` }}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', fontSize: 'var(--fs-xs)', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', background: phase === p ? 'var(--primary-green)' : phases_done(phase, p) ? 'rgba(74,222,128,0.3)' : 'var(--card)', color: phase === p ? '#000' : 'var(--text-muted)', border: `1px solid ${phase === p ? 'var(--primary-green)' : 'var(--border-subtle)'}` }}>
                     {phases_done(phase, p) ? '✓' : idx + 1}
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: phase === p ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{p}</span>
-                  {idx < 2 && <span style={{ color: 'var(--border-subtle)', fontSize: 10, marginLeft: 2 }}>›</span>}
+                  <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: phase === p ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{p}</span>
+                  {idx < 2 && <span style={{ color: 'var(--border-subtle)', fontSize: 'var(--fs-2xs)', marginLeft: 2 }}>›</span>}
                 </div>
               ))}
             </div>
@@ -643,17 +643,17 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
               <div>
                 {/* Download template */}
                 <div style={{ padding: 16, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 14, marginBottom: 20 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--primary-green)', marginBottom: 6 }}>📋 Use the export format</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 12 }}>
+                  <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 6 }}>📋 Use the export format</div>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 12 }}>
                     The best import file is one you previously exported from this app — it already has the correct column names and code formats. You can also download the blank template below.
                   </div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 8 }}>Required columns:</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', marginBottom: 8 }}>Required columns:</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12 }}>
                     {expectedCols.map(c => (
-                      <span key={c} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--accent-cyan)' }}>{c}</span>
+                      <span key={c} style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--accent-cyan)' }}>{c}</span>
                     ))}
                   </div>
-                  <button onClick={() => downloadCSV(entity as keyof typeof import('./data').CSV_TEMPLATES)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 9, fontSize: 12, fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--primary-green)', cursor: 'pointer' }}>
+                  <button onClick={() => downloadCSV(entity as keyof typeof import('./data').CSV_TEMPLATES)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 9, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--primary-green)', cursor: 'pointer' }}>
                     <Download size={13} /> Download blank template
                   </button>
                 </div>
@@ -663,9 +663,9 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                 <button
                   onClick={() => fileRef.current?.click()}
                   style={{ width: '100%', padding: '32px 20px', borderRadius: 16, border: '2px dashed var(--border-subtle)', background: 'var(--card)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-                  <div style={{ fontSize: 32 }}>📂</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Tap to select CSV file</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Exported CSV or filled-in template</div>
+                  <div style={{ fontSize: 'var(--fs-5xl)' }}>📂</div>
+                  <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>Tap to select CSV file</div>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Exported CSV or filled-in template</div>
                 </button>
               </div>
             )}
@@ -676,20 +676,20 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                 {/* Column issues */}
                 {(missingCols.length > 0 || extraCols.length > 0) && (
                   <div style={{ padding: 14, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 12, marginBottom: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-amber)', marginBottom: 8 }}>⚠ Column issues detected</div>
+                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--accent-amber)', marginBottom: 8 }}>⚠ Column issues detected</div>
                     {missingCols.length > 0 && (
                       <div style={{ marginBottom: 6 }}>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Missing columns (will default to blank):</div>
+                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>Missing columns (will default to blank):</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                          {missingCols.map(c => <span key={c} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }}>{c}</span>)}
+                          {missingCols.map(c => <span key={c} style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }}>{c}</span>)}
                         </div>
                       </div>
                     )}
                     {extraCols.length > 0 && (
                       <div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Extra columns (will be ignored):</div>
+                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>Extra columns (will be ignored):</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                          {extraCols.map(c => <span key={c} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)' }}>{c}</span>)}
+                          {extraCols.map(c => <span key={c} style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)' }}>{c}</span>)}
                         </div>
                       </div>
                     )}
@@ -704,15 +704,15 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                     { label: 'Clean', count: cleanRows, color: 'var(--primary-green)', bg: 'rgba(74,222,128,0.1)' },
                   ].map(s => (
                     <div key={s.label} style={{ textAlign: 'center', padding: 10, borderRadius: 10, background: s.bg, border: `1px solid ${s.color}30` }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.count}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>{s.label}</div>
+                      <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.count}</div>
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>{s.label}</div>
                     </div>
                   ))}
                 </div>
 
                 {/* Fix All Auto button */}
                 {results.some(r => r.issues.some(i => i.autoFix)) && (
-                  <button onClick={fixAll} style={{ width: '100%', marginBottom: 14, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <button onClick={fixAll} style={{ width: '100%', marginBottom: 14, padding: '10px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                     <RefreshCw size={13} /> Apply All Auto-Fixes ({results.flatMap(r => r.issues.filter(i => i.autoFix)).length} corrections)
                   </button>
                 )}
@@ -739,19 +739,19 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                         <button
                           onClick={() => setExpandedRow(isExpanded ? null : ri)}
                           style={{ width: '100%', padding: '12px 14px', background: `${row.importable ? 'var(--card)' : 'rgba(248,113,113,0.06)'}`, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', border: 'none', textAlign: 'left' }}>
-                          <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: SEV_CONFIG[dominantSev].bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: SEV_CONFIG[dominantSev].color }}>
+                          <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: SEV_CONFIG[dominantSev].bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-base)', fontWeight: 700, color: SEV_CONFIG[dominantSev].color }}>
                             {row.importable ? (warnings.length ? '⚠' : '✓') : '✕'}
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', gap: 6, alignItems: 'center' }}>
-                              <span style={{ fontFamily: 'monospace', color: 'var(--accent-cyan)', fontSize: 11 }}>{keyVal}</span>
+                            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <span style={{ fontFamily: 'monospace', color: 'var(--accent-cyan)', fontSize: 'var(--fs-xs)' }}>{keyVal}</span>
                               <span style={{ color: 'var(--text-muted)', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameVal}</span>
                             </div>
                             <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                              {errors.length > 0 && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 100, background: 'rgba(248,113,113,0.15)', color: '#f87171', fontWeight: 700 }}>{errors.length} error{errors.length > 1 ? 's' : ''}</span>}
-                              {warnings.length > 0 && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 100, background: 'rgba(251,191,36,0.15)', color: '#fbbf24', fontWeight: 700 }}>{warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
-                              {infos.length > 0 && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 100, background: 'rgba(96,165,250,0.12)', color: 'var(--accent-cyan)', fontWeight: 700 }}>{infos.length} info</span>}
-                              {row.issues.length === 0 && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 100, background: 'rgba(74,222,128,0.15)', color: 'var(--primary-green)', fontWeight: 700 }}>✓ Clean</span>}
+                              {errors.length > 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(248,113,113,0.15)', color: '#f87171', fontWeight: 700 }}>{errors.length} error{errors.length > 1 ? 's' : ''}</span>}
+                              {warnings.length > 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(251,191,36,0.15)', color: '#fbbf24', fontWeight: 700 }}>{warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
+                              {infos.length > 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(96,165,250,0.12)', color: 'var(--accent-cyan)', fontWeight: 700 }}>{infos.length} info</span>}
+                              {row.issues.length === 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(74,222,128,0.15)', color: 'var(--primary-green)', fontWeight: 700 }}>✓ Clean</span>}
                             </div>
                           </div>
                           {isExpanded ? <ChevronUp size={14} color="var(--text-dim)" /> : <ChevronDown size={14} color="var(--text-dim)" />}
@@ -765,19 +765,19 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                               <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
                                 {row.issues.map((issue, ii) => (
                                   <div key={ii} style={{ padding: '8px 12px', borderRadius: 10, background: SEV_CONFIG[issue.severity].bg, border: `1px solid ${SEV_CONFIG[issue.severity].color}30`, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                                    <span style={{ fontSize: 12, color: SEV_CONFIG[issue.severity].color, flexShrink: 0 }}>{SEV_CONFIG[issue.severity].icon}</span>
+                                    <span style={{ fontSize: 'var(--fs-sm)', color: SEV_CONFIG[issue.severity].color, flexShrink: 0 }}>{SEV_CONFIG[issue.severity].icon}</span>
                                     <div style={{ flex: 1 }}>
-                                      <div style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>
-                                        <span style={{ fontFamily: 'monospace', color: 'var(--accent-cyan)', fontSize: 10, marginRight: 4 }}>{issue.col}</span>
+                                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-primary)', fontWeight: 600 }}>
+                                        <span style={{ fontFamily: 'monospace', color: 'var(--accent-cyan)', fontSize: 'var(--fs-2xs)', marginRight: 4 }}>{issue.col}</span>
                                         {issue.message}
                                       </div>
                                       {issue.suggestion !== undefined && (
                                         <div style={{ marginTop: 4, display: 'flex', gap: 6, alignItems: 'center' }}>
-                                          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Suggestion:</span>
-                                          <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--primary-green)', background: 'rgba(74,222,128,0.1)', padding: '1px 6px', borderRadius: 4 }}>{issue.suggestion || '(blank)'}</span>
+                                          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Suggestion:</span>
+                                          <span style={{ fontSize: 'var(--fs-2xs)', fontFamily: 'monospace', color: 'var(--primary-green)', background: 'rgba(74,222,128,0.1)', padding: '1px 6px', borderRadius: 4 }}>{issue.suggestion || '(blank)'}</span>
                                           <button
                                             onClick={() => applySuggestion(ri, issue.col, issue.suggestion!)}
-                                            style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
+                                            style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
                                             Apply
                                           </button>
                                         </div>
@@ -790,7 +790,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
 
                             {/* Cell editor grid */}
                             <div style={{ marginTop: row.issues.length === 0 ? 10 : 0 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Edit Fields</div>
+                              <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Edit Fields</div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 {Object.entries(row.edited).map(([col, val]) => {
                                   const colIssues = row.issues.filter(i => i.col === col);
@@ -799,7 +799,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                                   const isEditing = editingCell?.row === ri && editingCell?.col === col;
                                   return (
                                     <div key={col} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                      <div style={{ width: 90, fontSize: 10, fontFamily: 'monospace', color: hasError ? '#f87171' : hasWarn ? '#fbbf24' : 'var(--accent-cyan)', flexShrink: 0, fontWeight: 600 }}>
+                                      <div style={{ width: 90, fontSize: 'var(--fs-2xs)', fontFamily: 'monospace', color: hasError ? '#f87171' : hasWarn ? '#fbbf24' : 'var(--accent-cyan)', flexShrink: 0, fontWeight: 600 }}>
                                         {col}{hasError ? ' ✕' : hasWarn ? ' ⚠' : ''}
                                       </div>
                                       {isEditing ? (
@@ -807,17 +807,17 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                                           <input
                                             autoFocus
                                             className="farm-input"
-                                            style={{ flex: 1, fontSize: 12 }}
+                                            style={{ flex: 1, fontSize: 'var(--fs-sm)' }}
                                             value={editValue}
                                             onChange={e => setEditValue(e.target.value)}
                                             onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingCell(null); }}
                                           />
-                                          <button onClick={commitEdit} style={{ padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}><Check size={11} /></button>
+                                          <button onClick={commitEdit} style={{ padding: '5px 10px', borderRadius: 7, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}><Check size={11} /></button>
                                           <button onClick={() => setEditingCell(null)} style={{ padding: '5px 8px', borderRadius: 7, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={11} /></button>
                                         </div>
                                       ) : (
                                         <div style={{ flex: 1, display: 'flex', gap: 6, alignItems: 'center', padding: '6px 10px', borderRadius: 8, background: hasError ? 'rgba(248,113,113,0.08)' : hasWarn ? 'rgba(251,191,36,0.06)' : 'var(--card)', border: `1px solid ${hasError ? 'rgba(248,113,113,0.3)' : hasWarn ? 'rgba(251,191,36,0.2)' : 'var(--border-subtle)'}` }}>
-                                          <span style={{ flex: 1, fontSize: 12, color: val ? 'var(--text-primary)' : 'var(--text-dim)', fontStyle: val ? 'normal' : 'italic' }}>{val || '(empty)'}</span>
+                                          <span style={{ flex: 1, fontSize: 'var(--fs-sm)', color: val ? 'var(--text-primary)' : 'var(--text-dim)', fontStyle: val ? 'normal' : 'italic' }}>{val || '(empty)'}</span>
                                           <button onClick={() => startEdit(ri, col)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--text-dim)', display: 'flex', alignItems: 'center' }}><Edit2 size={11} /></button>
                                         </div>
                                       )}
@@ -838,13 +838,13 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
             {/* DONE PHASE */}
             {phase === 'done' && (
               <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--primary-green)', marginBottom: 8 }}>Import Complete</div>
-                <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 6 }}>
+                <div style={{ fontSize: 'var(--fs-hero)', marginBottom: 16 }}>✅</div>
+                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 800, color: 'var(--primary-green)', marginBottom: 8 }}>Import Complete</div>
+                <div style={{ fontSize: 'var(--fs-md)', color: 'var(--text-muted)', marginBottom: 6 }}>
                   {importableRows.length} {ENTITY_LABEL[entity].toLowerCase()} imported successfully.
                 </div>
                 {errorRows > 0 && (
-                  <div style={{ fontSize: 12, color: '#f87171', marginBottom: 16 }}>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: '#f87171', marginBottom: 16 }}>
                     {errorRows} row{errorRows > 1 ? 's' : ''} skipped due to errors.
                   </div>
                 )}
@@ -864,10 +864,10 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
               <button
                 onClick={confirmImport}
                 disabled={importableRows.length === 0}
-                style={{ flex: 2, padding: '12px', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: importableRows.length === 0 ? 'not-allowed' : 'pointer', background: importableRows.length === 0 ? 'var(--card)' : 'rgba(74,222,128,0.15)', border: importableRows.length === 0 ? '1px solid var(--border-subtle)' : '1px solid rgba(74,222,128,0.4)', color: importableRows.length === 0 ? 'var(--text-dim)' : 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                style={{ flex: 2, padding: '12px', borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, cursor: importableRows.length === 0 ? 'not-allowed' : 'pointer', background: importableRows.length === 0 ? 'var(--card)' : 'rgba(74,222,128,0.15)', border: importableRows.length === 0 ? '1px solid var(--border-subtle)' : '1px solid rgba(74,222,128,0.4)', color: importableRows.length === 0 ? 'var(--text-dim)' : 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 <Check size={14} />
                 Import {importableRows.length} of {results.length} rows
-                {errorRows > 0 && <span style={{ fontSize: 10, color: '#f87171', marginLeft: 2 }}>({errorRows} skipped)</span>}
+                {errorRows > 0 && <span style={{ fontSize: 'var(--fs-2xs)', color: '#f87171', marginLeft: 2 }}>({errorRows} skipped)</span>}
               </button>
             </div>
           )}

@@ -8,6 +8,7 @@ import {
 import { ENTERPRISE_REGISTRY, type OnboardRequest } from './data';
 import { GpsMapBlock, useReverseGeocode } from './auth';
 import { apiClient } from '@/lib/request';
+import { detectGpsLocation } from '@/lib/geolocation';
 
 // ── Real backend wiring (issues #251/#252) ──────────────────────────────────
 // GET/PATCH /api/onboard-requests[/:id] already exist and work (issue #251,
@@ -157,15 +158,10 @@ function LocationEditor({
   });
 
   function detectGPS() {
-    if (!navigator.geolocation) { setGpsError('Geolocation not supported on this device'); return; }
     setGpsLoading(true); setGpsError('');
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        setAdminLat(pos.coords.latitude.toFixed(6));
-        setAdminLng(pos.coords.longitude.toFixed(6));
-        setGpsLoading(false);
-      },
-      () => { setGpsError('Could not get location. Enter manually.'); setGpsLoading(false); }
+    detectGpsLocation(
+      coords => { setAdminLat(coords.latitude); setAdminLng(coords.longitude); setGpsLoading(false); },
+      message => { setGpsError(message); setGpsLoading(false); }
     );
   }
 
@@ -239,17 +235,17 @@ function LocationEditor({
         <div>
           <div className="section-eyebrow" style={{ marginBottom: 2 }}>Farm Location</div>
           {locationSaved && !showLocationForm && (
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 3 }}>
               📍 {persisted.address || req.location}
-              {persisted.lat && persisted.lng && <span style={{ marginLeft: 6, color: 'var(--accent-cyan)', fontFamily: 'monospace', fontSize: 10 }}>{parseFloat(persisted.lat).toFixed(4)}, {parseFloat(persisted.lng).toFixed(4)}</span>}
+              {persisted.lat && persisted.lng && <span style={{ marginLeft: 6, color: 'var(--accent-cyan)', fontFamily: 'monospace', fontSize: 'var(--fs-2xs)' }}>{parseFloat(persisted.lat).toFixed(4)}, {parseFloat(persisted.lng).toFixed(4)}</span>}
               {justSaved && <span style={{ marginLeft: 6, color: 'var(--primary-green)', fontWeight: 700 }}>· saved</span>}
             </div>
           )}
           {!locationSaved && !showLocationForm && (
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 3 }}>📍 {req.location} · no coordinates on file</div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 3 }}>📍 {req.location} · no coordinates on file</div>
           )}
         </div>
-        <button onClick={() => (showLocationForm ? setShowLocationForm(false) : openForm())} style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: locationSaved ? 'rgba(74,222,128,0.1)' : 'var(--surface)', border: '1px solid var(--border-subtle)', color: locationSaved ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'pointer' }}>
+        <button onClick={() => (showLocationForm ? setShowLocationForm(false) : openForm())} style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: locationSaved ? 'rgba(74,222,128,0.1)' : 'var(--surface)', border: '1px solid var(--border-subtle)', color: locationSaved ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'pointer' }}>
           {showLocationForm ? 'Cancel' : locationSaved ? 'Edit' : 'Set Location'}
         </button>
       </div>
@@ -275,21 +271,21 @@ function LocationEditor({
             loading={gpsLoading} error={gpsError} onDetect={detectGPS}
           />
           {(fieldErrors.address || fieldErrors.latitude || fieldErrors.longitude) && (
-            <div style={{ fontSize: 11, color: 'var(--status-critical)' }}>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>
               {fieldErrors.address && <div>⚠ {fieldErrors.address}</div>}
               {fieldErrors.latitude && <div>⚠ {fieldErrors.latitude}</div>}
               {fieldErrors.longitude && !fieldErrors.latitude && <div>⚠ {fieldErrors.longitude}</div>}
             </div>
           )}
           {saveError && !fieldErrors.address && !fieldErrors.latitude && !fieldErrors.longitude && (
-            <div style={{ fontSize: 11, color: 'var(--status-critical)' }}>⚠ {saveError}</div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>⚠ {saveError}</div>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setShowLocationForm(false)} disabled={saving} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 9 }}>Cancel</button>
+            <button onClick={() => setShowLocationForm(false)} disabled={saving} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 9 }}>Cancel</button>
             <button
               onClick={() => void saveLocation()}
               disabled={saving}
-              className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 9, opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>
+              className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 9, opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>
               <Check size={13} /> {saving ? 'Saving…' : 'Save Location'}
             </button>
           </div>
@@ -327,13 +323,13 @@ function TempPasswordModal({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <CheckCircle2 size={18} color="var(--status-ok)" />
-          <div style={{ fontSize: 15, fontWeight: 700 }}>Tenant Approved</div>
+          <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>Tenant Approved</div>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
           Owner account created for <strong>{email}</strong>. Share this one-time password with them now.
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
-          <code style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 700, flex: 1, letterSpacing: '0.02em', wordBreak: 'break-all', color: 'var(--text-primary)' }}>
+          <code style={{ fontFamily: 'monospace', fontSize: 'var(--fs-md)', fontWeight: 700, flex: 1, letterSpacing: '0.02em', wordBreak: 'break-all', color: 'var(--text-primary)' }}>
             {password}
           </code>
           <button
@@ -341,16 +337,16 @@ function TempPasswordModal({
               if (navigator.clipboard) void navigator.clipboard.writeText(password);
               setCopied(true);
             }}
-            style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer', flexShrink: 0 }}
+            style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer', flexShrink: 0 }}
           >
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 10, color: 'var(--status-warning)', marginBottom: 16, lineHeight: 1.4 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', marginBottom: 16, lineHeight: 1.4 }}>
           <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>This password cannot be retrieved again once you close this dialog. If it&apos;s lost, the owner&apos;s password must be reset directly.</span>
         </div>
-        <button onClick={onClose} className="btn-primary" style={{ width: '100%', justifyContent: 'center', fontSize: 13, padding: 10 }}>
+        <button onClick={onClose} className="btn-primary" style={{ width: '100%', justifyContent: 'center', fontSize: 'var(--fs-base)', padding: 10 }}>
           Done
         </button>
       </div>
@@ -399,8 +395,8 @@ function RequestDetail({
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>{req.farmName}</div>
-            <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: s.bg, color: s.color, border: `1px solid ${s.color}40` }}>{s.label.toUpperCase()}</span>
+            <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>{req.farmName}</div>
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: s.bg, color: s.color, border: `1px solid ${s.color}40` }}>{s.label.toUpperCase()}</span>
           </div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
@@ -417,8 +413,8 @@ function RequestDetail({
             <div key={row.label} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
               <div style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{row.icon}</div>
               <div>
-                <div style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{row.label}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>{row.value}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{row.label}</div>
+                <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-secondary)', fontWeight: 500 }}>{row.value}</div>
               </div>
             </div>
           ))}
@@ -431,16 +427,16 @@ function RequestDetail({
         <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
           <div className="section-eyebrow" style={{ marginBottom: 8 }}>Consent</div>
           {req.consentAt ? (
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>
               <CheckCircle2 size={13} color="var(--status-ok)" style={{ verticalAlign: 'middle', marginRight: 6 }} />
               Consented {formatRequestedAt(req.consentAt)}
-              <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-dim)', fontFamily: 'monospace' }}>({req.consentVersion || 'version unknown'})</span>
+              <span style={{ marginLeft: 6, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontFamily: 'monospace' }}>({req.consentVersion || 'version unknown'})</span>
             </div>
           ) : (
             // Legacy rows genuinely have no consent record — this is neutral,
             // not an error state: it predates consent capture, not a
             // violation of it.
-            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>
               Not recorded (predates consent capture)
             </div>
           )}
@@ -451,13 +447,13 @@ function RequestDetail({
           <div className="section-eyebrow" style={{ marginBottom: 8 }}>Requested Enterprises</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {enterpriseLabels.map((e) => (
-              <span key={e} style={{ fontSize: 12, padding: '5px 11px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 100, color: 'var(--primary-green)', fontWeight: 600 }}>{e}</span>
+              <span key={e} style={{ fontSize: 'var(--fs-sm)', padding: '5px 11px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 100, color: 'var(--primary-green)', fontWeight: 600 }}>{e}</span>
             ))}
           </div>
         </div>
 
         {/* Request meta */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14, fontSize: 11, color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
           <Clock size={12} style={{ flexShrink: 0 }} />
           <span>Submitted: {req.requestedAt}</span>
           <span style={{ marginLeft: 4, fontWeight: 700, color: 'var(--text-dim)' }}>{req.id}</span>
@@ -465,7 +461,7 @@ function RequestDetail({
 
         {/* Notes / info request */}
         <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
             Notes / Info Request
           </label>
           <textarea
@@ -479,7 +475,7 @@ function RequestDetail({
         </div>
 
         {actionError && (
-          <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{actionError}</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{actionError}</div>
         )}
 
         {/* Action buttons */}
@@ -488,14 +484,14 @@ function RequestDetail({
             <button
               disabled={saving}
               onClick={() => handle('approved')}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 13, fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               <Check size={14} /> Approve & Onboard
             </button>
             <button
               disabled={saving}
               onClick={() => handle('rejected')}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 13, fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               <X size={14} /> Reject
             </button>
@@ -505,7 +501,7 @@ function RequestDetail({
           <button
             disabled={saving}
             onClick={() => handle('info-needed')}
-            style={{ width: '100%', marginTop: 8, padding: 11, borderRadius: 12, fontSize: 13, fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-blue)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            style={{ width: '100%', marginTop: 8, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-blue)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
           >
             <MessageSquare size={14} /> Request More Info
           </button>
@@ -583,16 +579,16 @@ export function AdminOnboardingScreen() {
         {loadError && (
           <div className="farm-card" style={{ padding: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
             <AlertTriangle size={16} color="var(--status-critical)" />
-            <span style={{ fontSize: 12, color: 'var(--status-critical)' }}>{loadError}</span>
+            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{loadError}</span>
           </div>
         )}
         {loading && !loadError && (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading requests…</div>
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading requests…</div>
         )}
         {actionError && (
           <div className="farm-card" style={{ padding: 12, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
             <AlertTriangle size={16} color="var(--status-critical)" />
-            <span style={{ fontSize: 12, color: 'var(--status-critical)' }}>{actionError}</span>
+            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{actionError}</span>
           </div>
         )}
         {!loading && !loadError && (
@@ -605,8 +601,8 @@ export function AdminOnboardingScreen() {
             { label: 'Approved', value: requests.filter(r => r.status === 'approved').length, color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.08)' },
           ].map((s) => (
             <div key={s.label} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: '10px', textAlign: 'center', border: `1px solid ${s.color}30` }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
+              <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
             </div>
           ))}
         </div>
@@ -631,7 +627,7 @@ export function AdminOnboardingScreen() {
           {filtered.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
               <CheckCircle2 size={32} style={{ marginBottom: 10, opacity: 0.4 }} />
-              <div style={{ fontSize: 14, fontWeight: 600 }}>No {filter} requests</div>
+              <div style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>No {filter} requests</div>
             </div>
           ) : (
             filtered.map((req) => {
@@ -650,13 +646,13 @@ export function AdminOnboardingScreen() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{req.farmName}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{req.farmName}</div>
+                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
                         <User size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />
                         {req.farmerName} · {req.location}
                       </div>
                     </div>
-                    <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: s.bg, color: s.color, border: `1px solid ${s.color}40`, flexShrink: 0 }}>
+                    <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: s.bg, color: s.color, border: `1px solid ${s.color}40`, flexShrink: 0 }}>
                       {s.label.toUpperCase()}
                     </span>
                   </div>
@@ -664,9 +660,9 @@ export function AdminOnboardingScreen() {
                   {/* Enterprises row */}
                   <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                     {enterprises.map((e, i) => (
-                      <span key={i} style={{ fontSize: 16 }}>{e}</span>
+                      <span key={i} style={{ fontSize: 'var(--fs-lg)' }}>{e}</span>
                     ))}
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', alignSelf: 'center' }}>
                       {req.enterprises.join(', ')}
                     </span>
                   </div>
@@ -675,11 +671,11 @@ export function AdminOnboardingScreen() {
                       an admin; there's no backend field to tell those apart, so this
                       shows the fact of the coordinates without claiming a source. */}
                   {(req.address || (req.lat != null && req.lng != null)) && (
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
                       <MapPin size={10} />
                       {req.address || 'GPS pin on file'}
                       {req.lat != null && req.lng != null && (
-                        <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--accent-cyan)' }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 'var(--fs-2xs)', color: 'var(--accent-cyan)' }}>
                           {req.address ? '· ' : ''}{req.lat.toFixed(4)}, {req.lng.toFixed(4)}
                         </span>
                       )}
@@ -688,14 +684,14 @@ export function AdminOnboardingScreen() {
 
                   {/* Notes strip */}
                   {req.notes && (
-                    <div style={{ fontSize: 11, color: 'var(--accent-blue)', padding: '6px 10px', background: 'rgba(96,165,250,0.06)', borderRadius: 8, marginBottom: 8, border: '1px solid rgba(96,165,250,0.15)' }}>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-blue)', padding: '6px 10px', background: 'rgba(96,165,250,0.06)', borderRadius: 8, marginBottom: 8, border: '1px solid rgba(96,165,250,0.15)' }}>
                       <MessageSquare size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />
                       {req.notes}
                     </div>
                   )}
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
+                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>
                       <Clock size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />
                       {req.requestedAt} · {req.id}
                     </span>
@@ -707,19 +703,19 @@ export function AdminOnboardingScreen() {
                     <div style={{ display: 'flex', gap: 6, marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => { e.stopPropagation(); void act(req.id, 'approved'); }}
-                        style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                        style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
                       >
                         <Check size={12} /> Approve
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); void act(req.id, 'rejected'); }}
-                        style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                        style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
                       >
                         <X size={12} /> Reject
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setSelected(req); }}
-                        style={{ padding: '7px 12px', borderRadius: 8, fontSize: 11, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                        style={{ padding: '7px 12px', borderRadius: 8, fontSize: 'var(--fs-xs)', background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}
                       >
                         Details
                       </button>

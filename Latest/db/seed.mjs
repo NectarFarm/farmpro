@@ -42,8 +42,8 @@ const USERS = [
 ]
 
 const FARMS = [
-  { id: 'f1', tenantId: 't1', name: 'Nakuru Main Farm', location: 'Nakuru', code: 'FRM-NAKURU-MAIN' },
-  { id: 'f2', tenantId: 't1', name: 'Eldoret Satellite', location: 'Eldoret', code: 'FRM-ELDORET-SATE' },
+  { id: 'f1', tenantId: 't1', name: 'Nakuru Main Farm', location: 'Nakuru', code: 'FRM-NAKURU-MAIN', latitude: -0.3031, longitude: 36.0800 },
+  { id: 'f2', tenantId: 't1', name: 'Eldoret Satellite', location: 'Eldoret', code: 'FRM-ELDORET-SATE', latitude: 0.5143, longitude: 35.2698 },
 ]
 
 try {
@@ -71,9 +71,12 @@ try {
   let farmInserted = 0
   for (const f of FARMS) {
     const res = await sql`
-      INSERT INTO farms (id, tenant_id, name, location, code)
-      VALUES (${f.id}, ${f.tenantId}, ${f.name}, ${f.location}, ${f.code})
-      ON CONFLICT (tenant_id, code) DO NOTHING
+      INSERT INTO farms (id, tenant_id, name, location, code, latitude, longitude)
+      VALUES (${f.id}, ${f.tenantId}, ${f.name}, ${f.location}, ${f.code}, ${f.latitude ?? null}, ${f.longitude ?? null})
+      -- Coordinates are updated on conflict so an existing demo database picks
+      -- them up; without them the weather screen has nowhere to ask about.
+      ON CONFLICT (tenant_id, code) DO UPDATE
+        SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude
     `
     if (res.count > 0) farmInserted += 1
   }

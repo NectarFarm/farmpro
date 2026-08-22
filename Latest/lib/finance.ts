@@ -26,11 +26,13 @@ export const ACCOUNT_CODES = {
   OWNERS_EQUITY: '3001',
   SALES_REVENUE: '4001',
   PURCHASES_EXPENSE: '5001',
+  // Added by the payroll-and-gps task — see db/schemas/finance.ts's
+  // chart-of-accounts comment for why payroll posts at all.
+  PAYROLL_EXPENSE: '5002',
 } as const
 
 // The standard farm chart of accounts this issue seeds — see
-// db/schemas/finance.ts's top-of-file comment for why each account exists
-// (and why there is no payroll account).
+// db/schemas/finance.ts's top-of-file comment for why each account exists.
 const STANDARD_ACCOUNTS: { code: string; name: string; class: string; normalBalance: string }[] = [
   { code: ACCOUNT_CODES.CASH, name: 'Cash and Bank', class: 'ASSET', normalBalance: 'DEBIT' },
   { code: ACCOUNT_CODES.ACCOUNTS_RECEIVABLE, name: 'Accounts Receivable', class: 'ASSET', normalBalance: 'DEBIT' },
@@ -38,6 +40,7 @@ const STANDARD_ACCOUNTS: { code: string; name: string; class: string; normalBala
   { code: ACCOUNT_CODES.OWNERS_EQUITY, name: "Owner's Equity", class: 'EQUITY', normalBalance: 'CREDIT' },
   { code: ACCOUNT_CODES.SALES_REVENUE, name: 'Sales Revenue', class: 'REVENUE', normalBalance: 'CREDIT' },
   { code: ACCOUNT_CODES.PURCHASES_EXPENSE, name: 'Purchases Expense', class: 'EXPENSE', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.PAYROLL_EXPENSE, name: 'Payroll Expense', class: 'EXPENSE', normalBalance: 'DEBIT' },
 ]
 
 // Idempotent: ON CONFLICT DO NOTHING on the unique `code` index, so this is
@@ -146,6 +149,46 @@ export async function postPurchaseJournal(
     lines.push({ id: randomUUID(), entryId: entry.id, accountId: apAccountId, debitCents: 0, creditCents: owed })
   }
   await tx.insert(journalLines).values(lines)
+
+  return entry
+}
+
+// ── Payroll run -> journal entry (payroll-and-gps task) ─────────────────────
+// A payroll run posts Dr Payroll Expense for the run's full total, Cr Cash
+// for the same amount — treated as paid in full, in cash, at run time (same
+// "cash-basis, no partial/on-account tracking" simplification the rest of
+// this v1 payroll makes; there is no accrued-but-unpaid-wages liability
+// account, unlike purchases' Accounts Payable). The entry balances by
+// construction (one amount posted to both sides). Posted inside the SAME
+// transaction as the run + its payslips (POST /api/payroll/runs) — a run can
+// never exist without its journal entry, same convention as
+// postSaleJournal/postPurchaseJournal above.
+export async function postPayrollJournal(
+  tx: Tx,
+  run: { id: string; tenantId: string; totalAmountCents: number; periodStart: Date; periodEnd: Date }
+) {
+  await ensureAccountsSeeded(tx)
+  const expenseAccountId = await accountIdByCode(tx, ACCOUNT_CODES.PAYROLL_EXPENSE)
+  const cashAccountId = await accountIdByCode(tx, ACCOUNT_CODES.CASH)
+
+  const [entry] = await tx
+    .insert(journalEntries)
+    .values({
+      id: randomUUID(),
+      tenantId: run.tenantId,
+      sourceType: 'payroll_run',
+      sourceId: run.id,
+      memo: `Payroll run ${run.periodStart.toISOString().slice(0, 10)} to ${run.periodEnd.toISOString().slice(0, 10)}`,
+    })
+    .returning()
+
+  // Zero-amount entries would balance trivially but carry no information —
+  // the route this is called from already refuses to create a run with no
+  // eligible (rate > 0) employees, so `totalAmountCents` is always > 0 here.
+  await tx.insert(journalLines).values([
+    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: run.totalAmountCents, creditCents: 0 },
+    { id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debitCents: 0, creditCents: run.totalAmountCents },
+  ])
 
   return entry
 }

@@ -5,6 +5,7 @@ import { farms, productionUnits, batches } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { isUniqueViolation } from '@/lib/db-errors'
 import { writeAuditLog } from '@/lib/audit'
+import { validateLocation } from '@/lib/validation'
 
 // ── PATCH /api/farms/[id] (farms CRUD) ──────────────────────────────────────
 // Completes farms CRUD: GET/POST /api/farms already existed with no
@@ -76,6 +77,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const fields: Record<string, string> = {}
   const patch: Partial<typeof farms.$inferInsert> = {}
+
+  // GPS pin (ui-polish-theme-weather): owner/manager set this from the
+  // Weather screen's empty state, super_admin from the farm edit sheet.
+  // Same all-or-nothing pair + range validation as onboard_requests' pin
+  // (lib/validation.ts#validateLocation) — a lone coordinate is rejected
+  // rather than silently stored as a half pin GET /api/weather can't use.
+  const hasLocationInput = 'latitude' in b || 'longitude' in b
+  if (hasLocationInput) {
+    const loc = validateLocation({ latitude: b.latitude, longitude: b.longitude })
+    Object.assign(fields, loc.fields)
+    if (Object.keys(loc.fields).length === 0) {
+      patch.latitude = loc.latitude
+      patch.longitude = loc.longitude
+    }
+  }
 
   const hasFieldEdit = 'name' in b || 'location' in b || 'code' in b
   if (hasFieldEdit) {

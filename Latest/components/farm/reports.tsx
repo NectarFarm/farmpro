@@ -172,12 +172,12 @@ export function ReportsScreen() {
           <div className="section-eyebrow" style={{ marginBottom: 10 }}>Date Range</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>From</label>
-              <input className="farm-input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ fontSize: 13 }} />
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>From</label>
+              <input className="farm-input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>To</label>
-              <input className="farm-input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ fontSize: 13 }} />
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>To</label>
+              <input className="farm-input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
             </div>
           </div>
         </div>
@@ -195,12 +195,12 @@ export function ReportsScreen() {
                   border: isSel ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
                   transition: 'all 0.15s ease',
                 }}>
-                <div style={{ fontSize: 20, marginBottom: 6 }}>{r.icon}</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: isSel ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.2, marginBottom: 3 }}>{r.name}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</div>
+                <div style={{ fontSize: 'var(--fs-2xl)', marginBottom: 6 }}>{r.icon}</div>
+                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: isSel ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.2, marginBottom: 3 }}>{r.name}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</div>
                 {isSel && (
                   <div style={{ marginTop: 6, display: 'flex', gap: 4 }}>
-                    <span className="chip chip-ok" style={{ fontSize: 8, padding: '1px 6px' }}>Selected</span>
+                    <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Selected</span>
                   </div>
                 )}
               </button>
@@ -214,8 +214,8 @@ export function ReportsScreen() {
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
               <AlertTriangle size={18} color="var(--status-warning)" style={{ flexShrink: 0, marginTop: 2 }} />
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Not available yet</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Not available yet</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                   {NOT_AVAILABLE_REASONS[selected] ?? 'This report has no real data source on this branch yet.'}
                   {' '}No export is offered for it — a placeholder or empty file would misrepresent this as real data.
                 </div>
@@ -228,16 +228,16 @@ export function ReportsScreen() {
         {selected && isRealType && (
           <div className="farm-card" style={{ padding: 14, marginBottom: 16 }}>
             {loading && (
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Generating report…</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Generating report…</div>
             )}
             {!loading && reportError && (
-              <div style={{ fontSize: 12, color: 'var(--status-critical)' }}>{reportError}</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{reportError}</div>
             )}
             {!loading && !reportError && report && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{report.title}</div>
-                  <span className="chip" style={{ fontSize: 9 }}>{report.rows.length} row{report.rows.length === 1 ? '' : 's'}</span>
+                  <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{report.title}</div>
+                  <span className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>{report.rows.length} row{report.rows.length === 1 ? '' : 's'}</span>
                 </div>
 
                 {/* Summary meta chips (skips internal-only keys and empty values) */}
@@ -245,7 +245,7 @@ export function ReportsScreen() {
                   {Object.entries(report.meta)
                     .filter(([k, v]) => typeof v !== 'string' && typeof v === 'number' && !/tenantId/i.test(k))
                     .map(([k, v]) => (
-                      <span key={k} className="chip" style={{ fontSize: 10 }}>
+                      <span key={k} className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>
                         {k}: {typeof v === 'number' ? v.toLocaleString() : String(v)}
                       </span>
                     ))}
@@ -253,7 +253,7 @@ export function ReportsScreen() {
 
                 {/* Row preview (first 8 rows; export carries the full set) */}
                 <div style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid var(--border-subtle)', borderRadius: 10 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
                     <thead>
                       <tr>
                         {report.columns.map((c) => (
@@ -275,7 +275,7 @@ export function ReportsScreen() {
                     </tbody>
                   </table>
                   {report.rows.length > 8 && (
-                    <div style={{ padding: '6px 8px', fontSize: 10, color: 'var(--text-muted)' }}>Showing 8 of {report.rows.length} rows — export for the full set.</div>
+                    <div style={{ padding: '6px 8px', fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Showing 8 of {report.rows.length} rows — export for the full set.</div>
                   )}
                 </div>
               </>
@@ -298,14 +298,14 @@ export function ReportsScreen() {
         {/* Auditor link */}
         <div className="farm-card" style={{ padding: 14, marginBottom: 14, border: '1px solid rgba(167,139,250,0.3)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Auditor / Investor Access</div>
-            <span className="chip chip-purple" style={{ fontSize: 9 }}>~8h link</span>
+            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Auditor / Investor Access</div>
+            <span className="chip chip-purple" style={{ fontSize: 'var(--fs-2xs)' }}>~8h link</span>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
             Generate a temporary read-only link for investors or auditors. Expires in ~8 hours. They can view KPIs and export reports but cannot modify any data.
           </div>
           {!isOwner && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Only an owner can generate or revoke this link.</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Only an owner can generate or revoke this link.</div>
           )}
           {isOwner && (
             <>
@@ -318,17 +318,17 @@ export function ReportsScreen() {
                 {auditorBusy ? 'Working…' : auditorLink ? 'Revoke Link' : 'Generate Auditor Link'}
               </button>
               {auditorError && (
-                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--status-critical)' }}>{auditorError}</div>
+                <div style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{auditorError}</div>
               )}
               {auditorLink && (
                 <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(167,139,250,0.06)', borderRadius: 10, border: '1px solid rgba(167,139,250,0.2)' }}>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Temporary link (expires {fmtExpiry(auditorLink.expiresAt)}):</div>
-                  <div style={{ fontSize: 11, color: 'var(--accent-purple)', fontFamily: 'monospace', wordBreak: 'break-all', padding: '6px 8px', background: 'rgba(167,139,250,0.08)', borderRadius: 6 }}>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 4 }}>Temporary link (expires {fmtExpiry(auditorLink.expiresAt)}):</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-purple)', fontFamily: 'monospace', wordBreak: 'break-all', padding: '6px 8px', background: 'rgba(167,139,250,0.08)', borderRadius: 6 }}>
                     {typeof window !== 'undefined' ? `${window.location.origin}/auditor/${auditorLink.token}` : `/auditor/${auditorLink.token}`}
                   </div>
                   <button
                     onClick={handleCopyAuditorLink}
-                    style={{ marginTop: 8, padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', color: 'var(--accent-purple)', cursor: 'pointer' }}
+                    style={{ marginTop: 8, padding: '6px 14px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', color: 'var(--accent-purple)', cursor: 'pointer' }}
                   >
                     {copied ? 'Copied!' : 'Copy Link'}
                   </button>
@@ -342,15 +342,15 @@ export function ReportsScreen() {
         <div className="section-eyebrow" style={{ marginBottom: 10 }}>Recent Exports (this session)</div>
         <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 24 }}>
           {recentExports.length === 0 && (
-            <div style={{ padding: '14px', fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ padding: '14px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <FileText size={14} /> No exports yet this session — select a report above and export it.
             </div>
           )}
           {recentExports.map((r, i) => (
             <div key={i} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < recentExports.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{r.name}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{r.generated} · {r.format}</div>
+                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>{r.name}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{r.generated} · {r.format}</div>
               </div>
             </div>
           ))}

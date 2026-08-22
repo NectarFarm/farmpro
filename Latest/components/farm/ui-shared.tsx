@@ -50,7 +50,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           return (
             <div key={t.id} style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              padding: '11px 16px', borderRadius: 14, fontSize: 13, fontWeight: 700,
+              padding: '11px 16px', borderRadius: 14, fontSize: 'var(--fs-base)', fontWeight: 700,
               background: c.bg, border: `1px solid ${c.border}`, color: c.color,
               boxShadow: '0 4px 24px rgba(0,0,0,0.4)', maxWidth: 320,
               animation: 'slideUp 0.25s ease',
@@ -103,14 +103,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       {pending && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9998, padding: 24 }}>
           <div style={{ background: c.bg, borderRadius: 20, padding: 22, width: '100%', maxWidth: 340, border: `1px solid ${c.border}` }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{pending.message}</div>
-            {pending.detail && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>{pending.detail}</div>}
+            <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{pending.message}</div>
+            {pending.detail && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>{pending.detail}</div>}
             {!pending.detail && <div style={{ marginBottom: 16 }} />}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => respond(false)} style={{ flex: 1, padding: '10px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              <button onClick={() => respond(false)} style={{ flex: 1, padding: '10px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 'var(--fs-base)', cursor: 'pointer' }}>
                 Cancel
               </button>
-              <button onClick={() => respond(true)} style={{ flex: 1, padding: '10px', borderRadius: 12, background: c.btnBg, border: `1px solid ${c.btnBorder}`, color: c.btnColor, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              <button onClick={() => respond(true)} style={{ flex: 1, padding: '10px', borderRadius: 12, background: c.btnBg, border: `1px solid ${c.btnBorder}`, color: c.btnColor, fontWeight: 700, fontSize: 'var(--fs-base)', cursor: 'pointer' }}>
                 {pending.confirmLabel ?? (v === 'danger' ? 'Delete' : 'Confirm')}
               </button>
             </div>
@@ -149,12 +149,12 @@ export function LogoutMenu({ onLogout }: { onLogout: () => void }) {
       {open && (
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', zIndex: 500 }} onClick={() => setOpen(false)}>
           <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16, color: 'var(--text-primary)' }}>Account</div>
-            <button onClick={handleLogout} style={{ width: '100%', padding: '13px 16px', borderRadius: 14, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 16, color: 'var(--text-primary)' }}>Account</div>
+            <button onClick={handleLogout} style={{ width: '100%', padding: '13px 16px', borderRadius: 14, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
               <LogOut size={16} /> Sign Out
               <ChevronRight size={14} style={{ marginLeft: 'auto' }} />
             </button>
-            <button onClick={() => setOpen(false)} style={{ width: '100%', marginTop: 10, padding: '11px', borderRadius: 12, background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            <button onClick={() => setOpen(false)} style={{ width: '100%', marginTop: 10, padding: '11px', borderRadius: 12, background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 'var(--fs-base)', cursor: 'pointer' }}>
               Cancel
             </button>
           </div>
@@ -200,7 +200,7 @@ export function SortHeader({ label, field, sortField, sortDir, onSort }: {
 }) {
   const active = sortField === field;
   return (
-    <button onClick={() => onSort(field)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, color: active ? 'var(--primary-green)' : 'var(--text-muted)', fontWeight: active ? 700 : 600, fontSize: 10, padding: 0 }}>
+    <button onClick={() => onSort(field)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, color: active ? 'var(--primary-green)' : 'var(--text-muted)', fontWeight: active ? 700 : 600, fontSize: 'var(--fs-2xs)', padding: 0 }}>
       {label}
       {active && sortDir === 'asc' && <ChevronUp size={10} />}
       {active && sortDir === 'desc' && <ChevronDown size={10} />}
@@ -222,15 +222,15 @@ export function GovernanceGateBanner({ action, onRequest, onCancel }: {
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 12 }}>
         <ShieldCheck size={18} color="var(--accent-amber)" style={{ flexShrink: 0, marginTop: 1 }} />
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-amber)', marginBottom: 3 }}>Owner Approval Required</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--accent-amber)', marginBottom: 3 }}>Owner Approval Required</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
             Your role requires owner approval for: <strong style={{ color: 'var(--text-secondary)' }}>{action}</strong>. A request will be sent to the owner.
           </div>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={onCancel} style={{ flex: 1, padding: '9px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Cancel</button>
-        <button onClick={onRequest} style={{ flex: 2, padding: '9px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', color: 'var(--accent-amber)', fontWeight: 700, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <button onClick={onCancel} style={{ flex: 1, padding: '9px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Cancel</button>
+        <button onClick={onRequest} style={{ flex: 2, padding: '9px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', color: 'var(--accent-amber)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           <ShieldCheck size={13} /> Send Approval Request
         </button>
       </div>

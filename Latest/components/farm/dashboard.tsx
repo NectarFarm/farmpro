@@ -137,10 +137,10 @@ function OperationalDashboard({
     <div className="screen-content px-screen" style={{ paddingTop: 24 }}>
       <header style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 24 }}>
         <div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>{isManager ? "Today’s operations" : "Executive overview"}</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>{settings?.dashboardGreeting ?? "Good morning,"} {userName ?? ""}</div>
-          <h1 style={{ margin: 0, fontSize: 26, lineHeight: 1.15, color: "var(--text-primary)" }}><span aria-hidden="true">{settings?.logoEmoji ?? "🌾"}</span> {farmName}</h1>
-          <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 5 }}>{today} · {farmMeta}</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginBottom: 4 }}>{isManager ? "Today’s operations" : "Executive overview"}</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginBottom: 4 }}>{settings?.dashboardGreeting ?? "Good morning,"} {userName ?? ""}</div>
+          <h1 style={{ margin: 0, fontSize: 'var(--fs-4xl)', lineHeight: 1.15, color: "var(--text-primary)" }}><span aria-hidden="true">{settings?.logoEmoji ?? "🌾"}</span> {farmName}</h1>
+          <div style={{ fontSize: 'var(--fs-base)', color: "var(--text-muted)", marginTop: 5 }}>{today} · {farmMeta}</div>
         </div>
         <button className="btn-icon" onClick={() => navigate("notifications")} title="Notifications"><Bell size={17} /></button>
       </header>
@@ -152,7 +152,7 @@ function OperationalDashboard({
             {attention.map((item, index) => (
               <button key={item.title} onClick={() => navigate(item.action)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", background: "transparent", border: "none", borderBottom: index < attention.length - 1 ? "1px solid var(--border-subtle)" : "none", cursor: "pointer", textAlign: "left" }}>
                 <AlertTriangle size={17} color="var(--status-warning)" />
-                <span style={{ flex: 1 }}><span style={{ display: "block", fontSize: 14, fontWeight: 650, color: "var(--text-primary)" }}>{item.title}</span><span style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{item.detail}</span></span>
+                <span style={{ flex: 1 }}><span style={{ display: "block", fontSize: 'var(--fs-md)', fontWeight: 650, color: "var(--text-primary)" }}>{item.title}</span><span style={{ display: "block", fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginTop: 2 }}>{item.detail}</span></span>
                 <ChevronRight size={16} color="var(--text-dim)" />
               </button>
             ))}
@@ -165,13 +165,13 @@ function OperationalDashboard({
           <section style={{ marginBottom: 28 }}>
             <h2 className="section-title" style={{ margin: "0 0 10px" }}>Today</h2>
             <div className="farm-card" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", padding: "14px 0" }}>
-              {[['Scheduled', scheduled], ['Completed', completed], ['In progress', inProgress], ['Delayed', delayed]].map(([label, value], i) => <div key={label as string} style={{ textAlign: "center", borderLeft: i ? "1px solid var(--border-subtle)" : "none" }}><div style={{ fontSize: 24, fontWeight: 700 }}>{value as number}</div><div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>{label as string}</div></div>)}
+              {[['Scheduled', scheduled], ['Completed', completed], ['In progress', inProgress], ['Delayed', delayed]].map(([label, value], i) => <div key={label as string} style={{ textAlign: "center", borderLeft: i ? "1px solid var(--border-subtle)" : "none" }}><div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700 }}>{value as number}</div><div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", marginTop: 3 }}>{label as string}</div></div>)}
             </div>
           </section>
           <section style={{ marginBottom: 28 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}><h2 className="section-title" style={{ margin: 0 }}>Today’s work</h2><button onClick={() => navigate("tasks")} style={{ background: "none", border: "none", color: "var(--primary-green)", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Open tasks</button></div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}><h2 className="section-title" style={{ margin: 0 }}>Today’s work</h2><button onClick={() => navigate("tasks")} style={{ background: "none", border: "none", color: "var(--primary-green)", cursor: "pointer", fontSize: 'var(--fs-base)', fontWeight: 600 }}>Open tasks</button></div>
             <div className="farm-card" style={{ overflow: "hidden" }}>
-              {tasksToday === null ? <div style={{ padding: 14, fontSize: 13, color: "var(--text-muted)" }}>Loading scheduled work…</div> : tasksToday.length === 0 ? <div style={{ padding: 16, fontSize: 13, color: "var(--text-muted)" }}>No tasks are scheduled for today.</div> : tasksToday.map((task, index) => <button key={task.id} onClick={() => navigate("tasks")} style={{ width: "100%", padding: "13px 14px", display: "grid", gridTemplateColumns: "1fr auto", gap: 12, background: "transparent", border: "none", borderBottom: index < tasksToday.length - 1 ? "1px solid var(--border-subtle)" : "none", textAlign: "left", cursor: "pointer" }}><span><span style={{ display: "block", fontSize: 14, fontWeight: 650 }}>{task.title}</span><span style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>{task.dueAt ? new Date(task.dueAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "No scheduled time"}</span></span><span className={`chip ${task.status === "DONE" ? "chip-ok" : "chip-warning"}`}>{task.status.replace(/_/g, " ")}</span></button>)}
+              {tasksToday === null ? <div style={{ padding: 14, fontSize: 'var(--fs-base)', color: "var(--text-muted)" }}>Loading scheduled work…</div> : tasksToday.length === 0 ? <div style={{ padding: 16, fontSize: 'var(--fs-base)', color: "var(--text-muted)" }}>No tasks are scheduled for today.</div> : tasksToday.map((task, index) => <button key={task.id} onClick={() => navigate("tasks")} style={{ width: "100%", padding: "13px 14px", display: "grid", gridTemplateColumns: "1fr auto", gap: 12, background: "transparent", border: "none", borderBottom: index < tasksToday.length - 1 ? "1px solid var(--border-subtle)" : "none", textAlign: "left", cursor: "pointer" }}><span><span style={{ display: "block", fontSize: 'var(--fs-md)', fontWeight: 650 }}>{task.title}</span><span style={{ display: "block", fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginTop: 3 }}>{task.dueAt ? new Date(task.dueAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "No scheduled time"}</span></span><span className={`chip ${task.status === "DONE" ? "chip-ok" : "chip-warning"}`}>{task.status.replace(/_/g, " ")}</span></button>)}
             </div>
           </section>
         </>
@@ -180,9 +180,9 @@ function OperationalDashboard({
           <section style={{ marginBottom: 28 }}>
             <h2 className="section-title" style={{ margin: "0 0 10px" }}>Farm performance</h2>
             <div className="farm-card" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", padding: "16px 0" }}>
-              <div style={{ paddingLeft: 16 }}><div className="kpi-value" style={{ color: settings?.accentColor ?? "var(--primary-green)" }}>{kpis ? `KSh ${centsToMajor(kpis.periodRevenueCents).toLocaleString()}` : "—"}</div><div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>Revenue this {period}</div></div>
-              <button onClick={() => navigate("crops")} style={{ background: "none", border: "none", borderLeft: "1px solid var(--border-subtle)", textAlign: "left", paddingLeft: 16, cursor: "pointer" }}><div style={{ fontSize: 24, fontWeight: 700 }}>{kpis?.activeBatches ?? "—"}</div><div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>Active batches</div></button>
-              <button onClick={() => navigate("tasks")} style={{ background: "none", border: "none", borderLeft: "1px solid var(--border-subtle)", textAlign: "left", paddingLeft: 16, cursor: "pointer" }}><div style={{ fontSize: 24, fontWeight: 700 }}>{kpis?.activeTasksCount ?? "—"}</div><div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>Open tasks</div></button>
+              <div style={{ paddingLeft: 16 }}><div className="kpi-value" style={{ color: settings?.accentColor ?? "var(--primary-green)" }}>{kpis ? `KSh ${centsToMajor(kpis.periodRevenueCents).toLocaleString()}` : "—"}</div><div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginTop: 4 }}>Revenue this {period}</div></div>
+              <button onClick={() => navigate("crops")} style={{ background: "none", border: "none", borderLeft: "1px solid var(--border-subtle)", textAlign: "left", paddingLeft: 16, cursor: "pointer" }}><div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700 }}>{kpis?.activeBatches ?? "—"}</div><div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginTop: 4 }}>Active batches</div></button>
+              <button onClick={() => navigate("tasks")} style={{ background: "none", border: "none", borderLeft: "1px solid var(--border-subtle)", textAlign: "left", paddingLeft: 16, cursor: "pointer" }}><div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700 }}>{kpis?.activeTasksCount ?? "—"}</div><div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginTop: 4 }}>Open tasks</div></button>
             </div>
             <div style={{ display: "flex", gap: 6, marginTop: 10 }}>{(["month", "quarter", "year"] as const).map(p => <button key={p} onClick={() => setPeriod(p)} className={`filter-chip ${period === p ? "active" : ""}`} style={{ textTransform: "capitalize" }}>{p}</button>)}</div>
           </section>
@@ -195,16 +195,16 @@ function OperationalDashboard({
                 * Labelled "(all farms)" whenever a specific farm is selected
                 * so this tile never implies a farm-specific count it can't
                 * actually give. */}
-              {[["Fields & crops", kpis?.cropBatchGroupsCount, "crops", false], ["Inventory items tracked", kpis?.productCount, "inventory", true], ["Pending approvals", kpis?.pendingApprovals, "governance", false]].map(([label, value, screen, tenantWide], index) => <button key={label as string} onClick={() => navigate(screen as any)} style={{ width: "100%", padding: "13px 14px", background: "transparent", border: "none", borderBottom: index < 2 ? "1px solid var(--border-subtle)" : "none", display: "flex", justifyContent: "space-between", cursor: "pointer", color: "var(--text-primary)", fontSize: 14 }}><span>{label as string}{tenantWide && kpis && kpis.farmId && kpis.farmId !== 'ALL' ? <span style={{ color: "var(--text-dim)", fontWeight: 500 }}> (all farms)</span> : null}</span><span style={{ fontWeight: 700 }}>{value as number ?? "—"}</span></button>)}
+              {[["Fields & crops", kpis?.cropBatchGroupsCount, "crops", false], ["Inventory items tracked", kpis?.productCount, "inventory", true], ["Pending approvals", kpis?.pendingApprovals, "governance", false]].map(([label, value, screen, tenantWide], index) => <button key={label as string} onClick={() => navigate(screen as any)} style={{ width: "100%", padding: "13px 14px", background: "transparent", border: "none", borderBottom: index < 2 ? "1px solid var(--border-subtle)" : "none", display: "flex", justifyContent: "space-between", cursor: "pointer", color: "var(--text-primary)", fontSize: 'var(--fs-md)' }}><span>{label as string}{tenantWide && kpis && kpis.farmId && kpis.farmId !== 'ALL' ? <span style={{ color: "var(--text-dim)", fontWeight: 500 }}> (all farms)</span> : null}</span><span style={{ fontWeight: 700 }}>{value as number ?? "—"}</span></button>)}
             </div>
           </section>
         </>
       )}
 
       <section style={{ paddingBottom: 28 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}><h2 className="section-title" style={{ margin: 0 }}>Recent activity</h2><button onClick={() => navigate("notifications")} style={{ background: "none", border: "none", color: "var(--primary-green)", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>View all</button></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}><h2 className="section-title" style={{ margin: 0 }}>Recent activity</h2><button onClick={() => navigate("notifications")} style={{ background: "none", border: "none", color: "var(--primary-green)", cursor: "pointer", fontSize: 'var(--fs-base)', fontWeight: 600 }}>View all</button></div>
         <div className="farm-card" style={{ overflow: "hidden" }}>
-          {recent.length === 0 ? <div style={{ padding: 16, fontSize: 13, color: "var(--text-muted)" }}>No recent operational updates.</div> : recent.map((note, index) => <button key={note.id} onClick={() => navigate("notifications")} style={{ width: "100%", padding: "13px 14px", textAlign: "left", background: "transparent", border: "none", borderBottom: index < recent.length - 1 ? "1px solid var(--border-subtle)" : "none", cursor: "pointer" }}><div style={{ fontSize: 14, fontWeight: 600 }}>{note.title}</div><div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>{note.message || "Open notification"}</div></button>)}
+          {recent.length === 0 ? <div style={{ padding: 16, fontSize: 'var(--fs-base)', color: "var(--text-muted)" }}>No recent operational updates.</div> : recent.map((note, index) => <button key={note.id} onClick={() => navigate("notifications")} style={{ width: "100%", padding: "13px 14px", textAlign: "left", background: "transparent", border: "none", borderBottom: index < recent.length - 1 ? "1px solid var(--border-subtle)" : "none", cursor: "pointer" }}><div style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>{note.title}</div><div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginTop: 3 }}>{note.message || "Open notification"}</div></button>)}
         </div>
       </section>
     </div>
@@ -242,7 +242,7 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
     <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "flex-end", zIndex: 100 }} onClick={onClose}>
       <div style={{ background: "var(--surface)", borderRadius: "24px 24px 0 0", padding: 20, width: "100%", border: "1px solid var(--border-subtle)", maxHeight: "60%" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Switch Farm</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Switch Farm</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <button onClick={() => { setActiveFarmId("ALL"); onClose() }}
@@ -250,10 +250,10 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
             background: activeFarmId === "ALL" ? "rgba(74,222,128,0.12)" : "var(--card)",
             border: activeFarmId === "ALL" ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
             display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🌐</div>
+          <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 'var(--fs-xl)' }}>🌐</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>All Farms</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Aggregated view · {farms.length} farms</div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: "var(--text-primary)" }}>All Farms</div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)" }}>Aggregated view · {farms.length} farms</div>
           </div>
           {activeFarmId === "ALL" && <Check size={16} color="var(--primary-green)" />}
         </button>
@@ -263,10 +263,10 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
               background: activeFarmId === farm.id ? "rgba(74,222,128,0.12)" : "var(--card)",
               border: activeFarmId === farm.id ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
               display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🌾</div>
+            <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 'var(--fs-xl)' }}>🌾</div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>{farm.name}</div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{farm.code} · {farm.location}</div>
+              <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: "var(--text-primary)" }}>{farm.name}</div>
+              <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)" }}>{farm.code} · {farm.location}</div>
             </div>
             {activeFarmId === farm.id && <Check size={16} color="var(--primary-green)" />}
           </button>
@@ -431,7 +431,12 @@ export function NotificationsScreen() {
 
   function handleNotifTap(n: NotificationRow) {
     markRead(n.id);
-    if (n.sourceType === "task") navigate("tasks");
+    // sourceId (tasks.id today — see the sourceType comment above for why
+    // "approval"/"alert" never actually fire yet) used to be dropped here,
+    // so tapping a specific overdue-task notification always landed on the
+    // Tasks screen's plain unfiltered list instead of that task. TasksScreen
+    // now opens the matching task's detail sheet when `taskId` is present.
+    if (n.sourceType === "task") navigate("tasks", n.sourceId ? { taskId: n.sourceId } : undefined);
     else if (n.sourceType === "approval") navigate("governance");
     else if (n.sourceType === "alert") navigate("inventory");
   }
@@ -456,12 +461,12 @@ export function NotificationsScreen() {
           <div style={{ display: "flex", gap: 8 }}>
             {unread > 0 && (
               <button onClick={markAllRead}
-                style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer" }}>
+                style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer" }}>
                 Mark all read
               </button>
             )}
             <button onClick={() => navigate("notification-settings")}
-              style={{ fontSize: 11, fontWeight: 700, color: "var(--primary-green)", background: "none", border: "none", cursor: "pointer" }}>
+              style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: "var(--primary-green)", background: "none", border: "none", cursor: "pointer" }}>
               Settings
             </button>
           </div>
@@ -469,14 +474,14 @@ export function NotificationsScreen() {
       />
       <div className="px-screen" style={{ paddingTop: 14 }}>
         {unread > 0 && (
-          <div style={{ padding: "8px 12px", background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: 10, fontSize: 11, color: "var(--primary-green)", marginBottom: 14, fontWeight: 600 }}>
+          <div style={{ padding: "8px 12px", background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: 10, fontSize: 'var(--fs-xs)', color: "var(--primary-green)", marginBottom: 14, fontWeight: 600 }}>
             {unread} unread notification{unread > 1 ? "s" : ""}
           </div>
         )}
         {notifs === null ? (
-          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Loading notifications…</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-dim)" }}>Loading notifications…</div>
         ) : notifs.length === 0 ? (
-          <div className="farm-card" style={{ padding: 16, fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>
+          <div className="farm-card" style={{ padding: 16, fontSize: 'var(--fs-sm)', color: "var(--text-muted)", textAlign: "center" }}>
             No notifications yet.
           </div>
         ) : (
@@ -494,16 +499,16 @@ export function NotificationsScreen() {
                         background: n.read ? "var(--card)" : "rgba(74,222,128,0.05)",
                         border: `1px solid ${n.read ? "var(--border-subtle)" : "rgba(74,222,128,0.2)"}` }}>
                       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 10, background: `${color}15`, border: `1px solid ${color}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 16 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 10, background: `${color}15`, border: `1px solid ${color}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 'var(--fs-lg)' }}>
                           {typeIcon[n.sourceType] ?? "🔔"}
                         </div>
                         <div style={{ flex: 1 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                            <div style={{ fontSize: 13, fontWeight: n.read ? 500 : 700, color: "var(--text-primary)", lineHeight: 1.3, flex: 1 }}>{n.title}</div>
+                            <div style={{ fontSize: 'var(--fs-base)', fontWeight: n.read ? 500 : 700, color: "var(--text-primary)", lineHeight: 1.3, flex: 1 }}>{n.title}</div>
                             {!n.read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--primary-green)", flexShrink: 0, marginLeft: 8, marginTop: 4 }} />}
                           </div>
-                          {n.message && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.4 }}>{n.message}</div>}
-                          <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 5 }}>{formatWhen(n.createdAt)}</div>
+                          {n.message && <div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginTop: 3, lineHeight: 1.4 }}>{n.message}</div>}
+                          <div style={{ fontSize: 'var(--fs-2xs)', color: "var(--text-dim)", marginTop: 5 }}>{formatWhen(n.createdAt)}</div>
                         </div>
                       </div>
                     </button>
@@ -547,8 +552,8 @@ export function NotificationSettingsScreen() {
               <div key={t.id} style={{ padding: "13px 14px", borderBottom: i < NOTIF_TYPES.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{t.label}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>{t.desc}</div>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: "var(--text-primary)" }}>{t.label}</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", marginTop: 1 }}>{t.desc}</div>
                   </div>
                   <button onClick={() => setEnabled(e => ({ ...e, [t.id]: !e[t.id] }))}
                     style={{ width: 44, height: 24, borderRadius: 100, border: "none", cursor: "pointer", flexShrink: 0, marginLeft: 10,
@@ -558,13 +563,13 @@ export function NotificationSettingsScreen() {
                 </div>
                 {enabled[t.id] && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>SMS also</span>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)" }}>SMS also</span>
                     <button onClick={() => setSms(s => ({ ...s, [t.id]: !s[t.id] }))}
                       style={{ width: 36, height: 20, borderRadius: 100, border: "none", cursor: "pointer",
                         background: sms[t.id] ? "rgba(96,165,250,0.6)" : "rgba(255,255,255,0.08)", position: "relative" }}>
                       <div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: sms[t.id] ? 19 : 3, transition: "left 0.2s" }} />
                     </button>
-                    <span style={{ fontSize: 10, color: sms[t.id] ? "var(--accent-blue)" : "var(--text-dim)", fontWeight: 600 }}>{sms[t.id] ? "ON" : "OFF"}</span>
+                    <span style={{ fontSize: 'var(--fs-2xs)', color: sms[t.id] ? "var(--accent-blue)" : "var(--text-dim)", fontWeight: 600 }}>{sms[t.id] ? "ON" : "OFF"}</span>
                   </div>
                 )}
               </div>
@@ -577,8 +582,8 @@ export function NotificationSettingsScreen() {
           <div className="farm-card" style={{ padding: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>Enable Quiet Hours</div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>Silence non-critical notifications overnight</div>
+                <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: "var(--text-primary)" }}>Enable Quiet Hours</div>
+                <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", marginTop: 1 }}>Silence non-critical notifications overnight</div>
               </div>
               <button onClick={() => setQuietEnabled(q => !q)}
                 style={{ width: 44, height: 24, borderRadius: 100, border: "none", cursor: "pointer", flexShrink: 0,
@@ -589,11 +594,11 @@ export function NotificationSettingsScreen() {
             {quietEnabled && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>From</label>
+                  <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>From</label>
                   <input className="farm-input" type="time" value={quietStart} onChange={e => setQuietStart(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Until</label>
+                  <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Until</label>
                   <input className="farm-input" type="time" value={quietEnd} onChange={e => setQuietEnd(e.target.value)} />
                 </div>
               </div>

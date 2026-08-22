@@ -3,6 +3,22 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Theme tokens (ui-polish-theme-weather) ──────────────────────────────────
+ * Settings offers four themes (tenant_settings.theme) and, until this task,
+ * nothing applied the stored choice to the DOM: no class/attribute ever
+ * landed on <html>, global.css had zero per-theme overrides, and 43 hex
+ * colours below bypassed the token system entirely — so picking a theme
+ * changed a database row and nothing else. components/farm/settings.tsx's
+ * ThemeProvider now sets `data-theme` on <html> (see applyThemeVisuals) and
+ * every theme's full palette lives here as one flat override block per
+ * theme, keyed on that attribute — the single source of truth for what each
+ * theme looks like, instead of a scattered .style.setProperty() call per
+ * token from JS.
+ *
+ * :root below IS "light-farm" (the operational default before any theme is
+ * read from settings, and while data-theme="light-farm" is set — no
+ * override block needed for it since :root already matches). The other
+ * three themes each override the full set of role tokens beneath it. */
 :root {
   /* Operational default: neutral, daylight-friendly, with colour reserved for meaning. */
   --background: #f7f8f5;
@@ -13,6 +29,18 @@
   --border-hover: #9fbea6;
 
   --primary-green: #2f6f3e;
+  /* Hover/pressed shade of --primary-green — was a hardcoded #285f35 baked
+   * into .btn-primary:hover, so a theme that made --primary-green bright
+   * (dark/high-contrast/sun) still darkened toward this one fixed shade on
+   * hover, which looked wrong or, worse, barely changed at all. */
+  --primary-green-strong: #285f35;
+  /* Text/icon colour placed ON TOP of a --primary-green fill (buttons, the
+   * FAB, the active step indicator). Light-farm's green is dark enough for
+   * white text, but dark-farm/high-contrast/sun-mode make --primary-green a
+   * BRIGHT colour (mint/neon-lime/amber) — white text on those fails
+   * contrast outright, which is exactly the kind of "white flash hides the
+   * text" bug the table-hover fix below addresses too. */
+  --on-primary: #ffffff;
   --accent-lime: #6d9f45;
   --accent-amber: #b7791f;
   --accent-red: #c94a45;
@@ -32,13 +60,52 @@
   --status-critical: #c94a45;
   --status-info: #2866a3;
 
+  /* Chip/badge tints — were hardcoded light pastels (.chip-ok etc. below),
+   * so a status pill stayed pastel-on-white even on a black or dark-green
+   * background. Foreground stays the --status-* token above (already
+   * theme-aware); only the background needed a token of its own. */
+  --chip-ok-bg: #e8f3e9;
+  --chip-warning-bg: #fbf0dc;
+  --chip-critical-bg: #fbe9e7;
+  --chip-info-bg: #e9f0f8;
+  --chip-neutral-bg: #f0f2ee;
+
   --gradient-primary: #2f6f3e;
   --gradient-warm: #b7791f;
   --gradient-hero: #f7f8f5;
 
+  /* .farm-viewport's backdrop behind the device frame — was a hardcoded
+   * #edf0ea (a light grey), which stayed a light band around a dark-themed
+   * app instead of receding behind it. */
+  --viewport-bg: #edf0ea;
+
   --nav-height: 64px;
   --bottom-nav-height: 68px;
   --radius: 0.75rem;
+
+  /* ── Type scale (ui-polish-theme-weather) ──────────────────────────────────
+   * Replaces ~24 distinct ad-hoc `fontSize: N` pixel values scattered across
+   * components/farm/*.tsx (one-off numbers like 7, 9, 15, 22, 26, 34, 40, 44,
+   * 48 with no relationship to each other) with 13 named steps every inline
+   * style now references as `fontSize: 'var(--fs-*)'`. Two things this buys
+   * beyond consistency: it's in rem, so it's the piece that makes
+   * tenant_settings.font_size (small/normal/large/xlarge) actually change
+   * the READING text of the app — before this, ThemeProvider's
+   * applyFontSizeVisuals() only ever changed <html>'s root font-size, which
+   * every one of those hardcoded *pixel* values ignored completely. */
+  --fs-2xs: 0.625rem;   /* 10px */
+  --fs-xs: 0.6875rem;   /* 11px */
+  --fs-sm: 0.75rem;     /* 12px */
+  --fs-base: 0.8125rem; /* 13px */
+  --fs-md: 0.875rem;    /* 14px */
+  --fs-lg: 1rem;        /* 16px */
+  --fs-xl: 1.125rem;    /* 18px */
+  --fs-2xl: 1.25rem;    /* 20px */
+  --fs-3xl: 1.5rem;     /* 24px */
+  --fs-4xl: 1.75rem;    /* 28px */
+  --fs-5xl: 2rem;       /* 32px */
+  --fs-6xl: 2.25rem;    /* 36px */
+  --fs-hero: 3.25rem;   /* 52px */
 
   /* Shadcn compat */
   --foreground: 120 12% 11%;
@@ -60,6 +127,134 @@
   --radius: 0.75rem;
 }
 
+/* ── Dark Farm ── low-light view; the app's original dark-green aesthetic. */
+:root[data-theme='dark-farm'] {
+  --background: #0a0f0a;
+  --surface: #0f1a0f;
+  --card: #121f12;
+  --card-hover: #17281a;
+  --border-subtle: rgba(255,255,255,0.09);
+  --border-hover: rgba(134,239,172,0.35);
+
+  --primary-green: #4ade80;
+  --primary-green-strong: #22c55e;
+  --on-primary: #062b0e;
+  --accent-lime: #a3e635;
+  --accent-amber: #f59e0b;
+  --accent-red: #f87171;
+  --accent-blue: #60a5fa;
+  --accent-purple: #c084fc;
+  --accent-cyan: #22d3ee;
+
+  --text-primary: #f0fdf4;
+  --text-secondary: #86efac;
+  --text-muted: #7a9d80;
+  --text-dim: #55705a;
+
+  --status-ok: #4ade80;
+  --status-warning: #fbbf24;
+  --status-critical: #f87171;
+  --status-info: #60a5fa;
+
+  --chip-ok-bg: rgba(74,222,128,0.15);
+  --chip-warning-bg: rgba(251,191,36,0.12);
+  --chip-critical-bg: rgba(248,113,113,0.12);
+  --chip-info-bg: rgba(96,165,250,0.12);
+  --chip-neutral-bg: rgba(255,255,255,0.06);
+
+  --gradient-primary: #4ade80;
+  --gradient-warm: #fbbf24;
+  --gradient-hero: #0a0f0a;
+  --viewport-bg: #050805;
+}
+
+/* ── High Contrast ── black & white, maximum legibility. Accents stay
+ * saturated (they carry meaning — ok/warning/critical/info must stay
+ * distinguishable from each other), but every background/border/text role
+ * is pure black, pure white, or a stepped grey — no muddy mid-tones. */
+:root[data-theme='high-contrast'] {
+  --background: #000000;
+  --surface: #0a0a0a;
+  --card: #101010;
+  --card-hover: #1c1c1c;
+  --border-subtle: rgba(255,255,255,0.4);
+  --border-hover: #ffffff;
+
+  --primary-green: #33ff33;
+  --primary-green-strong: #22cc22;
+  --on-primary: #000000;
+  --accent-lime: #adff2f;
+  --accent-amber: #ffd400;
+  --accent-red: #ff5252;
+  --accent-blue: #4dd2ff;
+  --accent-purple: #d9b3ff;
+  --accent-cyan: #4dd2ff;
+
+  --text-primary: #ffffff;
+  --text-secondary: #ffffff;
+  --text-muted: #cfcfcf;
+  --text-dim: #a0a0a0;
+
+  --status-ok: #33ff33;
+  --status-warning: #ffd400;
+  --status-critical: #ff5252;
+  --status-info: #4dd2ff;
+
+  --chip-ok-bg: rgba(51,255,51,0.2);
+  --chip-warning-bg: rgba(255,212,0,0.2);
+  --chip-critical-bg: rgba(255,82,82,0.2);
+  --chip-info-bg: rgba(77,210,255,0.2);
+  --chip-neutral-bg: rgba(255,255,255,0.14);
+
+  --gradient-primary: #33ff33;
+  --gradient-warm: #ffd400;
+  --gradient-hero: #000000;
+  --viewport-bg: #000000;
+}
+
+/* ── Outdoor / Sun ── warm amber tones, meant to stay readable in direct
+ * sunlight where a screen's own light is competing with the sun rather than
+ * a dim room. */
+:root[data-theme='sun-mode'] {
+  --background: #1a1200;
+  --surface: #231800;
+  --card: #2a1e00;
+  --card-hover: #34260a;
+  --border-subtle: rgba(251,191,36,0.22);
+  --border-hover: rgba(251,191,36,0.5);
+
+  --primary-green: #fbbf24;
+  --primary-green-strong: #d97706;
+  --on-primary: #1a1200;
+  --accent-lime: #facc15;
+  --accent-amber: #fbbf24;
+  --accent-red: #f87171;
+  --accent-blue: #38bdf8;
+  --accent-purple: #fcd34d;
+  --accent-cyan: #38bdf8;
+
+  --text-primary: #fff9e6;
+  --text-secondary: #fde68a;
+  --text-muted: #d1a85a;
+  --text-dim: #a97d2e;
+
+  --status-ok: #84cc16;
+  --status-warning: #fbbf24;
+  --status-critical: #f87171;
+  --status-info: #38bdf8;
+
+  --chip-ok-bg: rgba(132,204,22,0.16);
+  --chip-warning-bg: rgba(251,191,36,0.2);
+  --chip-critical-bg: rgba(248,113,113,0.16);
+  --chip-info-bg: rgba(56,189,248,0.16);
+  --chip-neutral-bg: rgba(251,191,36,0.09);
+
+  --gradient-primary: #fbbf24;
+  --gradient-warm: #f59e0b;
+  --gradient-hero: #1a1200;
+  --viewport-bg: #120c00;
+}
+
 @theme inline {
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'JetBrains Mono', monospace;
@@ -67,12 +262,19 @@
   --color-foreground: var(--text-primary);
   --color-card: var(--card);
   --color-card-foreground: var(--text-primary);
-  --color-border: rgba(255,255,255,0.07);
+  /* These four used to be hardcoded to dark-theme values (a white-on-dark
+   * border, a near-black primary-foreground, etc.) regardless of which
+   * theme was actually active — on light-farm's default light background,
+   * `border-border` (applied to every element, see @layer base below) drew
+   * a near-invisible 7%-white line, and Tailwind's other color-* utilities
+   * silently disagreed with the active theme. Pointed at the same tokens
+   * every other themed rule uses so they track the active theme too. */
+  --color-border: var(--border-subtle);
   --color-primary: var(--primary-green);
-  --color-primary-foreground: #0a0f0a;
-  --color-muted: #0f1a0f;
-  --color-muted-foreground: #4b7c52;
-  --color-destructive: #f87171;
+  --color-primary-foreground: var(--on-primary);
+  --color-muted: var(--surface);
+  --color-muted-foreground: var(--text-muted);
+  --color-destructive: var(--status-critical);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -102,7 +304,7 @@
  * a centered column on tablets, and a sidebar layout on desktop. */
 .farm-viewport {
   min-height: 100dvh;
-  background: #edf0ea;
+  background: var(--viewport-bg);
 }
 .farm-device-frame {
   width: 100%;
@@ -271,7 +473,7 @@
 }
 .bottom-nav-item .nav-badge {
   position: absolute; top: 6px; right: 18%;
-  background: var(--accent-red); color: #fff;
+  background: var(--accent-red); color: var(--on-primary);
   font-size: 9px; font-weight: 700;
   border-radius: 100px; min-width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
@@ -327,11 +529,11 @@
   font-size: 12px; font-weight: 600; letter-spacing: 0;
   text-transform: none;
 }
-.chip-ok { background: #e8f3e9; color: var(--status-ok); }
-.chip-warning { background: #fbf0dc; color: var(--status-warning); }
-.chip-critical { background: #fbe9e7; color: var(--status-critical); }
-.chip-info { background: #e9f0f8; color: var(--status-info); }
-.chip-purple, .chip-cyan { background: #f0f2ee; color: var(--text-muted); }
+.chip-ok { background: var(--chip-ok-bg); color: var(--status-ok); }
+.chip-warning { background: var(--chip-warning-bg); color: var(--status-warning); }
+.chip-critical { background: var(--chip-critical-bg); color: var(--status-critical); }
+.chip-info { background: var(--chip-info-bg); color: var(--status-info); }
+.chip-purple, .chip-cyan { background: var(--chip-neutral-bg); color: var(--text-muted); }
 
 /* ── KPI stat blocks ── */
 .kpi-value {
@@ -350,13 +552,13 @@
 /* ── Action buttons ── */
 .btn-primary {
   background: var(--primary-green);
-  color: #fff; font-weight: 650;
+  color: var(--on-primary); font-weight: 650;
   border-radius: 8px; border: 1px solid var(--primary-green);
   padding: 11px 18px; font-size: 14px;
   cursor: pointer; transition: all 0.2s ease;
   display: inline-flex; align-items: center; gap: 8px;
 }
-.btn-primary:hover { background: #285f35; box-shadow: none; }
+.btn-primary:hover { background: var(--primary-green-strong); box-shadow: none; }
 .btn-secondary {
   background: var(--surface);
   border: 1px solid var(--border-subtle);
@@ -376,7 +578,7 @@
 .btn-fab {
   width: 52px; height: 52px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
-  background: var(--primary-green); color: #fff;
+  background: var(--primary-green); color: var(--on-primary);
   box-shadow: 0 2px 6px rgba(24,32,24,0.18);
   cursor: pointer; transition: all 0.2s ease;
   border: none;
@@ -410,7 +612,7 @@
   border-bottom: 1px solid var(--border-subtle);
   transition: background 0.1s ease;
 }
-.farm-table tbody tr:hover { background: #f7f9f5; }
+.farm-table tbody tr:hover { background: var(--card-hover); }
 .farm-table tbody td {
   padding: 12px 12px; color: var(--text-primary);
   vertical-align: middle;
@@ -429,7 +631,7 @@
 .progress-track { height: 6px; background: rgba(255,255,255,0.06); border-radius: 100px; overflow: hidden; }
 .progress-fill { height: 100%; border-radius: 100px; background: var(--primary-green); transition: width 0.5s ease; }
 .progress-fill-amber { background: var(--accent-amber); }
-.progress-fill-red { background: #f87171; }
+.progress-fill-red { background: var(--status-critical); }
 
 /* ── Divider ── */
 .farm-divider { height: 1px; background: var(--border-subtle); margin: 0; }
@@ -454,8 +656,8 @@
   font-size: 12px; font-weight: 700; flex-shrink: 0;
   transition: all 0.2s ease;
 }
-.step-node.done { background: var(--primary-green); color: #0a0f0a; }
-.step-node.active { background: var(--gradient-primary); color: #0a0f0a; box-shadow: 0 0 0 4px rgba(74,222,128,0.2); }
+.step-node.done { background: var(--primary-green); color: var(--on-primary); }
+.step-node.active { background: var(--gradient-primary); color: var(--on-primary); box-shadow: 0 0 0 4px rgba(74,222,128,0.2); }
 .step-node.pending { background: var(--card); border: 1px solid var(--border-subtle); color: var(--text-muted); }
 .step-line { flex: 1; height: 2px; background: var(--border-subtle); }
 .step-line.done { background: var(--primary-green); }

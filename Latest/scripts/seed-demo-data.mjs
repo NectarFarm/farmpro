@@ -45,12 +45,16 @@ const BATCHES = [
   { id: 'demo-b5', unit: 'demo-u5', code: 'MZE-2402', name: 'Maize Satellite', species: 'maize', enterprise: 'maize',     stage: 'vegetative', init: 1,    cur: 1,    cost: 18000000,  start: 55 },
 ]
 
+// `salary` is monthly_salary_cents (payroll-and-gps task) — a flat monthly
+// rate, in cents, matching every other money column. Every employee here
+// gets one so PAYROLL_RUN below actually pays all five, and the Finance ->
+// Payroll tab / People -> per-employee Payroll tab have real data to show.
 const EMPLOYEES = [
-  { id: 'demo-e1', farm: F1, name: 'John Kamau',     phone: '+254712345001', role: 'worker',     batches: ['demo-b1', 'demo-b2'] },
-  { id: 'demo-e2', farm: F1, name: 'Mary Wanjiru',   phone: '+254712345010', role: 'worker',     batches: ['demo-b1'] },
-  { id: 'demo-e3', farm: F1, name: 'Peter Njoroge',  phone: '+254712345011', role: 'supervisor', batches: ['demo-b3'] },
-  { id: 'demo-e4', farm: F2, name: 'Grace Atieno',   phone: '+254712345012', role: 'worker',     batches: ['demo-b4'] },
-  { id: 'demo-e5', farm: F2, name: 'Samuel Kiptoo',  phone: '+254712345013', role: 'worker',     batches: ['demo-b5'] },
+  { id: 'demo-e1', farm: F1, name: 'John Kamau',     phone: '+254712345001', role: 'worker',     batches: ['demo-b1', 'demo-b2'], salary: 3500000 },
+  { id: 'demo-e2', farm: F1, name: 'Mary Wanjiru',   phone: '+254712345010', role: 'worker',     batches: ['demo-b1'],             salary: 3200000 },
+  { id: 'demo-e3', farm: F1, name: 'Peter Njoroge',  phone: '+254712345011', role: 'supervisor', batches: ['demo-b3'],             salary: 4500000 },
+  { id: 'demo-e4', farm: F2, name: 'Grace Atieno',   phone: '+254712345012', role: 'worker',     batches: ['demo-b4'],             salary: 3000000 },
+  { id: 'demo-e5', farm: F2, name: 'Samuel Kiptoo',  phone: '+254712345013', role: 'worker',     batches: ['demo-b5'],             salary: 3000000 },
 ]
 
 const TASKS = [
@@ -154,9 +158,38 @@ const BATCH_PRODUCTS = [
   { id: 'demo-bp2', batch: 'demo-b5', product: 'demo-pr4', mode: 'EXCLUDE' }, // Satellite maize is cut for silage
 ]
 
+// One completed payroll run (payroll-and-gps task) covering all five
+// EMPLOYEES above at their `salary` rate, so the Finance -> Payroll tab and
+// each employee's own "My Pay" / per-employee Payroll tab have something
+// real to show without requiring a fresh POST /api/payroll/runs first.
+// `amountCents` on each payslip is a snapshot of EMPLOYEES[].salary at seed
+// time, matching how a real run snapshots employees.monthlySalaryCents —
+// not a live join.
+//
+// Deliberately NOT posted to journal_entries/journal_lines here: this
+// script writes rows directly to Postgres and has never posted the demo
+// SALES/PURCHASES above to the ledger either (that only happens through the
+// real POST /api/data/sales / POST /api/purchases routes) — this payroll
+// run stays consistent with that existing precedent rather than inventing
+// ledger-writing logic only this one seed entity gets.
+const PAYROLL_RUN = { id: 'demo-pr-run1', start: 50, end: 20 } // period: 30 days, ending 20 days ago
+const PAYSLIPS = EMPLOYEES.map((e, i) => ({ id: `demo-pyslp${i + 1}`, emp: e.id, name: e.name, amountCents: e.salary }))
+
 async function reset() {
   // Child rows first — records/sales/approvals reference batches.
-  for (const t of ['batch_products', 'product_units',
+  // Rows created through the APP reference demo rows but carry real UUIDs, so
+  // an id-prefix delete leaves them behind and the employee delete below then
+  // trips a foreign key. Clear those by what they POINT AT, not by their name.
+  // Child rows created through the APP reference demo rows but carry real
+  // UUIDs, so the id-prefix delete below leaves them behind and the parent
+  // deletes then trip a foreign key. Clear the demo tenant's child tables
+  // wholesale first — this is a demo reset, so "everything for this tenant"
+  // is the right scope, and it is ordered children-before-parents.
+  for (const t of ['payslips', 'payroll_runs', 'batch_products', 'product_units', 'records', 'sales', 'approval_requests', 'notifications']) {
+    await sql`DELETE FROM ${sql(t)} WHERE tenant_id = ${T}`
+  }
+
+  for (const t of ['payslips', 'payroll_runs', 'batch_products', 'product_units',
                    'records', 'sales', 'approval_requests', 'notifications', 'purchases',
                    'inventory_lots', 'inventory_items', 'tasks', 'employees', 'products',
                    'batches', 'production_units']) {
@@ -182,9 +215,9 @@ async function main() {
   }
   for (const e of EMPLOYEES) {
     await sql`INSERT INTO employees (id, tenant_id, name, phone, role, assigned_batch_ids,
-        mortality_photo_threshold, status, farm_id)
-      VALUES (${e.id}, ${T}, ${e.name}, ${e.phone}, ${e.role}, ${e.batches}, 5, 'ACTIVE', ${e.farm})
-      ON CONFLICT (id) DO NOTHING`
+        mortality_photo_threshold, monthly_salary_cents, status, farm_id)
+      VALUES (${e.id}, ${T}, ${e.name}, ${e.phone}, ${e.role}, ${e.batches}, 5, ${e.salary}, 'ACTIVE', ${e.farm})
+      ON CONFLICT (id) DO UPDATE SET monthly_salary_cents = EXCLUDED.monthly_salary_cents`
   }
   // The vet demo login (db/seed.mjs's vet@nakurufarm.com) otherwise has no
   // `employees` row at all, which means POST /api/records — required for
@@ -199,6 +232,14 @@ async function main() {
         mortality_photo_threshold, status, farm_id)
       VALUES ('demo-e-vet', ${T}, ${vetUser.id}, 'Dr. Grace Wanjiru', '', 'vet', ${[]}, 5, 'ACTIVE', ${F1})
       ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id`
+  }
+  // Same reasoning as the vet link above, for John Kamau (demo-e1): without
+  // this, GET /api/employees/me / GET /api/payroll/me would 404 for the
+  // john@nakurufarm.com login (its whole worker-portal identity depends on
+  // employees.userId, not on the phone number matching by coincidence).
+  const [johnUser] = await sql`SELECT id FROM users WHERE email = 'john@nakurufarm.com' LIMIT 1`
+  if (johnUser) {
+    await sql`UPDATE employees SET user_id = ${johnUser.id} WHERE id = 'demo-e1'`
   }
   for (const t of TASKS) {
     await sql`INSERT INTO tasks (id, tenant_id, title, due_at, status, priority, requires_approval, farm_id)
@@ -264,12 +305,28 @@ async function main() {
       ON CONFLICT (id) DO NOTHING`
   }
 
+  // Payroll (payroll-and-gps task) — one completed run + a payslip per
+  // employee, so the Pay/Payroll screens render real data out of the box.
+  const payrollTotalCents = PAYSLIPS.reduce((sum, p) => sum + p.amountCents, 0)
+  const [payrollOwner] = await sql`SELECT id FROM users WHERE email = 'james@nakurufarm.com' LIMIT 1`
+  await sql`INSERT INTO payroll_runs (id, tenant_id, period_start, period_end, total_amount_cents,
+      employee_count, created_by_user_id, memo, created_at)
+    VALUES (${PAYROLL_RUN.id}, ${T}, ${daysAgo(PAYROLL_RUN.start)}, ${daysAgo(PAYROLL_RUN.end)}, ${payrollTotalCents},
+      ${PAYSLIPS.length}, ${payrollOwner ? payrollOwner.id : 'demo-owner'}, 'Demo payroll run', ${daysAgo(PAYROLL_RUN.end)})
+    ON CONFLICT (id) DO NOTHING`
+  for (const p of PAYSLIPS) {
+    await sql`INSERT INTO payslips (id, tenant_id, run_id, employee_id, employee_name, amount_cents, created_at)
+      VALUES (${p.id}, ${T}, ${PAYROLL_RUN.id}, ${p.emp}, ${p.name}, ${p.amountCents}, ${daysAgo(PAYROLL_RUN.end)})
+      ON CONFLICT (id) DO NOTHING`
+  }
+
   const [{ count: units }] = await sql`SELECT count(*)::int FROM production_units WHERE id LIKE 'demo-%'`
   const [{ count: batches }] = await sql`SELECT count(*)::int FROM batches WHERE id LIKE 'demo-%'`
   const [{ count: sales }] = await sql`SELECT count(*)::int FROM sales WHERE id LIKE 'demo-%'`
   console.log(`demo data ready: ${units} units, ${batches} batches, ${sales} sales, ` +
     `${EMPLOYEES.length} staff, ${TASKS.length} tasks, ${LOTS.length} stock lots, ${PURCHASES.length} purchases, ` +
-    `${PRODUCTS.length} products across ${PRODUCT_UNITS.length} unit links + ${BATCH_PRODUCTS.length} batch overrides`)
+    `${PRODUCTS.length} products across ${PRODUCT_UNITS.length} unit links + ${BATCH_PRODUCTS.length} batch overrides, ` +
+    `1 payroll run paying ${PAYSLIPS.length} employees (${(payrollTotalCents / 100).toLocaleString()} KSh)`)
 }
 
 try { await main() } catch (err) { console.error('demo seed failed:', err); process.exitCode = 1 } finally { await sql.end() }

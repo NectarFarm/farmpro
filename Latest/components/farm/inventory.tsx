@@ -167,23 +167,23 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Record Purchase</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Record Purchase</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
           <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
             <option value="" disabled>Select a farm…</option>
             {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
           <input className="farm-input" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)} />
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
           <input className="farm-input" list="inv-item-names" placeholder="e.g. Broiler Starter Mash" value={itemName} onChange={e => setItemName(e.target.value)} />
           <datalist id="inv-item-names">
             {itemNames.map(n => <option key={n} value={n} />)}
@@ -191,50 +191,50 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
             <input className="farm-input" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
             <input className="farm-input" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Quantity *</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Quantity *</label>
             <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Cost/unit (KSh) *</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Cost/unit (KSh) *</label>
             <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Lot No.</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Lot No.</label>
             <input className="farm-input" placeholder="auto if blank" value={lotNo} onChange={e => setLotNo(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Expiry Date</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Expiry Date</label>
             <input className="farm-input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Payment Method</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Payment Method</label>
             <input className="farm-input" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
             <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} />
           </div>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Reorder threshold (new items only)</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Reorder threshold (new items only)</label>
           <input className="farm-input" type="number" placeholder="e.g. 500" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)} />
         </div>
 
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
           {saving ? 'Saving…' : 'Record Purchase'}
         </button>
@@ -247,13 +247,13 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
 const STOCK_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: 'name', header: 'Item', sortable: true, minWidth: 140,
-    summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-muted)' }}>TOTALS</span>,
+    summary: () => <span style={{ fontWeight: 700, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>TOTALS</span>,
     render: (r) => (
       <div>
-        <div style={{ fontWeight: 600, fontSize: 12 }}>
+        <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>
           {(catEmoji[(r.category as string)] ?? '')} {r.name as string}
         </div>
-        <div style={{ fontSize: 9, color: 'var(--text-dim)' }}>
+        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>
           {(r.lotCount as number) === 1 ? (r.singleLotNo as string) : `${r.lotCount as number} lots`}
         </div>
       </div>
@@ -271,18 +271,18 @@ const STOCK_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: 'lowStockThreshold', header: 'Reorder', sortable: true, align: 'right', minWidth: 72,
     summary: 'sum',
-    render: (r) => <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{(r.lowStockThreshold as number).toLocaleString()}{r.unit as string}</span>,
+    render: (r) => <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{(r.lowStockThreshold as number).toLocaleString()}{r.unit as string}</span>,
   },
   {
     key: 'avgCost', header: 'Cost/u', sortable: true, align: 'right', minWidth: 68,
     summary: 'avg',
-    render: (r) => <span style={{ fontSize: 11 }}>KSh {centsToMajor(r.avgCost as number).toLocaleString()}</span>,
+    render: (r) => <span style={{ fontSize: 'var(--fs-xs)' }}>KSh {centsToMajor(r.avgCost as number).toLocaleString()}</span>,
   },
   {
     key: 'status', header: 'Status', align: 'center', minWidth: 72,
     summary: 'count',
     render: (r) => (
-      <span className={`chip ${r.status === 'ok' ? 'chip-ok' : r.status === 'low' ? 'chip-warning' : 'chip-critical'}`} style={{ fontSize: 9 }}>
+      <span className={`chip ${r.status === 'ok' ? 'chip-ok' : r.status === 'low' ? 'chip-warning' : 'chip-critical'}`} style={{ fontSize: 'var(--fs-2xs)' }}>
         {r.status === 'ok' ? 'OK' : r.status === 'low' ? 'LOW' : 'EXPIRING'}
       </span>
     ),
@@ -292,15 +292,15 @@ const STOCK_COLS: ColDef<Record<string, unknown>>[] = [
 const VARIANCE_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: 'itemName', header: 'Item', sortable: true, minWidth: 140,
-    summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-muted)' }}>TOTALS</span>,
+    summary: () => <span style={{ fontWeight: 700, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>TOTALS</span>,
     render: (r) => (
       <div>
-        <div style={{ fontWeight: 600, fontSize: 12 }}>{r.itemName as string}</div>
-        <div style={{ fontSize: 9, color: 'var(--text-dim)' }}>{r.lotNo as string}</div>
+        <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{r.itemName as string}</div>
+        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>{r.lotNo as string}</div>
       </div>
     ),
   },
-  { key: 'qtyOnHand', header: 'On Hand', sortable: true, align: 'right', minWidth: 80, summary: 'sum', render: (r) => <span style={{ fontSize: 12 }}>{(r.qtyOnHand as number).toLocaleString()}</span> },
+  { key: 'qtyOnHand', header: 'On Hand', sortable: true, align: 'right', minWidth: 80, summary: 'sum', render: (r) => <span style={{ fontSize: 'var(--fs-sm)' }}>{(r.qtyOnHand as number).toLocaleString()}</span> },
   {
     key: 'daysSinceReconciliation', header: 'Stale (days)', sortable: true, align: 'right', minWidth: 96,
     summary: 'avg',
@@ -310,8 +310,8 @@ const VARIANCE_COLS: ColDef<Record<string, unknown>>[] = [
     key: 'flagged', header: 'Action', align: 'center', minWidth: 68,
     summary: 'count',
     render: (r) => r.flagged
-      ? <span className="chip chip-critical" style={{ fontSize: 9 }}>RECOUNT</span>
-      : <span className="chip chip-ok" style={{ fontSize: 9 }}>OK</span>,
+      ? <span className="chip chip-critical" style={{ fontSize: 'var(--fs-2xs)' }}>RECOUNT</span>
+      : <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)' }}>OK</span>,
   },
 ];
 
@@ -452,8 +452,8 @@ export function InventoryScreen() {
             { label: 'Lots', value: totalLots, color: 'var(--accent-blue)' },
           ].map((s) => (
             <div key={s.label} style={{ flex: 1, background: 'var(--card)', borderRadius: 12, padding: '10px 8px', textAlign: 'center', border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
+              <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
             </div>
           ))}
         </div>
@@ -463,7 +463,7 @@ export function InventoryScreen() {
       <div className="px-screen" style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
         {[['stock', 'Stock'], ['purchases', 'Purchases'], ['variance', 'Variance'], ['feedmix', 'Feed Mix']].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id as typeof tab)} style={{
-            flex: 1, padding: '7px 4px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            flex: 1, padding: '7px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
             background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)',
             border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
             color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)',
@@ -471,14 +471,14 @@ export function InventoryScreen() {
         ))}
       </div>
 
-      {loading && <div className="px-screen"><div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>Loading inventory…</div></div>}
+      {loading && <div className="px-screen"><div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading inventory…</div></div>}
 
       {/* STOCK TAB */}
       {!loading && tab === 'stock' && (
         <div className="px-screen">
           <div style={{ position: 'relative', marginBottom: 10 }}>
             <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <input className="farm-input" style={{ paddingLeft: 34, fontSize: 13 }} placeholder="Search item, category, lot…" value={stockSearch} onChange={e => setStockSearch(e.target.value)} />
+            <input className="farm-input" style={{ paddingLeft: 34, fontSize: 'var(--fs-base)' }} placeholder="Search item, category, lot…" value={stockSearch} onChange={e => setStockSearch(e.target.value)} />
             {stockSearch && <button onClick={() => setStockSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}><X size={14} /></button>}
           </div>
           <div className="chip-row" style={{ marginBottom: 12 }}>
@@ -508,9 +508,9 @@ export function InventoryScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
             {(purchases ?? []).length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>🧾</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No purchases yet</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Record one below to bring stock in</div>
+                <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>🧾</div>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No purchases yet</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Record one below to bring stock in</div>
               </div>
             ) : (purchases ?? []).map((p) => {
               const status = paymentStatus(p);
@@ -518,14 +518,14 @@ export function InventoryScreen() {
                 <div key={p.id} className="farm-card" style={{ padding: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{itemNameById.get(p.itemId) ?? p.itemId}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{p.supplier} · {p.quantity.toLocaleString()}</div>
+                      <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{itemNameById.get(p.itemId) ?? p.itemId}</div>
+                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{p.supplier} · {p.quantity.toLocaleString()}</div>
                     </div>
-                    <span className={`chip ${status === 'paid' ? 'chip-ok' : status === 'partial' ? 'chip-warning' : 'chip-critical'}`} style={{ fontSize: 9 }}>{status.toUpperCase()}</span>
+                    <span className={`chip ${status === 'paid' ? 'chip-ok' : status === 'partial' ? 'chip-warning' : 'chip-critical'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{status.toUpperCase()}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtDate(p.createdAt)}</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--status-ok)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{fmtDate(p.createdAt)}</span>
+                    <span style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
                   </div>
                 </div>
               );
@@ -542,8 +542,8 @@ export function InventoryScreen() {
       {!loading && tab === 'variance' && (
         <div className="px-screen">
           <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.08)', borderRadius: 12, marginBottom: 16, border: '1px solid rgba(251,191,36,0.25)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--status-warning)', marginBottom: 4 }}>⚠ Reconciliation Review</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>How long since each lot&apos;s on-hand figure was last confirmed (received or reason-adjusted). Lots stale past 30 days are flagged for a physical recount — there&apos;s no expected-vs-actual number to show without one.</div>
+            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-warning)', marginBottom: 4 }}>⚠ Reconciliation Review</div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>How long since each lot&apos;s on-hand figure was last confirmed (received or reason-adjusted). Lots stale past 30 days are flagged for a physical recount — there&apos;s no expected-vs-actual number to show without one.</div>
           </div>
           <div style={{ marginBottom: 20 }}>
             <DataTable
@@ -566,8 +566,8 @@ export function InventoryScreen() {
         <div className="px-screen">
           <div style={{ padding: 32, textAlign: 'center' }}>
             <Lock size={28} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Feed Mix not available yet</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 260, margin: '0 auto' }}>
+            <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Feed Mix not available yet</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', maxWidth: 260, margin: '0 auto' }}>
               There is no feed-mix backend on this branch — no table, no route. This tab is disabled rather than wired to fake data.
             </div>
           </div>
@@ -584,7 +584,7 @@ export function InventoryScreen() {
       )}
       {importing && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 12, padding: '14px 20px', fontSize: 12, color: 'var(--text-primary)' }}>Importing…</div>
+          <div style={{ background: 'var(--surface)', borderRadius: 12, padding: '14px 20px', fontSize: 'var(--fs-sm)', color: 'var(--text-primary)' }}>Importing…</div>
         </div>
       )}
       {showRecordPurchase && (
@@ -634,14 +634,14 @@ function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onS
     <div style={{ padding: '10px 0', borderBottom: '1px solid var(--border-subtle)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{lot.lotNo}</div>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>
+          <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{lot.lotNo}</div>
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>
             Received {fmtDate(lot.receivedDate) ?? '—'}{lot.expiryDate ? ` · Expires ${fmtDate(lot.expiryDate)}` : ''}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{lot.qtyOnHand.toLocaleString()}</div>
-          <button onClick={() => setOpen(o => !o)} style={{ fontSize: 10, fontWeight: 700, color: 'var(--primary-green)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 2 }}>
+          <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{lot.qtyOnHand.toLocaleString()}</div>
+          <button onClick={() => setOpen(o => !o)} style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 2 }}>
             {open ? 'Cancel' : 'Adjust'}
           </button>
         </div>
@@ -649,15 +649,15 @@ function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onS
       {open && (
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div>
-            <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>New Quantity</label>
-            <input className="farm-input" style={{ fontSize: 12 }} type="number" value={qty} onChange={e => setQty(e.target.value)} />
+            <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>New Quantity</label>
+            <input className="farm-input" style={{ fontSize: 'var(--fs-sm)' }} type="number" value={qty} onChange={e => setQty(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Reason * (required, goes to the audit trail)</label>
-            <input className="farm-input" style={{ fontSize: 12 }} placeholder="e.g. physical recount, spoilage, theft" value={reason} onChange={e => setReason(e.target.value)} />
+            <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Reason * (required, goes to the audit trail)</label>
+            <input className="farm-input" style={{ fontSize: 'var(--fs-sm)' }} placeholder="e.g. physical recount, spoilage, theft" value={reason} onChange={e => setReason(e.target.value)} />
           </div>
-          {error && <div style={{ fontSize: 11, color: 'var(--status-critical)' }}>{error}</div>}
-          <button onClick={save} className="btn-primary" style={{ justifyContent: 'center', fontSize: 12, padding: 9 }} disabled={saving || !reason.trim()}>
+          {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{error}</div>}
+          <button onClick={save} className="btn-primary" style={{ justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 9 }} disabled={saving || !reason.trim()}>
             {saving ? 'Saving…' : 'Save Adjustment'}
           </button>
         </div>
@@ -700,7 +700,7 @@ export function InventoryDetailScreen() {
       <div className="screen-content">
         <TopNav title="Item" showBack />
         <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>Loading item…</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading item…</div>
         </div>
       </div>
     );
@@ -712,7 +712,7 @@ export function InventoryDetailScreen() {
       <div className="screen-content">
         <TopNav title="Item" showBack />
         <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Item not found.</div>
+          <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)' }}>Item not found.</div>
         </div>
       </div>
     );
@@ -728,13 +728,13 @@ export function InventoryDetailScreen() {
       <div className="px-screen" style={{ paddingTop: 16 }}>
         <div className="farm-card" style={{ padding: 16, marginBottom: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div><div style={{ fontSize: 24, fontWeight: 700, color: 'var(--primary-green)' }}>{item.qtyOnHand.toLocaleString()}<span style={{ fontSize: 14 }}>{item.unit}</span></div><div style={{ fontSize: 10, color: 'var(--text-muted)' }}>In Stock</div></div>
-            <div><div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)' }}>KSh {centsToMajor(cost).toLocaleString()}</div><div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Avg per {item.unit}</div></div>
+            <div><div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: 'var(--primary-green)' }}>{item.qtyOnHand.toLocaleString()}<span style={{ fontSize: 'var(--fs-md)' }}>{item.unit}</span></div><div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>In Stock</div></div>
+            <div><div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: 'var(--text-primary)' }}>KSh {centsToMajor(cost).toLocaleString()}</div><div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Avg per {item.unit}</div></div>
           </div>
           <div className="progress-track" style={{ marginBottom: 8 }}>
             <div className={`progress-fill ${isLow ? 'progress-fill-red' : ''}`} style={{ width: `${item.lowStockThreshold > 0 ? Math.min((item.qtyOnHand / (item.lowStockThreshold * 3)) * 100, 100) : 100}%` }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
             <span>Reorder at: {item.lowStockThreshold.toLocaleString()}{item.unit}</span>
             <span>{expiry ? `Nearest expiry: ${fmtDate(expiry)}` : 'No expiry tracked'}</span>
           </div>
@@ -753,7 +753,7 @@ export function InventoryDetailScreen() {
         <div className="farm-card" style={{ padding: 14, marginBottom: 16 }}>
           <div className="section-eyebrow" style={{ marginBottom: 4 }}>Lots</div>
           {item.lots.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '10px 0' }}>No lots recorded for this item.</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '10px 0' }}>No lots recorded for this item.</div>
           ) : item.lots.map(lot => (
             <LotRow key={lot.id} lot={lot} tenantId={tenantId} onSaved={load} />
           ))}
@@ -767,11 +767,11 @@ export function InventoryDetailScreen() {
           <div className="farm-card" style={{ padding: 14, marginBottom: 20 }}>
             <div className="section-eyebrow" style={{ marginBottom: 8 }}>Usage History (receipts)</div>
             {history === null ? (
-              <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>Loading…</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>
             ) : history.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>No purchase history for this item yet.</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>No purchase history for this item yet.</div>
             ) : history.map(p => (
-              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: 11 }}>
+              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: 'var(--fs-xs)' }}>
                 <div>
                   <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.supplier}</div>
                   <div style={{ color: 'var(--text-muted)' }}>{fmtDate(p.createdAt)}</div>

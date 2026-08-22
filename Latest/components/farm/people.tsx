@@ -1,19 +1,21 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Plus, Key, ChevronRight, Check, X, Search, RefreshCw, Lock } from './icons';
+import { Plus, Key, ChevronRight, Check, X, Search, RefreshCw } from './icons';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef, usePersistedView } from './data-table';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import { StatusTimeline } from './status-timeline';
+import { parseMoneyToCents, formatMoney, centsToMajor } from '@/lib/money';
 
 // ── Real API shapes (issue #248 — wired to GET/POST /api/employees,
 // GET/PATCH /api/employees/[id], GET/PUT /api/role-permissions from #247/#243).
-// Replaces the old EMPLOYEES_DATA/OWNER_ROLES mock entirely on this screen —
-// note there is NO salary/payday/pin field on the real `employees` row:
-// payroll is a separate, not-yet-built epic (db/schemas/people.ts), and login
-// PIN provisioning is a separate auth concern this issue doesn't build either.
+// Replaces the old EMPLOYEES_DATA/OWNER_ROLES mock entirely on this screen.
+// `monthlySalaryCents` (payroll-and-gps task): the pay basis payroll runs
+// read from — see db/schemas/people.ts for why it's a flat monthly rate, not
+// a wage. Login PIN provisioning is still a separate auth concern this
+// screen doesn't build.
 interface ApiEmployee {
   id: string;
   tenantId: string;
@@ -21,11 +23,22 @@ interface ApiEmployee {
   name: string;
   phone: string;
   role: string;
+  monthlySalaryCents: number;
   assignedBatchIds: string[];
   mortalityPhotoThreshold: number;
   status: string;
   createdAt: string | null;
   farmId: string | null; // farm-scoped-data task (migration 0019)
+}
+
+// GET /api/payroll/payslips?employeeId= (payroll-and-gps task) — one
+// employee's pay history across every run, for the per-employee Payroll tab
+// below.
+interface ApiPayslip {
+  id: string;
+  amountCents: number;
+  periodStart: string;
+  periodEnd: string;
 }
 
 interface ApiBatchLite {
@@ -68,11 +81,15 @@ function initials(name: string) {
   return name.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 2) || '?';
 }
 
+function fmtDate(iso: string): string {
+  return iso.slice(0, 10);
+}
+
 /* Column definitions for the table view */
 const PEOPLE_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: 'name', header: 'Name', sortable: true, minWidth: 140,
-    summary: () => <span style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-muted)' }}>TOTALS</span>,
+    summary: () => <span style={{ fontWeight: 700, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>TOTALS</span>,
     render: (r) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{
@@ -80,31 +97,31 @@ const PEOPLE_COLS: ColDef<Record<string, unknown>>[] = [
           background: `${getRoleColor(r.role as string)}20`,
           border: `1px solid ${getRoleColor(r.role as string)}40`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 11, fontWeight: 700, color: getRoleColor(r.role as string),
+          fontSize: 'var(--fs-xs)', fontWeight: 700, color: getRoleColor(r.role as string),
         }}>
           {initials(r.name as string)}
         </div>
         <div>
-          <div style={{ fontWeight: 600, fontSize: 12 }}>{r.name as string}</div>
-          <div style={{ fontSize: 9, color: 'var(--text-dim)', fontFamily: 'monospace' }}>{(r.id as string).slice(0, 8)}</div>
+          <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{r.name as string}</div>
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontFamily: 'monospace' }}>{(r.id as string).slice(0, 8)}</div>
         </div>
       </div>
     ),
   },
   {
     key: 'role', header: 'Role', sortable: true, minWidth: 90,
-    render: (r) => <span className={`chip ${getRoleBadge(r.role as string)}`} style={{ fontSize: 9 }}>{roleLabel(r.role as string)}</span>,
+    render: (r) => <span className={`chip ${getRoleBadge(r.role as string)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{roleLabel(r.role as string)}</span>,
   },
-  { key: 'phone', header: 'Phone', minWidth: 120, render: (r) => <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{(r.phone as string) || '—'}</span> },
+  { key: 'phone', header: 'Phone', minWidth: 120, render: (r) => <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{(r.phone as string) || '—'}</span> },
   {
     key: 'batchCount', header: 'Batches', align: 'center', minWidth: 80,
     summary: 'sum',
-    render: (r) => <span style={{ fontSize: 12, fontWeight: 600 }}>{((r.assignedBatchIds as string[]) ?? []).length}</span>,
+    render: (r) => <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600 }}>{((r.assignedBatchIds as string[]) ?? []).length}</span>,
   },
   {
     key: 'active', header: 'Status', align: 'center', minWidth: 70,
     summary: 'count',
-    render: (r) => <span className={`chip ${r.status === 'ACTIVE' ? 'chip-ok' : 'chip-info'}`} style={{ fontSize: 9 }}>{r.status as string}</span>,
+    render: (r) => <span className={`chip ${r.status === 'ACTIVE' ? 'chip-ok' : 'chip-info'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{r.status as string}</span>,
   },
 ];
 
@@ -202,7 +219,7 @@ export function PeopleScreen() {
                 <button key={m} onClick={() => setViewMode(m)} style={{
                   width: 32, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
                   background: viewMode === m ? 'rgba(74,222,128,0.15)' : 'var(--surface)', border: 'none',
-                  color: viewMode === m ? 'var(--primary-green)' : 'var(--text-dim)', fontSize: 14,
+                  color: viewMode === m ? 'var(--primary-green)' : 'var(--text-dim)', fontSize: 'var(--fs-md)',
                 }} title={m === 'card' ? 'Card view' : 'Table view'}>
                   {m === 'card' ? '☰' : '⊞'}
                 </button>
@@ -236,18 +253,18 @@ export function PeopleScreen() {
                 border: statusFilter === s.target ? `1px solid ${s.color}` : '1px solid var(--border-subtle)',
               }}
             >
-              <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
+              <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
             </button>
           ))}
         </div>
 
-        {loadError && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{loadError}</div>}
+        {loadError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{loadError}</div>}
 
         {/* Search */}
         <div style={{ position: 'relative', marginBottom: 10 }}>
           <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <input className="farm-input" style={{ paddingLeft: 34, fontSize: 13 }} placeholder="Search name, id, phone…" value={search} onChange={e => setSearch(e.target.value)} />
+          <input className="farm-input" style={{ paddingLeft: 34, fontSize: 'var(--fs-base)' }} placeholder="Search name, id, phone…" value={search} onChange={e => setSearch(e.target.value)} />
           {search && <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}><X size={14} /></button>}
         </div>
 
@@ -259,7 +276,7 @@ export function PeopleScreen() {
         </div>
 
         {employees === null && !loadError && (
-          <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 13 }}>Loading staff…</div>
+          <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading staff…</div>
         )}
 
         {/* Employee list: card view or table view */}
@@ -279,7 +296,7 @@ export function PeopleScreen() {
           </div>
         ) : employees !== null && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 80 }}>
-            {filtered.length === 0 && <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 13 }}>No staff match your search.</div>}
+            {filtered.length === 0 && <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>No staff match your search.</div>}
             {filtered.map((emp) => (
               <button key={emp.id} onClick={() => navigate('people-detail', { id: emp.id })}
                 className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer' }}>
@@ -289,22 +306,22 @@ export function PeopleScreen() {
                     background: `${getRoleColor(emp.role)}20`,
                     border: `1px solid ${getRoleColor(emp.role)}40`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 16, fontWeight: 700, color: getRoleColor(emp.role),
+                    fontSize: 'var(--fs-lg)', fontWeight: 700, color: getRoleColor(emp.role),
                   }}>
                     {initials(emp.name)}
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{emp.name}</span>
-                      {emp.status !== 'ACTIVE' && <span style={{ fontSize: 10, background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)', padding: '1px 6px', borderRadius: 100, fontWeight: 600 }}>{emp.status}</span>}
+                      <span style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{emp.name}</span>
+                      {emp.status !== 'ACTIVE' && <span style={{ fontSize: 'var(--fs-2xs)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)', padding: '1px 6px', borderRadius: 100, fontWeight: 600 }}>{emp.status}</span>}
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span className={`chip ${getRoleBadge(emp.role)}`} style={{ fontSize: 9 }}>{roleLabel(emp.role)}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{emp.phone || '—'}</span>
+                      <span className={`chip ${getRoleBadge(emp.role)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{roleLabel(emp.role)}</span>
+                      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{emp.phone || '—'}</span>
                     </div>
                     <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
                       {emp.userId && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text-muted)' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                           <Key size={10} /> Account linked
                         </span>
                       )}
@@ -315,9 +332,9 @@ export function PeopleScreen() {
                 {emp.assignedBatchIds.length > 0 && (
                   <div style={{ marginTop: 10, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     {emp.assignedBatchIds.slice(0, 4).map((b) => (
-                      <span key={b} style={{ padding: '2px 8px', borderRadius: 100, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.15)', fontSize: 10, color: 'var(--text-secondary)', fontWeight: 600 }}>{batchLabel(b)}</span>
+                      <span key={b} style={{ padding: '2px 8px', borderRadius: 100, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.15)', fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>{batchLabel(b)}</span>
                     ))}
-                    {emp.assignedBatchIds.length > 4 && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>+{emp.assignedBatchIds.length - 4} more</span>}
+                    {emp.assignedBatchIds.length > 4 && <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>+{emp.assignedBatchIds.length - 4} more</span>}
                   </div>
                 )}
               </button>
@@ -366,6 +383,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('worker');
   const [threshold, setThreshold] = useState('3');
+  const [monthlySalary, setMonthlySalary] = useState('');
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
   const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
   const [error, setError] = useState('');
@@ -378,6 +396,10 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
   async function handleSubmit() {
     if (!name.trim()) { setError('Full name is required.'); setAddStep(1); return; }
     if (!farmId) { setError('Select which farm this employee is based at.'); setAddStep(1); return; }
+    // Blank salary means "no pay rate set yet" (0), not an error — an
+    // employee can exist before payroll is configured for them.
+    const monthlySalaryCents = monthlySalary.trim() === '' ? 0 : parseMoneyToCents(monthlySalary);
+    if (monthlySalaryCents === null) { setError('Monthly salary must be a valid amount.'); setAddStep(2); return; }
     setSaving(true); setError('');
     const res = await apiClient.post<ApiEmployee>('/api/employees', {
       tenantId,
@@ -385,6 +407,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
       phone: phone.trim(),
       role,
       mortalityPhotoThreshold: Number(threshold) || 3,
+      monthlySalaryCents,
       assignedBatchIds: selectedBatches,
       status: 'ACTIVE',
       farmId,
@@ -398,7 +421,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-end', zIndex: 100 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '80%', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Add Employee</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Add Employee</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
 
@@ -407,8 +430,8 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
           {['Identity', 'Threshold', 'Batches'].map((s, i) => (
             <React.Fragment key={s}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                <div className={`step-node ${i + 1 < addStep ? 'done' : i + 1 === addStep ? 'active' : 'pending'}`} style={{ width: 22, height: 22, fontSize: 10 }}>{i + 1 < addStep ? '✓' : i + 1}</div>
-                <span style={{ fontSize: 9, fontWeight: 700, color: addStep === i + 1 ? 'var(--primary-green)' : 'var(--text-dim)' }}>{s}</span>
+                <div className={`step-node ${i + 1 < addStep ? 'done' : i + 1 === addStep ? 'active' : 'pending'}`} style={{ width: 22, height: 22, fontSize: 'var(--fs-2xs)' }}>{i + 1 < addStep ? '✓' : i + 1}</div>
+                <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: addStep === i + 1 ? 'var(--primary-green)' : 'var(--text-dim)' }}>{s}</span>
               </div>
               {i < 2 && <div className={`step-line ${i + 1 < addStep ? 'done' : ''}`} style={{ marginTop: 11 }} />}
             </React.Fragment>
@@ -418,22 +441,22 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
         {addStep === 1 && (
           <div>
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
               <select className="farm-input" value={farmId} onChange={(e) => setFarmId(e.target.value)}>
                 <option value="" disabled>Select a farm…</option>
                 {farms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
             </div>
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Full Name</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Full Name</label>
               <input className="farm-input" placeholder="Employee name" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone</label>
               <input className="farm-input" placeholder="+254-7xx-xxx-xxx" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
             </div>
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role</label>
               <select className="farm-input" value={role} onChange={(e) => setRole(e.target.value)}>
                 {FALLBACK_ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
@@ -443,26 +466,30 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
 
         {addStep === 2 && (
           <div>
-            <div style={{ padding: '10px 12px', background: 'rgba(74,222,128,0.06)', borderRadius: 10, marginBottom: 14, fontSize: 11, color: 'var(--text-muted)' }}>
+            <div style={{ padding: '10px 12px', background: 'rgba(74,222,128,0.06)', borderRadius: 10, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
               Login credentials (PIN / email &amp; password) are provisioned separately and aren&apos;t part of this form yet.
             </div>
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Photo Required Above (deaths)</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Photo Required Above (deaths)</label>
               <input className="farm-input" placeholder="e.g. 3" type="number" min={0} value={threshold} onChange={(e) => setThreshold(e.target.value)} />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Monthly Salary (KSh)</label>
+              <input className="farm-input" placeholder="Leave blank if not on payroll yet" type="number" min={0} value={monthlySalary} onChange={(e) => setMonthlySalary(e.target.value)} />
             </div>
           </div>
         )}
 
         {addStep === 3 && (
           <div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>Select batches this employee can access:</div>
-            {batches.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 14 }}>No batches exist yet for this tenant.</div>}
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 10 }}>Select batches this employee can access:</div>
+            {batches.length === 0 && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', marginBottom: 14 }}>No batches exist yet for this tenant.</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
               {batches.map((b) => {
                 const on = selectedBatches.includes(b.id);
                 return (
                   <div key={b.id} onClick={() => toggleBatch(b.id)} style={{ padding: '10px 12px', background: on ? 'rgba(74,222,128,0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(74,222,128,0.3)' : 'var(--border-subtle)'}`, borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                    <span style={{ fontSize: 12, color: on ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: on ? 700 : 400 }}>{b.code} – {b.name}</span>
+                    <span style={{ fontSize: 'var(--fs-sm)', color: on ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: on ? 700 : 400 }}>{b.code} – {b.name}</span>
                     {on && <Check size={14} color="var(--primary-green)" />}
                   </div>
                 );
@@ -471,7 +498,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
           </div>
         )}
 
-        {error && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
 
         <div style={{ display: 'flex', gap: 10 }}>
           {addStep > 1 && <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12, padding: '12px' }} onClick={() => setAddStep(addStep - 1)}>Back</button>}
@@ -494,6 +521,11 @@ export function PeopleDetailScreen() {
   const [roleMatrix, setRoleMatrix] = useState<RoleMatrixEntry[]>([]);
   const [activeSection, setActiveSection] = useState<'profile' | 'permissions' | 'payroll'>('profile');
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  // Payroll tab (payroll-and-gps task) — GET /api/payroll/payslips?employeeId=,
+  // fetched lazily (only once this tab is actually opened) since most visits
+  // to this screen never look at pay history.
+  const [payslips, setPayslips] = useState<ApiPayslip[] | null>(null);
+  const [payslipsError, setPayslipsError] = useState('');
   const [roleSaved, setRoleSaved] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -523,11 +555,19 @@ export function PeopleDetailScreen() {
 
   const batchLabel = useCallback((bid: string) => batches.find((b) => b.id === bid)?.code ?? bid.slice(0, 8), [batches]);
 
+  useEffect(() => {
+    if (activeSection !== 'payroll' || !id || payslips !== null) return;
+    apiClient.get<ApiPayslip[]>(`/api/payroll/payslips?tenantId=${tenantId}&employeeId=${id}`).then((res) => {
+      if (res.success) { setPayslips(res.data); setPayslipsError(''); }
+      else { setPayslips([]); setPayslipsError(res.error || 'Failed to load payroll history.'); }
+    });
+  }, [activeSection, id, tenantId, payslips]);
+
   if (loadError) {
     return (
       <div className="screen-content">
         <TopNav title="Employee" showBack />
-        <div className="px-screen" style={{ paddingTop: 16, fontSize: 13, color: 'var(--status-critical)' }}>{loadError}</div>
+        <div className="px-screen" style={{ paddingTop: 16, fontSize: 'var(--fs-base)', color: 'var(--status-critical)' }}>{loadError}</div>
       </div>
     );
   }
@@ -535,7 +575,7 @@ export function PeopleDetailScreen() {
     return (
       <div className="screen-content">
         <TopNav title="Employee" showBack />
-        <div className="px-screen" style={{ paddingTop: 16, fontSize: 13, color: 'var(--text-dim)' }}>Loading…</div>
+        <div className="px-screen" style={{ paddingTop: 16, fontSize: 'var(--fs-base)', color: 'var(--text-dim)' }}>Loading…</div>
       </div>
     );
   }
@@ -580,9 +620,9 @@ export function PeopleDetailScreen() {
             width: 72, height: 72, borderRadius: '50%',
             background: `${getRoleColor(employee.role)}20`, border: `2px solid ${getRoleColor(employee.role)}50`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 26, fontWeight: 700, color: getRoleColor(employee.role), marginBottom: 10,
+            fontSize: 'var(--fs-4xl)', fontWeight: 700, color: getRoleColor(employee.role), marginBottom: 10,
           }}>{initials(employee.name)}</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{employee.name}</div>
+          <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--text-primary)' }}>{employee.name}</div>
           <span className={`chip ${getRoleBadge(employee.role)}`} style={{ marginTop: 6 }}>{roleName}</span>
         </div>
 
@@ -590,7 +630,7 @@ export function PeopleDetailScreen() {
         <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
           {(['profile','permissions','payroll'] as const).map((t) => (
             <button key={t} onClick={() => setActiveSection(t)} style={{
-              flex: 1, padding: '8px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              flex: 1, padding: '8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
               background: activeSection === t ? 'rgba(74,222,128,0.15)' : 'var(--card)',
               border: activeSection === t ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
               color: activeSection === t ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize',
@@ -602,26 +642,26 @@ export function PeopleDetailScreen() {
           <div>
             {/* Role Assignment */}
             <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Role Assignment</div>
+              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Role Assignment</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{roleName}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                  <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{roleName}</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
                     {assignedRole ? `${Object.values(assignedRole.permissions).filter(p => p === 'edit').length} edit · ${assignedRole.approvalRequired.length} need approval` : 'No permissions configured for this role yet'}
                   </div>
                 </div>
                 <button disabled={busy} onClick={() => setShowRoleDropdown(s => !s)}
-                  style={{ padding: '7px 12px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  style={{ padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer',
                     background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)' }}>
                   {showRoleDropdown ? 'Cancel' : 'Change Role'}
                 </button>
               </div>
               {roleSaved && (
-                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--status-ok)', fontWeight: 700 }}>✅ Role updated successfully</div>
+                <div style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--status-ok)', fontWeight: 700 }}>✅ Role updated successfully</div>
               )}
               {showRoleDropdown && (
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>Select a role to assign:</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginBottom: 4 }}>Select a role to assign:</div>
                   {availableRoles.map((r) => (
                     <button key={r} onClick={() => handleSaveRole(r)}
                       style={{ padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
@@ -630,7 +670,7 @@ export function PeopleDetailScreen() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                           <div style={{ width: 10, height: 10, borderRadius: '50%', background: getRoleColor(r), flexShrink: 0 }} />
-                          <span style={{ fontSize: 13, fontWeight: 700, color: employee.role === r ? 'var(--primary-green)' : 'var(--text-primary)' }}>{roleLabel(r)}</span>
+                          <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: employee.role === r ? 'var(--primary-green)' : 'var(--text-primary)' }}>{roleLabel(r)}</span>
                         </div>
                         {employee.role === r && <Check size={13} color="var(--primary-green)" />}
                       </div>
@@ -646,17 +686,18 @@ export function PeopleDetailScreen() {
                 { label: 'Phone', value: employee.phone || '—' },
                 { label: 'Login', value: employee.userId ? 'Account linked' : 'No login account' },
                 { label: 'Photo threshold', value: `${employee.mortalityPhotoThreshold}+ deaths` },
+                { label: 'Monthly salary', value: employee.monthlySalaryCents > 0 ? formatMoney(employee.monthlySalaryCents) : 'Not set' },
                 { label: 'Assigned batches', value: employee.assignedBatchIds.length > 0 ? employee.assignedBatchIds.map(batchLabel).join(', ') : 'None' },
               ].map((row, i, arr) => (
                 <div key={row.label} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>{row.label}</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', textAlign: 'right', fontFamily: row.label === 'Employee ID' ? 'monospace' : undefined }}>{row.value}</span>
+                  <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', flexShrink: 0 }}>{row.label}</span>
+                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-primary)', textAlign: 'right', fontFamily: row.label === 'Employee ID' ? 'monospace' : undefined }}>{row.value}</span>
                 </div>
               ))}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
               <button className="btn-secondary" style={{ justifyContent: 'center', padding: 12, borderRadius: 12 }} onClick={() => setShowEdit(true)}>Edit Details</button>
-              <button disabled={busy} onClick={() => { setToggleError(''); setShowToggleConfirm(true); }} style={{ padding: 12, borderRadius: 12, fontSize: 13, fontWeight: 700, background: employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)', border: `1px solid ${employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}`, color: employee.status === 'ACTIVE' ? 'var(--status-critical)' : 'var(--status-ok)', cursor: 'pointer' }}>
+              <button disabled={busy} onClick={() => { setToggleError(''); setShowToggleConfirm(true); }} style={{ padding: 12, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)', border: `1px solid ${employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}`, color: employee.status === 'ACTIVE' ? 'var(--status-critical)' : 'var(--status-ok)', cursor: 'pointer' }}>
                 {employee.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
               </button>
             </div>
@@ -665,29 +706,29 @@ export function PeopleDetailScreen() {
 
         {activeSection === 'permissions' && (
           <div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
               Permissions inherited from the <strong style={{ color: 'var(--text-secondary)' }}>{roleName}</strong> role. Go to Governance → Role Builder to edit role permissions.
             </div>
             <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
               {assignedRole ? (
                 Object.entries(assignedRole.permissions).map(([key, perm], i, arr) => (
                   <div key={key} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{key.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
-                    <span className={`chip ${perm === 'edit' ? 'chip-ok' : perm === 'view' ? 'chip-info' : 'chip-critical'}`} style={{ fontSize: 9 }}>
+                    <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>{key.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
+                    <span className={`chip ${perm === 'edit' ? 'chip-ok' : perm === 'view' ? 'chip-info' : 'chip-critical'}`} style={{ fontSize: 'var(--fs-2xs)' }}>
                       {perm === 'edit' ? 'Editable' : perm === 'view' ? 'Read-only' : 'Hidden'}
                     </span>
                   </div>
                 ))
               ) : (
-                <div style={{ padding: '14px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>No role permissions configured</div>
+                <div style={{ padding: '14px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', textAlign: 'center' }}>No role permissions configured</div>
               )}
             </div>
             {assignedRole && assignedRole.approvalRequired.length > 0 && (
               <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-amber)', marginBottom: 8, textTransform: 'uppercase' }}>Requires Owner Approval</div>
+                <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--accent-amber)', marginBottom: 8, textTransform: 'uppercase' }}>Requires Owner Approval</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {assignedRole.approvalRequired.map(a => (
-                    <span key={a} style={{ padding: '4px 10px', borderRadius: 100, fontSize: 10, fontWeight: 700,
+                    <span key={a} style={{ padding: '4px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700,
                       background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: 'var(--accent-amber)' }}>
                       {a.replace(/-/g, ' ')}
                     </span>
@@ -699,12 +740,34 @@ export function PeopleDetailScreen() {
         )}
 
         {activeSection === 'payroll' && (
-          <div className="farm-card" style={{ padding: 28, textAlign: 'center', marginBottom: 14 }}>
-            <Lock size={26} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Not available yet</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Payroll isn&apos;t tracked in the system yet — no payslip data exists for this employee. This tab will show real pay history once a payroll module is built.
-            </div>
+          <div>
+            {employee.monthlySalaryCents === 0 && (
+              <div style={{ padding: '10px 12px', background: 'rgba(251,191,36,0.06)', borderRadius: 10, border: '1px solid rgba(251,191,36,0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                No monthly salary set — this employee is skipped by every payroll run until one is set in Edit Details.
+              </div>
+            )}
+            {payslipsError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{payslipsError}</div>}
+            {!payslipsError && payslips === null && (
+              <div style={{ padding: 20, textAlign: 'center', fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>
+            )}
+            {!payslipsError && payslips !== null && payslips.length === 0 && (
+              <div className="farm-card" style={{ padding: 24, textAlign: 'center' }}>
+                <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No pay history yet</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  This employee hasn&apos;t been paid in a payroll run. Run payroll from Finance → Payroll to pay them for the first time.
+                </div>
+              </div>
+            )}
+            {!payslipsError && payslips !== null && payslips.length > 0 && (
+              <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
+                {payslips.map((p, i, arr) => (
+                  <div key={p.id} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                    <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>{fmtDate(p.periodStart)} – {fmtDate(p.periodEnd)}</span>
+                    <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(p.amountCents)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -753,18 +816,18 @@ function ToggleActiveConfirm({ employee, busy, error, batchLabel, onCancel, onCo
   return (
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20 }} onClick={onCancel}>
       <div className="farm-card" style={{ padding: 18, width: '100%', maxWidth: 340 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{deactivating ? 'Deactivate' : 'Reactivate'} {employee.name}?</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: deactivating && employee.assignedBatchIds.length > 0 ? 8 : 14 }}>
+        <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, marginBottom: 10 }}>{deactivating ? 'Deactivate' : 'Reactivate'} {employee.name}?</div>
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: deactivating && employee.assignedBatchIds.length > 0 ? 8 : 14 }}>
           {deactivating
             ? <>This account keeps its history — <strong>{employee.name}</strong> is never deleted — but they&apos;re marked inactive and won&apos;t appear as an option for new assignments.</>
             : <>This makes <strong>{employee.name}</strong> active again.</>}
         </div>
         {deactivating && employee.assignedBatchIds.length > 0 && (
-          <div style={{ padding: '8px 10px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, marginBottom: 14, fontSize: 11, color: 'var(--text-secondary)' }}>
+          <div style={{ padding: '8px 10px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)' }}>
             Still assigned to {employee.assignedBatchIds.length} batch{employee.assignedBatchIds.length === 1 ? '' : 'es'}: {employee.assignedBatchIds.map(batchLabel).join(', ')}. Deactivating does not unassign them.
           </div>
         )}
-        {error && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 12 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>{error}</div>}
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onCancel} disabled={busy} className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
           <button onClick={onConfirm} disabled={busy} className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
@@ -785,16 +848,20 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
   const [name, setName] = useState(employee.name);
   const [phone, setPhone] = useState(employee.phone);
   const [threshold, setThreshold] = useState(String(employee.mortalityPhotoThreshold));
+  const [monthlySalary, setMonthlySalary] = useState(employee.monthlySalaryCents > 0 ? String(centsToMajor(employee.monthlySalaryCents)) : '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     if (!name.trim()) { setError('Full name is required.'); return; }
+    const monthlySalaryCents = monthlySalary.trim() === '' ? 0 : parseMoneyToCents(monthlySalary);
+    if (monthlySalaryCents === null) { setError('Monthly salary must be a valid amount.'); return; }
     setSaving(true); setError('');
     const res = await apiClient.patch<ApiEmployee>(`/api/employees/${employee.id}?tenantId=${tenantId}`, {
       name: name.trim(),
       phone: phone.trim(),
       mortalityPhotoThreshold: Number(threshold) || 0,
+      monthlySalaryCents,
     });
     setSaving(false);
     if (!res.success) { setError(res.error || 'Failed to save changes.'); return; }
@@ -805,22 +872,26 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-end', zIndex: 100 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Edit Employee</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Edit Employee</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <div style={{ marginBottom: 10 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Full Name</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Full Name</label>
           <input className="farm-input" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div style={{ marginBottom: 10 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone</label>
           <input className="farm-input" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Photo Required Above (deaths)</label>
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Photo Required Above (deaths)</label>
           <input className="farm-input" type="number" min={0} value={threshold} onChange={(e) => setThreshold(e.target.value)} />
         </div>
-        {error && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Monthly Salary (KSh)</label>
+          <input className="farm-input" placeholder="Leave blank if not on payroll" type="number" min={0} value={monthlySalary} onChange={(e) => setMonthlySalary(e.target.value)} />
+        </div>
+        {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" disabled={saving} style={{ width: '100%', justifyContent: 'center', borderRadius: 12, padding: 12, opacity: saving ? 0.7 : 1 }} onClick={handleSave}>
           {saving ? 'Saving…' : 'Save Changes'}
         </button>

@@ -31,6 +31,7 @@ import {
   Phone, Mail, Palette,
   Sparkles,
   Archive, RotateCcw,
+  Cloud, CloudFog, CloudLightning, Snowflake,
 } from 'lucide-react';
 
 export {
@@ -64,4 +65,5 @@ export {
   Phone, Mail, Palette,
   Sparkles,
   Archive, RotateCcw,
+  Cloud, CloudFog, CloudLightning, Snowflake,
 };
