@@ -36,28 +36,26 @@ interface FarmBranding {
   accentColor: string;
   logoEmoji: string;
   dashboardGreeting: string;
-  currencySymbol: string;
-  weightUnit: string;
 }
 
 const DEFAULT_BRANDING: FarmBranding = {
   accentColor: '#4ade80', logoEmoji: '🌾',
   dashboardGreeting: 'Good morning!',
-  currencySymbol: 'KSh', weightUnit: 'kg',
 };
 
 const ACCENT_OPTIONS = [
   '#4ade80', '#60a5fa', '#f59e0b', '#a855f7', '#22d3ee', '#f87171', '#fb923c', '#34d399',
 ];
 
-// Shape returned by GET /api/settings (trimmed to what this screen reads/writes).
+// Shape returned by GET /api/settings (trimmed to what this screen reads/
+// writes). currencySymbol/weightUnit moved to components/farm/settings.tsx
+// (settings-reorg) — they're operational, not branding — so this screen no
+// longer reads or writes them, even though the underlying row still has them.
 interface ApiModuleSetting { id: string; enabled: boolean; customLabel?: string }
 interface ApiSettings {
   accentColor: string;
   logoEmoji: string;
   dashboardGreeting: string;
-  currencySymbol: string;
-  weightUnit: string;
   modules: ApiModuleSetting[];
 }
 
@@ -89,8 +87,6 @@ export function UICustomiseScreen() {
         accentColor: data.accentColor ?? b.accentColor,
         logoEmoji: data.logoEmoji ?? b.logoEmoji,
         dashboardGreeting: data.dashboardGreeting ?? b.dashboardGreeting,
-        currencySymbol: data.currencySymbol ?? b.currencySymbol,
-        weightUnit: data.weightUnit ?? b.weightUnit,
       }));
     });
   }, [tenantId]);
@@ -123,8 +119,6 @@ export function UICustomiseScreen() {
       accentColor: branding.accentColor,
       logoEmoji: branding.logoEmoji,
       dashboardGreeting: branding.dashboardGreeting,
-      currencySymbol: branding.currencySymbol,
-      weightUnit: branding.weightUnit,
     });
     setSaving(false);
     if (res.success) {
@@ -298,29 +292,16 @@ export function UICustomiseScreen() {
                 <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 100, background: branding.accentColor + '33', color: branding.accentColor, border: `1px solid ${branding.accentColor}60` }}>
                   Live Preview
                 </span>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{branding.currencySymbol} · {branding.weightUnit}</span>
               </div>
             </div>
 
             {/* Fields */}
+            {/* Currency/weight unit moved to Settings > Regional & Units
+               (settings-reorg) — they're operational, displayed on every
+               amount/weight in the app, not a branding choice. */}
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Dashboard Greeting</label>
               <input className="farm-input" value={branding.dashboardGreeting} onChange={(e) => updateBranding('dashboardGreeting', e.target.value)} />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Currency Symbol</label>
-                <select className="farm-input" value={branding.currencySymbol} onChange={(e) => updateBranding('currencySymbol', e.target.value)}>
-                  {['KSh', 'UGX', 'TZS', 'USD', 'EUR', 'ZAR', 'NGN'].map((c) => <option key={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Weight Unit</label>
-                <select className="farm-input" value={branding.weightUnit} onChange={(e) => updateBranding('weightUnit', e.target.value)}>
-                  {['kg', 'lbs', 'tonnes'].map((u) => <option key={u}>{u}</option>)}
-                </select>
-              </div>
             </div>
 
             <div style={{ marginBottom: 12 }}>

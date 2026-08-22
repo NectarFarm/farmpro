@@ -1,7 +1,14 @@
 import type { NextConfig } from 'next';
+import { version } from './package.json';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Real app version for the Settings screen's "About IFMS" row
+  // (settings-reorg) — inlined at build time from package.json rather than
+  // a hand-typed string that would drift from what actually shipped.
+  env: {
+    NEXT_PUBLIC_APP_VERSION: version,
+  },
   // Traces the exact server dependencies into .next/standalone so the Docker
   // runner stage can drop node_modules entirely — that removed a second
   // full `pnpm install --prod` and took the image from ~1.01GB to ~384MB.

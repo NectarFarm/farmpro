@@ -14,6 +14,7 @@ import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import { ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff } from './icons';
+import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, type DateFormat } from '@/lib/datetime';
 
 /* ── Theme Context (global, used by globals.css overrides) ── */
 export type ThemeMode = 'dark-farm' | 'high-contrast' | 'light-farm' | 'sun-mode';
@@ -30,6 +31,22 @@ const ThemeCtx = createContext<ThemeCtxShape>({
   theme: 'light-farm', fontSize: 'normal',
   setTheme: () => {}, setFontSize: () => {},
 });
+
+/* ── Regional Context (settings-reorg) ──
+ * timezone/dateFormat, fetched alongside theme/fontSize in the same
+ * GET /api/settings call ThemeProvider already makes — no second round
+ * trip. Consumed by components/farm/status-timeline.tsx (via useRegional())
+ * so audit-log timestamps render in the tenant's own zone/day-order instead
+ * of a hardcoded locale, wherever that shared component is used. */
+interface RegionalCtxShape {
+  timezone: string;
+  dateFormat: DateFormat;
+}
+const RegionalCtx = createContext<RegionalCtxShape>({
+  timezone: DEFAULT_TIMEZONE,
+  dateFormat: DEFAULT_DATE_FORMAT,
+});
+export function useRegional() { return useContext(RegionalCtx); }
 
 // Pure CSS side-effects for a theme/font choice — no state, no network. Shared
 // by the fetch-driven initial load and by user-triggered changes below.
@@ -87,25 +104,30 @@ function applyFontSizeVisuals(s: FontSize) {
 export function ThemeProvider({ children, tenantId }: { children: React.ReactNode; tenantId?: string | null }) {
   const [theme, setThemeState] = useState<ThemeMode>('light-farm');
   const [fontSize, setFontSizeState] = useState<FontSize>('normal');
+  const [timezone, setTimezone] = useState<string>(DEFAULT_TIMEZONE);
+  const [dateFormat, setDateFormat] = useState<DateFormat>(DEFAULT_DATE_FORMAT);
 
   // Re-apply CSS overrides whenever the local value changes, whether that
   // change came from the server fetch below or a user pick — one code path.
   useEffect(() => { applyThemeVisuals(theme); }, [theme]);
   useEffect(() => { applyFontSizeVisuals(fontSize); }, [fontSize]);
 
-  // Load the tenant's persisted theme/font size once we know which tenant we
-  // are (issue #256): the per-tenant settings store is the source of truth,
-  // not a pure local useState — this fetch is what makes a choice survive a
-  // refresh or show up on a second device for the same tenant.
+  // Load the tenant's persisted theme/font size/regional settings once we
+  // know which tenant we are (issue #256, extended by settings-reorg): the
+  // per-tenant settings store is the source of truth, not a pure local
+  // useState — this fetch is what makes a choice survive a refresh or show
+  // up on a second device for the same tenant.
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
     apiClient
-      .get<{ theme?: ThemeMode; fontSize?: FontSize }>(`/api/settings?tenantId=${tenantId}`)
+      .get<{ theme?: ThemeMode; fontSize?: FontSize; timezone?: string; dateFormat?: DateFormat }>(`/api/settings?tenantId=${tenantId}`)
       .then((res) => {
         if (cancelled || !res.success) return;
         if (res.data.theme) setThemeState(res.data.theme);
         if (res.data.fontSize) setFontSizeState(res.data.fontSize);
+        if (res.data.timezone) setTimezone(res.data.timezone);
+        if (res.data.dateFormat) setDateFormat(res.data.dateFormat);
       });
     return () => { cancelled = true; };
   }, [tenantId]);
@@ -133,7 +155,9 @@ export function ThemeProvider({ children, tenantId }: { children: React.ReactNod
 
   return (
     <ThemeCtx.Provider value={{ theme, fontSize, setTheme, setFontSize }}>
-      {children}
+      <RegionalCtx.Provider value={{ timezone, dateFormat }}>
+        {children}
+      </RegionalCtx.Provider>
     </ThemeCtx.Provider>
   );
 }
@@ -161,7 +185,51 @@ interface ApiSettings {
   notificationsEnabled: boolean;
   soundAlertsEnabled: boolean;
   offlineModeEnabled: boolean;
+  currencySymbol: string;
+  weightUnit: string;
+  timezone: string;
+  dateFormat: DateFormat;
+  sessionTimeoutMinutes: number | null;
 }
+
+const CURRENCY_OPTIONS = ['KSh', 'UGX', 'TZS', 'USD', 'EUR', 'ZAR', 'NGN'];
+const WEIGHT_UNIT_OPTIONS = ['kg', 'lbs', 'tonnes'];
+
+// A curated, real subset of IANA zones this app's farms plausibly run in —
+// not exhaustive, but every value here is a real zone name the backend's
+// isValidTimezone (lib/datetime.ts, backed by Intl.supportedValuesOf) also
+// accepts, so picking one always saves.
+const TIMEZONE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'Africa/Nairobi', label: 'Nairobi (EAT, UTC+3)' },
+  { value: 'Africa/Kampala', label: 'Kampala (EAT, UTC+3)' },
+  { value: 'Africa/Dar_es_Salaam', label: 'Dar es Salaam (EAT, UTC+3)' },
+  { value: 'Africa/Kigali', label: 'Kigali (CAT, UTC+2)' },
+  { value: 'Africa/Johannesburg', label: 'Johannesburg (SAST, UTC+2)' },
+  { value: 'Africa/Lagos', label: 'Lagos (WAT, UTC+1)' },
+  { value: 'Africa/Cairo', label: 'Cairo (EET, UTC+2)' },
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'UTC', label: 'UTC' },
+];
+
+const DATE_FORMAT_OPTIONS: { value: DateFormat; label: string }[] = DATE_FORMATS.map((f) => ({
+  value: f,
+  label: f === 'DD/MM/YYYY' ? 'DD/MM/YYYY (22/08/2026)' : f === 'MM/DD/YYYY' ? 'MM/DD/YYYY (08/22/2026)' : 'YYYY-MM-DD (2026-08-22)',
+}));
+
+// null = platform default (30-day session); every other option is minutes.
+// Kept as discrete, sane choices rather than a free-text number field — the
+// backend (app/api/settings/route.ts) still enforces the real bounds
+// (lib/auth.ts's MIN/MAX_SESSION_TIMEOUT_MINUTES) independently of this list.
+const SESSION_TIMEOUT_OPTIONS: { value: string; label: string }[] = [
+  { value: 'default', label: 'Default (30 days)' },
+  { value: '15', label: '15 minutes' },
+  { value: '30', label: '30 minutes' },
+  { value: '60', label: '1 hour' },
+  { value: '240', label: '4 hours' },
+  { value: '480', label: '8 hours (a work day)' },
+  { value: '1440', label: '24 hours' },
+  { value: '10080', label: '7 days' },
+];
 
 export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   const { navigate, role, tenantId, pendingApprovals } = useNav();
@@ -181,6 +249,11 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   const notifications = settings?.notificationsEnabled ?? true;
   const offline = settings?.offlineModeEnabled ?? true;
   const soundAlerts = settings?.soundAlertsEnabled ?? false;
+  const currencySymbol = settings?.currencySymbol ?? 'KSh';
+  const weightUnit = settings?.weightUnit ?? 'kg';
+  const timezone = settings?.timezone ?? 'Africa/Nairobi';
+  const dateFormat = settings?.dateFormat ?? 'DD/MM/YYYY';
+  const sessionTimeoutMinutes = settings?.sessionTimeoutMinutes ?? null;
 
   // Toggles are optimistic (flip immediately), then persisted per-tenant via
   // PATCH /api/settings — this is a tenant-wide record (issue #255), so a
@@ -198,23 +271,75 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     });
   }
 
-  const sections: {
-    label: string;
-    items: { label: string; desc?: string; action?: () => void; badge?: string; toggle?: boolean; value?: boolean; onToggle?: () => void }[];
-  }[] = [
+  // Same optimistic/rollback shape as toggleSetting, generalised to any
+  // scalar field (currency, weight unit, timezone, date format, session
+  // timeout) instead of just booleans.
+  function updateSetting<K extends keyof ApiSettings>(key: K, value: ApiSettings[K]) {
+    if (!settings) return;
+    const prev = settings[key];
+    setSettings({ ...settings, [key]: value });
+    apiClient.patch(`/api/settings?tenantId=${tenantId}`, { [key]: value }).then((res) => {
+      if (!res.success) {
+        setSettings((s) => (s ? { ...s, [key]: prev } : s));
+        showToast(res.error || 'Only the farm owner or admin can change this setting.', 'error');
+      }
+    });
+  }
+
+  type SettingsRow = {
+    label: string; desc?: string; action?: () => void; badge?: string;
+    toggle?: boolean; value?: boolean; onToggle?: () => void;
+    select?: { value: string; options: { value: string; label: string }[]; onChange: (v: string) => void };
+  };
+
+  // Destinations the desktop sidebar (components/farm/navigation.tsx's
+  // AppSidebar) already lists as first-class items for owner/manager —
+  // Inventory, Weather, People, Governance and Reports. Showing them again
+  // here meant every one of those appeared TWICE on desktop, under two
+  // different labels ("More" here, its own sidebar entry there). Wrapped in
+  // .settings-hub-mobile-only below (app/global.css) so this stays mobile's
+  // "More" menu — its only job once a sidebar exists — without losing the
+  // one thing that has no sidebar or other equivalent: AI Farm Assistant
+  // does have a Dashboard quick-action on every breakpoint, but Governance/
+  // Reports/etc. would otherwise vanish outright below 768px, not just get
+  // decluttered.
+  const mobileHubItems: SettingsRow[] = [
+    { label: '📦 Inventory', desc: 'Stock, lots & purchases', action: () => navigate('inventory') },
+    { label: '🌤️ Weather & IoT', desc: 'Forecast & sensor alerts', action: () => navigate('weather') },
+    { label: '👥 People & Staff', desc: 'Employees & role assignment', action: () => navigate('people') },
+    // Real count from NavCtx's `pendingApprovals` (GET /api/approvals?status=pending,
+    // issue #293) — reused, not re-fetched a second time (issue #298). No
+    // badge (not a fake "0 pending") when the tenant has none pending.
+    { label: '🛡️ Governance', desc: 'Approvals, roles & audit', action: () => navigate('governance'), badge: pendingApprovals > 0 ? `${pendingApprovals} pending` : undefined },
+    { label: '📊 Reports', desc: 'Export, share & auditor links', action: () => navigate('reports') },
+    { label: '🤖 AI Farm Assistant', desc: 'Smart farm advisor chatbot', action: () => navigate('ai-chat') },
+  ];
+
+  const sections: { label: string; items: SettingsRow[] }[] = [
+    // UI Customise has no sidebar entry anywhere and no other path to it —
+    // unlike the mobileHubItems above, hiding this on desktop would strand
+    // an owner/super_admin's only way to reach it, not just declutter a
+    // duplicate. Kept visible on every breakpoint, still gated the same way
+    // its old "Farm Management" row was.
+    ...(role === 'super_admin' || role === 'owner' ? [{
+      label: 'Customisation',
+      items: [{ label: '🎨 UI Customise', desc: 'Module toggles & farm branding', action: () => navigate('ui-customise') }],
+    }] : []),
     {
-      label: 'Farm Management',
+      // Currency/weight unit used to live inside UI Customise's "branding"
+      // tab, gated the same as UI Customise itself — but they are
+      // operational (every amount and weight in the app displays in them),
+      // not branding, and every role that can see Settings should at least
+      // see what they're set to. Timezone/date format are new: every record
+      // in this app is timestamped and there was previously no way to say
+      // what zone a farm runs in. All four write through the same
+      // owner/super_admin-gated PATCH the rest of this screen already uses.
+      label: 'Regional & Units',
       items: [
-        { label: '📦 Inventory', desc: 'Stock, lots & purchases', action: () => navigate('inventory') },
-        { label: '🌤️ Weather & IoT', desc: 'Forecast & sensor alerts', action: () => navigate('weather') },
-        { label: '👥 People & Staff', desc: 'Employees & role assignment', action: () => navigate('people') },
-        // Real count from NavCtx's `pendingApprovals` (GET /api/approvals?status=pending,
-        // issue #293) — reused, not re-fetched a second time (issue #298). No
-        // badge (not a fake "0 pending") when the tenant has none pending.
-        { label: '🛡️ Governance', desc: 'Approvals, roles & audit', action: () => navigate('governance'), badge: pendingApprovals > 0 ? `${pendingApprovals} pending` : undefined },
-        { label: '📊 Reports', desc: 'Export, share & auditor links', action: () => navigate('reports') },
-        { label: '🤖 AI Farm Assistant', desc: 'Smart farm advisor chatbot', action: () => navigate('ai-chat') },
-        ...(role === 'super_admin' || role === 'owner' ? [{ label: '🎨 UI Customise', desc: 'Module toggles & farm branding', action: () => navigate('ui-customise') }] : []),
+        { label: 'Currency', desc: 'Used wherever an amount is displayed', select: { value: currencySymbol, options: CURRENCY_OPTIONS.map((c) => ({ value: c, label: c })), onChange: (v) => updateSetting('currencySymbol', v) } },
+        { label: 'Weight unit', desc: 'Used wherever a weight is displayed', select: { value: weightUnit, options: WEIGHT_UNIT_OPTIONS.map((u) => ({ value: u, label: u })), onChange: (v) => updateSetting('weightUnit', v) } },
+        { label: 'Timezone', desc: 'Used to render every timestamp in the app', select: { value: timezone, options: TIMEZONE_OPTIONS, onChange: (v) => updateSetting('timezone', v) } },
+        { label: 'Date format', desc: 'Day/month order for displayed dates', select: { value: dateFormat, options: DATE_FORMAT_OPTIONS, onChange: (v) => updateSetting('dateFormat', v as DateFormat) } },
       ],
     },
     {
@@ -229,7 +354,11 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
       label: 'Offline & Sync',
       items: [
         { label: 'Offline Mode', desc: 'Cache data for use without internet', toggle: true, value: offline, onToggle: () => toggleSetting('offlineModeEnabled') },
-        { label: 'Sync Now', desc: 'Force sync with server', action: () => {} },
+        // 'Sync Now' used to sit here (action: () => {}) — there is no
+        // offline cache/sync engine anywhere in this codebase for it to
+        // trigger (no service worker, no IndexedDB queue), so it did
+        // nothing but looked functional beside a toggle that actually
+        // persists. Removed rather than wired to a fake delay/spinner.
       ],
     },
     {
@@ -237,14 +366,22 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
       items: [
         { label: 'Change Password', action: () => setShowPasswordModal(true) },
         { label: 'Security & access', desc: 'Worker PINs, signed-in devices & backup', action: () => navigate('security-settings') },
+        // Farm offices share devices — this bounds how long a session
+        // issued to this tenant stays valid (enforced in
+        // app/api/auth/login/route.ts at sign-in time, not just stored).
+        { label: 'Session timeout', desc: 'How long a shared device stays signed in', select: { value: sessionTimeoutMinutes === null ? 'default' : String(sessionTimeoutMinutes), options: SESSION_TIMEOUT_OPTIONS, onChange: (v) => updateSetting('sessionTimeoutMinutes', v === 'default' ? null : Number(v)) } },
       ],
     },
     {
       label: 'App',
       items: [
-        { label: 'Help & Support', action: () => {} },
-        { label: 'About IFMS', desc: 'Version 2.1.0 — Build 2026.08', action: () => {} },
-        { label: 'Privacy Policy', action: () => {} },
+        // Help & Support and Privacy Policy used to sit here as
+        // action: () => {} — no real support address or privacy policy
+        // exists to point them at, so they were removed rather than
+        // wired to something invented. About IFMS is real: the version
+        // below is the actual package.json version, inlined at build
+        // time (next.config.ts) — no fabricated build number.
+        { label: 'About IFMS', desc: `Version ${process.env.NEXT_PUBLIC_APP_VERSION ?? '—'}` },
       ],
     },
   ];
@@ -269,6 +406,32 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
           </div>
           <ChevronRight size={16} color="var(--text-muted)" />
         </button>
+
+        {/* ── Farm Management (mobile-only) ──
+         * This is mobile's "More" tab — its whole reason to exist is that a
+         * phone has no sidebar. Desktop (>=768px, app/global.css) already
+         * lists every one of these as a first-class sidebar item, so showing
+         * them again here duplicated five destinations under two different
+         * labels. .settings-hub-mobile-only hides this block instead of
+         * deleting it — a phone still has no other path to these screens. */}
+        <div className="settings-hub-mobile-only" style={{ marginBottom: 16 }}>
+          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Farm Management</div>
+          <div className="farm-card" style={{ overflow: 'hidden' }}>
+            {mobileHubItems.map((item, i) => (
+              <div key={item.label} onClick={item.action}
+                style={{ padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 12,
+                  borderBottom: i < mobileHubItems.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                  cursor: 'pointer' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
+                  {item.desc && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
+                </div>
+                {item.badge && <span className="chip chip-warning" style={{ fontSize: 9 }}>{item.badge}</span>}
+                <ChevronRight size={16} color="var(--text-dim)" />
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* ── Appearance ── */}
         <div style={{ marginBottom: 16 }}>
@@ -337,7 +500,17 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                     {item.desc && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
                   </div>
                   {item.badge && <span className="chip chip-warning" style={{ fontSize: 9 }}>{item.badge}</span>}
-                  {item.toggle ? (
+                  {item.select ? (
+                    <select
+                      value={item.select.value}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => item.select?.onChange(e.target.value)}
+                      className="farm-input"
+                      style={{ width: 'auto', maxWidth: 170, padding: '6px 8px', fontSize: 12, flexShrink: 0 }}
+                    >
+                      {item.select.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  ) : item.toggle ? (
                     <button onClick={(e) => { e.stopPropagation(); item.onToggle?.(); }}
                       style={{ width: 44, height: 24, borderRadius: 100, border: 'none', cursor: 'pointer',
                         background: item.value ? 'var(--primary-green)' : 'rgba(255,255,255,0.1)',

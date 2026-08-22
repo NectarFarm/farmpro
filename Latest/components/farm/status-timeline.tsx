@@ -1,6 +1,8 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, ChevronDown, ChevronUp } from './icons';
+import { useRegional } from './settings';
+import { formatDateTime, type DateFormat } from '@/lib/datetime';
 
 // ── StatusTimeline ──────────────────────────────────────────────────────────
 // Shared component that shows the latest N audit-log entries for any entity
@@ -55,7 +57,12 @@ const ACTION_ICONS: Record<string, string> = {
   'employee.updated': '👤',
 };
 
-function formatTime(iso: string): string {
+// Recent entries (<24h) stay relative ("3h ago") regardless of settings —
+// that part isn't timezone/format-sensitive. Anything older falls back to an
+// absolute timestamp rendered in the TENANT's own timezone/date-format
+// (settings-reorg — tenant_settings.timezone/dateFormat, via useRegional()
+// below) instead of the hardcoded 'en-KE' locale this used before.
+function formatTime(iso: string, regional: { timezone: string; dateFormat: DateFormat }): string {
   const d = new Date(iso);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
@@ -64,9 +71,7 @@ function formatTime(iso: string): string {
   if (diffMin < 60) return `${diffMin}m ago`;
   const diffH = Math.floor(diffMin / 60);
   if (diffH < 24) return `${diffH}h ago`;
-  const day = d.toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' });
-  const time = d.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${day} ${time}`;
+  return formatDateTime(d, regional);
 }
 
 export function StatusTimeline({
@@ -82,6 +87,7 @@ export function StatusTimeline({
   limit?: number;
   className?: string;
 }) {
+  const regional = useRegional();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -148,7 +154,7 @@ export function StatusTimeline({
                     <span style={{ fontSize: 9, color: 'var(--text-dim)', textTransform: 'capitalize', background: 'var(--card)', padding: '1px 5px', borderRadius: 4 }}>{entry.actorRole}</span>
                   )}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>{formatTime(entry.at)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>{formatTime(entry.at, regional)}</div>
                 {metaReason && (
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontStyle: 'italic' }}>"{metaReason}"</div>
                 )}

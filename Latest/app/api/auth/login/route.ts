@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { users } from '@/db/schemas'
+import { users, tenantSettings } from '@/db/schemas'
 import {
   attachSessionCookie,
   checkLoginThrottle,
@@ -10,9 +10,27 @@ import {
   isTenantActive,
   MAX_PIN_GLOBAL_ATTEMPTS,
   recordLoginFailure,
+  SESSION_TTL_MS,
   verifySecret,
 } from '@/lib/auth'
 import { isValidPhone, normalizePhone, toStoredPhone } from '@/lib/validation'
+
+// A tenant-configured sessionTimeoutMinutes (settings-reorg) overrides the
+// platform's default 30-day session length for every user on that tenant.
+// Unset (null, the common case — most tenants never touch this) or a
+// super_admin (no tenantId at all) both fall through to SESSION_TTL_MS
+// unchanged, so this is additive: no tenant's session gets shorter without
+// its owner deliberately setting it.
+async function sessionTtlMsFor(tenantId: string | null): Promise<number> {
+  if (!tenantId) return SESSION_TTL_MS
+  const rows = await db
+    .select({ minutes: tenantSettings.sessionTimeoutMinutes })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.tenantId, tenantId))
+    .limit(1)
+  const minutes = rows[0]?.minutes
+  return minutes ? minutes * 60_000 : SESSION_TTL_MS
+}
 
 const PIN_GLOBAL_IDENTIFIER = 'pin:global'
 
@@ -168,10 +186,11 @@ export async function POST(req: Request) {
   }
 
   await clearLoginThrottle(identifier)
-  const token = await createSession(user.id)
+  const ttlMs = await sessionTtlMsFor(user.tenantId)
+  const token = await createSession(user.id, ttlMs)
   const res = json({
     success: true,
     data: { id: user.id, name: user.name, email: user.email, role: user.role, tenantId: user.tenantId },
   }, 200)
-  return attachSessionCookie(res, token, req)
+  return attachSessionCookie(res, token, req, ttlMs)
 }
