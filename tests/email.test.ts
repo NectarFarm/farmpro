@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 
 describe('lib/email.ts', () => {
-  const originalApiKey = process.env.RESEND_API_KEY
+  const originalApiKey = process.env.BREVO_API_KEY
   const originalFrom = process.env.EMAIL_FROM
   let fetchMock: ReturnType<typeof vi.fn>
 
@@ -19,14 +19,14 @@ describe('lib/email.ts', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.resetModules()
-    if (originalApiKey === undefined) delete process.env.RESEND_API_KEY
-    else process.env.RESEND_API_KEY = originalApiKey
+    if (originalApiKey === undefined) delete process.env.BREVO_API_KEY
+    else process.env.BREVO_API_KEY = originalApiKey
     if (originalFrom === undefined) delete process.env.EMAIL_FROM
     else process.env.EMAIL_FROM = originalFrom
   })
 
-  it('with no RESEND_API_KEY configured, sendEmail no-ops: no network call, ok:true, skipped:true', async () => {
-    delete process.env.RESEND_API_KEY
+  it('with no BREVO_API_KEY configured, sendEmail no-ops: no network call, ok:true, skipped:true', async () => {
+    delete process.env.BREVO_API_KEY
     const { sendEmail, composeMessage } = await import('@/lib/email')
     const message = composeMessage({ subject: 'Test', paragraphs: ['Hello'] })
     const result = await sendEmail({ to: 'nobody@example.com', template: 'notification', message })
@@ -36,11 +36,11 @@ describe('lib/email.ts', () => {
     expect(result.skipped).toBe(true)
   })
 
-  it('with a key configured, sendEmail calls the Resend REST API and reports the provider id', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+  it('with a key configured, sendEmail calls the Brevo REST API and reports the provider id', async () => {
+    process.env.BREVO_API_KEY = 'test-key'
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ id: 'resend-msg-123' }),
+      json: async () => ({ messageId: 'brevo-msg-123' }),
     })
     const { sendEmail, composeMessage } = await import('@/lib/email')
     const message = composeMessage({ subject: 'Approved', paragraphs: ['Welcome'], cta: { label: 'Go', url: 'https://example.com/x' } })
@@ -48,22 +48,22 @@ describe('lib/email.ts', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('https://api.resend.com/emails')
-    expect(init.headers.Authorization).toBe('Bearer test-key')
+    expect(url).toBe('https://api.brevo.com/v3/smtp/email')
+    expect(init.headers['api-key']).toBe('test-key')
     const body = JSON.parse(init.body)
-    expect(body.to).toEqual(['owner@example.com'])
+    expect(body.to).toEqual([{ email: 'owner@example.com' }])
     expect(body.subject).toBe('Approved')
-    expect(body.text).toContain('Welcome')
-    expect(body.text).toContain('https://example.com/x')
-    expect(body.html).toContain('https://example.com/x')
+    expect(body.textContent).toContain('Welcome')
+    expect(body.textContent).toContain('https://example.com/x')
+    expect(body.htmlContent).toContain('https://example.com/x')
 
     expect(result.ok).toBe(true)
-    expect(result.providerId).toBe('resend-msg-123')
+    expect(result.providerId).toBe('brevo-msg-123')
     expect(result.skipped).toBeUndefined()
   })
 
   it('EMAIL_FROM overrides the default sender when set', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+    process.env.BREVO_API_KEY = 'test-key'
     process.env.EMAIL_FROM = 'IFMS <hello@myfarm.example>'
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ id: 'x' }) })
     const { sendEmail, composeMessage } = await import('@/lib/email')
@@ -71,11 +71,11 @@ describe('lib/email.ts', () => {
 
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(init.body)
-    expect(body.from).toBe('IFMS <hello@myfarm.example>')
+    expect(body.sender).toEqual({ name: 'IFMS', email: 'hello@myfarm.example' })
   })
 
   it('a non-2xx response from the provider is reported as a failure, never thrown', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+    process.env.BREVO_API_KEY = 'test-key'
     fetchMock.mockResolvedValue({
       ok: false,
       status: 422,
@@ -89,7 +89,7 @@ describe('lib/email.ts', () => {
   })
 
   it('a network error (fetch throws) is caught and reported, never re-thrown', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+    process.env.BREVO_API_KEY = 'test-key'
     fetchMock.mockRejectedValue(new Error('ECONNRESET'))
     const { sendEmail, composeMessage } = await import('@/lib/email')
     await expect(
@@ -98,7 +98,7 @@ describe('lib/email.ts', () => {
   })
 
   it('never logs the API key, even on failure', async () => {
-    process.env.RESEND_API_KEY = 'super-secret-key-value'
+    process.env.BREVO_API_KEY = 'super-secret-key-value'
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) })
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { sendEmail, composeMessage } = await import('@/lib/email')

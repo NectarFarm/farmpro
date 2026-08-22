@@ -3,8 +3,8 @@
 // POST/GET /api/set-password/[token] and GET/POST
 // /api/onboard-requests/update/[token] routes, using a real postgres when
 // DATABASE_URL is set (local/dev) — same convention as tests/onboarding.test.ts.
-// The Resend provider is stubbed at the `fetch` boundary (never a real
-// network call); RESEND_API_KEY is set only for the tests that need to
+// The Brevo provider is stubbed at the `fetch` boundary (never a real
+// network call); BREVO_API_KEY is set only for the tests that need to
 // inspect what was actually sent.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
@@ -62,7 +62,7 @@ run('onboarding emails (feat/email-notifications)', () => {
   const createdRequestIds: string[] = []
 
   let fetchMock: ReturnType<typeof vi.fn>
-  const originalApiKey = process.env.RESEND_API_KEY
+  const originalApiKey = process.env.BREVO_API_KEY
 
   beforeAll(async () => {
     const salt = randomUUID()
@@ -99,8 +99,8 @@ run('onboarding emails (feat/email-notifications)', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    if (originalApiKey === undefined) delete process.env.RESEND_API_KEY
-    else process.env.RESEND_API_KEY = originalApiKey
+    if (originalApiKey === undefined) delete process.env.BREVO_API_KEY
+    else process.env.BREVO_API_KEY = originalApiKey
   })
 
   async function submitRequest(overrides: Record<string, unknown> = {}) {
@@ -112,7 +112,7 @@ run('onboarding emails (feat/email-notifications)', () => {
   }
 
   it('approval emails a one-time set-password link and NEVER the raw password', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+    process.env.BREVO_API_KEY = 'test-key'
     const { id, body } = await submitRequest()
 
     mockCookie = superAdminSessionToken
@@ -127,14 +127,14 @@ run('onboarding emails (feat/email-notifications)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [, init] = fetchMock.mock.calls[0]
     const sent = JSON.parse(init.body)
-    expect(sent.to).toEqual([body.email])
-    expect(sent.text).not.toContain(tempPassword)
-    expect(sent.html).not.toContain(tempPassword)
-    expect(sent.text).toMatch(/\/set-password\//)
+    expect(sent.to).toEqual([{ email: body.email }])
+    expect(sent.textContent).not.toContain(tempPassword)
+    expect(sent.htmlContent).not.toContain(tempPassword)
+    expect(sent.textContent).toMatch(/\/set-password\//)
   })
 
-  it('with no RESEND_API_KEY configured, approval still succeeds and no network call is made', async () => {
-    delete process.env.RESEND_API_KEY
+  it('with no BREVO_API_KEY configured, approval still succeeds and no network call is made', async () => {
+    delete process.env.BREVO_API_KEY
     const { id } = await submitRequest()
 
     mockCookie = superAdminSessionToken
@@ -150,7 +150,7 @@ run('onboarding emails (feat/email-notifications)', () => {
   })
 
   it('the set-password link works once, then is refused', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+    process.env.BREVO_API_KEY = 'test-key'
     const { id } = await submitRequest()
     mockCookie = superAdminSessionToken
     const approveRes = await readJson(
@@ -160,7 +160,7 @@ run('onboarding emails (feat/email-notifications)', () => {
     mockCookie = undefined
 
     const sentBody = JSON.parse(fetchMock.mock.calls[0][1].body)
-    const token = (sentBody.text.match(/\/set-password\/([^\s]+)/) as RegExpMatchArray)[1]
+    const token = (sentBody.textContent.match(/\/set-password\/([^\s]+)/) as RegExpMatchArray)[1]
 
     const getRes = await readJson(await setPasswordGET(new Request('http://localhost'), { params: Promise.resolve({ token }) }))
     expect(getRes.status).toBe(200)
@@ -210,7 +210,7 @@ run('onboarding emails (feat/email-notifications)', () => {
   })
 
   it('info-needed emails an update link with the admin\'s notes, and the applicant can correct + resubmit', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+    process.env.BREVO_API_KEY = 'test-key'
     const { id } = await submitRequest()
 
     mockCookie = superAdminSessionToken
@@ -225,8 +225,8 @@ run('onboarding emails (feat/email-notifications)', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
-    expect(sent.text).toContain('Phone number looks invalid')
-    const token = (sent.text.match(/\/onboard-requests\/update\/([^\s]+)/) as RegExpMatchArray)[1]
+    expect(sent.textContent).toContain('Phone number looks invalid')
+    const token = (sent.textContent.match(/\/onboard-requests\/update\/([^\s]+)/) as RegExpMatchArray)[1]
 
     // GET reflects the current (still info-needed) data.
     const getRes = await readJson(await updateGET(new Request('http://localhost'), { params: Promise.resolve({ token }) }))
@@ -265,7 +265,7 @@ run('onboarding emails (feat/email-notifications)', () => {
   })
 
   it('an update-request token only edits its OWN request, never another one', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+    process.env.BREVO_API_KEY = 'test-key'
     const { id: idA } = await submitRequest()
     const { id: idB } = await submitRequest()
 
@@ -273,7 +273,7 @@ run('onboarding emails (feat/email-notifications)', () => {
     await onboardPATCH(jsonRequest(`http://localhost/api/onboard-requests/${idA}`, 'PATCH', { status: 'info-needed', notes: 'fix A' }), { params: Promise.resolve({ id: idA }) })
     mockCookie = undefined
     const sentA = JSON.parse(fetchMock.mock.calls[0][1].body)
-    const tokenA = (sentA.text.match(/\/onboard-requests\/update\/([^\s]+)/) as RegExpMatchArray)[1]
+    const tokenA = (sentA.textContent.match(/\/onboard-requests\/update\/([^\s]+)/) as RegExpMatchArray)[1]
 
     await updatePOST(jsonRequest('http://localhost', 'POST', { ...newRequestBody(), farmerName: 'Only A Changed' }), { params: Promise.resolve({ token: tokenA }) })
 
@@ -285,7 +285,7 @@ run('onboarding emails (feat/email-notifications)', () => {
   })
 
   it('rejection emails a short notice with no credentials and no link', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+    process.env.BREVO_API_KEY = 'test-key'
     const { id } = await submitRequest()
 
     mockCookie = superAdminSessionToken
@@ -297,8 +297,8 @@ run('onboarding emails (feat/email-notifications)', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
-    expect(sent.text).toContain('Not a fit')
-    expect(sent.text).not.toMatch(/\/set-password\//)
-    expect(sent.text).not.toMatch(/\/onboard-requests\/update\//)
+    expect(sent.textContent).toContain('Not a fit')
+    expect(sent.textContent).not.toMatch(/\/set-password\//)
+    expect(sent.textContent).not.toMatch(/\/onboard-requests\/update\//)
   })
 })
