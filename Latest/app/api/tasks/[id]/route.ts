@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { tasks, approvalRequests } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/PATCH/DELETE /api/tasks/[id] (issue #243) ───────────────────────────
 // Tenant-scoped: an id only reads/updates/deletes when its tenantId matches
@@ -24,15 +24,11 @@ const notFound = () => NextResponse.json({ success: false, error: 'Task not foun
 
 const VALID_PRIORITIES = new Set(['low', 'medium', 'high'])
 
-function resolveTenantId(req: Request, sessionTenantId: string | null | undefined): string {
-  return sessionTenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim() ?? ''
-}
-
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const rows = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId)))
   if (rows.length === 0) return notFound()
@@ -49,9 +45,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // session-then-fallback convention as tenantId elsewhere on this branch).
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
 
   let raw: unknown
   try {
@@ -76,8 +72,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const effectiveRequiresApproval = patch.requiresApproval ?? existing.requiresApproval
 
   if (requestedStatus && requestedStatus.toUpperCase() === 'DONE' && effectiveRequiresApproval) {
-    const actor = session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : '')
-    if (!actor) return badRequest('actorId is required to request approval for a task that requires it')
+    const actor = session.id
 
     // Idempotent: a task already parked at PENDING_APPROVAL with a live
     // pending request just returns that request instead of creating a
@@ -131,9 +126,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 // DELETE /api/tasks/[id] — hard delete, tenant-scoped.
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const rows = await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
   if (rows.length === 0) return notFound()

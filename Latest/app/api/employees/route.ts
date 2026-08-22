@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { employees, batches } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/POST /api/employees (issue #247) ────────────────────────────────────
 // Fresh build: no `employees` table or `/api/employees/*` route existed on
@@ -49,10 +49,10 @@ function parseAssignedBatchIds(value: unknown): string[] | undefined {
 
 // GET /api/employees?tenantId=&status= — list a tenant's employees.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const status = url.searchParams.get('status')?.trim()
 
@@ -84,11 +84,11 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
   const name = typeof b.name === 'string' ? b.name.trim() : ''
 
-  if (!tenantId) return badRequest('tenantId is required')
   if (!name) return badRequest('name is required')
 
   // farmId (farm-scoped-data task) — the employee's home farm, optional.

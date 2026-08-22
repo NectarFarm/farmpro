@@ -19,8 +19,14 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
+
+// Auth fix (fix/authenticate-all-apis): every route this file exercises now
+// requires a real session — tenant comes from `session.tenantId` only, never
+// a `tenantId` query/body param. `mockCookie` stands in for the session
+// cookie; same pattern as tests/role-screens.test.ts / tests/farm-scoping.test.ts.
+let mockCookie: string | undefined
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
+  cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
 import { GET as purchasesGET, POST as purchasesPOST } from '@/app/api/purchases/route'
@@ -29,7 +35,26 @@ import { GET as usageHistoryGET } from '@/app/api/inventory/items/[id]/usage-his
 import { PATCH as lotPATCH } from '@/app/api/inventory/lots/[id]/route'
 import { GET as varianceGET } from '@/app/api/inventory/variance/route'
 import { db } from '@/db'
-import { tenants, inventoryItems, inventoryLots, purchases, auditLog } from '@/db/schemas'
+import { tenants, users, sessions, inventoryItems, inventoryLots, purchases, auditLog } from '@/db/schemas'
+import { createSession, hashSecret } from '@/lib/auth'
+
+// Inserts an owner user for `tenantId` and returns a live session token.
+async function createOwnerSession(tenantId: string): Promise<{ userId: string; token: string }> {
+  const userId = randomUUID()
+  const salt = randomUUID()
+  await db.insert(users).values({
+    id: userId,
+    tenantId,
+    name: 'Inventory Test Owner',
+    email: `owner-inv-${randomUUID()}@test.ifms`,
+    role: 'owner',
+    passwordHash: hashSecret('pw', salt),
+    passwordSalt: salt,
+    status: 'ACTIVE',
+  })
+  const token = await createSession(userId)
+  return { userId, token }
+}
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -60,10 +85,15 @@ async function readJson(res: Response) {
 
 run('inventory: items/lots/purchases, merged stock, variance, adjust (issue #235)', () => {
   const tenantId = `t-inv-${randomUUID()}`
-  const actorId = `u-inv-${randomUUID()}`
+  let ownerUserId: string
+  let ownerToken: string
 
   beforeAll(async () => {
     await db.insert(tenants).values({ id: tenantId, name: 'Inventory Test Co.', active: true })
+    const owner = await createOwnerSession(tenantId)
+    ownerUserId = owner.userId
+    ownerToken = owner.token
+    mockCookie = ownerToken
   })
 
   afterAll(async () => {
@@ -71,11 +101,15 @@ run('inventory: items/lots/purchases, merged stock, variance, adjust (issue #235
     await db.delete(purchases).where(eq(purchases.tenantId, tenantId))
     await db.delete(inventoryLots).where(eq(inventoryLots.tenantId, tenantId))
     await db.delete(inventoryItems).where(eq(inventoryItems.tenantId, tenantId))
+    await db.delete(sessions).where(eq(sessions.userId, ownerUserId))
+    await db.delete(users).where(eq(users.id, ownerUserId))
     await db.delete(tenants).where(inArray(tenants.id, [tenantId]))
+    mockCookie = undefined
   })
 
   describe('POST /api/purchases: creates a real item + lot', () => {
     it('creates a new item and lot on first purchase', async () => {
+      mockCookie = ownerToken
       const { status, payload } = await readJson(
         await purchasesPOST(
           postRequest('http://localhost/api/purchases', {
@@ -206,6 +240,8 @@ run('inventory: items/lots/purchases, merged stock, variance, adjust (issue #235
     it('flags a lot whose only reconciliation event is old, and does not flag a freshly received one', async () => {
       const staleTenant = `t-inv-stale-${randomUUID()}`
       await db.insert(tenants).values({ id: staleTenant, name: 'Stale Variance Co.', active: true })
+      const staleOwner = await createOwnerSession(staleTenant)
+      mockCookie = staleOwner.token
 
       const oldDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
       await purchasesPOST(
@@ -230,7 +266,7 @@ run('inventory: items/lots/purchases, merged stock, variance, adjust (issue #235
         })
       )
 
-      const { status, payload } = await readJson(await varianceGET(getRequest(`http://localhost/api/inventory/variance?tenantId=${staleTenant}`)))
+      const { status, payload } = await readJson(await varianceGET())
       expect(status).toBe(200)
       const stale = payload.data.find((r: { itemName: string }) => r.itemName === 'Stale Feed')
       const fresh = payload.data.find((r: { itemName: string }) => r.itemName === 'Fresh Feed')
@@ -241,7 +277,10 @@ run('inventory: items/lots/purchases, merged stock, variance, adjust (issue #235
       await db.delete(inventoryLots).where(eq(inventoryLots.tenantId, staleTenant))
       await db.delete(purchases).where(eq(purchases.tenantId, staleTenant))
       await db.delete(inventoryItems).where(eq(inventoryItems.tenantId, staleTenant))
+      await db.delete(sessions).where(eq(sessions.userId, staleOwner.userId))
+      await db.delete(users).where(eq(users.id, staleOwner.userId))
       await db.delete(tenants).where(eq(tenants.id, staleTenant))
+      mockCookie = ownerToken
     })
   })
 
@@ -256,17 +295,26 @@ run('inventory: items/lots/purchases, merged stock, variance, adjust (issue #235
       expect(res.status).toBe(400)
     })
 
-    it('rejects an adjustment with no actor (400)', async () => {
+    // The old `actorId`-in-body fallback is gone entirely (auth fix:
+    // fix/authenticate-all-apis) — the audit actor is now always
+    // `session.id`, so "submit qtyOnHand+reason with no actor" can no longer
+    // reach a distinct "actorId is required" 400: a session is required for
+    // this route at all now, so an actor-less caller is simply unauthenticated.
+    // Rewritten to assert that: an unauthenticated adjustment 401s before it
+    // ever gets to consider qtyOnHand/reason/actor.
+    it('401s an adjustment attempt with no session', async () => {
       const items = await db.select().from(inventoryItems).where(eq(inventoryItems.tenantId, tenantId))
       const lots = await db.select().from(inventoryLots).where(eq(inventoryLots.itemId, items[0].id))
+      mockCookie = undefined
       const res = await lotPATCH(
-        patchRequest(`http://localhost/api/inventory/lots/${lots[0].id}?tenantId=${tenantId}`, { qtyOnHand: 900, reason: 'Recount' }),
+        patchRequest(`http://localhost/api/inventory/lots/${lots[0].id}`, { qtyOnHand: 900, reason: 'Recount' }),
         { params: Promise.resolve({ id: lots[0].id }) }
       )
-      expect(res.status).toBe(400)
+      expect(res.status).toBe(401)
+      mockCookie = ownerToken
     })
 
-    it('applies the adjustment and writes a real audit_log row with before/after/reason', async () => {
+    it('applies the adjustment and writes a real audit_log row with before/after/reason, actor = the session user', async () => {
       const items = await db.select().from(inventoryItems).where(eq(inventoryItems.tenantId, tenantId))
       const lots = await db.select().from(inventoryLots).where(eq(inventoryLots.itemId, items[0].id))
       const target = lots[0]
@@ -274,10 +322,9 @@ run('inventory: items/lots/purchases, merged stock, variance, adjust (issue #235
 
       const { status, payload } = await readJson(
         await lotPATCH(
-          patchRequest(`http://localhost/api/inventory/lots/${target.id}?tenantId=${tenantId}`, {
+          patchRequest(`http://localhost/api/inventory/lots/${target.id}`, {
             qtyOnHand: before - 40,
             reason: 'Physical recount found shortage',
-            actorId,
           }),
           { params: Promise.resolve({ id: target.id }) }
         )
@@ -290,18 +337,33 @@ run('inventory: items/lots/purchases, merged stock, variance, adjust (issue #235
         .from(auditLog)
         .where(and(eq(auditLog.tenantId, tenantId), eq(auditLog.entityId, target.id), eq(auditLog.action, 'inventory.adjust')))
       expect(auditRows.length).toBe(1)
-      expect(auditRows[0].actor).toBe(actorId)
+      expect(auditRows[0].actor).toBe(ownerUserId)
       expect(auditRows[0].meta).toMatchObject({ before, after: before - 40, reason: 'Physical recount found shortage' })
     })
 
-    it('404s for a lot id belonging to a different tenant', async () => {
+    it('404s for a lot id belonging to a different tenant (a `?tenantId=` query param cannot widen access)', async () => {
       const items = await db.select().from(inventoryItems).where(eq(inventoryItems.tenantId, tenantId))
       const lots = await db.select().from(inventoryLots).where(eq(inventoryLots.itemId, items[0].id))
-      const res = await lotPATCH(
-        patchRequest(`http://localhost/api/inventory/lots/${lots[0].id}?tenantId=nonexistent-tenant`, { qtyOnHand: 1, reason: 'x', actorId }),
-        { params: Promise.resolve({ id: lots[0].id }) }
-      )
-      expect(res.status).toBe(404)
+
+      const otherTenant = `t-inv-other-${randomUUID()}`
+      await db.insert(tenants).values({ id: otherTenant, name: 'Other Tenant Co.', active: true })
+      const otherOwner = await createOwnerSession(otherTenant)
+      mockCookie = otherOwner.token
+      try {
+        // Naming the real tenant explicitly in the query string must not
+        // widen this session's access to it — the session's OWN tenant
+        // always wins, so this still 404s as "not found for my tenant".
+        const res = await lotPATCH(
+          patchRequest(`http://localhost/api/inventory/lots/${lots[0].id}?tenantId=${tenantId}`, { qtyOnHand: 1, reason: 'x' }),
+          { params: Promise.resolve({ id: lots[0].id }) }
+        )
+        expect(res.status).toBe(404)
+      } finally {
+        await db.delete(sessions).where(eq(sessions.userId, otherOwner.userId))
+        await db.delete(users).where(eq(users.id, otherOwner.userId))
+        await db.delete(tenants).where(eq(tenants.id, otherTenant))
+        mockCookie = ownerToken
+      }
     })
   })
 
@@ -322,13 +384,25 @@ run('inventory: items/lots/purchases, merged stock, variance, adjust (issue #235
       expect(payload.data[0].supplier).toBe('Unga Ltd')
     })
 
-    it('404s for an item id belonging to a different tenant', async () => {
+    it('404s for an item id belonging to a different tenant (session tenant, not a query param, decides scope)', async () => {
       const items = await db.select().from(inventoryItems).where(eq(inventoryItems.tenantId, tenantId))
-      const res = await usageHistoryGET(
-        getRequest(`http://localhost/api/inventory/items/${items[0].id}/usage-history?tenantId=nonexistent-tenant`),
-        { params: Promise.resolve({ id: items[0].id }) }
-      )
-      expect(res.status).toBe(404)
+
+      const otherTenant = `t-inv-other-uh-${randomUUID()}`
+      await db.insert(tenants).values({ id: otherTenant, name: 'Other Tenant Co. UH', active: true })
+      const otherOwner = await createOwnerSession(otherTenant)
+      mockCookie = otherOwner.token
+      try {
+        const res = await usageHistoryGET(
+          getRequest(`http://localhost/api/inventory/items/${items[0].id}/usage-history`),
+          { params: Promise.resolve({ id: items[0].id }) }
+        )
+        expect(res.status).toBe(404)
+      } finally {
+        await db.delete(sessions).where(eq(sessions.userId, otherOwner.userId))
+        await db.delete(users).where(eq(users.id, otherOwner.userId))
+        await db.delete(tenants).where(eq(tenants.id, otherTenant))
+        mockCookie = ownerToken
+      }
     })
   })
 })

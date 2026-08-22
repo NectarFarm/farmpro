@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { batches, products } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { listSales, recordSale } from '@/lib/finance'
 import { and, eq } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -32,10 +32,10 @@ const VALID_STATUSES = new Set(['paid', 'pending'])
 // sales.batchId -> batches.unitId -> production_units.farmId — sales has no
 // farm_id of its own, same reasoning as GET /api/records's farmId.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
   if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
@@ -75,15 +75,14 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
   let item = typeof b.item === 'string' ? b.item.trim() : ''
   const amountCents = Number(b.amountCents)
   const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'paid'
   const batchId = typeof b.batchId === 'string' && b.batchId.trim() ? b.batchId.trim() : null
   const productId = typeof b.productId === 'string' && b.productId.trim() ? b.productId.trim() : null
-
-  if (!tenantId) return badRequest('tenantId is required')
 
   let product: { id: string; name: string } | undefined
   if (productId) {

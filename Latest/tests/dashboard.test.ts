@@ -4,15 +4,10 @@
 // suite skips there (vitest exits 0, and CI's build/typecheck still run) —
 // same pattern as tests/auth.test.ts.
 //
-// current-prices and tasks below set no session cookie, so getSessionUser()
-// resolves to null and those two routes fall back to their `tenantId` query
-// param (the same standalone-mock-mode fallback GET /api/farms already uses).
-//
-// GET/PATCH /api/notifications are different (notification-recipient-scoping
-// fix): they now REQUIRE a real session and take the tenant from it only —
-// no query-param fallback — so the notifications describe block below sets
-// a real cookie via `mockCookie` per test, same pattern as
-// tests/farms-crud.test.ts.
+// current-prices and tasks now require a real session too (auth fix:
+// fix/authenticate-all-apis) — tenant comes from `session.tenantId` only,
+// with no `tenantId` query-param fallback for either route. They authenticate
+// as ownerA the same way the notifications describe block below already did.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -91,7 +86,8 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
         { id: randomUUID(), tenantId: tenantBId, type: 'eggs', name: 'Eggs (tray)', saleUnits: '999' },
       ])
 
-      const res = await currentPricesGET(getRequest(`http://localhost/api/products/current-prices?tenantId=${tenantAId}`))
+      mockCookie = ownerASessionToken
+      const res = await currentPricesGET()
       expect(res.status).toBe(200)
       const payload = await res.json()
       expect(payload.success).toBe(true)
@@ -101,9 +97,10 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
       expect(byType.milk).toBe(60)
     })
 
-    it('requires a tenantId', async () => {
-      const res = await currentPricesGET(getRequest('http://localhost/api/products/current-prices'))
-      expect(res.status).toBe(400)
+    it('401s with no session', async () => {
+      mockCookie = undefined
+      const res = await currentPricesGET()
+      expect(res.status).toBe(401)
     })
   })
 
@@ -124,7 +121,8 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
         { id: randomUUID(), tenantId: tenantBId, title: 'Other tenant, due today', dueAt: todayNoon, status: 'PENDING' },
       ])
 
-      const res = await tasksGET(getRequest(`http://localhost/api/tasks?tenantId=${tenantAId}&due=today`))
+      mockCookie = ownerASessionToken
+      const res = await tasksGET(getRequest('http://localhost/api/tasks?due=today'))
       expect(res.status).toBe(200)
       const payload = await res.json()
       expect(payload.success).toBe(true)

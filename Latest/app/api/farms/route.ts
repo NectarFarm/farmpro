@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { farms } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, eq, asc } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
-// ── Farms API (issue #219) ─────────────────────────────────────────────────
+// ── Farms API (issue #219; auth fix: fix/authenticate-all-apis) ────────────
 // New-backend routes powering the shell's farm switcher. Built fresh in this
 // project per the review on #266 — NOT against the old Frontend/ backend.
 //
-// Tenant scoping: with real sessions (issue #221) the tenant comes from the
-// authenticated session when present; the per-request `tenantId` stays as the
-// fallback for standalone mock mode (no active session).
+// Tenant scoping: comes from the authenticated session ONLY. This used to
+// fall back to a `tenantId` query param / body field for a session-less
+// caller ("standalone mock mode") — that fallback is exactly the hole this
+// task closes, since it let anyone read/create farms for any tenant they
+// could guess an id for.
 //
 // Response envelope matches app/api/health/route.ts and lib/api-response.ts
 // ({ success, data | error }), which lib/request.ts's parseApiResponse already
@@ -40,10 +42,11 @@ function isUniqueViolation(err: unknown): boolean {
 // switch into; the admin farms screen opts in with includeArchived=true to
 // show (and manage) archived ones too.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
+
   const includeArchived = url.searchParams.get('includeArchived') === 'true'
   const conditions = [eq(farms.tenantId, tenantId)]
   if (!includeArchived) conditions.push(eq(farms.status, 'ACTIVE'))
@@ -56,7 +59,7 @@ export async function GET(req: Request) {
 }
 
 // POST /api/farms — create a farm under a tenant.
-// Body: { tenantId, name, location?, code? }
+// Body: { tenantId? (super_admin only — see requireTenantSession), name, location?, code? }
 export async function POST(req: Request) {
   let raw: unknown
   try {
@@ -65,10 +68,10 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
   const name = typeof b.name === 'string' ? b.name.trim() : ''
-  if (!tenantId) return badRequest('tenantId is required')
   if (!name) return badRequest('name is required')
 
   const id = crypto.randomUUID()

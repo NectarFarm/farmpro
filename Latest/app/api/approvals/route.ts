@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { approvalRequests } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/approvals (issue #243 task 2) ──────────────────────────────────
 // Lists a tenant's approval queue (GovernanceScreen's Approvals tab). Same
@@ -28,13 +28,12 @@ import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/
 // unfiltered/ALL view already includes both by construction.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const status = url.searchParams.get('status')?.trim().toLowerCase()
 

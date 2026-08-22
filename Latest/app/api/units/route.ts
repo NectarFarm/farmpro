@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { productionUnits, farms } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, like } from 'drizzle-orm'
 import { farmSegment, generateCode, unitPrefixFor } from '@/lib/codes'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/POST /api/units (issue #232) ────────────────────────────────────────
 // The `production_units` table has existed since #219, but no route ever read
@@ -31,10 +31,10 @@ function isUniqueViolation(err: unknown): boolean {
 // optionally filtered to one farm. Ordered by code so the UI's unit lists are
 // stable across reloads.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   // farmId (direct filter, production_units.farmId — farm-scoped-data task).
   // This param already existed as a plain equality filter; it's now run
@@ -74,13 +74,13 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
   const farmId = typeof b.farmId === 'string' ? b.farmId.trim() : ''
   const type = typeof b.type === 'string' ? b.type.trim() : ''
   const name = typeof b.name === 'string' ? b.name.trim() : ''
 
-  if (!tenantId) return badRequest('tenantId is required')
   if (!farmId) return badRequest('farmId is required')
   if (!type) return badRequest('type is required')
   if (!name) return badRequest('name is required')

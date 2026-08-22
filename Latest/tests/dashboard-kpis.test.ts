@@ -5,28 +5,47 @@
 // suite skips there — same pattern as tests/dashboard.test.ts and
 // tests/auth.test.ts.
 //
-// No session cookie is set in any of these tests, so getSessionUser()
-// resolves to null and every route falls back to its `tenantId` query param
-// (the standalone-mock-mode fallback), same as tests/dashboard.test.ts.
+// Auth fix (fix/authenticate-all-apis): both routes now require a real
+// session, and tenant comes from `session.tenantId` ONLY — neither route
+// accepts a `tenantId` query param fallback any more, not even for
+// super_admin. Every test below authenticates as a real owner of whichever
+// tenant it's exercising instead of naming that tenant in the URL.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
+
+let mockCookie: string | undefined
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
+  cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
 import { GET as kpisGET } from '@/app/api/dashboard/kpis/route'
 import { GET as productionGET } from '@/app/api/charts/production/route'
 import { db } from '@/db'
-import { tenants, products, tasks, notifications, farms, productionUnits, batches, sales, approvalRequests } from '@/db/schemas'
+import { tenants, users, sessions, products, tasks, notifications, farms, productionUnits, batches, sales, approvalRequests } from '@/db/schemas'
+import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
 
 function getRequest(url: string): Request {
   return new Request(url)
+}
+
+// Creates a real owner user for `tenantId` and returns a session token for
+// it — the replacement for this file's old `?tenantId=` query param.
+const sessionUserIds: string[] = []
+async function ownerSessionFor(tenantId: string): Promise<string> {
+  const id = randomUUID()
+  sessionUserIds.push(id)
+  const salt = randomUUID()
+  await db.insert(users).values({
+    id, tenantId, name: 'KPI Test Owner', email: `kpi-owner-${randomUUID()}@test.ifms`,
+    role: 'owner', passwordHash: hashSecret('pw', salt), passwordSalt: salt, status: 'ACTIVE',
+  })
+  return createSession(id)
 }
 
 run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
@@ -45,19 +64,26 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
     await db.delete(tasks).where(inArray(tasks.tenantId, [tenantAId, tenantBId]))
     await db.delete(products).where(inArray(products.tenantId, [tenantAId, tenantBId]))
     await db.delete(tenants).where(inArray(tenants.id, [tenantAId, tenantBId]))
+    if (sessionUserIds.length) {
+      await db.delete(sessions).where(inArray(sessions.userId, sessionUserIds))
+      await db.delete(users).where(inArray(users.id, sessionUserIds))
+    }
+    mockCookie = undefined
   })
 
   describe('GET /api/dashboard/kpis', () => {
-    it('requires a tenantId', async () => {
+    it('401s with no session', async () => {
+      mockCookie = undefined
       const res = await kpisGET(getRequest('http://localhost/api/dashboard/kpis'))
-      expect(res.status).toBe(400)
+      expect(res.status).toBe(401)
     })
 
     it('returns zeroed real counts and null avgFCR for a tenant with no data', async () => {
       const emptyTenantId = `t-${randomUUID()}`
       await db.insert(tenants).values({ id: emptyTenantId, name: 'Empty KPI Tenant', active: true })
       try {
-        const res = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${emptyTenantId}`))
+        mockCookie = await ownerSessionFor(emptyTenantId)
+        const res = await kpisGET(getRequest('http://localhost/api/dashboard/kpis'))
         expect(res.status).toBe(200)
         const payload = await res.json()
         expect(payload.success).toBe(true)
@@ -126,7 +152,8 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         { id: randomUUID(), tenantId: tenantBId, type: 'eggs', name: 'Eggs (tray)', saleUnits: '999' },
       ])
 
-      const res = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantAId}`))
+      mockCookie = await ownerSessionFor(tenantAId)
+      const res = await kpisGET(getRequest('http://localhost/api/dashboard/kpis'))
       expect(res.status).toBe(200)
       const payload = await res.json()
       expect(payload.success).toBe(true)
@@ -209,7 +236,8 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
           { id: randomUUID(), tenantId, item: 'Eggs', amountCents: 1250000, status: 'pending' },
         ])
 
-        const res = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}`))
+        mockCookie = await ownerSessionFor(tenantId)
+        const res = await kpisGET(getRequest('http://localhost/api/dashboard/kpis'))
         expect(res.status).toBe(200)
         const payload = await res.json()
         expect(payload.success).toBe(true)
@@ -274,7 +302,8 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
           { id: `b-${randomUUID()}`, tenantId, unitId, code: 'LYR-ELD-002', name: 'Layers B (closed)', enterprise: 'layer', status: 'CLOSED', initialQty: 50, currentQty: 50 },
         ])
 
-        const res = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}`))
+        mockCookie = await ownerSessionFor(tenantId)
+        const res = await kpisGET(getRequest('http://localhost/api/dashboard/kpis'))
         expect(res.status).toBe(200)
         const payload = await res.json()
         expect(payload.success).toBe(true)
@@ -318,7 +347,9 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
           { id: randomUUID(), tenantId, item: 'Long-ago sale', amountCents: 9999900, soldAt: longAgo },
         ])
 
-        const monthRes = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}&period=month`))
+        mockCookie = await ownerSessionFor(tenantId)
+
+        const monthRes = await kpisGET(getRequest('http://localhost/api/dashboard/kpis?period=month'))
         const monthPayload = await monthRes.json()
         expect(monthPayload.data.pendingApprovals).toBe(2)
         expect(monthPayload.data.period).toBe('month')
@@ -327,7 +358,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         // All-time `revenue` still includes both sales — unaffected by period.
         expect(monthPayload.data.revenueCents).toBe(10999900)
 
-        const yearRes = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}&period=year`))
+        const yearRes = await kpisGET(getRequest('http://localhost/api/dashboard/kpis?period=year'))
         const yearPayload = await yearRes.json()
         expect(yearPayload.data.period).toBe('year')
         // The long-ago sale (a full year before this Jan 1) is still outside
@@ -335,7 +366,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         expect(yearPayload.data.periodRevenueCents).toBe(1000000)
 
         // Unknown/omitted period falls back to 'month' rather than erroring.
-        const badRes = await kpisGET(getRequest(`http://localhost/api/dashboard/kpis?tenantId=${tenantId}&period=decade`))
+        const badRes = await kpisGET(getRequest('http://localhost/api/dashboard/kpis?period=decade'))
         const badPayload = await badRes.json()
         expect(badRes.status).toBe(200)
         expect(badPayload.data.period).toBe('month')
@@ -348,13 +379,15 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
   })
 
   describe('GET /api/charts/production', () => {
-    it('requires a tenantId', async () => {
-      const res = await productionGET(getRequest('http://localhost/api/charts/production'))
-      expect(res.status).toBe(400)
+    it('401s with no session', async () => {
+      mockCookie = undefined
+      const res = await productionGET()
+      expect(res.status).toBe(401)
     })
 
     it('always returns an explicit not-available empty series, never a fabricated chart', async () => {
-      const res = await productionGET(getRequest(`http://localhost/api/charts/production?tenantId=${tenantAId}`))
+      mockCookie = await ownerSessionFor(tenantAId)
+      const res = await productionGET()
       expect(res.status).toBe(200)
       const payload = await res.json()
       expect(payload.success).toBe(true)

@@ -1,28 +1,24 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { employees, batches } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, eq, inArray } from 'drizzle-orm'
 import { writeAuditLog } from '@/lib/audit'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/PATCH /api/employees/[id] (issue #247; PATCH extended for farms/
 // employees CRUD) ────────────────────────────────────────────────────────────
-// GET is tenant-scoped the original way: an id only reads when its tenantId
-// matches the caller's (session tenant, or the `tenantId` query param in
-// standalone mock mode) — otherwise 404, same convention as GET/PATCH
+// GET is tenant-scoped: an id only reads when its tenantId matches the
+// caller's session tenant — a super_admin session may name one explicitly
+// via `?tenantId=` — otherwise 404, same convention as GET/PATCH
 // /api/batches/[id]. `Note`: this file lives under app/api/employees/
 // alongside a literal `me` segment (app/api/employees/me/route.ts) —
 // Next.js resolves a literal path segment before a dynamic one, so
 // GET /api/employees/me is never captured by this `[id]` route.
 //
-// PATCH does NOT use that query-param tenant fallback: it requires a real
-// session and derives tenant scope from it only — owner/manager write
-// within their own session tenant, a super_admin (no tenant of its own)
-// must name one explicitly in the body, and every other role is forbidden.
-// This is deliberately narrower than GET's long-standing convention (see the
-// CRITICAL SECURITY note on the farms/employees CRUD task: fix the routes
-// being touched, don't copy the hole into them, but don't retrofit the
-// other 30-odd routes either).
+// PATCH derives tenant scope from the session only, same as GET, but is
+// additionally role-gated: owner/manager write within their own session
+// tenant, a super_admin (no tenant of its own) must name one explicitly in
+// the body, and every other role is forbidden.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
@@ -35,10 +31,6 @@ const badFields = (fields: Record<string, string>, status = 400) => {
 // The only two values components/farm/people.tsx's toggle / CSV import ever
 // send (grepped — no third value used anywhere in this codebase).
 const VALID_EMPLOYEE_STATUSES = new Set(['ACTIVE', 'INACTIVE'])
-
-function resolveTenantId(req: Request, sessionTenantId: string | null | undefined): string {
-  return sessionTenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim() ?? ''
-}
 
 async function validateBatchIds(tenantId: string, ids: string[]): Promise<string[] | null> {
   const unique = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)))
@@ -54,9 +46,9 @@ async function validateBatchIds(tenantId: string, ids: string[]): Promise<string
 // GET /api/employees/[id]
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const rows = await db
     .select()
@@ -83,8 +75,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // the confirmation step before the call is made.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
 
   let raw: unknown
   try {
@@ -94,16 +84,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const b = (raw ?? {}) as Record<string, unknown>
 
-  let tenantId: string
-  if (session.role === 'super_admin') {
-    tenantId = typeof b.tenantId === 'string' ? b.tenantId.trim() : ''
-    if (!tenantId) return badRequest('tenantId is required for a platform admin')
-  } else if (session.role === 'owner' || session.role === 'manager') {
-    tenantId = session.tenantId ?? ''
-    if (!tenantId) return badRequest('Forbidden')
-  } else {
-    return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
-  }
+  const auth = await requireTenantSession({
+    roles: ['super_admin', 'owner', 'manager'],
+    explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined,
+  })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
 
   const existingRows = await db
     .select()

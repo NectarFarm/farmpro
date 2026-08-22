@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { tasks } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, gte, lt } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/POST /api/tasks (issue #227 task 2, extended by issue #243) ────────
 // Small dedicated endpoint rather than a generic /api/data/[resource] route —
@@ -35,10 +35,10 @@ export function startOfUtcDay(d: Date): Date {
 }
 
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const due = url.searchParams.get('due')?.trim().toLowerCase()
 
@@ -85,11 +85,11 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
   const title = typeof b.title === 'string' ? b.title.trim() : ''
 
-  if (!tenantId) return badRequest('tenantId is required')
   if (!title) return badRequest('title is required')
 
   const farmFilter = await resolveFarmFilter(tenantId, typeof b.farmId === 'string' ? b.farmId : undefined)

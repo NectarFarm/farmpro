@@ -15,8 +15,14 @@ import { randomUUID } from 'node:crypto'
 import { eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
+
+// Auth fix (fix/authenticate-all-apis): every route this file exercises now
+// requires a real session — tenant comes from `session.tenantId` only, never
+// a `tenantId` query/body param. `mockCookie` stands in for the session
+// cookie; same pattern as tests/role-screens.test.ts / tests/farm-scoping.test.ts.
+let mockCookie: string | undefined
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
+  cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
 import { GET as salesGET, POST as salesPOST } from '@/app/api/data/sales/route'
@@ -26,6 +32,8 @@ import { POST as purchasesPOST } from '@/app/api/purchases/route'
 import { db } from '@/db'
 import {
   tenants,
+  users,
+  sessions,
   sales,
   journalEntries,
   journalLines,
@@ -37,6 +45,27 @@ import {
   farms,
 } from '@/db/schemas'
 import { ACCOUNT_CODES } from '@/lib/finance'
+import { createSession, hashSecret } from '@/lib/auth'
+
+// Inserts an owner user for `tenantId` and returns a live session token —
+// the shared "give me an authenticated caller for this tenant" helper every
+// test below uses instead of a `tenantId` query/body param.
+async function createOwnerSession(tenantId: string): Promise<{ userId: string; token: string }> {
+  const userId = randomUUID()
+  const salt = randomUUID()
+  await db.insert(users).values({
+    id: userId,
+    tenantId,
+    name: 'Finance Test Owner',
+    email: `owner-fin-${randomUUID()}@test.ifms`,
+    role: 'owner',
+    passwordHash: hashSecret('pw', salt),
+    passwordSalt: salt,
+    status: 'ACTIVE',
+  })
+  const token = await createSession(userId)
+  return { userId, token }
+}
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -62,7 +91,7 @@ async function journalEntryIdsForTenant(tenantId: string): Promise<string[]> {
   return rows.map((r) => r.id)
 }
 
-async function cleanupTenant(tenantId: string) {
+async function cleanupTenant(tenantId: string, userId?: string) {
   const entryIds = await journalEntryIdsForTenant(tenantId)
   if (entryIds.length > 0) await db.delete(journalLines).where(inArray(journalLines.entryId, entryIds))
   await db.delete(journalEntries).where(eq(journalEntries.tenantId, tenantId))
@@ -73,22 +102,32 @@ async function cleanupTenant(tenantId: string) {
   await db.delete(batches).where(eq(batches.tenantId, tenantId))
   await db.delete(productionUnits).where(eq(productionUnits.tenantId, tenantId))
   await db.delete(farms).where(eq(farms.tenantId, tenantId))
+  if (userId) {
+    await db.delete(sessions).where(eq(sessions.userId, userId))
+    await db.delete(users).where(eq(users.id, userId))
+  }
   await db.delete(tenants).where(eq(tenants.id, tenantId))
 }
 
 run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
   const tenantId = `t-fin-${randomUUID()}`
+  let ownerUserId: string
+  let ownerToken: string
 
   beforeAll(async () => {
     await db.insert(tenants).values({ id: tenantId, name: 'Finance Test Co.', active: true })
+    const owner = await createOwnerSession(tenantId)
+    ownerUserId = owner.userId
+    ownerToken = owner.token
   })
 
   afterAll(async () => {
-    await cleanupTenant(tenantId)
+    await cleanupTenant(tenantId, ownerUserId)
   })
 
   describe('GET /api/gl/accounts: seeded standard chart of accounts', () => {
     it('returns the six standard farm accounts, including no payroll account', async () => {
+      mockCookie = ownerToken
       const { status, payload } = await readJson(await accountsGET())
       expect(status).toBe(200)
       const codes = payload.data.map((a: { code: string }) => a.code).sort()
@@ -106,6 +145,7 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
 
   describe('POST /api/data/sales: create + list, exact field shape', () => {
     it('rejects a sale with no item / non-positive amount / bad status (400)', async () => {
+      mockCookie = ownerToken
       expect((await salesPOST(postRequest('http://localhost/api/data/sales', { tenantId, amountCents: 10000 }))).status).toBe(400)
       expect((await salesPOST(postRequest('http://localhost/api/data/sales', { tenantId, item: 'Eggs', amountCents: 0 }))).status).toBe(400)
       expect(
@@ -114,6 +154,7 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
     })
 
     it('creates a paid cash sale and lists it back', async () => {
+      mockCookie = ownerToken
       const { status, payload } = await readJson(
         await salesPOST(
           postRequest('http://localhost/api/data/sales', {
@@ -141,6 +182,7 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
     })
 
     it('404s when batchId does not belong to this tenant', async () => {
+      mockCookie = ownerToken
       const res = await salesPOST(
         postRequest('http://localhost/api/data/sales', { tenantId, item: 'Eggs', amountCents: 10000, batchId: 'nonexistent-batch' })
       )
@@ -150,7 +192,8 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
 
   describe('GET /api/gl/trial-balance: derived from real sales + purchases only', () => {
     it('balances after a paid sale, a pending sale, a paid purchase and a partially-paid purchase', async () => {
-      const before = await readJson(await trialBalanceGET(getRequest(`http://localhost/api/gl/trial-balance?tenantId=${tenantId}`)))
+      mockCookie = ownerToken
+      const before = await readJson(await trialBalanceGET())
       expect(before.status).toBe(200)
       expect(before.payload.data.balanced).toBe(true)
       const cashBefore = before.payload.data.rows.find((r: { code: string }) => r.code === ACCOUNT_CODES.CASH).balanceCents
@@ -201,7 +244,7 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
       )
       expect(partialPurchase.status).toBe(201)
 
-      const after = await readJson(await trialBalanceGET(getRequest(`http://localhost/api/gl/trial-balance?tenantId=${tenantId}`)))
+      const after = await readJson(await trialBalanceGET())
       expect(after.status).toBe(200)
       const tb = after.payload.data
       expect(tb.totalDebits).toBe(tb.totalCredits)
@@ -232,6 +275,8 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
     it('issue #290: a real KSh 36,000 sale and a real KSh 27,500 purchase post in the same, correct order of magnitude', async () => {
       const localTenantId = `t-fin-unit-${randomUUID()}`
       await db.insert(tenants).values({ id: localTenantId, name: 'Unit Mismatch Regression Co.', active: true })
+      const localOwner = await createOwnerSession(localTenantId)
+      mockCookie = localOwner.token
       try {
         // A real cash sale of KSh 36,000 — sales.amountCents is minor units
         // KSh figure, so this posts as 36000 either way.
@@ -267,8 +312,7 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
         )
         expect(purchase.status).toBe(201)
 
-        const tb = (await readJson(await trialBalanceGET(getRequest(`http://localhost/api/gl/trial-balance?tenantId=${localTenantId}`))))
-          .payload.data
+        const tb = (await readJson(await trialBalanceGET())).payload.data
         expect(tb.balanced).toBe(true)
         const row = (code: string) => tb.rows.find((r: { code: string }) => r.code === code)
 
@@ -288,12 +332,13 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
         // Cash (fully-paid sale + fully-paid purchase): 36000 - 27500 = 8500.
         expect(row(ACCOUNT_CODES.CASH).balanceCents).toBe(850000)
       } finally {
-        await cleanupTenant(localTenantId)
+        await cleanupTenant(localTenantId, localOwner.userId)
       }
     })
 
     it('recording a real sale changes the trial balance correctly (before/after)', async () => {
-      const before = await readJson(await trialBalanceGET(getRequest(`http://localhost/api/gl/trial-balance?tenantId=${tenantId}`)))
+      mockCookie = ownerToken
+      const before = await readJson(await trialBalanceGET())
       const revenueBefore = before.payload.data.rows.find((r: { code: string }) => r.code === ACCOUNT_CODES.SALES_REVENUE).balanceCents
 
       const sale = await readJson(
@@ -301,7 +346,7 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
       )
       expect(sale.status).toBe(201)
 
-      const after = await readJson(await trialBalanceGET(getRequest(`http://localhost/api/gl/trial-balance?tenantId=${tenantId}`)))
+      const after = await readJson(await trialBalanceGET())
       const revenueAfter = after.payload.data.rows.find((r: { code: string }) => r.code === ACCOUNT_CODES.SALES_REVENUE).balanceCents
       expect(revenueAfter).toBe(revenueBefore + 2700000)
       expect(after.payload.data.balanced).toBe(true)

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { auditLog, users } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { desc, eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/audit-log (issue #244) ─────────────────────────────────────────
 // The missing read side of `audit_log` (issue #243 built the table + the two
@@ -29,7 +29,6 @@ import { desc, eq } from 'drizzle-orm'
 // cursor infra exists yet). Always ordered newest-first (`at desc`).
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
@@ -49,10 +48,10 @@ function parseOffset(raw: string | null): number {
 }
 
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const limit = parseLimit(url.searchParams.get('limit'))
   const offset = parseOffset(url.searchParams.get('offset'))

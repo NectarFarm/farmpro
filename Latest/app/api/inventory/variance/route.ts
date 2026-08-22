@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth'
 import { computeVariance } from '@/lib/inventory'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/inventory/variance (issue #235 task 4) ─────────────────────────
 // See lib/inventory.ts's header comment above computeVariance for the full
@@ -12,13 +12,11 @@ import { computeVariance } from '@/lib/inventory'
 // lib/inventory.ts's VARIANCE_STALENESS_DAYS.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
-export async function GET(req: Request) {
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+export async function GET() {
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
 
-  const rows = await computeVariance(tenantId)
+  const rows = await computeVariance(auth.tenantId)
   return ok(rows)
 }

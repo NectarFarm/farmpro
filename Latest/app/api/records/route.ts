@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { records, batches, employees } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/POST /api/records (issue #247 task 2) ───────────────────────────────
 // Generic worker-submission log — feeding / mortality / physical_count today
@@ -27,7 +27,6 @@ const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 
 const created = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 201 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 404 })
-const forbidden = () => NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
 
 const RECORD_TYPES = new Set(['feeding', 'mortality', 'physical_count'])
 
@@ -39,11 +38,11 @@ const RECORD_TYPES = new Set(['feeding', 'mortality', 'physical_count'])
 // has no farm_id of its own — same "don't denormalise a fact reachable
 // through an existing FK chain" reasoning as GET /api/batches's farmId.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
-  const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
+  const url = new URL(req.url)
   const batchId = url.searchParams.get('batchId')?.trim()
   const type = url.searchParams.get('type')?.trim()
   const employeeId = url.searchParams.get('employeeId')?.trim()
@@ -84,19 +83,21 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
   // Auditor is strictly read-only (vet/auditor screens task) — refused here
   // with a real 403 rather than relying on the UI simply not offering a
-  // write form. Only checked when a session is present so the pre-existing
-  // tenantId-from-body fallback for a session-less caller (a broader, known
-  // hole this task was told not to fix) is left exactly as it was.
-  if (session?.role === 'auditor') return forbidden()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  // write form. Session is required for every other role too (auth fix:
+  // fix/authenticate-all-apis) — this used to fall back to a body `tenantId`
+  // for a session-less caller.
+  const auth = await requireTenantSession({
+    roles: ['owner', 'manager', 'worker', 'vet', 'super_admin'],
+    explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined,
+  })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
   const batchId = typeof b.batchId === 'string' ? b.batchId.trim() : ''
   const employeeId = typeof b.employeeId === 'string' ? b.employeeId.trim() : ''
   const type = typeof b.type === 'string' ? b.type.trim() : ''
 
-  if (!tenantId) return badRequest('tenantId is required')
   if (!batchId) return badRequest('batchId is required')
   if (!employeeId) return badRequest('employeeId is required')
   if (!RECORD_TYPES.has(type)) {
