@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { inventoryItems, inventoryLots } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { computeItemStatus } from '@/lib/inventory'
 import { and, asc, eq } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/inventory/items (issue #235 task 3) ────────────────────────────
 // The merged stock-list endpoint: joins inventory_items with their
@@ -22,13 +22,12 @@ import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 // this is a stock LEVEL filter, not a catalogue filter.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
   if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })

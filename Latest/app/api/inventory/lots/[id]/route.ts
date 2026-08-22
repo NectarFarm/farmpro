@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
 import { inventoryLots, auditLog } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { and, eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── PATCH /api/inventory/lots/[id] (issue #235 task 5) ──────────────────────
 // Reason-required quantity adjustment. Every adjustment writes a real
@@ -15,23 +15,19 @@ import { and, eq } from 'drizzle-orm'
 // exactly the gap this endpoint exists to close (theft/waste/recording-error
 // visibility — see components/farm/inventory.tsx's Variance tab).
 //
-// Actor resolution follows the same convention as PATCH /api/tasks/[id]:
-// session user id wins; `actorId` in the body is the fallback (standalone
-// mock mode / no active session).
+// Actor is always the session user's id now (auth fix:
+// fix/authenticate-all-apis) — a session is required, so there is no
+// `actorId`-in-body fallback for a session-less caller any more.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = () => NextResponse.json({ success: false, error: 'Inventory lot not found' }, { status: 404 })
 
-function resolveTenantId(req: Request, sessionTenantId: string | null | undefined): string {
-  return sessionTenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim() ?? ''
-}
-
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
 
   let raw: unknown
   try {
@@ -49,8 +45,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const newQty = Math.max(0, Math.trunc(Number(b.qtyOnHand)))
 
-  const actor = session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : '')
-  if (!actor) return badRequest('actorId is required to record a quantity adjustment')
+  const actor = session.id
 
   const existingRows = await db
     .select()

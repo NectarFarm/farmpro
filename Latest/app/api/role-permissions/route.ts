@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { rolePermissions } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/PUT /api/role-permissions (issue #243 task 4) ───────────────────────
 // The real backend for the UI's `OWNER_ROLES[].permissions` / `.approvalRequired`
@@ -12,11 +13,13 @@ import { eq } from 'drizzle-orm'
 // (tenant, role, module) in the DB; GET regroups those rows back into the
 // per-role shape the UI already renders.
 //
-// GET is readable by any authenticated (or standalone-mock-mode `tenantId`)
-// caller — a manager needs to see the matrix even though only an owner can
-// change it. PUT is owner-only and requires a real session (no `tenantId`
-// fallback): granting/revoking edit access tenant-wide isn't something a
-// caller should be able to do just by naming a tenant id in a query string.
+// GET is readable by any authenticated session on the tenant — a manager
+// needs to see the matrix even though only an owner can change it. Tenant
+// comes from the session only now (auth fix: fix/authenticate-all-apis) —
+// this used to fall back to a `tenantId` query param for a session-less
+// caller. PUT is owner-only and requires a real session too: granting/
+// revoking edit access tenant-wide isn't something a caller should be able
+// to do just by naming a tenant id in a query string.
 //
 // PUT replaces the tenant's ENTIRE matrix in one transaction (delete + bulk
 // insert) rather than upserting row-by-row, so "set by one call, read back by
@@ -39,11 +42,10 @@ interface RoleMatrixEntry {
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const bad = (msg: string, status = 400) => NextResponse.json({ success: false, error: msg }, { status })
 
-export async function GET(req: Request) {
-  const session = await getSessionUser()
-  const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return bad('tenantId is required')
+export async function GET() {
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const rows = await db.select().from(rolePermissions).where(eq(rolePermissions.tenantId, tenantId))
 

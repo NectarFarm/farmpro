@@ -253,16 +253,23 @@ run('farms CRUD (farms/employees CRUD task)', () => {
 
   describe('GET /api/farms: archived exclusion + opt-in', () => {
     it('excludes archived farms by default', async () => {
-      const { status, payload } = await readJson(await farmsGET(getRequest(`http://localhost/api/farms?tenantId=${tenantAId}`)))
+      mockCookie = ownerASession
+      const { status, payload } = await readJson(await farmsGET(getRequest('http://localhost/api/farms')))
       expect(status).toBe(200)
       expect(payload.data.some((f: { id: string }) => f.id === farmArchivedId)).toBe(false)
       expect(payload.data.some((f: { id: string }) => f.id === farmA1Id)).toBe(true)
     })
 
     it('includes archived farms with includeArchived=true', async () => {
-      const { status, payload } = await readJson(await farmsGET(getRequest(`http://localhost/api/farms?tenantId=${tenantAId}&includeArchived=true`)))
+      mockCookie = ownerASession
+      const { status, payload } = await readJson(await farmsGET(getRequest('http://localhost/api/farms?includeArchived=true')))
       expect(status).toBe(200)
       expect(payload.data.some((f: { id: string }) => f.id === farmArchivedId)).toBe(true)
+    })
+
+    it('401s unauthenticated, and a query-string tenantId is never consulted', async () => {
+      const { status } = await readJson(await farmsGET(getRequest(`http://localhost/api/farms?tenantId=${tenantAId}`)))
+      expect(status).toBe(401)
     })
   })
 })

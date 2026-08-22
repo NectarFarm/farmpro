@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { purchases } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { recordPurchase } from '@/lib/inventory'
 import { and, desc, eq } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/POST /api/purchases (issue #235 task 2) ─────────────────────────────
 // Fresh build: no `purchases` table existed on this branch before this issue.
@@ -20,10 +20,10 @@ const badRequest = (msg: string) => NextResponse.json({ success: false, error: m
 // GET /api/purchases?tenantId=...&itemId=... — list a tenant's purchases
 // (newest first), optionally filtered to one item.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const itemId = url.searchParams.get('itemId')?.trim()
 
@@ -57,15 +57,15 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
   const supplier = typeof b.supplier === 'string' ? b.supplier.trim() : ''
   const itemName = typeof b.itemName === 'string' ? b.itemName.trim() : ''
   const unit = typeof b.unit === 'string' ? b.unit.trim() : ''
   const quantity = Number(b.quantity)
   const unitCostCents = Number(b.unitCostCents)
 
-  if (!tenantId) return badRequest('tenantId is required')
   if (!supplier) return badRequest('supplier is required')
   if (!itemName) return badRequest('itemName is required')
   if (!unit) return badRequest('unit is required')

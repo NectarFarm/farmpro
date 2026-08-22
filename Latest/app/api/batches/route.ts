@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { batches, productionUnits, farms } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, asc, eq, inArray, like } from 'drizzle-orm'
 import { batchPrefixFor, farmSegment, generateCode } from '@/lib/codes'
 import { farmNotFoundResponse, resolveFarmFilter, unitIdsForFarm } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
-// ── GET/POST /api/batches (issue #231) ──────────────────────────────────────
+// ── GET/POST /api/batches (issue #231; auth fix: fix/authenticate-all-apis) ─
 // Fresh build: no `batches` table, `costing.ts`, or `/api/batches/*` route
 // existed on this branch before this issue (see the issue's branch-correction
 // note). Field set mirrors components/farm/data.ts's `Batch` interface —
@@ -14,9 +14,9 @@ import { farmNotFoundResponse, resolveFarmFilter, unitIdsForFarm } from '@/lib/f
 // itself. See db/schemas/index.ts for the full table-shape rationale and
 // lib/codes.ts for the code-generation strategy.
 //
-// Same tenant-resolution + envelope conventions as GET /api/farms: session
-// tenant wins, `tenantId` query param is the standalone-mock-mode fallback.
-// No CORS headers — same-origin SPA only (matches the dashboard-epic routes).
+// Tenant comes from the session ONLY — see requireTenantSession
+// (lib/api-auth.ts). No CORS headers — same-origin SPA only (matches the
+// dashboard-epic routes).
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const created = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 201 })
@@ -38,10 +38,10 @@ function isUniqueViolation(err: unknown): boolean {
 // the unit's real farm if the batch were ever transferred without updating
 // both columns); `unitIdsForFarm` (lib/farm-scope.ts) resolves the join.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const unitId = url.searchParams.get('unitId')?.trim()
 
@@ -84,13 +84,13 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
   const unitId = typeof b.unitId === 'string' ? b.unitId.trim() : ''
   const name = typeof b.name === 'string' ? b.name.trim() : ''
   const enterprise = typeof b.enterprise === 'string' ? b.enterprise.trim() : ''
 
-  if (!tenantId) return badRequest('tenantId is required')
   if (!unitId) return badRequest('unitId is required')
   if (!name) return badRequest('name is required')
   if (!enterprise) return badRequest('enterprise is required')

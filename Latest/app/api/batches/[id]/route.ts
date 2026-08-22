@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { batches, productionUnits } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
-// ── GET/PATCH /api/batches/[id] (issue #231) ────────────────────────────────
+// ── GET/PATCH /api/batches/[id] (issue #231; auth fix: fix/authenticate-all-apis) ─
 // PATCH is the single update endpoint for a batch's mutable lifecycle fields
 // — this is deliberately where "advance stage" lives instead of a dedicated
 // `/api/batches/advance` endpoint (the issue explicitly leaves that choice to
@@ -16,25 +16,22 @@ import { and, eq } from 'drizzle-orm'
 // optionally alongside a `currentQty` change (e.g. after a mortality count).
 //
 // Tenant-scoped: an id only updates/reads when its tenantId matches the
-// caller's (session tenant, or the `tenantId` query param in standalone mock
-// mode) — otherwise 404, same as "not found", so this can't probe another
+// caller's session tenant — a super_admin session (tenantId === null) may
+// name one explicitly via `?tenantId=`, checked here rather than trusted
+// outright: a bad/foreign id still 404s, so this can't probe another
 // tenant's batch ids. Same conventions as GET/PATCH /api/notifications/[id].
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = () => NextResponse.json({ success: false, error: 'Batch not found' }, { status: 404 })
 
-function resolveTenantId(req: Request, sessionTenantId: string | null | undefined): string {
-  return sessionTenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim() ?? ''
-}
-
 // GET /api/batches/[id] — read a single batch back (used by BatchDetailScreen
 // and by the create->read round trip in tests).
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const rows = await db
     .select()
@@ -58,9 +55,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // bad/foreign unit id).
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   let raw: unknown
   try {

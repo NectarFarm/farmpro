@@ -113,12 +113,12 @@ run('GET /api/audit-log (issue #244)', () => {
     await db.delete(tenants).where(inArray(tenants.id, [tenantAId, tenantBId]))
   })
 
-  it('requires a tenantId when there is no session', async () => {
+  it('401s when there is no session (auth fix: fix/authenticate-all-apis)', async () => {
     mockCookie = undefined
     const { status, payload } = await readJson(
       await auditLogGET(new Request('http://localhost/api/audit-log'))
     )
-    expect(status).toBe(400)
+    expect(status).toBe(401)
     expect(payload.success).toBe(false)
   })
 
@@ -178,12 +178,22 @@ run('GET /api/audit-log (issue #244)', () => {
     expect(page1.data[0].id).not.toBe(page2.data[0].id)
   })
 
-  it('falls back to the tenantId query param in standalone mode', async () => {
+  it('does not fall back to a `tenantId` query param when there is no session (auth fix: fix/authenticate-all-apis)', async () => {
     mockCookie = undefined
     const { status, payload } = await readJson(
       await auditLogGET(new Request(`http://localhost/api/audit-log?tenantId=${tenantBId}`))
     )
+    expect(status).toBe(401)
+    expect(payload.success).toBe(false)
+  })
+
+  it('a query-string tenantId is inert even WITH a session — the caller\'s own tenant always wins', async () => {
+    mockCookie = ownerSessionToken
+    const { status, payload } = await readJson(
+      await auditLogGET(new Request(`http://localhost/api/audit-log?tenantId=${tenantBId}`))
+    )
     expect(status).toBe(200)
-    expect(payload.data.some((r: { action: string }) => r.action === 'test.action.other-tenant')).toBe(true)
+    expect(payload.data.every((r: { tenantId: string }) => r.tenantId === tenantAId)).toBe(true)
+    expect(payload.data.some((r: { action: string }) => r.action === 'test.action.other-tenant')).toBe(false)
   })
 })

@@ -122,7 +122,7 @@ run('money units end to end', () => {
   it('the trial balance reports the sale at its true magnitude, not 100x off', async () => {
     mockCookie = ownerToken
     const { payload } = await readJson(
-      await trialBalanceGET(new Request(`http://localhost/api/gl/trial-balance?tenantId=${tenantId}`)),
+      await trialBalanceGET(),
     )
     expect(payload.data.balanced).toBe(true)
     expect(payload.data.totalDebitsCents).toBe(payload.data.totalCreditsCents)

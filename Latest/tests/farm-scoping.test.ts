@@ -36,8 +36,16 @@ import { randomUUID } from 'node:crypto'
 import { inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
+
+// Auth fix (fix/authenticate-all-apis): every route this file exercises now
+// requires a real session and resolves tenant from it ONLY — the `tenantId`
+// query/body param below is kept on every call (harmless: it always names
+// the caller's OWN tenant here) but no longer does any work by itself. See
+// tests/role-screens.test.ts / tests/farm-scoping.test.ts's sibling files for
+// the same mockCookie pattern.
+let mockCookie: string | undefined
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
+  cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
 import { GET as batchesGET } from '@/app/api/batches/route'
@@ -53,8 +61,9 @@ import { GET as kpisGET } from '@/app/api/dashboard/kpis/route'
 import { db } from '@/db'
 import {
   tenants, farms, productionUnits, batches, sales, employees, approvalRequests, records,
-  tasks, purchases, inventoryItems, inventoryLots,
+  tasks, purchases, inventoryItems, inventoryLots, users, sessions,
 } from '@/db/schemas'
+import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -109,11 +118,23 @@ run('farm-scoped data (farm-scoped-data task)', () => {
   const allTenantIds = [tenantId, otherTenantId]
   const allFarmIds = [farmXId, farmYId, farmOtherId]
 
+  // Every route this file exercises now requires a real session — one owner
+  // on the primary tenant, authenticated for the whole suite (nothing here
+  // tests unauthenticated behaviour; that's covered elsewhere, e.g.
+  // tests/role-screens.test.ts).
+  const ownerId = randomUUID()
+
   beforeAll(async () => {
     await db.insert(tenants).values([
       { id: tenantId, name: 'Farm Scoping Test Co.', active: true },
       { id: otherTenantId, name: 'Farm Scoping Test Co. (other tenant)', active: true },
     ])
+    const salt = randomUUID()
+    await db.insert(users).values({
+      id: ownerId, tenantId, name: 'Farm Scoping Owner', email: `owner-fscope-${randomUUID()}@test.ifms`,
+      role: 'owner', passwordHash: hashSecret('pw', salt), passwordSalt: salt, status: 'ACTIVE',
+    })
+    mockCookie = await createSession(ownerId)
     await db.insert(farms).values([
       { id: farmXId, tenantId, name: 'Farm X', location: 'Nakuru', code: 'FRM-X' },
       { id: farmYId, tenantId, name: 'Farm Y', location: 'Eldoret', code: 'FRM-Y' },
@@ -161,6 +182,9 @@ run('farm-scoped data (farm-scoped-data task)', () => {
   })
 
   afterAll(async () => {
+    mockCookie = undefined
+    await db.delete(sessions).where(inArray(sessions.userId, [ownerId]))
+    await db.delete(users).where(inArray(users.id, [ownerId]))
     await db.delete(records).where(inArray(records.id, [recordXId, recordYId]))
     await db.delete(approvalRequests).where(inArray(approvalRequests.id, [approvalXId, approvalYId, approvalTenantId]))
     // tasks/purchases/inventory rows created via the real POST routes below

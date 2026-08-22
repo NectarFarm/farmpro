@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { batches, sales } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/batches/[id]/cost-breakdown (issue #231 task 4) ───────────────
 // Deliberately NOT a fabricated feed/labour/overhead split. The UI's own mock
@@ -29,14 +29,13 @@ import { and, eq } from 'drizzle-orm'
 // `revenue`/`grossMarginPct` fields added below this categories block.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = () => NextResponse.json({ success: false, error: 'Batch not found' }, { status: 404 })
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const rows = await db
     .select()

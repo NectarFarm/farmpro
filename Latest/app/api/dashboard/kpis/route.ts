@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { tasks, notifications, products, batches, sales, approvalRequests } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { syncTaskNotifications, DONE_STATUSES } from '@/app/api/notifications/route'
 import { enterpriseTypeFor } from '@/lib/codes'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/dashboard/kpis (issue #228, revisited #292, #296) ──────────────
 // Built in #228 before `batches` (#231/#232), `sales` (#239) and
@@ -222,7 +222,6 @@ import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/
 // fallback.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
 type Period = 'month' | 'quarter' | 'year'
 const VALID_PERIODS: readonly Period[] = ['month', 'quarter', 'year']
@@ -257,11 +256,11 @@ function dayKey(d: Date): string {
 const TENANT_WIDE_METRICS = ['unreadNotifications', 'productCount', 'avgFCR'] as const
 
 export async function GET(req: Request) {
-  const session = await getSessionUser()
-  const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
+  const url = new URL(req.url)
   const period = resolvePeriod(url.searchParams.get('period'))
 
   const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
