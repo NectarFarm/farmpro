@@ -4,17 +4,18 @@
 // suite skips there (vitest exits 0, and CI's build/typecheck still run) —
 // same pattern as tests/auth.test.ts.
 //
-// No session cookie is set in any of these tests, so getSessionUser()
-// resolves to null and every route falls back to its `tenantId` query param
-// (the same standalone-mock-mode fallback GET /api/farms already uses) — that
-// keeps these tests independent of the auth suite's seed data.
+// current-prices and tasks now require a real session too (auth fix:
+// fix/authenticate-all-apis) — tenant comes from `session.tenantId` only,
+// with no `tenantId` query-param fallback for either route. They authenticate
+// as ownerA the same way the notifications describe block below already did.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
+let mockCookie: string | undefined
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
+  cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
 import { GET as currentPricesGET } from '@/app/api/products/current-prices/route'
@@ -22,7 +23,8 @@ import { GET as tasksGET } from '@/app/api/tasks/route'
 import { GET as notificationsGET } from '@/app/api/notifications/route'
 import { PATCH as notificationPATCH } from '@/app/api/notifications/[id]/route'
 import { db } from '@/db'
-import { tenants, products, tasks, notifications } from '@/db/schemas'
+import { tenants, products, tasks, notifications, notificationReads, users, sessions } from '@/db/schemas'
+import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -42,18 +44,36 @@ function patchRequest(url: string, body?: unknown): Request {
 run('dashboard: current-prices, due-today tasks, notifications (issue #227)', () => {
   const tenantAId = `t-${randomUUID()}`
   const tenantBId = `t-${randomUUID()}`
+  const ownerAId = `u-owner-a-${randomUUID()}`
+  const ownerBId = `u-owner-b-${randomUUID()}`
+  let ownerASessionToken: string
+  let ownerBSessionToken: string
+  const salt = 'dashboard-test-salt'
 
   beforeAll(async () => {
     await db.insert(tenants).values([
       { id: tenantAId, name: 'Dashboard Test Co. A', active: true },
       { id: tenantBId, name: 'Dashboard Test Co. B', active: true },
     ])
+    await db.insert(users).values([
+      { id: ownerAId, tenantId: tenantAId, name: 'Dashboard Owner A', email: `dash-owner-a-${randomUUID()}@test.ifms`, role: 'owner', passwordHash: hashSecret('pw', salt), passwordSalt: salt, status: 'ACTIVE' },
+      { id: ownerBId, tenantId: tenantBId, name: 'Dashboard Owner B', email: `dash-owner-b-${randomUUID()}@test.ifms`, role: 'owner', passwordHash: hashSecret('pw', salt), passwordSalt: salt, status: 'ACTIVE' },
+    ])
+    ownerASessionToken = await createSession(ownerAId)
+    ownerBSessionToken = await createSession(ownerBId)
   })
 
   afterAll(async () => {
+    mockCookie = undefined
+    // Cleans up by the same owner ids that ever marked anything read in this
+    // suite, rather than a subquery on notification ids scoped inside `it`
+    // blocks the afterAll here has no closure over.
+    await db.delete(notificationReads).where(inArray(notificationReads.userId, [ownerAId, ownerBId]))
     await db.delete(notifications).where(inArray(notifications.tenantId, [tenantAId, tenantBId]))
     await db.delete(tasks).where(inArray(tasks.tenantId, [tenantAId, tenantBId]))
     await db.delete(products).where(inArray(products.tenantId, [tenantAId, tenantBId]))
+    await db.delete(sessions).where(inArray(sessions.userId, [ownerAId, ownerBId]))
+    await db.delete(users).where(inArray(users.id, [ownerAId, ownerBId]))
     await db.delete(tenants).where(inArray(tenants.id, [tenantAId, tenantBId]))
   })
 
@@ -66,7 +86,8 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
         { id: randomUUID(), tenantId: tenantBId, type: 'eggs', name: 'Eggs (tray)', saleUnits: '999' },
       ])
 
-      const res = await currentPricesGET(getRequest(`http://localhost/api/products/current-prices?tenantId=${tenantAId}`))
+      mockCookie = ownerASessionToken
+      const res = await currentPricesGET()
       expect(res.status).toBe(200)
       const payload = await res.json()
       expect(payload.success).toBe(true)
@@ -76,9 +97,10 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
       expect(byType.milk).toBe(60)
     })
 
-    it('requires a tenantId', async () => {
-      const res = await currentPricesGET(getRequest('http://localhost/api/products/current-prices'))
-      expect(res.status).toBe(400)
+    it('401s with no session', async () => {
+      mockCookie = undefined
+      const res = await currentPricesGET()
+      expect(res.status).toBe(401)
     })
   })
 
@@ -99,7 +121,8 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
         { id: randomUUID(), tenantId: tenantBId, title: 'Other tenant, due today', dueAt: todayNoon, status: 'PENDING' },
       ])
 
-      const res = await tasksGET(getRequest(`http://localhost/api/tasks?tenantId=${tenantAId}&due=today`))
+      mockCookie = ownerASessionToken
+      const res = await tasksGET(getRequest('http://localhost/api/tasks?due=today'))
       expect(res.status).toBe(200)
       const payload = await res.json()
       expect(payload.success).toBe(true)
@@ -110,7 +133,7 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
   })
 
   describe('GET /api/notifications + PATCH /api/notifications/[id]', () => {
-    it('aggregates an overdue task into a notification, and marking it read persists', async () => {
+    it('aggregates an overdue task into a notification, and marking it read persists (per-user, not the legacy shared column)', async () => {
       const overdueTaskId = randomUUID()
       const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
       await db.insert(tasks).values({
@@ -121,7 +144,8 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
         status: 'PENDING',
       })
 
-      const listRes = await notificationsGET(getRequest(`http://localhost/api/notifications?tenantId=${tenantAId}`))
+      mockCookie = ownerASessionToken
+      const listRes = await notificationsGET()
       expect(listRes.status).toBe(200)
       const listPayload = await listRes.json()
       expect(listPayload.success).toBe(true)
@@ -131,13 +155,13 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
       expect(String(forTask.title).toLowerCase()).toContain('overdue')
 
       // Re-fetching must not duplicate the synced notification (idempotent sync).
-      const listRes2 = await notificationsGET(getRequest(`http://localhost/api/notifications?tenantId=${tenantAId}`))
+      const listRes2 = await notificationsGET()
       const listPayload2 = await listRes2.json()
       const matches = listPayload2.data.filter((n: { sourceId: string | null }) => n.sourceId === overdueTaskId)
       expect(matches).toHaveLength(1)
 
       const patchRes = await notificationPATCH(
-        patchRequest(`http://localhost/api/notifications/${forTask.id}?tenantId=${tenantAId}`, { read: true }),
+        patchRequest(`http://localhost/api/notifications/${forTask.id}`, { read: true }),
         { params: Promise.resolve({ id: forTask.id }) }
       )
       expect(patchRes.status).toBe(200)
@@ -145,9 +169,19 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
       expect(patchPayload.success).toBe(true)
       expect(patchPayload.data.read).toBe(true)
 
-      // Persistence check: read straight from the DB, not just the handler's response.
-      const rows = await db.select().from(notifications).where(inArray(notifications.id, [forTask.id]))
-      expect(rows[0]?.read).toBe(true)
+      // Persistence check: a notification_reads row for THIS user, not the
+      // legacy shared `notifications.read` column (which this fix stops
+      // relying on for what any caller sees).
+      const readRows = await db.select().from(notificationReads).where(
+        and(eq(notificationReads.notificationId, forTask.id), eq(notificationReads.userId, ownerAId))
+      )
+      expect(readRows).toHaveLength(1)
+
+      // Re-fetching for the same user now shows it read.
+      const listRes3 = await notificationsGET()
+      const listPayload3 = await listRes3.json()
+      const forTaskAgain = listPayload3.data.find((n: { id: string }) => n.id === forTask.id)
+      expect(forTaskAgain.read).toBe(true)
     })
 
     it('rejects marking a notification read for the wrong tenant (404, not a cross-tenant write)', async () => {
@@ -159,16 +193,27 @@ run('dashboard: current-prices, due-today tasks, notifications (issue #227)', ()
         dueAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
         status: 'PENDING',
       })
-      await notificationsGET(getRequest(`http://localhost/api/notifications?tenantId=${tenantBId}`))
+      mockCookie = ownerBSessionToken
+      await notificationsGET()
       const rows = await db.select().from(notifications).where(inArray(notifications.tenantId, [tenantBId]))
       const target = rows.find((n) => n.sourceId === overdueTaskId)
       expect(target).toBeTruthy()
 
+      // Tenant A's owner has no session tie to tenant B's notification.
+      mockCookie = ownerASessionToken
       const res = await notificationPATCH(
-        patchRequest(`http://localhost/api/notifications/${target!.id}?tenantId=${tenantAId}`, { read: true }),
+        patchRequest(`http://localhost/api/notifications/${target!.id}`, { read: true }),
         { params: Promise.resolve({ id: target!.id }) }
       )
       expect(res.status).toBe(404)
+    })
+
+    it('requires a session (unauthenticated GET is refused, not a tenant-wide read)', async () => {
+      mockCookie = undefined
+      const res = await notificationsGET()
+      expect(res.status).toBe(401)
+      const payload = await res.json()
+      expect(payload.success).toBe(false)
     })
   })
 })

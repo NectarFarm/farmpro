@@ -6,13 +6,22 @@
 // Covers the issue's Definition of Done: each of the 4 real report types
 // (P&L, Batch P&L, Mortality, Feed Consumption) returns real data for a
 // seeded tenant, correctly filtered by `from`/`to` date range.
+//
+// Vet/auditor screens task: these 4 routes gained a role gate + session-only
+// tenant resolution (see lib/reports.ts's REPORT_VIEWER_ROLES and each
+// route's header) — every read below now goes through a real owner session
+// instead of the old session-less `?tenantId=` fallback. tests/role-screens.test.ts
+// covers the new 401/403 behaviour (unauthenticated, auditor, cross-tenant);
+// this file keeps its original focus on report content correctness.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { inArray, eq } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
+
+let mockCookie: string | undefined
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
+  cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
 import { GET as plGET } from '@/app/api/reports/pl/route'
@@ -25,6 +34,8 @@ import { POST as recordsPOST } from '@/app/api/records/route'
 import { db } from '@/db'
 import {
   tenants,
+  users,
+  sessions,
   farms,
   productionUnits,
   batches,
@@ -37,6 +48,7 @@ import {
   inventoryItems,
   inventoryLots,
 } from '@/db/schemas'
+import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -64,6 +76,9 @@ run('reports: P&L, Batch P&L, Mortality, Feed Consumption (issue #263)', () => {
   const batchAId = `b-rep-${randomUUID()}`
   const batchBId = `b-rep-${randomUUID()}`
   const employeeId = `e-rep-${randomUUID()}`
+  const ownerId = randomUUID()
+  const ownerEmail = `reports-owner-${randomUUID()}@test.ifms`
+  let ownerSessionToken: string
 
   // Two dates: one inside the query window, one outside it.
   const inRange = new Date('2026-08-10T10:00:00Z')
@@ -71,6 +86,16 @@ run('reports: P&L, Batch P&L, Mortality, Feed Consumption (issue #263)', () => {
 
   beforeAll(async () => {
     await db.insert(tenants).values({ id: tenantId, name: 'Reports Test Co.', active: true })
+    const ownerSalt = `salt-${randomUUID()}`
+    await db.insert(users).values({
+      id: ownerId, tenantId, name: 'Reports Owner', email: ownerEmail,
+      role: 'owner', passwordHash: hashSecret('irrelevant', ownerSalt), passwordSalt: ownerSalt, status: 'ACTIVE',
+    })
+    ownerSessionToken = await createSession(ownerId)
+    // Every report read below authenticates as this tenant's owner — the
+    // routes are now session-only for tenant resolution (see each route's
+    // header comment) and role-gated (lib/reports.ts's REPORT_VIEWER_ROLES).
+    mockCookie = ownerSessionToken
     await db.insert(farms).values({ id: farmId, tenantId, name: 'Farm R', location: 'Kiambu', code: 'FRM-KMB-001' })
     await db.insert(productionUnits).values({ id: unitId, tenantId, farmId, type: 'house', name: 'House R01', code: 'HSE-KMB-R01' })
     await db.insert(batches).values([
@@ -82,12 +107,12 @@ run('reports: P&L, Batch P&L, Mortality, Feed Consumption (issue #263)', () => {
     // Sales: one paid sale in range (attached to batch A), one out of range.
     await salesPOST(
       postRequest('http://localhost/api/data/sales', {
-        tenantId, batchId: batchAId, item: 'Broilers x 50 birds', amount: 80000, status: 'paid', soldAt: inRange.toISOString(),
+        tenantId, batchId: batchAId, item: 'Broilers x 50 birds', amountCents: 8000000, status: 'paid', soldAt: inRange.toISOString(),
       })
     )
     await salesPOST(
       postRequest('http://localhost/api/data/sales', {
-        tenantId, batchId: batchAId, item: 'Broilers x 20 birds (old)', amount: 30000, status: 'paid', soldAt: outOfRange.toISOString(),
+        tenantId, batchId: batchAId, item: 'Broilers x 20 birds (old)', amountCents: 3000000, status: 'paid', soldAt: outOfRange.toISOString(),
       })
     )
 
@@ -105,12 +130,9 @@ run('reports: P&L, Batch P&L, Mortality, Feed Consumption (issue #263)', () => {
     // "in range" relative to a wide from/to window used for the date-filter
     // assertions below; the narrow-window assertions use a from/to that
     // brackets "now".
-    // count=4 is >= the default mortalityPhotoThreshold (3) — the record must
-    // carry a photoUrl since the route now enforces the photo gate server-side.
     await recordsPOST(
       postRequest('http://localhost/api/records', {
         tenantId, batchId: batchAId, employeeId, type: 'mortality', data: { count: 4, cause: 'Heat stress' },
-        photoUrl: 'https://example.com/mortality-evidence.jpg',
       })
     )
     await recordsPOST(
@@ -139,17 +161,23 @@ run('reports: P&L, Batch P&L, Mortality, Feed Consumption (issue #263)', () => {
     await db.delete(batches).where(eq(batches.tenantId, tenantId))
     await db.delete(productionUnits).where(eq(productionUnits.tenantId, tenantId))
     await db.delete(farms).where(eq(farms.tenantId, tenantId))
+    await db.delete(sessions).where(eq(sessions.userId, ownerId))
+    await db.delete(users).where(eq(users.id, ownerId))
     await db.delete(tenants).where(eq(tenants.id, tenantId))
+    mockCookie = undefined
   })
 
   describe('GET /api/reports/pl', () => {
-    it('400s without tenantId', async () => {
+    it('401s unauthenticated (tenant now comes from the session only)', async () => {
+      const saved = mockCookie
+      mockCookie = undefined
       const res = await plGET(getRequest('http://localhost/api/reports/pl'))
-      expect(res.status).toBe(400)
+      mockCookie = saved
+      expect(res.status).toBe(401)
     })
 
     it('400s on an invalid date', async () => {
-      const res = await plGET(getRequest(`http://localhost/api/reports/pl?tenantId=${tenantId}&from=not-a-date`))
+      const res = await plGET(getRequest('http://localhost/api/reports/pl?from=not-a-date'))
       expect(res.status).toBe(400)
     })
 

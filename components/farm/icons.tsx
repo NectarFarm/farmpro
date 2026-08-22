@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import {
   Home, Leaf, Package, CloudSun, DollarSign, CheckSquare,
   Users, Shield, BarChart3, Settings, Bell, Search, Plus,
@@ -23,14 +23,24 @@ import {
   ShieldCheck, ShieldAlert, ShieldOff,
   SlidersHorizontal, ToggleLeft, ToggleRight,
   Maximize2, Minimize2, ExternalLink,
-  Moon, Play,
+  Moon,
   // New icons for AI chat, onboarding, customise
   MessageSquare, MessageCircle,
   Send, Bot,
   UserRound as UserSingle,
   Phone, Mail, Palette,
   Sparkles,
-} from "lucide-react";
+  Archive, RotateCcw,
+  Cloud, CloudFog, CloudLightning, Snowflake,
+  // Enterprise / product icons (replace ENTERPRISE_REGISTRY & product emoji)
+  Bird, Egg, Milk, Ham, Rabbit, Carrot, Salad, PawPrint, Drumstick,
+  // Role icons (replace role-picker emoji)
+  Crown, Briefcase, HardHat, Stethoscope,
+  // Status / severity / misc chrome (replace remaining emoji glyphs)
+  Ban, ThumbsUp, ThumbsDown, Hourglass, FolderOpen,
+  Contrast, Sunrise, Play, FileImage, PenLine, Hash, Lightbulb, Skull,
+} from 'lucide-react';
+export type { LucideIcon } from 'lucide-react';
 
 export {
   Home, Leaf, Package, CloudSun, DollarSign, CheckSquare,
@@ -56,10 +66,16 @@ export {
   ShieldCheck, ShieldAlert, ShieldOff,
   SlidersHorizontal, ToggleLeft, ToggleRight,
   Maximize2, Minimize2, ExternalLink,
-  Moon, Play,
+  Moon,
   MessageSquare, MessageCircle,
   Send, Bot,
   UserSingle,
   Phone, Mail, Palette,
   Sparkles,
+  Archive, RotateCcw,
+  Cloud, CloudFog, CloudLightning, Snowflake,
+  Bird, Egg, Milk, Ham, Rabbit, Carrot, Salad, PawPrint, Drumstick,
+  Crown, Briefcase, HardHat, Stethoscope,
+  Ban, ThumbsUp, ThumbsDown, Hourglass, FolderOpen,
+  Contrast, Sunrise, Play, FileImage, PenLine, Hash, Lightbulb, Skull,
 };

@@ -1,6 +1,12 @@
-"use client";
-import React, { useState, useEffect, useCallback } from "react";
-import { Clock, ChevronDown, ChevronUp } from "./icons";
+'use client';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Clock, ChevronDown, ChevronUp, Plus, Play, Ban, HelpCircle, ClipboardCheck,
+  Unlock, PenLine, CheckCircle2, ThumbsUp, ThumbsDown, Package, Sprout, UserSingle,
+  FileText, type LucideIcon,
+} from './icons';
+import { useRegional } from './settings';
+import { formatDateTime, type DateFormat } from '@/lib/datetime';
 
 // ── StatusTimeline ──────────────────────────────────────────────────────────
 // Shared component that shows the latest N audit-log entries for any entity
@@ -20,53 +26,56 @@ export type AuditEntry = {
 };
 
 const ACTION_LABELS: Record<string, string> = {
-  "task.created": "Created",
-  "task.started": "Started work",
-  "task.blocked": "Blocked",
-  "task.clarification_requested": "Requested clarification",
-  "task.completion_requested": "Submitted for approval",
-  "task.reopened": "Reopened",
-  "task.updated": "Updated",
-  "task.completed": "Completed",
-  "approval.approved": "Approved",
-  "approval.rejected": "Rejected",
-  "inventory.adjust": "Quantity adjusted",
-  "batch.created": "Batch created",
-  "batch.updated": "Batch updated",
-  "employee.created": "Employee added",
-  "employee.updated": "Employee updated",
+  'task.created': 'Created',
+  'task.started': 'Started work',
+  'task.blocked': 'Blocked',
+  'task.clarification_requested': 'Requested clarification',
+  'task.completion_requested': 'Submitted for approval',
+  'task.reopened': 'Reopened',
+  'task.updated': 'Updated',
+  'task.completed': 'Completed',
+  'approval.approved': 'Approved',
+  'approval.rejected': 'Rejected',
+  'inventory.adjust': 'Quantity adjusted',
+  'batch.created': 'Batch created',
+  'batch.updated': 'Batch updated',
+  'employee.created': 'Employee added',
+  'employee.updated': 'Employee updated',
 };
 
-const ACTION_ICONS: Record<string, string> = {
-  "task.created": "➕",
-  "task.started": "▶️",
-  "task.blocked": "🚫",
-  "task.clarification_requested": "❓",
-  "task.completion_requested": "✅",
-  "task.reopened": "🔓",
-  "task.updated": "✏️",
-  "task.completed": "✔️",
-  "approval.approved": "👍",
-  "approval.rejected": "👎",
-  "inventory.adjust": "📦",
-  "batch.created": "🌱",
-  "batch.updated": "🌱",
-  "employee.created": "👤",
-  "employee.updated": "👤",
+const ACTION_ICONS: Record<string, LucideIcon> = {
+  'task.created': Plus,
+  'task.started': Play,
+  'task.blocked': Ban,
+  'task.clarification_requested': HelpCircle,
+  'task.completion_requested': ClipboardCheck,
+  'task.reopened': Unlock,
+  'task.updated': PenLine,
+  'task.completed': CheckCircle2,
+  'approval.approved': ThumbsUp,
+  'approval.rejected': ThumbsDown,
+  'inventory.adjust': Package,
+  'batch.created': Sprout,
+  'batch.updated': Sprout,
+  'employee.created': UserSingle,
+  'employee.updated': UserSingle,
 };
 
-function formatTime(iso: string): string {
+// Recent entries (<24h) stay relative ("3h ago") regardless of settings —
+// that part isn't timezone/format-sensitive. Anything older falls back to an
+// absolute timestamp rendered in the TENANT's own timezone/date-format
+// (settings-reorg — tenant_settings.timezone/dateFormat, via useRegional()
+// below) instead of the hardcoded 'en-KE' locale this used before.
+function formatTime(iso: string, regional: { timezone: string; dateFormat: DateFormat }): string {
   const d = new Date(iso);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "Just now";
+  if (diffMin < 1) return 'Just now';
   if (diffMin < 60) return `${diffMin}m ago`;
   const diffH = Math.floor(diffMin / 60);
   if (diffH < 24) return `${diffH}h ago`;
-  const day = d.toLocaleDateString("en-KE", { weekday: "short", day: "numeric", month: "short" });
-  const time = d.toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `${day} ${time}`;
+  return formatDateTime(d, regional);
 }
 
 export function StatusTimeline({
@@ -82,6 +91,7 @@ export function StatusTimeline({
   limit?: number;
   className?: string;
 }) {
+  const regional = useRegional();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -108,47 +118,49 @@ export function StatusTimeline({
 
   if (loading && entries.length === 0) {
     return (
-      <div className={className} style={{ padding: "10px 0", fontSize: 11, color: "var(--text-dim)" }}>
+      <div className={className} style={{ padding: '10px 0', fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>
         Loading timeline…
       </div>
     );
   }
 
   if (entries.length === 0) {
-    return null;
+    return null; // Don't show empty timelines
   }
 
   return (
     <div className={className}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
+      <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
         <Clock size={11} color="var(--text-dim)" />
         Status History
       </div>
-      <div style={{ position: "relative", paddingLeft: 16 }}>
-        <div style={{ position: "absolute", left: 5, top: 4, bottom: 4, width: 2, background: "var(--border-subtle)", borderRadius: 1 }} />
+      <div style={{ position: 'relative', paddingLeft: 16 }}>
+        {/* Vertical line */}
+        <div style={{ position: 'absolute', left: 5, top: 4, bottom: 4, width: 2, background: 'var(--border-subtle)', borderRadius: 1 }} />
         {displayed.map((entry, i) => {
-          const label = ACTION_LABELS[entry.action] ?? entry.action.replace(/[._]/g, " ");
-          const icon = ACTION_ICONS[entry.action] ?? "📝";
-          const actorName = entry.actorName ?? entry.actorEmail ?? "System";
-          const metaReason = entry.meta && typeof entry.meta === "object" && "reason" in entry.meta
+          const label = ACTION_LABELS[entry.action] ?? entry.action.replace(/[._]/g, ' ');
+          const ActionIcon = ACTION_ICONS[entry.action] ?? FileText;
+          const actorName = entry.actorName ?? entry.actorEmail ?? 'System';
+          const metaReason = entry.meta && typeof entry.meta === 'object' && 'reason' in entry.meta
             ? String((entry.meta as Record<string, unknown>).reason)
             : null;
 
           return (
-            <div key={entry.id} style={{ position: "relative", paddingBottom: i < displayed.length - 1 ? 12 : 0 }}>
-              <div style={{ position: "absolute", left: -14, top: 3, width: 8, height: 8, borderRadius: "50%", background: entry.action.includes("rejected") || entry.action.includes("blocked") ? "var(--status-critical)" : entry.action.includes("approved") || entry.action.includes("completed") ? "var(--primary-green)" : "var(--accent-blue)", border: "2px solid var(--surface)" }} />
+            <div key={entry.id} style={{ position: 'relative', paddingBottom: i < displayed.length - 1 ? 12 : 0 }}>
+              {/* Dot on the timeline */}
+              <div style={{ position: 'absolute', left: -14, top: 3, width: 8, height: 8, borderRadius: '50%', background: entry.action.includes('rejected') || entry.action.includes('blocked') ? 'var(--status-critical)' : entry.action.includes('approved') || entry.action.includes('completed') ? 'var(--primary-green)' : 'var(--accent-blue)', border: '2px solid var(--surface)' }} />
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11 }}>{icon}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)" }}>{label}</span>
-                  <span style={{ fontSize: 10, color: "var(--text-dim)" }}>by {actorName}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                  <ActionIcon size={12} color="var(--text-dim)" aria-hidden="true" />
+                  <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+                  <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>by {actorName}</span>
                   {entry.actorRole && (
-                    <span style={{ fontSize: 9, color: "var(--text-dim)", textTransform: "capitalize", background: "var(--card)", padding: "1px 5px", borderRadius: 4 }}>{entry.actorRole}</span>
+                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'capitalize', background: 'var(--card)', padding: '1px 5px', borderRadius: 4 }}>{entry.actorRole}</span>
                   )}
                 </div>
-                <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 1 }}>{formatTime(entry.at)}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 1 }}>{formatTime(entry.at, regional)}</div>
                 {metaReason && (
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, fontStyle: "italic" }}>"{metaReason}"</div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 2, fontStyle: 'italic' }}>"{metaReason}"</div>
                 )}
               </div>
             </div>
@@ -158,7 +170,7 @@ export function StatusTimeline({
       {hasMore && !showAll && (
         <button
           onClick={() => setShowAll(true)}
-          style={{ marginTop: 8, fontSize: 11, color: "var(--accent-blue)", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontWeight: 600, padding: 0 }}
+          style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--accent-blue)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, padding: 0 }}
         >
           <ChevronDown size={12} /> More ({entries.length - limit} more)
         </button>
@@ -166,7 +178,7 @@ export function StatusTimeline({
       {showAll && hasMore && (
         <button
           onClick={() => setShowAll(false)}
-          style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontWeight: 600, padding: 0 }}
+          style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, padding: 0 }}
         >
           <ChevronUp size={12} /> Show less
         </button>

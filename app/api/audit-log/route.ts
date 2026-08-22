@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { auditLog, users } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
-import { and, desc, eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/audit-log (issue #244) ─────────────────────────────────────────
 // The missing read side of `audit_log` (issue #243 built the table + the two
@@ -27,15 +27,8 @@ import { and, desc, eq } from 'drizzle-orm'
 // Pagination: `limit` (default 50, capped at 200) + `offset` (default 0),
 // same minimal offset-pagination shape as this branch uses elsewhere (no
 // cursor infra exists yet). Always ordered newest-first (`at desc`).
-//
-// Timeline filter: optional `entity` + `entityId` query params narrow the log
-// to one record's own history (e.g. entity=task&entityId=<id>) — that's what
-// the per-record Status Timeline components fetch. Both must be provided
-// together; the tenant scope still applies on top, so a caller can't read
-// another tenant's entries by guessing an id.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
@@ -55,24 +48,13 @@ function parseOffset(raw: string | null): number {
 }
 
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const limit = parseLimit(url.searchParams.get('limit'))
   const offset = parseOffset(url.searchParams.get('offset'))
-
-  const entity = url.searchParams.get('entity')?.trim()
-  const entityId = url.searchParams.get('entityId')?.trim()
-  if ((entity && !entityId) || (!entity && entityId)) {
-    return badRequest('entity and entityId must be provided together')
-  }
-
-  const conditions = [eq(auditLog.tenantId, tenantId)]
-  if (entity && entityId) {
-    conditions.push(eq(auditLog.entity, entity), eq(auditLog.entityId, entityId))
-  }
 
   const rows = await db
     .select({
@@ -90,7 +72,7 @@ export async function GET(req: Request) {
     })
     .from(auditLog)
     .leftJoin(users, eq(users.id, auditLog.actor))
-    .where(and(...conditions))
+    .where(eq(auditLog.tenantId, tenantId))
     .orderBy(desc(auditLog.at), desc(auditLog.id))
     .limit(limit)
     .offset(offset)

@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
-import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { batches, productionUnits, farms, auditLog } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
-import { and, asc, eq, like } from 'drizzle-orm'
+import { batches, productionUnits, farms } from '@/db/schemas'
+import { and, asc, eq, inArray, like } from 'drizzle-orm'
 import { batchPrefixFor, farmSegment, generateCode } from '@/lib/codes'
+import { farmNotFoundResponse, resolveFarmFilter, unitIdsForFarm } from '@/lib/farm-scope'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 
-// ── GET/POST /api/batches (issue #231) ──────────────────────────────────────
+// ── GET/POST /api/batches (issue #231; auth fix: fix/authenticate-all-apis) ─
 // Fresh build: no `batches` table, `costing.ts`, or `/api/batches/*` route
 // existed on this branch before this issue (see the issue's branch-correction
 // note). Field set mirrors components/farm/data.ts's `Batch` interface —
@@ -15,9 +15,9 @@ import { canEdit, MODULES } from '@/lib/permissions'
 // itself. See db/schemas/index.ts for the full table-shape rationale and
 // lib/codes.ts for the code-generation strategy.
 //
-// Same tenant-resolution + envelope conventions as GET /api/farms: session
-// tenant wins, `tenantId` query param is the standalone-mock-mode fallback.
-// No CORS headers — same-origin SPA only (matches the dashboard-epic routes).
+// Tenant comes from the session ONLY — see requireTenantSession
+// (lib/api-auth.ts). No CORS headers — same-origin SPA only (matches the
+// dashboard-epic routes).
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const created = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 201 })
@@ -28,17 +28,36 @@ function isUniqueViolation(err: unknown): boolean {
   return !!err && typeof err === 'object' && (err as { code?: string }).code === '23505'
 }
 
-// GET /api/batches?tenantId=...&unitId=... — list a tenant's batches (oldest
-// first), optionally filtered to one production unit.
+// GET /api/batches?tenantId=...&unitId=...&farmId=... — list a tenant's
+// batches (oldest first), optionally filtered to one production unit and/or
+// one farm.
+//
+// `farmId` is a JOIN filter (farm-scoped-data task): `batches` has no
+// farm_id column of its own — see db/schemas/index.ts — a batch's farm is
+// reached one hop through `unitId -> production_units.farmId`. Deliberately
+// NOT denormalised onto `batches` (a redundant farm_id here could drift from
+// the unit's real farm if the batch were ever transferred without updating
+// both columns); `unitIdsForFarm` (lib/farm-scope.ts) resolves the join.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const unitId = url.searchParams.get('unitId')?.trim()
+
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   const conditions = [eq(batches.tenantId, tenantId)]
   if (unitId) conditions.push(eq(batches.unitId, unitId))
+  if (farmFilter) {
+    const unitIds = await unitIdsForFarm(tenantId, farmFilter)
+    // No units at all under this farm -> no batches can match; short-circuit
+    // rather than pass an empty array to inArray (invalid/ambiguous SQL).
+    if (unitIds.length === 0) return ok([])
+    conditions.push(inArray(batches.unitId, unitIds))
+  }
 
   const rows = await db
     .select()
@@ -66,22 +85,21 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.batches))) {
+    return forbidden('Your role does not have edit access to batches')
+  }
+
   const unitId = typeof b.unitId === 'string' ? b.unitId.trim() : ''
   const name = typeof b.name === 'string' ? b.name.trim() : ''
   const enterprise = typeof b.enterprise === 'string' ? b.enterprise.trim() : ''
 
-  if (!tenantId) return badRequest('tenantId is required')
   if (!unitId) return badRequest('unitId is required')
   if (!name) return badRequest('name is required')
   if (!enterprise) return badRequest('enterprise is required')
-
-  // Role-matrix enforcement (lib/permissions.ts): creating a batch is a write
-  // on the 'batches' module; only checked with a real session.
-  if (session && !(await canEdit(tenantId, session.role, MODULES.batches))) {
-    return NextResponse.json({ success: false, error: 'You do not have permission to create batches' }, { status: 403 })
-  }
 
   const unitRows = await db
     .select()
@@ -150,16 +168,6 @@ export async function POST(req: Request) {
         harvestDate,
       })
       .returning()
-    // Timeline's first entry — who created the batch, when.
-    await db.insert(auditLog).values({
-      id: randomUUID(),
-      tenantId,
-      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
-      action: 'batch.created',
-      entity: 'batch',
-      entityId: id,
-      meta: { code, name, enterprise, initialQty, currentQty, acquisitionCostCents },
-    })
     return created(rows[0])
   } catch (err) {
     if (isUniqueViolation(err)) {

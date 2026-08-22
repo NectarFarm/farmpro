@@ -53,3 +53,9 @@ next-env.d.ts
 /remote-control/data/
 !/remote-control/data/.gitkeep
 
+# Sibling working directories that are NOT part of the app and must never be
+# committed. apk-build holds android.keystore and keystore-password.txt — a
+# signing key in git history cannot be un-leaked, only rotated.
+/Frontend
+/apk-build
+/verify-221

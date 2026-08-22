@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/charts/production (issue #228) ─────────────────────────────────
 // New, minimal endpoint. There is no production data source anywhere on this
@@ -20,17 +20,15 @@ import { getSessionUser } from '@/lib/auth'
 // change shape when that lands.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
 export interface ProductionSeriesPoint {
   date: string
   value: number
 }
 
-export async function GET(req: Request) {
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+export async function GET() {
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
 
   return ok({
     available: false,

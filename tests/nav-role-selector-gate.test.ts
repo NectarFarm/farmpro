@@ -13,6 +13,8 @@ const source = readFileSync(join(process.cwd(), 'components/farm/navigation.tsx'
 
 describe('components/farm/navigation.tsx — RoleSelector dev-only gate (issue #311)', () => {
   it('only renders RoleSelector when NODE_ENV is not production', () => {
-    expect(source).toMatch(/process\.env\.NODE_ENV !== "production" && \(\s*<RoleSelector/)
+    // Quote-agnostic: the repo lints to single quotes, so pinning the literal
+    // double-quoted form turned a lint fix into a false regression.
+    expect(source).toMatch(/process\.env\.NODE_ENV !== ['"]production['"] && \(\s*<RoleSelector/)
   })
 })

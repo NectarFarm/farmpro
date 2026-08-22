@@ -11,7 +11,16 @@ import { db } from '@/db'
 import { loginThrottle, sessions, tenants, users } from '@/db/schemas'
 
 export const SESSION_COOKIE = 'ifms_session'
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+
+// Bounds for tenant_settings.sessionTimeoutMinutes (settings-reorg) —
+// validated in app/api/settings/route.ts, applied at login in
+// app/api/auth/login/route.ts. Floor of 15 minutes keeps a mis-set value
+// from locking a shared farm-office device out mid-task; ceiling is just the
+// platform default itself, so a tenant can only ever shorten a session, not
+// lengthen it past what an unconfigured tenant already gets.
+export const MIN_SESSION_TIMEOUT_MINUTES = 15
+export const MAX_SESSION_TIMEOUT_MINUTES = SESSION_TTL_MS / 60_000
 
 export interface SessionUser {
   id: string
@@ -116,20 +125,81 @@ export function newSessionToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
-export async function createSession(userId: string): Promise<string> {
+// `ttlMs` defaults to the platform's normal 30-day session — pass a shorter
+// value for a tenant that has configured its own sessionTimeoutMinutes
+// (settings-reorg; see app/api/auth/login/route.ts) so shared farm-office
+// devices sign out sooner, the same knob createImpersonationSession already
+// used for a different reason (a bounded admin window rather than a
+// tenant-wide default).
+export async function createSession(userId: string, ttlMs: number = SESSION_TTL_MS): Promise<string> {
   const token = newSessionToken()
   const now = new Date()
   await db.insert(sessions).values({
     token,
     userId,
     createdAt: now,
-    expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
+    expiresAt: new Date(now.getTime() + ttlMs),
   })
   return token
 }
 
+/* ── Time-boxed impersonation session (admin user-management feature) ──
+ * Creates a session row for the TARGET user, but stamped with the ADMIN's id
+ * in `impersonatedBy` and an `expiresAt` set to now + minutes — not the usual
+ * 30-day SESSION_TTL_MS. Expiry is enforced by the exact same
+ * `gt(sessions.expiresAt, new Date())` check every other session already goes
+ * through (getSessionDetails/getSessionUser below), so there is no separate
+ * "impersonation expiry" code path to keep in sync or get wrong. */
+export async function createImpersonationSession(targetUserId: string, adminUserId: string, minutes: number): Promise<{ token: string; expiresAt: Date }> {
+  const token = newSessionToken()
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + minutes * 60 * 1000)
+  await db.insert(sessions).values({
+    token,
+    userId: targetUserId,
+    createdAt: now,
+    expiresAt,
+    impersonatedBy: adminUserId,
+  })
+  return { token, expiresAt }
+}
+
 export async function destroySession(token: string | undefined): Promise<void> {
   if (token) await db.delete(sessions).where(eq(sessions.token, token))
+}
+
+export interface SessionDetails {
+  user: SessionUser
+  // Null for a normal login; the admin's user id while this session is a
+  // time-boxed impersonation (sessions.impersonatedBy).
+  impersonatedBy: string | null
+  expiresAt: Date
+}
+
+// Same lookup getSessionUser() has always done, but also surfaces
+// impersonatedBy/expiresAt for callers that need them (GET /api/auth/session,
+// the impersonation-stop route) without changing getSessionUser()'s own
+// return shape or its callers anywhere else in the codebase.
+export async function getSessionDetails(): Promise<SessionDetails | null> {
+  const store = await cookies()
+  const token = store.get(SESSION_COOKIE)?.value
+  if (!token) return null
+  const rows = await db
+    .select({ user: users, impersonatedBy: sessions.impersonatedBy, expiresAt: sessions.expiresAt })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(and(eq(sessions.token, token), gt(sessions.expiresAt, new Date())))
+    .limit(1)
+  const row = rows[0]
+  if (!row) return null
+  const u = row.user
+  if (u.status !== 'ACTIVE') return null
+  if (u.tenantId && !(await isTenantActive(u.tenantId))) return null
+  return {
+    user: { id: u.id, name: u.name, email: u.email, role: u.role, tenantId: u.tenantId },
+    impersonatedBy: row.impersonatedBy,
+    expiresAt: row.expiresAt,
+  }
 }
 
 // Resolve the cookie's session row to a user, or null when absent/expired.
@@ -139,55 +209,92 @@ export async function destroySession(token: string | undefined): Promise<void> {
 // session on the next bootstrap (401 -> login) instead of keeping it until
 // cookie expiry.
 export async function getSessionUser(): Promise<SessionUser | null> {
-  const store = await cookies()
-  const token = store.get(SESSION_COOKIE)?.value
-  if (!token) return null
-  const rows = await db
-    .select({ user: users })
-    .from(sessions)
-    .innerJoin(users, eq(sessions.userId, users.id))
-    .where(and(eq(sessions.token, token), gt(sessions.expiresAt, new Date())))
-    .limit(1)
-  const u = rows[0]?.user
-  if (!u) return null
-  if (u.status !== 'ACTIVE') return null
-  if (u.tenantId && !(await isTenantActive(u.tenantId))) return null
-  return { id: u.id, name: u.name, email: u.email, role: u.role, tenantId: u.tenantId }
+  const details = await getSessionDetails()
+  return details?.user ?? null
 }
 
 /* ── Cookie attach/clear on the outgoing response ── */
 
-// Should the session cookie carry the `Secure` flag? A Secure cookie is only
-// ever *sent* by the browser over HTTPS — over plain HTTP it's stored after
-// login and then silently withheld from every API request (all of which 401
-// "Unauthorized"). This app is served over plain HTTP in common deployments
-// (http://localhost:13001, http://192.168.x.x:13001 on the LAN) even though
-// `next start` runs with NODE_ENV=production, so keying Secure off NODE_ENV
-// alone broke the session for every non-localhost http client. Decide from
-// the request's real protocol instead: https (direct or via the
-// x-forwarded-proto header a TLS-terminating proxy sends) → Secure; plain
-// http → not. COOKIE_SECURE=true/false forces it either way for deployments
-// that need a fixed value regardless of the observed protocol.
-export function sessionCookieSecure(req?: Request): boolean {
-  if (process.env.COOKIE_SECURE === 'true') return true
-  if (process.env.COOKIE_SECURE === 'false') return false
+/* Whether the session cookie should carry `Secure`.
+ *
+ * Deliberately NOT `NODE_ENV === 'production'`. The Docker runner stage sets
+ * NODE_ENV=production, so running that image locally over plain HTTP (via
+ * `make up`, or reaching it on a LAN IP from a phone) stamped `Secure` on the
+ * cookie — and browsers REFUSE to store a Secure cookie delivered over http://.
+ * Login returned 200 with a valid session, the browser silently dropped the
+ * cookie, and every following request was anonymous: the admin queue answered
+ * "Unauthorized" to a super_admin who had just signed in successfully.
+ *
+ * Deriving it from how the request actually arrived is correct in every case:
+ * a real HTTPS deployment still gets Secure, one behind a TLS-terminating
+ * proxy is covered by x-forwarded-proto, and a plain-HTTP local run does not
+ * lock itself out. Flipping NODE_ENV instead would have been wrong — it also
+ * gates the dev-only RoleSelector, which must never ship. */
+export function isSecureRequest(req?: Request): boolean {
   if (!req) return process.env.NODE_ENV === 'production'
-  const proto = req.headers.get('x-forwarded-proto') ?? new URL(req.url).protocol
-  return proto === 'https' || proto === 'https:'
+  // A TLS-terminating proxy reports the ORIGINAL scheme here; may be a list.
+  const forwarded = req.headers.get('x-forwarded-proto')
+  if (forwarded) return forwarded.split(',')[0].trim().toLowerCase() === 'https'
+  try {
+    return new URL(req.url).protocol === 'https:'
+  } catch {
+    return process.env.NODE_ENV === 'production'
+  }
 }
 
-export function attachSessionCookie(res: NextResponse, token: string, req?: Request): NextResponse {
+// `req` derives the Secure flag from how the request actually arrived (see
+// isSecureRequest). `maxAgeMs` defaults to the normal 30-day session TTL, so
+// every ordinary call site is unaffected; impersonation passes the granted
+// window (5/10/15/30 minutes) so the cookie's own lifetime matches the session
+// row's real `expiresAt` instead of outliving it by weeks. The server-side
+// `gt(expiresAt, now())` check remains the actual enforcement either way —
+// this only keeps the cookie honest.
+export function attachSessionCookie(
+  res: NextResponse,
+  token: string,
+  req?: Request,
+  maxAgeMs: number = SESSION_TTL_MS,
+): NextResponse {
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: sessionCookieSecure(req),
+    secure: isSecureRequest(req),
     path: '/',
-    maxAge: Math.floor(SESSION_TTL_MS / 1000),
+    maxAge: Math.floor(maxAgeMs / 1000),
   })
   return res
 }
 
 export function clearSessionCookie(res: NextResponse): NextResponse {
   res.cookies.set(SESSION_COOKIE, '', { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 0 })
+  return res
+}
+
+/* ── Admin "parked" session cookie (impersonation) ──
+ * While a super_admin impersonates another user, `ifms_session` is replaced
+ * by the TARGET's session so every route that reads it (getSessionUser, etc.)
+ * genuinely acts as that user for the time box — that's the whole point. The
+ * admin's own session token is preserved in a second, separate httpOnly
+ * cookie so "Return to admin" (or the time box simply expiring) can restore
+ * it without a second login. Uses the same request-derived Secure flag as
+ * attachSessionCookie: hardcoding `NODE_ENV === 'production'` here would
+ * reintroduce the bug that made a production build over plain HTTP drop the
+ * cookie outright — which would strand an admin inside an impersonation with
+ * no way back. */
+export const ADMIN_SESSION_COOKIE = 'ifms_admin_session'
+
+export function attachAdminSessionCookie(res: NextResponse, token: string, req?: Request): NextResponse {
+  res.cookies.set(ADMIN_SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isSecureRequest(req),
+    path: '/',
+    maxAge: Math.floor(SESSION_TTL_MS / 1000),
+  })
+  return res
+}
+
+export function clearAdminSessionCookie(res: NextResponse): NextResponse {
+  res.cookies.set(ADMIN_SESSION_COOKIE, '', { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 0 })
   return res
 }

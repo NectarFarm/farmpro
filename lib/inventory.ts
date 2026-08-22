@@ -133,6 +133,12 @@ export async function recordPurchase(input: {
   lotNo?: string
   expiryDate?: Date | null
   receivedDate?: Date
+  // Farm-scoped-data task: the farm this stock physically lands at. Set on
+  // BOTH the lot and the purchase row in the same transaction — see
+  // db/schemas/inventory.ts's inventoryLots.farmId/purchases.farmId comments
+  // for why they're never independent facts. `null`/omitted keeps both
+  // unscoped (tenant-wide), same as before this task existed.
+  farmId?: string | null
 }) {
   return db.transaction(async (tx) => {
     const existing = await tx
@@ -170,6 +176,7 @@ export async function recordPurchase(input: {
         unitCostCents: input.unitCostCents,
         expiryDate: input.expiryDate ?? null,
         receivedDate,
+        farmId: input.farmId ?? null,
       })
       .returning()
 
@@ -186,6 +193,7 @@ export async function recordPurchase(input: {
         paymentMethod: input.paymentMethod ?? '',
         amountPaidCents: input.amountPaidCents ?? 0,
         createdAt: receivedDate,
+        farmId: input.farmId ?? null,
       })
       .returning()
 

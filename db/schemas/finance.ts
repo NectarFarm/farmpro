@@ -47,25 +47,59 @@
 //                                                  matching in this pass — out of scope,
 //                                                  same "minimal" instruction as the rest
 //                                                  of this issue)
-// No payroll account and no payroll postings — there is no payroll table
-// anywhere in this app (explicitly out of scope, per People epic #247/#248).
-import { pgTable, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core'
+//   5002 Payroll Expense      EXPENSE    debit   — added by the payroll-and-gps task: every
+//                                                  payroll run, in full, posted Dr Payroll
+//                                                  Expense / Cr Cash (cash-basis, "paid in
+//                                                  full at run time" — same treatment as a
+//                                                  fully-paid purchase; see
+//                                                  db/schemas/payroll.ts and
+//                                                  lib/finance.ts's postPayrollJournal). This
+//                                                  replaces the earlier "no payroll account
+//                                                  and no payroll postings" state — a real
+//                                                  `payroll_runs`/`payslips` pair now exists
+//                                                  (db/schemas/payroll.ts) and deliberately
+//                                                  DOES post, since leaving a real payroll
+//                                                  expense out of the ledger would make the
+//                                                  GL/trial balance/P&L quietly wrong once
+//                                                  payroll is real money moving.
+import { pgTable, text, timestamp, integer, bigint, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
 // A tenant's sales — the real backend for components/farm/finance.tsx's
 // `SALES` mock (Sales tab). `batchId` is kept as a plain logical reference
 // (no DB FK) — same "no import cycle with db/schemas/index.ts" convention
 // `approvalRequests.batchId` (governance.ts) and `employees.assignedBatchIds`
 // (people.ts) already use, since `batches` is defined in index.ts itself.
-// `amount` and `method`/`status` match the issue's exact field list and the
-// mock's shape 1:1 (no `*Cents` renaming — the issue names the column
-// `amount` and the mock treats it as a plain number, not a minor-unit figure
-// like `purchases.totalCostCents`).
+// `amountCents` and `method`/`status` match the issue's exact field list and
+// the mock's shape 1:1 for everything except the money column itself:
+// originally named `amount` and stored as a plain whole-currency-unit
+// figure — inconsistent with every other money column in this schema
+// (`purchases.totalCostCents` etc, all minor-unit/cents). Renamed to
+// `amountCents` and converted x100 (issue: money-unit-enforcement; see
+// drizzle/0024_*.sql) so the whole app has exactly one money unit. The old
+// name is retired for good reason: a column called `amount` no longer
+// exists to accidentally re-multiply if a migration ever ran twice.
+// `productId` (product-unit-inheritance task): nullable logical reference to
+// products.id (no DB FK — products lives in dashboard.ts; same "no import
+// cycle with db/schemas/index.ts" convention `batchId` below already uses).
+// `item` (free text) is NOT replaced or backfilled by this column — it stays
+// required and keeps its own meaning for two reasons: (1) every sale row
+// that predates this column has no product to guess-match it to (an item
+// string like "Tray eggs (30) x 120" is not a reliable key into the products
+// catalogue — guessing would silently misattribute historical revenue), and
+// (2) the UI's Record-Sale sheet still supports a genuine one-off/ad-hoc
+// sale with no catalogue product at all. So a sale now carries BOTH: `item`
+// is always the human-readable label shown everywhere sales already render
+// it, and `productId` is the optional link that lets revenue be attributed
+// back to a catalogue product when the sale actually came from one (see
+// POST /api/data/sales, which fills `item` from the chosen product's name
+// when the caller doesn't supply its own).
 export const sales = pgTable('sales', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
   batchId: text('batch_id'),
+  productId: text('product_id'),
   item: text('item').notNull(),
-  amount: integer('amount').notNull(),
+  amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
   method: text('method').notNull().default(''),
   status: text('status').notNull().default('paid'), // 'paid' | 'pending'
   soldAt: timestamp('sold_at').defaultNow().notNull(),
@@ -73,6 +107,9 @@ export const sales = pgTable('sales', {
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),
+  // Added with sales.product_id: attributing revenue to a product scans by
+  // product alone, which the tenant-led composites above cannot serve.
+  index('idx_sales_product').on(t.productId),
 ])
 
 // The chart of accounts — fixed, global, seeded (see lib/finance.ts's
@@ -108,16 +145,22 @@ export const journalEntries = pgTable('journal_entries', {
 
 // The debit/credit lines of a journal entry. Real FKs are fine here —
 // `journal_entries`/`accounts` both live in this same file, no cross-file
-// import-cycle concern. Exactly one of debit/credit is non-zero per line
-// (enforced in lib/finance.ts's posting functions, not at the DB level, same
-// "validated in application code" convention the rest of this branch uses for
-// invariants a CHECK constraint could also express).
+// import-cycle concern. Exactly one of debitCents/creditCents is non-zero
+// per line (enforced in lib/finance.ts's posting functions, not at the DB
+// level, same "validated in application code" convention the rest of this
+// branch uses for invariants a CHECK constraint could also express).
+//
+// Renamed debit/credit -> debitCents/creditCents and widened to bigint
+// (issue: money-unit-enforcement) — the ledger used to store whole-currency
+// units (matching `sales.amount`'s unit at the time); now that every money
+// column in this schema is cents, these follow the same convention. Existing
+// values converted x100 by drizzle/0024_*.sql.
 export const journalLines = pgTable('journal_lines', {
   id: text('id').primaryKey(),
   entryId: text('entry_id').notNull().references(() => journalEntries.id),
   accountId: text('account_id').notNull().references(() => accounts.id),
-  debit: integer('debit').notNull().default(0),
-  credit: integer('credit').notNull().default(0),
+  debitCents: bigint('debit_cents', { mode: 'number' }).notNull().default(0),
+  creditCents: bigint('credit_cents', { mode: 'number' }).notNull().default(0),
 }, (t) => [
   index('idx_journal_lines_entry').on(t.entryId),
   index('idx_journal_lines_account').on(t.accountId),

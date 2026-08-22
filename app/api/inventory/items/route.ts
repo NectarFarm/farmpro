@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { inventoryItems, inventoryLots } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { computeItemStatus } from '@/lib/inventory'
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
+import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/inventory/items (issue #235 task 3) ────────────────────────────
 // The merged stock-list endpoint: joins inventory_items with their
@@ -11,15 +12,25 @@ import { asc, eq } from 'drizzle-orm'
 // side, per lib/inventory.ts's computeItemStatus. This is the real backend
 // for components/farm/inventory.tsx's STOCK_ITEMS table (each returned row
 // carries the item's fields plus its lots and the merged status).
+//
+// `farmId` (farm-scoped-data task) filters the LOTS, not the items:
+// inventoryItems is a tenant-wide catalogue (db/schemas/inventory.ts), so the
+// item list itself never changes with the farm filter — a farm can only
+// scope which physical stock (lots) counts toward `qtyOnHand`/`status`.
+// Every item still appears (qtyOnHand: 0, lots: [], status: 'ok') even with
+// zero lots at the selected farm, same as an item with zero lots today —
+// this is a stock LEVEL filter, not a catalogue filter.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
+
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
 
   const items = await db
     .select()
@@ -27,10 +38,12 @@ export async function GET(req: Request) {
     .where(eq(inventoryItems.tenantId, tenantId))
     .orderBy(asc(inventoryItems.createdAt), asc(inventoryItems.id))
 
+  const lotConditions = [eq(inventoryLots.tenantId, tenantId)]
+  if (farmFilter) lotConditions.push(eq(inventoryLots.farmId, farmFilter))
   const lots = await db
     .select()
     .from(inventoryLots)
-    .where(eq(inventoryLots.tenantId, tenantId))
+    .where(and(...lotConditions))
     .orderBy(asc(inventoryLots.receivedDate))
 
   const lotsByItem = new Map<string, typeof lots>()

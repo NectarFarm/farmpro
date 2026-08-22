@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { batches, sales } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/batches/[id]/cost-breakdown (issue #231 task 4) ───────────────
 // Deliberately NOT a fabricated feed/labour/overhead split. The UI's own mock
@@ -29,14 +29,13 @@ import { and, eq } from 'drizzle-orm'
 // `revenue`/`grossMarginPct` fields added below this categories block.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = () => NextResponse.json({ success: false, error: 'Batch not found' }, { status: 404 })
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const rows = await db
     .select()
@@ -92,21 +91,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   // (tenant + batch scoped), same as components/farm/finance.tsx's Batch P&L
   // (`salesByBatch`) does client-side over the tenant's full sales list.
   //
-  // Units: `sales.amount` is a whole-KSh integer, NOT cents like
-  // `acquisitionCostCents`/`totalTrackedCents` (see db/schemas/finance.ts's
-  // comment on the `sales` table). Issue #290 fixed that exact mismatch as it
-  // corrupted the GL trial balance in lib/finance.ts (postPurchaseJournal now
-  // converts purchases cents -> whole units to match `sales.amount` there) —
-  // this endpoint isn't that code path, but it reads the same column, so it
-  // must not reproduce the bug here: convert explicitly (`amount * 100`)
-  // before doing arithmetic against cost figures, so `revenueCents` is
-  // directly comparable to `totalTrackedCents`.
+  // Units (issue: money-unit-enforcement): `sales.amountCents` is cents now,
+  // same as `acquisitionCostCents`/`totalTrackedCents` — no conversion
+  // needed. (This is the exact site that used to carry a "must not
+  // reproduce the #290 bug here: convert explicitly, `amount * 100`" warning
+  // when `sales.amount` was still whole units and every other money column
+  // was cents. Converting `sales.amountCents` to cents at the source removes
+  // that asymmetry instead of managing it at every read site.)
   const saleRows = await db
-    .select({ amount: sales.amount })
+    .select({ amountCents: sales.amountCents })
     .from(sales)
     .where(and(eq(sales.batchId, id), eq(sales.tenantId, tenantId)))
   const hasSales = saleRows.length > 0
-  const revenueCents = saleRows.reduce((s, r) => s + r.amount, 0) * 100
+  const revenueCents = saleRows.reduce((s, r) => s + r.amountCents, 0)
 
   // Gross margin against tracked cost only (same "tracked cost only" honesty
   // already used for Break-even above — feed/health/labour/overhead aren't

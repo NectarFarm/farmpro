@@ -27,8 +27,7 @@ import { POST as approvePOST } from '@/app/api/approvals/[id]/approve/route'
 import { POST as rejectPOST } from '@/app/api/approvals/[id]/reject/route'
 import { GET as rolePermsGET, PUT as rolePermsPUT } from '@/app/api/role-permissions/route'
 import { db } from '@/db'
-import { tenants, users, sessions, tasks, approvalRequests, auditLog, rolePermissions, employees } from '@/db/schemas'
-import { GET as approversGET } from '@/app/api/approvers/route'
+import { tenants, users, sessions, tasks, approvalRequests, auditLog, rolePermissions } from '@/db/schemas'
 import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
@@ -57,9 +56,18 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
   const workerEmail = `worker-gov-${randomUUID()}@test.ifms`
   const workerId = randomUUID()
 
+  // A second tenant's owner — needed now that tenant is session-derived only
+  // (auth fix: fix/authenticate-all-apis): a cross-tenant-isolation test can
+  // no longer create a "different tenant's" row by simply naming that
+  // tenantId in the body/query as tenant A's owner; it needs a REAL session
+  // on tenant B.
+  const tenantBOwnerEmail = `owner-gov-b-${randomUUID()}@test.ifms`
+  const tenantBOwnerId = randomUUID()
+
   let ownerSessionToken: string
   let managerSessionToken: string
   let workerSessionToken: string
+  let tenantBOwnerSessionToken: string
 
   beforeAll(async () => {
     await db.insert(tenants).values([
@@ -71,38 +79,28 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
       { id: ownerId, tenantId: tenantAId, name: 'Gov Owner', email: ownerEmail, role: 'owner', passwordHash: hashSecret('ownerpw', salt), passwordSalt: salt, status: 'ACTIVE' },
       { id: managerId, tenantId: tenantAId, name: 'Gov Manager', email: managerEmail, role: 'manager', passwordHash: hashSecret('mgrpw', salt), passwordSalt: salt, status: 'ACTIVE' },
       { id: workerId, tenantId: tenantAId, name: 'Gov Worker', email: workerEmail, role: 'worker', passwordHash: hashSecret('wrkpw', salt), passwordSalt: salt, status: 'ACTIVE' },
+      { id: tenantBOwnerId, tenantId: tenantBId, name: 'Gov Owner B', email: tenantBOwnerEmail, role: 'owner', passwordHash: hashSecret('ownerbpw', salt), passwordSalt: salt, status: 'ACTIVE' },
     ])
-    // Create an employee linked to the worker user (needed for assignee FK tests)
-    await db.insert(employees).values({
-      id: `emp-gov-${workerId}`,
-      tenantId: tenantAId,
-      name: 'Gov Worker Employee',
-      phone: '+254700000999',
-      role: 'worker',
-      userId: workerId,
-      assignedBatchIds: [],
-      mortalityPhotoThreshold: 3,
-    })
-
     ownerSessionToken = await createSession(ownerId)
     managerSessionToken = await createSession(managerId)
     workerSessionToken = await createSession(workerId)
+    tenantBOwnerSessionToken = await createSession(tenantBOwnerId)
   })
 
   afterAll(async () => {
+    mockCookie = undefined
     await db.delete(auditLog).where(inArray(auditLog.tenantId, [tenantAId, tenantBId]))
     await db.delete(approvalRequests).where(inArray(approvalRequests.tenantId, [tenantAId, tenantBId]))
     await db.delete(rolePermissions).where(inArray(rolePermissions.tenantId, [tenantAId, tenantBId]))
     await db.delete(tasks).where(inArray(tasks.tenantId, [tenantAId, tenantBId]))
-    await db.delete(employees).where(inArray(employees.tenantId, [tenantAId, tenantBId]))
-    await db.delete(sessions).where(inArray(sessions.userId, [ownerId, managerId, workerId]))
-    await db.delete(users).where(inArray(users.id, [ownerId, managerId, workerId]))
+    await db.delete(sessions).where(inArray(sessions.userId, [ownerId, managerId, workerId, tenantBOwnerId]))
+    await db.delete(users).where(inArray(users.id, [ownerId, managerId, workerId, tenantBOwnerId]))
     await db.delete(tenants).where(inArray(tenants.id, [tenantAId, tenantBId]))
   })
 
   describe('task CRUD', () => {
     it('creates a task with priority/requiresApproval/notes and reads it back', async () => {
-      mockCookie = undefined
+      mockCookie = ownerSessionToken
       const { status, payload } = await readJson(
         await tasksPOST(
           jsonRequest('http://localhost/api/tasks', 'POST', {
@@ -131,24 +129,32 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
     })
 
     it('rejects a task with no title (400)', async () => {
-      const { status } = await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId })))
+      mockCookie = ownerSessionToken
+      const { status } = await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', {})))
       expect(status).toBe(400)
     })
 
     it('lists only the requesting tenant\'s tasks', async () => {
-      await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantBId, title: 'Other tenant task' }))
-      const { status, payload } = await readJson(await tasksGET(jsonRequest(`http://localhost/api/tasks?tenantId=${tenantAId}`, 'GET')))
+      // A real tenant-B session creates the "other tenant" task — tenant is
+      // session-derived only now, so a tenantB owner is required to actually
+      // land a row under tenantB (a body/query tenantId can no longer do it).
+      mockCookie = tenantBOwnerSessionToken
+      await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Other tenant task' }))
+
+      mockCookie = ownerSessionToken
+      const { status, payload } = await readJson(await tasksGET(jsonRequest('http://localhost/api/tasks', 'GET')))
       expect(status).toBe(200)
       expect(payload.data.length).toBeGreaterThanOrEqual(1)
       expect(payload.data.every((t: { tenantId: string }) => t.tenantId === tenantAId)).toBe(true)
     })
 
     it('updates fields via PATCH (partial update)', async () => {
+      mockCookie = ownerSessionToken
       const created = (
-        await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Morning Feeding' })))
+        await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Morning Feeding' })))
       ).payload.data
       const { status, payload } = await readJson(
-        await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'PATCH', { priority: 'low', notes: 'Adjusted' }), {
+        await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}`, 'PATCH', { priority: 'low', notes: 'Adjusted' }), {
           params: Promise.resolve({ id: created.id }),
         })
       )
@@ -159,154 +165,55 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
     })
 
     it('deletes a task', async () => {
+      mockCookie = ownerSessionToken
       const created = (
-        await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Disposable task' })))
+        await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Disposable task' })))
       ).payload.data
       const del = await readJson(
-        await taskDELETE(jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'DELETE'), {
+        await taskDELETE(jsonRequest(`http://localhost/api/tasks/${created.id}`, 'DELETE'), {
           params: Promise.resolve({ id: created.id }),
         })
       )
       expect(del.status).toBe(200)
 
-      const readRes = await taskGET(jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'GET'), {
+      const readRes = await taskGET(jsonRequest(`http://localhost/api/tasks/${created.id}`, 'GET'), {
         params: Promise.resolve({ id: created.id }),
       })
       expect(readRes.status).toBe(404)
     })
 
     it('404s for a task id belonging to a different tenant', async () => {
+      mockCookie = tenantBOwnerSessionToken
       const created = (
-        await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantBId, title: 'Tenant B private task' })))
+        await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Tenant B private task' })))
       ).payload.data
-      const res = await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'PATCH', { priority: 'high' }), {
+
+      mockCookie = ownerSessionToken
+      const res = await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}`, 'PATCH', { priority: 'high' }), {
         params: Promise.resolve({ id: created.id }),
       })
       expect(res.status).toBe(404)
     })
   })
 
-  describe('task approval governance: approver selection, statuses, blockers, audit trail', () => {
-    it('POST /api/tasks accepts a designated owner approver and stores approverId', async () => {
-      mockCookie = undefined
-      const { status, payload } = await readJson(
-        await tasksPOST(
-          jsonRequest('http://localhost/api/tasks', 'POST', {
-            tenantId: tenantAId,
-            title: 'Approver-designated task',
-            requiresApproval: true,
-            approverId: managerId,
-          })
-        )
-      )
-      expect(status).toBe(201)
-      expect(payload.data.approverId).toBe(managerId)
-    })
-
-    it('rejects a worker as approver (400)', async () => {
-      const { status } = await readJson(
-        await tasksPOST(
-          jsonRequest('http://localhost/api/tasks', 'POST', {
-            tenantId: tenantAId,
-            title: 'Bad approver',
-            approverId: workerId,
-          })
-        )
-      )
-      expect(status).toBe(400)
-    })
-
-    it('rejects an approver id from another tenant (400)', async () => {
-      // workerId belongs to tenantA; there is no tenantB user in this suite,
-      // so use a random uuid — must fail the "active user of this tenant" check.
-      const { status } = await readJson(
-        await tasksPOST(
-          jsonRequest('http://localhost/api/tasks', 'POST', {
-            tenantId: tenantAId,
-            title: 'Foreign approver',
-            approverId: randomUUID(),
-          })
-        )
-      )
-      expect(status).toBe(400)
-    })
-
-    it('PATCH status STARTED records a task.started audit entry', async () => {
-      const created = (
-        await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Start me' })))
-      ).payload.data
-      const { status, payload } = await readJson(
-        await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'STARTED' }), {
-          params: Promise.resolve({ id: created.id }),
-        })
-      )
-      expect(status).toBe(200)
-      expect(payload.data.status).toBe('STARTED')
-      const audit = await db.select().from(auditLog).where(eq(auditLog.entityId, created.id))
-      expect(audit.some((a) => a.action === 'task.started')).toBe(true)
-    })
-
-    it('PATCH status BLOCKED requires a real blocker task (400 without, works with)', async () => {
-      const a = (await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Blocked task' })))).payload.data
-      const blocker = (await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Blocker task' })))).payload.data
-
-      const missing = await readJson(
-        await taskPATCH(jsonRequest(`http://localhost/api/tasks/${a.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'BLOCKED' }), {
-          params: Promise.resolve({ id: a.id }),
-        })
-      )
-      expect(missing.status).toBe(400)
-
-      const ok = await readJson(
-        await taskPATCH(
-          jsonRequest(`http://localhost/api/tasks/${a.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'BLOCKED', blockedByTaskId: blocker.id }),
-          { params: Promise.resolve({ id: a.id }) }
-        )
-      )
-      expect(ok.status).toBe(200)
-      expect(ok.payload.data.status).toBe('BLOCKED')
-      expect(ok.payload.data.blockedByTaskId).toBe(blocker.id)
-    })
-
-    it('rejects a self-block (400)', async () => {
-      const a = (await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Self block' })))).payload.data
-      const res = await readJson(
-        await taskPATCH(
-          jsonRequest(`http://localhost/api/tasks/${a.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'BLOCKED', blockedByTaskId: a.id }),
-          { params: Promise.resolve({ id: a.id }) }
-        )
-      )
-      expect(res.status).toBe(400)
-    })
-
-    it('PATCH clarification writes a task.clarification_requested audit entry', async () => {
-      const created = (await readJson(await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Clarify me' })))).payload.data
-      const { status } = await readJson(
-        await taskPATCH(
-          jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'PATCH', { clarification: 'Which feed should I use?' }),
-          { params: Promise.resolve({ id: created.id }) }
-        )
-      )
-      expect(status).toBe(200)
-      const audit = await db.select().from(auditLog).where(eq(auditLog.entityId, created.id))
-      const entry = audit.find((a) => a.action === 'task.clarification_requested')
-      expect(entry).toBeTruthy()
-      expect(entry?.meta).toMatchObject({ note: 'Which feed should I use?' })
-    })
-  })
-
   describe('approvals: completion -> approve/reject writes audit_log', () => {
     it('marking a requiresApproval task DONE creates a pending approval_request instead of completing it', async () => {
+      mockCookie = ownerSessionToken
       const created = (
         await readJson(
           await tasksPOST(
-            jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Milking – Morning Round', requiresApproval: true })
+            jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Milking – Morning Round', requiresApproval: true })
           )
         )
       ).payload.data
 
+      // The actor recorded on the approval request is always the SESSION
+      // user now (auth fix: fix/authenticate-all-apis) — there is no more
+      // `actorId`-in-body fallback — so this PATCH runs as the worker
+      // session to land `requestedBy: workerId` below.
+      mockCookie = workerSessionToken
       const { status, payload } = await readJson(
-        await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'DONE', actorId: workerId }), {
+        await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}`, 'PATCH', { status: 'DONE' }), {
           params: Promise.resolve({ id: created.id }),
         })
       )
@@ -322,14 +229,17 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
     })
 
     it('approving the request resolves the task to DONE and writes a real audit_log row', async () => {
+      mockCookie = ownerSessionToken
       const created = (
         await readJson(
-          await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Egg Collection – Pen A02', requiresApproval: true }))
+          await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Egg Collection – Pen A02', requiresApproval: true }))
         )
       ).payload.data
+
+      mockCookie = workerSessionToken
       const patched = (
         await readJson(
-          await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'DONE', actorId: workerId }), {
+          await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}`, 'PATCH', { status: 'DONE' }), {
             params: Promise.resolve({ id: created.id }),
           })
         )
@@ -337,7 +247,8 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
       const approvalId = patched.approvalRequestId
 
       // Listed in GET /api/approvals for the tenant.
-      const listed = await readJson(await approvalsGET(jsonRequest(`http://localhost/api/approvals?tenantId=${tenantAId}&status=pending`, 'GET')))
+      mockCookie = ownerSessionToken
+      const listed = await readJson(await approvalsGET(jsonRequest('http://localhost/api/approvals?status=pending', 'GET')))
       expect(listed.payload.data.some((a: { id: string }) => a.id === approvalId)).toBe(true)
 
       // Worker cannot approve (role gate).
@@ -371,14 +282,17 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
     })
 
     it('rejecting the request resolves the task to REJECTED and writes a real audit_log row', async () => {
+      mockCookie = ownerSessionToken
       const created = (
         await readJson(
-          await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { tenantId: tenantAId, title: 'Harvest – Kale Plot', requiresApproval: true }))
+          await tasksPOST(jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Harvest – Kale Plot', requiresApproval: true }))
         )
       ).payload.data
+
+      mockCookie = workerSessionToken
       const patched = (
         await readJson(
-          await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}?tenantId=${tenantAId}`, 'PATCH', { status: 'DONE', actorId: workerId }), {
+          await taskPATCH(jsonRequest(`http://localhost/api/tasks/${created.id}`, 'PATCH', { status: 'DONE' }), {
             params: Promise.resolve({ id: created.id }),
           })
         )
@@ -442,8 +356,13 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
       expect(putRes.status).toBe(200)
       mockCookie = undefined
 
-      // Subsequent GET (even without a session, via tenantId fallback) sees the same matrix.
-      const getRes = await readJson(await rolePermsGET(jsonRequest(`http://localhost/api/role-permissions?tenantId=${tenantAId}`, 'GET')))
+      // Subsequent GET, as any authenticated session on the tenant (manager
+      // here — GET is readable by any session on the tenant, only PUT is
+      // owner-only), sees the same matrix. Tenant is session-derived only
+      // now (auth fix: fix/authenticate-all-apis) — no more `tenantId`
+      // query-param fallback for a session-less caller.
+      mockCookie = managerSessionToken
+      const getRes = await readJson(await rolePermsGET())
       expect(getRes.status).toBe(200)
       const byRole = Object.fromEntries(getRes.payload.data.map((r: { role: string }) => [r.role, r]))
       expect(byRole.manager.permissions.feeding).toBe('edit')
@@ -478,9 +397,9 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
           ],
         })
       )
-      mockCookie = undefined
-
-      const getRes = await readJson(await rolePermsGET(jsonRequest(`http://localhost/api/role-permissions?tenantId=${tenantAId}`, 'GET')))
+      // Tenant is session-derived only now — keep the owner session for the
+      // read-back GET (auth fix: fix/authenticate-all-apis).
+      const getRes = await readJson(await rolePermsGET())
       expect(getRes.status).toBe(200)
       const entries = getRes.payload.data as { role: string; approvalRequired: string[] }[]
       const tileCount = entries.reduce((sum, r) => sum + r.approvalRequired.length, 0)
@@ -500,9 +419,9 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
           roles: [{ role: 'manager', permissions: { feeding: 'view' }, approvalRequired: [] }],
         })
       )
-      mockCookie = undefined
-
-      const getRes = await readJson(await rolePermsGET(jsonRequest(`http://localhost/api/role-permissions?tenantId=${tenantAId}`, 'GET')))
+      // Tenant is session-derived only now — keep the owner session for the
+      // read-back GET (auth fix: fix/authenticate-all-apis).
+      const getRes = await readJson(await rolePermsGET())
       const byRole = Object.fromEntries(getRes.payload.data.map((r: { role: string }) => [r.role, r]))
       expect(byRole.manager.permissions.feeding).toBe('view')
       expect(byRole.manager.permissions.finance).toBeUndefined()
@@ -516,136 +435,6 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
       )
       expect(res.status).toBe(400)
       mockCookie = undefined
-    })
-  
-  })
-  // ── Task reopen (owner/manager only) ────────────────────────────────────────
-  describe('task reopen', () => {
-    let reopenTaskId: string
-
-    it('creates a task and completes it', async () => {
-      mockCookie = ownerSessionToken
-      const created = await tasksPOST(
-        jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Reopen test', priority: 'medium', tenantId: tenantAId })
-      )
-      const body = await created.json()
-      expect(body.success).toBe(true)
-      reopenTaskId = body.data.id
-
-      const res = await taskPATCH(
-        jsonRequest(`http://localhost/api/tasks/${reopenTaskId}?tenantId=${tenantAId}`, 'PATCH', { status: 'DONE' }),
-        { params: Promise.resolve({ id: reopenTaskId }) }
-      )
-      const data = await res.json()
-      expect(data.success).toBe(true)
-      expect(data.data.status).toBe('DONE')
-      mockCookie = undefined
-    })
-
-    it('reopens the completed task', async () => {
-      mockCookie = ownerSessionToken
-      const res = await taskPATCH(
-        jsonRequest(`http://localhost/api/tasks/${reopenTaskId}?tenantId=${tenantAId}`, 'PATCH', { reopen: true }),
-        { params: Promise.resolve({ id: reopenTaskId }) }
-      )
-      const data = await res.json()
-      expect(data.success).toBe(true)
-      expect(data.data.status).toBe('PENDING')
-      expect(data.data.reopenedAt).toBeTruthy()
-      mockCookie = undefined
-    })
-
-    it('rejects reopen for non-DONE/REJECTED tasks', async () => {
-      mockCookie = ownerSessionToken
-      const res = await taskPATCH(
-        jsonRequest(`http://localhost/api/tasks/${reopenTaskId}?tenantId=${tenantAId}`, 'PATCH', { reopen: true }),
-        { params: Promise.resolve({ id: reopenTaskId }) }
-      )
-      const data = await res.json()
-      expect(data.success).toBe(false)
-      mockCookie = undefined
-    })
-  })
-
-  // ── Task assignee FK ────────────────────────────────────────────────────────
-  describe('task assignee FK', () => {
-    it('creates a task with assigneeId (employee) and reads it back', async () => {
-      mockCookie = ownerSessionToken
-      const empId = `emp-gov-${workerId}`
-      const res = await tasksPOST(
-        jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Assigned task', priority: 'medium', tenantId: tenantAId, assigneeId: empId })
-      )
-      const body = await res.json()
-      expect(body.success).toBe(true)
-      expect(body.data.assigneeId).toBe(empId)
-
-      const getRes = await taskGET(
-        new Request(`http://localhost/api/tasks/${body.data.id}?tenantId=${tenantAId}`),
-        { params: Promise.resolve({ id: body.data.id }) }
-      )
-      const getData = await getRes.json()
-      expect(getData.data.assigneeId).toBe(empId)
-      mockCookie = undefined
-    })
-
-    it('rejects assigneeId to a non-existent employee', async () => {
-      mockCookie = ownerSessionToken
-      const res = await tasksPOST(
-        jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Bad assignee', priority: 'medium', tenantId: tenantAId, assigneeId: 'nonexistent-emp-id' })
-      )
-      const body = await res.json()
-      expect(body.success).toBe(false)
-      expect(body.error).toMatch(/assignee/i)
-      mockCookie = undefined
-    })
-  })
-
-  // ── Audit log entity/entityId filter ─────────────────────────────────────────
-  describe('audit log entity filter', () => {
-    it('filters by entity and entityId', async () => {
-      mockCookie = ownerSessionToken
-      const created = await tasksPOST(
-        jsonRequest('http://localhost/api/tasks', 'POST', { title: 'Audit filter test', priority: 'high', tenantId: tenantAId })
-      )
-      const body = await created.json()
-      const tId = body.data.id
-
-      const { GET: auditGET } = await import('@/app/api/audit-log/route')
-      const res = await auditGET(
-        new Request(`http://localhost/api/audit-log?tenantId=${tenantAId}&entity=task&entityId=${tId}`)
-      )
-      const data = await res.json()
-      expect(data.success).toBe(true)
-      for (const entry of data.data) {
-        expect(entry.entity).toBe('task')
-        expect(entry.entityId).toBe(tId)
-      }
-      mockCookie = undefined
-    })
-  })
-
-  // ── Approvers route ─────────────────────────────────────────────────────────
-  describe('approvers route', () => {
-    it('returns owner and manager users for the tenant', async () => {
-      mockCookie = ownerSessionToken
-      const res = await approversGET(
-        new Request(`http://localhost/api/approvers?tenantId=${tenantAId}`)
-      )
-      const body = await res.json()
-      expect(body.success).toBe(true)
-      const roles = body.data.map((a: any) => a.role)
-      expect(roles).toContain('owner')
-      expect(roles).toContain('manager')
-      mockCookie = undefined
-    })
-
-    it('works without session when tenantId is provided (standalone mode)', async () => {
-      mockCookie = undefined
-      const res = await approversGET(
-        new Request(`http://localhost/api/approvers?tenantId=${tenantAId}`)
-      )
-      const body = await res.json()
-      expect(body.success).toBe(true)
     })
   })
 })

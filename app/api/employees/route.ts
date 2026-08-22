@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { employees, batches, auditLog } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { employees, batches } from '@/db/schemas'
 import { and, asc, eq, inArray } from 'drizzle-orm'
+import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET/POST /api/employees (issue #247) ────────────────────────────────────
 // Fresh build: no `employees` table or `/api/employees/*` route existed on
@@ -49,14 +49,20 @@ function parseAssignedBatchIds(value: unknown): string[] | undefined {
 
 // GET /api/employees?tenantId=&status= — list a tenant's employees.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const status = url.searchParams.get('status')?.trim()
+
+  // farmId (direct filter — employees.farmId, farm-scoped-data task).
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
   const conditions = [eq(employees.tenantId, tenantId)]
   if (status) conditions.push(eq(employees.status, status))
+  if (farmFilter) conditions.push(eq(employees.farmId, farmFilter))
 
   const rows = await db
     .select()
@@ -69,7 +75,7 @@ export async function GET(req: Request) {
 
 // POST /api/employees — create an employee.
 // Body: { tenantId?, userId?, name, phone?, role?, assignedBatchIds?,
-//         mortalityPhotoThreshold?, status? }
+//         mortalityPhotoThreshold?, status?, farmId? }
 export async function POST(req: Request) {
   let raw: unknown
   try {
@@ -78,12 +84,16 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
   const name = typeof b.name === 'string' ? b.name.trim() : ''
 
-  if (!tenantId) return badRequest('tenantId is required')
   if (!name) return badRequest('name is required')
+
+  // farmId (farm-scoped-data task) — the employee's home farm, optional.
+  const farmFilter = await resolveFarmFilter(tenantId, typeof b.farmId === 'string' ? b.farmId : undefined)
+  if (farmFilter === null) return notFound('Farm not found for this tenant')
 
   const userId = typeof b.userId === 'string' && b.userId.trim() ? b.userId.trim() : null
   const phone = typeof b.phone === 'string' ? b.phone.trim() : ''
@@ -92,6 +102,14 @@ export async function POST(req: Request) {
   const mortalityPhotoThreshold = Number.isFinite(Number(b.mortalityPhotoThreshold))
     ? Math.max(0, Math.trunc(Number(b.mortalityPhotoThreshold)))
     : 3
+  // monthlySalaryCents (payroll v1 — db/schemas/people.ts): the employee's
+  // pay basis, already converted to cents client-side (lib/money.ts's
+  // parseMoneyToCents — same convention POST /api/data/sales's amountCents
+  // uses). Not required: an employee created with no rate simply isn't paid
+  // by a payroll run (see POST /api/payroll/runs).
+  const monthlySalaryCents = Number.isFinite(Number(b.monthlySalaryCents))
+    ? Math.max(0, Math.trunc(Number(b.monthlySalaryCents)))
+    : 0
 
   const requestedBatchIds = parseAssignedBatchIds(b.assignedBatchIds) ?? []
   const assignedBatchIds = await validateBatchIds(tenantId, requestedBatchIds)
@@ -109,20 +127,11 @@ export async function POST(req: Request) {
       role,
       assignedBatchIds,
       mortalityPhotoThreshold,
+      monthlySalaryCents,
       status,
+      farmId: farmFilter ?? null,
     })
     .returning()
-
-  // Timeline's first entry — who added the employee, when.
-  await db.insert(auditLog).values({
-    id: randomUUID(),
-    tenantId,
-    actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
-    action: 'employee.created',
-    entity: 'employee',
-    entityId: id,
-    meta: { name, role, phone },
-  })
 
   return created(rows[0])
 }

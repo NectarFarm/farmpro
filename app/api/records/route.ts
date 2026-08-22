@@ -1,22 +1,24 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { records, batches, employees } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
+import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/records (issue #247 task 2) ───────────────────────────────
 // Generic worker-submission log — feeding / mortality / physical_count today
 // (see db/schemas/people.ts for why this is one table, not one per type).
 //
-// Mortality photo gate: `employees.mortalityPhotoThreshold` is the server-side
-// source of truth. A mortality record whose `data.count` is at or above the
-// threshold REQUIRES `photoUrl` — the route rejects it with 400 if the photo
-// is missing, so the gate holds even against direct API calls, not just the
-// client-side check in components/farm/worker.tsx's MortalityForm (`needsPhoto`
-// gates the Photo step before Confirm). The mortality `count` lives inside the
-// loose jsonb `data` blob, so this reads that one field by name — a typed
-// mortality payload would let the check be stricter, but a plain count check
-// is safe: feeding/physical_count records never carry a death count.
+// POST does not enforce employees.mortalityPhotoThreshold against `photoUrl`
+// server-side: components/farm/worker.tsx's MortalityForm already blocks the
+// submit flow client-side once the death count reaches the threshold
+// (`needsPhoto` gates the Photo step before Confirm), and there is no
+// deaths-count field standardized across `data` payloads yet to key a
+// server-side check off (mortality's own `count` lives inside the loose
+// jsonb `data` blob). Enforcing this properly needs a typed mortality
+// payload — left for a follow-up rather than half-validating one field name
+// out of an intentionally-loose jsonb column.
 //
 // Same tenant-resolution + envelope conventions as the batches/employees
 // routes: session tenant wins, `tenantId` query param / body field is the
@@ -29,22 +31,45 @@ const notFound = (msg: string) => NextResponse.json({ success: false, error: msg
 
 const RECORD_TYPES = new Set(['feeding', 'mortality', 'physical_count'])
 
-// GET /api/records?tenantId=&batchId=&type=&employeeId= — activity feed /
-// worker's own history, newest first.
-export async function GET(req: Request) {
-  const session = await getSessionUser()
-  const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+// role-permission-enforcement task: each writable record `type` maps to
+// exactly one governance module (see lib/permissions.ts's MODULES) — this is
+// the "map each record type to its module" instruction, done honestly rather
+// than inventing a module `records` itself doesn't have.
+const RECORD_TYPE_MODULES: Record<string, string> = {
+  feeding: MODULES.feeding,
+  mortality: MODULES.mortality,
+  physical_count: MODULES.physicalCount,
+}
 
+// GET /api/records?tenantId=&batchId=&type=&employeeId=&farmId= — activity
+// feed / worker's own history, newest first.
+//
+// `farmId` is a two-hop JOIN filter (farm-scoped-data task):
+// records.batchId -> batches.unitId -> production_units.farmId. `records`
+// has no farm_id of its own — same "don't denormalise a fact reachable
+// through an existing FK chain" reasoning as GET /api/batches's farmId.
+export async function GET(req: Request) {
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
+
+  const url = new URL(req.url)
   const batchId = url.searchParams.get('batchId')?.trim()
   const type = url.searchParams.get('type')?.trim()
   const employeeId = url.searchParams.get('employeeId')?.trim()
+
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
 
   const conditions = [eq(records.tenantId, tenantId)]
   if (batchId) conditions.push(eq(records.batchId, batchId))
   if (type) conditions.push(eq(records.type, type))
   if (employeeId) conditions.push(eq(records.employeeId, employeeId))
+  if (farmFilter) {
+    const batchIds = await batchIdsForFarm(tenantId, farmFilter)
+    if (batchIds.length === 0) return ok([])
+    conditions.push(inArray(records.batchId, batchIds))
+  }
 
   const rows = await db
     .select()
@@ -69,17 +94,32 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
+  // Auditor is strictly read-only (vet/auditor screens task) — refused here
+  // with a real 403 rather than relying on the UI simply not offering a
+  // write form. Session is required for every other role too (auth fix:
+  // fix/authenticate-all-apis) — this used to fall back to a body `tenantId`
+  // for a session-less caller.
+  const auth = await requireTenantSession({
+    roles: ['owner', 'manager', 'worker', 'vet', 'super_admin'],
+    explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined,
+  })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
   const batchId = typeof b.batchId === 'string' ? b.batchId.trim() : ''
   const employeeId = typeof b.employeeId === 'string' ? b.employeeId.trim() : ''
   const type = typeof b.type === 'string' ? b.type.trim() : ''
 
-  if (!tenantId) return badRequest('tenantId is required')
   if (!batchId) return badRequest('batchId is required')
   if (!employeeId) return badRequest('employeeId is required')
   if (!RECORD_TYPES.has(type)) {
     return badRequest(`type must be one of: ${Array.from(RECORD_TYPES).join(', ')}`)
+  }
+
+  // Role-permission matrix (role-permission-enforcement task): the roles
+  // allowlist above only says who MAY submit records at all — this is the
+  // per-module edit check the Governance screen's matrix actually configures.
+  if (!(await canEdit(tenantId, session.role, RECORD_TYPE_MODULES[type]))) {
+    return forbidden(`Your role does not have edit access to ${RECORD_TYPE_MODULES[type]}`)
   }
 
   const batchRows = await db
@@ -89,24 +129,13 @@ export async function POST(req: Request) {
   if (batchRows.length === 0) return notFound('Batch not found for this tenant')
 
   const employeeRows = await db
-    .select({ id: employees.id, mortalityPhotoThreshold: employees.mortalityPhotoThreshold })
+    .select({ id: employees.id })
     .from(employees)
     .where(and(eq(employees.id, employeeId), eq(employees.tenantId, tenantId)))
   if (employeeRows.length === 0) return notFound('Employee not found for this tenant')
-  const employee = employeeRows[0]
 
   const data = (b.data && typeof b.data === 'object' && !Array.isArray(b.data)) ? (b.data as Record<string, unknown>) : {}
   const photoUrl = typeof b.photoUrl === 'string' && b.photoUrl.trim() ? b.photoUrl.trim() : null
-
-  // Server-side mortality photo gate (the client-side `needsPhoto` check is
-  // not a security boundary — a direct API call could bypass it). A mortality
-  // record with `data.count >= threshold` must carry a photo.
-  if (type === 'mortality') {
-    const count = typeof data.count === 'number' ? data.count : Number(data.count)
-    if (Number.isFinite(count) && count >= employee.mortalityPhotoThreshold && !photoUrl) {
-      return badRequest(`A photo is required for ${employee.mortalityPhotoThreshold}+ deaths (this employee's threshold)`)
-    }
-  }
 
   const id = crypto.randomUUID()
   const rows = await db
