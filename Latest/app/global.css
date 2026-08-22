@@ -192,6 +192,18 @@
   .bottom-nav { display: none; }
 }
 
+/* Settings' "Farm Management" hub (components/farm/settings.tsx,
+ * settings-reorg): mobile's "More" tab destinations for screens the desktop
+ * sidebar already lists as first-class items (Inventory, Weather, People,
+ * Governance, Reports). Hidden rather than removed — a phone still has no
+ * sidebar, so this stays its only path to them. Same 768px breakpoint as
+ * the sidebar itself, and same base-rule-then-override ordering as
+ * .bottom-nav above so the responsive rule reliably wins. */
+.settings-hub-mobile-only { display: block; }
+@media (min-width: 768px) {
+  .settings-hub-mobile-only { display: none; }
+}
+
 /* The app shell deliberately has NO max-width. It used to cap at 1440px and
  * centre itself, so any viewport wider than that — a large monitor, or simply
  * zooming out, which grows the viewport in CSS pixels — left the

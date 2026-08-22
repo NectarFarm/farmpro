@@ -24,7 +24,7 @@ import { POST as loginPOST } from '@/app/api/auth/login/route'
 import { POST as workerPinsPOST } from '@/app/api/security/worker-pins/route'
 import { PATCH as adminUserPATCH } from '@/app/api/admin/users/[id]/route'
 import { db } from '@/db'
-import { tenants, users, sessions, loginThrottle } from '@/db/schemas'
+import { tenants, users, sessions, loginThrottle, tenantSettings } from '@/db/schemas'
 import { createSession, destroySession, getSessionUser, hashSecret, pinPrefilter } from '@/lib/auth'
 import { normalizePhone, toStoredPhone } from '@/lib/validation'
 
@@ -143,6 +143,7 @@ run('auth: login + suspended-tenant gate (issue #223)', () => {
       await db.delete(sessions).where(eq(sessions.userId, id))
       await db.delete(users).where(eq(users.id, id))
     }
+    await db.delete(tenantSettings).where(eq(tenantSettings.tenantId, tenantActiveId))
     await db.delete(tenants).where(inArray(tenants.id, [tenantActiveId, tenantSuspendedId]))
     await db.delete(loginThrottle).where(inArray(loginThrottle.identifier, throttleIds))
   })
@@ -224,6 +225,50 @@ run('auth: login + suspended-tenant gate (issue #223)', () => {
       mockCookie = undefined
       await destroySession(token)
     }
+  })
+
+  // ── Tenant-configurable session timeout (settings-reorg) ──
+  // tenant_settings.sessionTimeoutMinutes is read at LOGIN time
+  // (app/api/auth/login/route.ts's sessionTtlMsFor) and used as the new
+  // session row's real expiry — not just stored and ignored. Proven against
+  // the actual `sessions.expires_at` column, not the login response body
+  // (which never echoes it back).
+  it('a configured sessionTimeoutMinutes shortens the session issued at login, instead of the 30-day default', async () => {
+    // Earlier tests in this suite log in as the same owner without cleaning
+    // up their session rows — start from a clean slate so "the session just
+    // issued" is unambiguous rather than picked out of several by sorting.
+    await db.delete(sessions).where(eq(sessions.userId, ownerId))
+    await db.insert(tenantSettings).values({ tenantId: tenantActiveId, sessionTimeoutMinutes: 30 })
+    try {
+      const before = new Date()
+      const { status } = await attempt({ email: ownerEmail, password: ownerPassword })
+      expect(status).toBe(200)
+
+      const rows = await db.select().from(sessions).where(eq(sessions.userId, ownerId))
+      expect(rows).toHaveLength(1)
+      const minutesUntilExpiry = (rows[0].expiresAt.getTime() - before.getTime()) / 60_000
+      // Comfortably inside 30 minutes, nowhere near the 30-day default —
+      // proves the tenant's own setting won, not the platform fallback.
+      expect(minutesUntilExpiry).toBeGreaterThan(25)
+      expect(minutesUntilExpiry).toBeLessThan(35)
+    } finally {
+      await db.delete(tenantSettings).where(eq(tenantSettings.tenantId, tenantActiveId))
+      await db.delete(sessions).where(eq(sessions.userId, ownerId))
+    }
+  })
+
+  it('an unconfigured tenant (no sessionTimeoutMinutes row) still gets the normal 30-day session', async () => {
+    await db.delete(sessions).where(eq(sessions.userId, ownerId))
+    const before = new Date()
+    const { status } = await attempt({ email: ownerEmail, password: ownerPassword })
+    expect(status).toBe(200)
+
+    const rows = await db.select().from(sessions).where(eq(sessions.userId, ownerId))
+    expect(rows).toHaveLength(1)
+    const daysUntilExpiry = (rows[0].expiresAt.getTime() - before.getTime()) / (24 * 60 * 60 * 1000)
+    expect(daysUntilExpiry).toBeGreaterThan(29)
+    expect(daysUntilExpiry).toBeLessThan(31)
+    await db.delete(sessions).where(eq(sessions.userId, ownerId))
   })
 })
 

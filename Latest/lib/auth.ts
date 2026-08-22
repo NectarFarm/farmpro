@@ -11,7 +11,16 @@ import { db } from '@/db'
 import { loginThrottle, sessions, tenants, users } from '@/db/schemas'
 
 export const SESSION_COOKIE = 'ifms_session'
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+
+// Bounds for tenant_settings.sessionTimeoutMinutes (settings-reorg) —
+// validated in app/api/settings/route.ts, applied at login in
+// app/api/auth/login/route.ts. Floor of 15 minutes keeps a mis-set value
+// from locking a shared farm-office device out mid-task; ceiling is just the
+// platform default itself, so a tenant can only ever shorten a session, not
+// lengthen it past what an unconfigured tenant already gets.
+export const MIN_SESSION_TIMEOUT_MINUTES = 15
+export const MAX_SESSION_TIMEOUT_MINUTES = SESSION_TTL_MS / 60_000
 
 export interface SessionUser {
   id: string
@@ -116,14 +125,20 @@ export function newSessionToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
-export async function createSession(userId: string): Promise<string> {
+// `ttlMs` defaults to the platform's normal 30-day session — pass a shorter
+// value for a tenant that has configured its own sessionTimeoutMinutes
+// (settings-reorg; see app/api/auth/login/route.ts) so shared farm-office
+// devices sign out sooner, the same knob createImpersonationSession already
+// used for a different reason (a bounded admin window rather than a
+// tenant-wide default).
+export async function createSession(userId: string, ttlMs: number = SESSION_TTL_MS): Promise<string> {
   const token = newSessionToken()
   const now = new Date()
   await db.insert(sessions).values({
     token,
     userId,
     createdAt: now,
-    expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
+    expiresAt: new Date(now.getTime() + ttlMs),
   })
   return token
 }
