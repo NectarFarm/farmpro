@@ -1,0 +1,9 @@
+# Sibling working directories that are not part of the app. Frontend/ alone is
+# ~1.3GB and aborts the upload; apk-build/ holds a signing keystore.
+Frontend
+apk-build
+verify-221
+node_modules
+.next
+.env
+.env.*
