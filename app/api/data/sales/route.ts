@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { batches } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { batches, products } from '@/db/schemas'
 import { listSales, recordSale } from '@/lib/finance'
 import { and, eq } from 'drizzle-orm'
+import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
 // before this issue (the issue's own branch-correction note confirms it).
 // Field set matches the issue's exact spec and components/farm/finance.tsx's
-// `SALES` mock 1:1 (id, batchId, item, amount, method, status, soldAt).
+// `SALES` mock 1:1 (id, batchId, item, amountCents, method, status, soldAt).
 //
 // POST also posts the sale's journal entry in the same DB transaction — see
 // lib/finance.ts's recordSale / postSaleJournal for the posting rule and the
@@ -27,19 +28,46 @@ const notFound = (msg: string) => NextResponse.json({ success: false, error: msg
 
 const VALID_STATUSES = new Set(['paid', 'pending'])
 
-// GET /api/data/sales?tenantId=... — list a tenant's sales, newest first.
+// GET /api/data/sales?tenantId=...&farmId= — list a tenant's sales, newest
+// first. `farmId` is a two-hop JOIN filter (farm-scoped-data task):
+// sales.batchId -> batches.unitId -> production_units.farmId — sales has no
+// farm_id of its own, same reasoning as GET /api/records's farmId.
 export async function GET(req: Request) {
-  const session = await getSessionUser()
   const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
+
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
+  if (farmFilter) {
+    const batchIds = await batchIdsForFarm(tenantId, farmFilter)
+    if (batchIds.length === 0) return ok([])
+    const rows = await listSales(tenantId, batchIds)
+    return ok(rows)
+  }
 
   const rows = await listSales(tenantId)
   return ok(rows)
 }
 
 // POST /api/data/sales — record a sale (and post its journal entry).
-// Body: { tenantId?, batchId?, item, amount, method?, status?, soldAt? }
+// Body: { tenantId?, batchId?, productId?, item?, amountCents, method?,
+//         status?, soldAt? }
+//
+// `amountCents` (issue: money-unit-enforcement): renamed from `amount` and
+// now in cents, matching `purchases`' `unitCostCents`/`totalCostCents`/
+// `amountPaidCents` convention (every money field, in every route body, is
+// cents) — see db/schemas/finance.ts's `sales.amountCents` and lib/money.ts.
+//
+// `productId` (product-unit-inheritance task, optional): when present and
+// `item` is not explicitly supplied, `item` is filled in from the product's
+// own name — so a catalogue-driven sale doesn't force the caller to retype
+// the label the catalogue already knows, while an ad-hoc sale with no
+// productId still requires `item` exactly as before. `productId` must
+// belong to the caller's tenant (tenant isolation, same 404-not-500 shape as
+// `batchId` below).
 export async function POST(req: Request) {
   let raw: unknown
   try {
@@ -48,22 +76,30 @@ export async function POST(req: Request) {
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? (typeof b.tenantId === 'string' ? b.tenantId.trim() : '')
-  const item = typeof b.item === 'string' ? b.item.trim() : ''
-  const amount = Number(b.amount)
-  const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'paid'
-  const batchId = typeof b.batchId === 'string' && b.batchId.trim() ? b.batchId.trim() : null
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
 
-  // Role-matrix enforcement (lib/permissions.ts): recording a sale is a write
-  // on the 'finance' module.
-  if (session && !(await canEdit(tenantId, session.role, MODULES.finance))) {
-    return NextResponse.json({ success: false, error: 'You do not have permission to record sales' }, { status: 403 })
+  if (!(await canEdit(tenantId, session.role, MODULES.finance))) {
+    return forbidden('Your role does not have edit access to finance')
   }
 
-  if (!tenantId) return badRequest('tenantId is required')
+  let item = typeof b.item === 'string' ? b.item.trim() : ''
+  const amountCents = Number(b.amountCents)
+  const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'paid'
+  const batchId = typeof b.batchId === 'string' && b.batchId.trim() ? b.batchId.trim() : null
+  const productId = typeof b.productId === 'string' && b.productId.trim() ? b.productId.trim() : null
+
+  let product: { id: string; name: string } | undefined
+  if (productId) {
+    const rows = await db.select({ id: products.id, name: products.name }).from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId)))
+    product = rows[0]
+    if (!product) return notFound('Product not found for this tenant')
+    if (!item) item = product.name
+  }
+
   if (!item) return badRequest('item is required')
-  if (!Number.isFinite(amount) || amount <= 0) return badRequest('amount must be a positive number')
+  if (!Number.isFinite(amountCents) || amountCents <= 0) return badRequest('amountCents must be a positive number')
   if (!VALID_STATUSES.has(status)) return badRequest("status must be 'paid' or 'pending'")
 
   if (batchId) {
@@ -77,8 +113,9 @@ export async function POST(req: Request) {
   const sale = await recordSale({
     tenantId,
     batchId,
+    productId,
     item,
-    amount: Math.trunc(amount),
+    amountCents: Math.trunc(amountCents),
     method,
     status,
     soldAt,

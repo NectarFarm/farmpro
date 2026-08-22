@@ -27,45 +27,23 @@ const TENANTS = [
   { id: 't2', name: 'Suspended Farm Co.', active: false },
 ]
 
+// `phone` is required for a worker's PIN to be usable at all (login now
+// resolves the PIN-login candidate by phone, not by PIN alone — issue: PIN
+// alone let one worker sign in as another). Only the two workers get one;
+// other roles sign in with email/password and phone stays null for them.
 const USERS = [
-  { email: 'james@nakurufarm.com', password: 'farm2026', pin: null, role: 'owner', name: 'James Kamau', tenantId: 't1' },
-  { email: 'peter@nakurufarm.com', password: 'mgr123', pin: null, role: 'manager', name: 'Peter Njoroge', tenantId: 't1' },
-  { email: 'john@nakurufarm.com', password: 'worker123', pin: '1234', role: 'worker', name: 'John Kamau', tenantId: 't1' },
-  { email: 'vet@nakurufarm.com', password: 'vet123', pin: null, role: 'vet', name: 'Dr. Grace Wanjiru', tenantId: 't1' },
-  { email: 'auditor@ifms.co', password: 'aud123', pin: null, role: 'auditor', name: 'Alice Auditor', tenantId: 't1' },
-  { email: 'susan@nakurufarm.com', password: 'susp123', pin: '5678', role: 'worker', name: 'Susan Mwangi', tenantId: 't2' },
-  { email: 'admin@ifms.co', password: 'admin2026', pin: null, role: 'super_admin', name: 'IFMS Admin', tenantId: null },
+  { email: 'james@nakurufarm.com', password: 'farm2026', pin: null, phone: null, role: 'owner', name: 'James Kamau', tenantId: 't1' },
+  { email: 'peter@nakurufarm.com', password: 'mgr123', pin: null, phone: null, role: 'manager', name: 'Peter Njoroge', tenantId: 't1' },
+  { email: 'john@nakurufarm.com', password: 'worker123', pin: '1234', phone: '+254712345001', role: 'worker', name: 'John Kamau', tenantId: 't1' },
+  { email: 'vet@nakurufarm.com', password: 'vet123', pin: null, phone: null, role: 'vet', name: 'Dr. Grace Wanjiru', tenantId: 't1' },
+  { email: 'auditor@ifms.co', password: 'aud123', pin: null, phone: null, role: 'auditor', name: 'Alice Auditor', tenantId: 't1' },
+  { email: 'susan@nakurufarm.com', password: 'susp123', pin: '5678', phone: '+254712345002', role: 'worker', name: 'Susan Mwangi', tenantId: 't2' },
+  { email: 'admin@ifms.co', password: 'admin2026', pin: null, phone: null, role: 'super_admin', name: 'IFMS Admin', tenantId: null },
 ]
 
 const FARMS = [
-  { id: 'f1', tenantId: 't1', name: 'Nakuru Main Farm', location: 'Nakuru', code: 'FRM-NAKURU-MAIN' },
-  { id: 'f2', tenantId: 't1', name: 'Eldoret Satellite', location: 'Eldoret', code: 'FRM-ELDORET-SATE' },
-]
-
-// ── Demo data: units / batches / employees per farm ─────────────────────────
-// So a fresh `pnpm db:seed` has something real to show on both farms (the farm
-// switcher filters Crops by unit farm, and People by the employee's assigned
-// batches' farms — see components/farm/people.tsx). Fixed IDs + ON CONFLICT
-// DO NOTHING keep this idempotent and identical to a previously-seeded DB.
-const DEMO_UNITS = [
-  // Nakuru (mirrors the rows the running dev DB already had, if present)
-  { id: 'b420423b-1860-468c-8c73-29b68d7a3e8f', tenantId: 't1', farmId: 'f1', type: 'house', name: 'House 001', code: 'HSE-NAKURU-001' },
-  // Eldoret
-  { id: 'e1d0ret-0000-0000-0000-000000000001', tenantId: 't1', farmId: 'f2', type: 'house', name: 'House E01', code: 'HSE-ELDORET-001' },
-]
-
-const DEMO_BATCHES = [
-  // Nakuru
-  { id: '2990a223-6106-408d-a19f-3e2fe74e16b0', tenantId: 't1', unitId: 'b420423b-1860-468c-8c73-29b68d7a3e8f', code: 'BRO-NAKURU-001', name: 'Broilers Batch – Aug 2026', species: 'Spring hen', enterprise: 'broiler', initialQty: 1200, currentQty: 1200, costCents: 1200000 },
-  // Eldoret
-  { id: 'e1d0ret-0000-0000-0000-000000000002', tenantId: 't1', unitId: 'e1d0ret-0000-0000-0000-000000000001', code: 'BRO-ELDORET-001', name: 'Eldoret Broiler Run', species: 'Cobb 500', enterprise: 'broiler', initialQty: 500, currentQty: 480, costCents: 600000 },
-]
-
-const DEMO_EMPLOYEES = [
-  // Nakuru
-  { id: '472e6747-7b6c-4074-8efa-6b2ee2513329', tenantId: 't1', name: 'Akai Elim', phone: '+254799979067', role: 'worker', batchIds: ['2990a223-6106-408d-a19f-3e2fe74e16b0'] },
-  // Eldoret
-  { id: 'e1d0ret-0000-0000-0000-000000000003', tenantId: 't1', name: 'Lydia Chebet', phone: '+254711222333', role: 'worker', batchIds: ['e1d0ret-0000-0000-0000-000000000002'] },
+  { id: 'f1', tenantId: 't1', name: 'Nakuru Main Farm', location: 'Nakuru', code: 'FRM-NAKURU-MAIN', latitude: -0.3031, longitude: 36.0800 },
+  { id: 'f2', tenantId: 't1', name: 'Eldoret Satellite', location: 'Eldoret', code: 'FRM-ELDORET-SATE', latitude: 0.5143, longitude: 35.2698 },
 ]
 
 try {
@@ -82,51 +60,27 @@ try {
   for (const u of USERS) {
     const salt = saltFor()
     const res = await sql`
-      INSERT INTO users (id, tenant_id, name, email, role, password_hash, password_salt, pin_hash, pin_prefilter, status)
+      INSERT INTO users (id, tenant_id, name, email, role, password_hash, password_salt, pin_hash, pin_prefilter, phone, status)
       VALUES (${randomUUID()}, ${u.tenantId}, ${u.name}, ${u.email}, ${u.role},
               ${hash(u.password, salt)}, ${salt}, ${u.pin ? hash(u.pin, salt) : null},
-              ${u.pin ? pinPrefilter(u.pin) : null}, 'ACTIVE')
-      ON CONFLICT (email) DO UPDATE SET pin_prefilter = EXCLUDED.pin_prefilter
+              ${u.pin ? pinPrefilter(u.pin) : null}, ${u.phone}, 'ACTIVE')
+      ON CONFLICT (email) DO UPDATE SET pin_prefilter = EXCLUDED.pin_prefilter, phone = EXCLUDED.phone
     `
     if (res.count > 0) inserted += 1
   }
   let farmInserted = 0
   for (const f of FARMS) {
     const res = await sql`
-      INSERT INTO farms (id, tenant_id, name, location, code)
-      VALUES (${f.id}, ${f.tenantId}, ${f.name}, ${f.location}, ${f.code})
-      ON CONFLICT (tenant_id, code) DO NOTHING
+      INSERT INTO farms (id, tenant_id, name, location, code, latitude, longitude)
+      VALUES (${f.id}, ${f.tenantId}, ${f.name}, ${f.location}, ${f.code}, ${f.latitude ?? null}, ${f.longitude ?? null})
+      -- Coordinates are updated on conflict so an existing demo database picks
+      -- them up; without them the weather screen has nowhere to ask about.
+      ON CONFLICT (tenant_id, code) DO UPDATE
+        SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude
     `
     if (res.count > 0) farmInserted += 1
   }
-  let unitInserted = 0
-  for (const u of DEMO_UNITS) {
-    const res = await sql`
-      INSERT INTO production_units (id, tenant_id, farm_id, type, name, code, status)
-      VALUES (${u.id}, ${u.tenantId}, ${u.farmId}, ${u.type}, ${u.name}, ${u.code}, 'ACTIVE')
-      ON CONFLICT (tenant_id, code) DO NOTHING
-    `
-    if (res.count > 0) unitInserted += 1
-  }
-  let batchInserted = 0
-  for (const b of DEMO_BATCHES) {
-    const res = await sql`
-      INSERT INTO batches (id, tenant_id, unit_id, code, name, species, enterprise, stage, status, initial_qty, current_qty, acquisition_cost_cents)
-      VALUES (${b.id}, ${b.tenantId}, ${b.unitId}, ${b.code}, ${b.name}, ${b.species}, ${b.enterprise}, '', 'ACTIVE', ${b.initialQty}, ${b.currentQty}, ${b.costCents})
-      ON CONFLICT (tenant_id, code) DO NOTHING
-    `
-    if (res.count > 0) batchInserted += 1
-  }
-  let employeeInserted = 0
-  for (const e of DEMO_EMPLOYEES) {
-    const res = await sql`
-      INSERT INTO employees (id, tenant_id, name, phone, role, assigned_batch_ids, mortality_photo_threshold, status)
-      VALUES (${e.id}, ${e.tenantId}, ${e.name}, ${e.phone}, ${e.role}, ${e.batchIds}, 3, 'ACTIVE')
-      ON CONFLICT (id) DO NOTHING
-    `
-    if (res.count > 0) employeeInserted += 1
-  }
-  console.log(`seed ok: ${tenantInserted} tenants inserted (${TENANTS.length} total), ${inserted} users inserted (${USERS.length} total), ${farmInserted} farms inserted (${FARMS.length} total), ${unitInserted} units, ${batchInserted} batches, ${employeeInserted} employees`)
+  console.log(`seed ok: ${tenantInserted} tenants inserted (${TENANTS.length} total), ${inserted} users inserted (${USERS.length} total), ${farmInserted} farms inserted (${FARMS.length} total)`)
 } catch (err) {
   console.error('seed failed:', err)
   process.exitCode = 1

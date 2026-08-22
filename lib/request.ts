@@ -6,6 +6,7 @@ type ApiEnvelope = {
   success: boolean
   data?: unknown
   error?: unknown
+  fields?: unknown
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,6 +40,28 @@ function errorMessage(payload: unknown, fallback: string): string {
   return fallback
 }
 
+// Server-side validation routes return a `fields` map alongside `error` so a
+// form can mark every offending input at once. Without this the map was
+// silently dropped here — parseApiResponse rebuilt a fresh { success, error }
+// object — and field-level errors could never reach the UI.
+function errorFields(payload: unknown): Record<string, string> | undefined {
+  if (!isRecord(payload) || !isRecord(payload.fields)) return undefined
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(payload.fields)) {
+    if (typeof value === 'string' && value) out[key] = value
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+function failure(payload: unknown, fallback: string): ApiResponse<never> {
+  const fields = errorFields(payload)
+  return {
+    success: false,
+    error: errorMessage(payload, fallback),
+    ...(fields ? { fields } : {}),
+  }
+}
+
 export async function parseApiResponse<T>(
   response: Response
 ): Promise<ApiResponse<T>> {
@@ -64,10 +87,7 @@ export async function parseApiResponse<T>(
   // of wrapping it again as { success: true, data: envelope }.
   if (isApiEnvelope(payload)) {
     if (!response.ok || !payload.success) {
-      return {
-        success: false,
-        error: errorMessage(payload, fallback),
-      }
+      return failure(payload, fallback)
     }
     return {
       success: true,
@@ -76,10 +96,7 @@ export async function parseApiResponse<T>(
   }
 
   if (!response.ok) {
-    return {
-      success: false,
-      error: errorMessage(payload, fallback),
-    }
+    return failure(payload, fallback)
   }
 
   // Compatibility for existing routes that still return a bare success value.

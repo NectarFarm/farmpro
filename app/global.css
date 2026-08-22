@@ -3,60 +3,256 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Theme tokens (ui-polish-theme-weather) ──────────────────────────────────
+ * Settings offers four themes (tenant_settings.theme) and, until this task,
+ * nothing applied the stored choice to the DOM: no class/attribute ever
+ * landed on <html>, global.css had zero per-theme overrides, and 43 hex
+ * colours below bypassed the token system entirely — so picking a theme
+ * changed a database row and nothing else. components/farm/settings.tsx's
+ * ThemeProvider now sets `data-theme` on <html> (see applyThemeVisuals) and
+ * every theme's full palette lives here as one flat override block per
+ * theme, keyed on that attribute — the single source of truth for what each
+ * theme looks like, instead of a scattered .style.setProperty() call per
+ * token from JS.
+ *
+ * :root below IS "light-farm" (the operational default before any theme is
+ * read from settings, and while data-theme="light-farm" is set — no
+ * override block needed for it since :root already matches). The other
+ * three themes each override the full set of role tokens beneath it. */
 :root {
-  /* Farm SaaS palette - earthy green meets precision tech */
-  --background: #0a0f0a;
-  --surface: #0f1a0f;
-  --card: #121f12;
-  --card-hover: #182618;
-  --border-subtle: rgba(255,255,255,0.07);
-  --border-hover: rgba(74,222,128,0.45);
+  /* Operational default: neutral, daylight-friendly, with colour reserved for meaning. */
+  --background: #f7f8f5;
+  --surface: #ffffff;
+  --card: #ffffff;
+  --card-hover: #fafbf8;
+  --border-subtle: #e4e7e1;
+  --border-hover: #9fbea6;
 
-  --primary-green: #4ade80;
-  --accent-lime: #a3e635;
-  --accent-amber: #fbbf24;
-  --accent-red: #f87171;
-  --accent-blue: #60a5fa;
-  --accent-purple: #a78bfa;
-  --accent-cyan: #22d3ee;
+  --primary-green: #2f6f3e;
+  /* Hover/pressed shade of --primary-green — was a hardcoded #285f35 baked
+   * into .btn-primary:hover, so a theme that made --primary-green bright
+   * (dark/high-contrast/sun) still darkened toward this one fixed shade on
+   * hover, which looked wrong or, worse, barely changed at all. */
+  --primary-green-strong: #285f35;
+  /* Text/icon colour placed ON TOP of a --primary-green fill (buttons, the
+   * FAB, the active step indicator). Light-farm's green is dark enough for
+   * white text, but dark-farm/high-contrast/sun-mode make --primary-green a
+   * BRIGHT colour (mint/neon-lime/amber) — white text on those fails
+   * contrast outright, which is exactly the kind of "white flash hides the
+   * text" bug the table-hover fix below addresses too. */
+  --on-primary: #ffffff;
+  --accent-lime: #6d9f45;
+  --accent-amber: #b7791f;
+  --accent-red: #c94a45;
+  --accent-blue: #2866a3;
+  /* Legacy aliases retain meaning without decorative colour. */
+  --accent-purple: #5f685f;
+  --accent-cyan: #2866a3;
 
-  --text-primary: #f0fdf4;
-  --text-secondary: #86efac;
-  --text-muted: #4b7c52;
-  --text-dim: #2d4a30;
+  --text-primary: #182018;
+  --text-secondary: #3f6b49;
+  --text-muted: #5f685f;
+  --text-dim: #8a9289;
 
   /* Semantic status */
-  --status-ok: #4ade80;
-  --status-warning: #fbbf24;
-  --status-critical: #f87171;
-  --status-info: #60a5fa;
+  --status-ok: #2f7d43;
+  --status-warning: #b7791f;
+  --status-critical: #c94a45;
+  --status-info: #2866a3;
 
-  --gradient-primary: linear-gradient(135deg, #4ade80 0%, #a3e635 100%);
-  --gradient-warm: linear-gradient(135deg, #fbbf24 0%, #f97316 100%);
-  --gradient-hero: linear-gradient(180deg, #0a0f0a 0%, #0f1f10 100%);
+  /* Chip/badge tints — were hardcoded light pastels (.chip-ok etc. below),
+   * so a status pill stayed pastel-on-white even on a black or dark-green
+   * background. Foreground stays the --status-* token above (already
+   * theme-aware); only the background needed a token of its own. */
+  --chip-ok-bg: #e8f3e9;
+  --chip-warning-bg: #fbf0dc;
+  --chip-critical-bg: #fbe9e7;
+  --chip-info-bg: #e9f0f8;
+  --chip-neutral-bg: #f0f2ee;
+
+  --gradient-primary: #2f6f3e;
+  --gradient-warm: #b7791f;
+  --gradient-hero: #f7f8f5;
+
+  /* .farm-viewport's backdrop behind the device frame — was a hardcoded
+   * #edf0ea (a light grey), which stayed a light band around a dark-themed
+   * app instead of receding behind it. */
+  --viewport-bg: #edf0ea;
 
   --nav-height: 64px;
   --bottom-nav-height: 68px;
   --radius: 0.75rem;
 
+  /* ── Type scale (ui-polish-theme-weather) ──────────────────────────────────
+   * Replaces ~24 distinct ad-hoc `fontSize: N` pixel values scattered across
+   * components/farm/*.tsx (one-off numbers like 7, 9, 15, 22, 26, 34, 40, 44,
+   * 48 with no relationship to each other) with 13 named steps every inline
+   * style now references as `fontSize: 'var(--fs-*)'`. Two things this buys
+   * beyond consistency: it's in rem, so it's the piece that makes
+   * tenant_settings.font_size (small/normal/large/xlarge) actually change
+   * the READING text of the app — before this, ThemeProvider's
+   * applyFontSizeVisuals() only ever changed <html>'s root font-size, which
+   * every one of those hardcoded *pixel* values ignored completely. */
+  --fs-2xs: 0.625rem;   /* 10px */
+  --fs-xs: 0.6875rem;   /* 11px */
+  --fs-sm: 0.75rem;     /* 12px */
+  --fs-base: 0.8125rem; /* 13px */
+  --fs-md: 0.875rem;    /* 14px */
+  --fs-lg: 1rem;        /* 16px */
+  --fs-xl: 1.125rem;    /* 18px */
+  --fs-2xl: 1.25rem;    /* 20px */
+  --fs-3xl: 1.5rem;     /* 24px */
+  --fs-4xl: 1.75rem;    /* 28px */
+  --fs-5xl: 2rem;       /* 32px */
+  --fs-6xl: 2.25rem;    /* 36px */
+  --fs-hero: 3.25rem;   /* 52px */
+
   /* Shadcn compat */
-  --foreground: 240 5% 96%;
+  --foreground: 120 12% 11%;
   --popover: 222.2 84% 4.9%;
   --popover-foreground: 210 40% 98%;
-  --primary: 142 72% 58%;
-  --primary-foreground: 0 0% 7%;
-  --secondary: 141 40% 12%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 141 30% 11%;
-  --muted-foreground: 141 25% 54%;
-  --accent: 141 40% 12%;
-  --accent-foreground: 210 40% 98%;
+  --primary: 132 40% 31%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 90 14% 96%;
+  --secondary-foreground: 120 12% 11%;
+  --muted: 90 14% 96%;
+  --muted-foreground: 110 7% 40%;
+  --accent: 90 14% 96%;
+  --accent-foreground: 120 12% 11%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 210 40% 98%;
-  --border: 141 18% 16%;
-  --input: 141 18% 16%;
-  --ring: 142 72% 58%;
+  --border: 90 10% 89%;
+  --input: 90 10% 89%;
+  --ring: 132 40% 31%;
   --radius: 0.75rem;
+}
+
+/* ── Dark Farm ── low-light view; the app's original dark-green aesthetic. */
+:root[data-theme='dark-farm'] {
+  --background: #0a0f0a;
+  --surface: #0f1a0f;
+  --card: #121f12;
+  --card-hover: #17281a;
+  --border-subtle: rgba(255,255,255,0.09);
+  --border-hover: rgba(134,239,172,0.35);
+
+  --primary-green: #4ade80;
+  --primary-green-strong: #22c55e;
+  --on-primary: #062b0e;
+  --accent-lime: #a3e635;
+  --accent-amber: #f59e0b;
+  --accent-red: #f87171;
+  --accent-blue: #60a5fa;
+  --accent-purple: #c084fc;
+  --accent-cyan: #22d3ee;
+
+  --text-primary: #f0fdf4;
+  --text-secondary: #86efac;
+  --text-muted: #7a9d80;
+  --text-dim: #55705a;
+
+  --status-ok: #4ade80;
+  --status-warning: #fbbf24;
+  --status-critical: #f87171;
+  --status-info: #60a5fa;
+
+  --chip-ok-bg: rgba(74,222,128,0.15);
+  --chip-warning-bg: rgba(251,191,36,0.12);
+  --chip-critical-bg: rgba(248,113,113,0.12);
+  --chip-info-bg: rgba(96,165,250,0.12);
+  --chip-neutral-bg: rgba(255,255,255,0.06);
+
+  --gradient-primary: #4ade80;
+  --gradient-warm: #fbbf24;
+  --gradient-hero: #0a0f0a;
+  --viewport-bg: #050805;
+}
+
+/* ── High Contrast ── black & white, maximum legibility. Accents stay
+ * saturated (they carry meaning — ok/warning/critical/info must stay
+ * distinguishable from each other), but every background/border/text role
+ * is pure black, pure white, or a stepped grey — no muddy mid-tones. */
+:root[data-theme='high-contrast'] {
+  --background: #000000;
+  --surface: #0a0a0a;
+  --card: #101010;
+  --card-hover: #1c1c1c;
+  --border-subtle: rgba(255,255,255,0.4);
+  --border-hover: #ffffff;
+
+  --primary-green: #33ff33;
+  --primary-green-strong: #22cc22;
+  --on-primary: #000000;
+  --accent-lime: #adff2f;
+  --accent-amber: #ffd400;
+  --accent-red: #ff5252;
+  --accent-blue: #4dd2ff;
+  --accent-purple: #d9b3ff;
+  --accent-cyan: #4dd2ff;
+
+  --text-primary: #ffffff;
+  --text-secondary: #ffffff;
+  --text-muted: #cfcfcf;
+  --text-dim: #a0a0a0;
+
+  --status-ok: #33ff33;
+  --status-warning: #ffd400;
+  --status-critical: #ff5252;
+  --status-info: #4dd2ff;
+
+  --chip-ok-bg: rgba(51,255,51,0.2);
+  --chip-warning-bg: rgba(255,212,0,0.2);
+  --chip-critical-bg: rgba(255,82,82,0.2);
+  --chip-info-bg: rgba(77,210,255,0.2);
+  --chip-neutral-bg: rgba(255,255,255,0.14);
+
+  --gradient-primary: #33ff33;
+  --gradient-warm: #ffd400;
+  --gradient-hero: #000000;
+  --viewport-bg: #000000;
+}
+
+/* ── Outdoor / Sun ── warm amber tones, meant to stay readable in direct
+ * sunlight where a screen's own light is competing with the sun rather than
+ * a dim room. */
+:root[data-theme='sun-mode'] {
+  --background: #1a1200;
+  --surface: #231800;
+  --card: #2a1e00;
+  --card-hover: #34260a;
+  --border-subtle: rgba(251,191,36,0.22);
+  --border-hover: rgba(251,191,36,0.5);
+
+  --primary-green: #fbbf24;
+  --primary-green-strong: #d97706;
+  --on-primary: #1a1200;
+  --accent-lime: #facc15;
+  --accent-amber: #fbbf24;
+  --accent-red: #f87171;
+  --accent-blue: #38bdf8;
+  --accent-purple: #fcd34d;
+  --accent-cyan: #38bdf8;
+
+  --text-primary: #fff9e6;
+  --text-secondary: #fde68a;
+  --text-muted: #d1a85a;
+  --text-dim: #a97d2e;
+
+  --status-ok: #84cc16;
+  --status-warning: #fbbf24;
+  --status-critical: #f87171;
+  --status-info: #38bdf8;
+
+  --chip-ok-bg: rgba(132,204,22,0.16);
+  --chip-warning-bg: rgba(251,191,36,0.2);
+  --chip-critical-bg: rgba(248,113,113,0.16);
+  --chip-info-bg: rgba(56,189,248,0.16);
+  --chip-neutral-bg: rgba(251,191,36,0.09);
+
+  --gradient-primary: #fbbf24;
+  --gradient-warm: #f59e0b;
+  --gradient-hero: #1a1200;
+  --viewport-bg: #120c00;
 }
 
 @theme inline {
@@ -66,12 +262,19 @@
   --color-foreground: var(--text-primary);
   --color-card: var(--card);
   --color-card-foreground: var(--text-primary);
-  --color-border: rgba(255,255,255,0.07);
+  /* These four used to be hardcoded to dark-theme values (a white-on-dark
+   * border, a near-black primary-foreground, etc.) regardless of which
+   * theme was actually active — on light-farm's default light background,
+   * `border-border` (applied to every element, see @layer base below) drew
+   * a near-invisible 7%-white line, and Tailwind's other color-* utilities
+   * silently disagreed with the active theme. Pointed at the same tokens
+   * every other themed rule uses so they track the active theme too. */
+  --color-border: var(--border-subtle);
   --color-primary: var(--primary-green);
-  --color-primary-foreground: #0a0f0a;
-  --color-muted: #0f1a0f;
-  --color-muted-foreground: #4b7c52;
-  --color-destructive: #f87171;
+  --color-primary-foreground: var(--on-primary);
+  --color-muted: var(--surface);
+  --color-muted-foreground: var(--text-muted);
+  --color-destructive: var(--status-critical);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -100,13 +303,11 @@
  * The fixed 390x844 device frame is gone. The app is full-bleed on phones,
  * a centered column on tablets, and a sidebar layout on desktop. */
 .farm-viewport {
-  min-height: 100vh;  /* fallback for browsers without dvh support */
   min-height: 100dvh;
-  background: #050805;
+  background: var(--viewport-bg);
 }
 .farm-device-frame {
   width: 100%;
-  height: 100vh;  /* fallback for browsers without dvh support */
   height: 100dvh;
   margin: 0 auto;
   background: var(--background);
@@ -114,6 +315,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* Shell row: column on mobile, sidebar + main on desktop */
@@ -122,6 +324,7 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  min-height: 0;
 }
 .farm-sidebar { display: none; }
 .shell-main {
@@ -131,28 +334,27 @@
   min-width: 0;
   height: 100%;
   overflow: hidden;
+  min-height: 0;
 }
-
-/* ── Top status bar ── */
-.status-bar {
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  background: var(--background);
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
+.screen-slot {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
 }
 
 /* ── Bottom tab bar ──
  * Base rules live BEFORE the responsive overrides below: both this and the
- * @media (min-width: 1024px) display:none have equal specificity, so the later
+ * @media (min-width: 768px) display:none have equal specificity, so the later
  * rule in the file wins — base styles first, responsive overrides last. */
 .bottom-nav {
-  height: var(--bottom-nav-height);
+  /* box-sizing: border-box (global) means padding-bottom below eats into a
+   * fixed `height`, so on gesture-nav Android (34px+ inset) the 68px bar was
+   * left with only ~34px of usable space above the inset — icon+label
+   * squashed and clipped. Add the inset on top of the content height instead
+   * of carving it out of it: 0px inset -> bar stays exactly 68px unchanged;
+   * 34px inset -> bar becomes 102px with the full 68px of content above it. */
+  height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
   display: flex;
   align-items: center;
   background: var(--surface);
@@ -164,16 +366,13 @@
   z-index: 50;
 }
 
-@media (min-width: 768px) and (max-width: 1023px) {
-  .farm-device-frame {
-    max-width: 760px;
-    border-left: 1px solid var(--border-subtle);
-    border-right: 1px solid var(--border-subtle);
-  }
-}
-
-@media (min-width: 1024px) {
-  .farm-device-frame { max-width: 1440px; }
+/* Sidebar layout starts at 768px (tablet), not 1024px. The old 768-1023 block
+ * just capped .farm-device-frame at 760px and left the mobile bottom tab bar
+ * in place, which meant tablets got a 760px centred column with five tabs
+ * stretched across it and 10px labels nowhere near a thumb — worst of both
+ * worlds. Full 250px sidebar (no icon-rail variant) now applies from 768px
+ * up; only the >=1024px frame width cap remains a separate breakpoint. */
+@media (min-width: 768px) {
   .farm-shell { flex-direction: row; }
   .farm-sidebar {
     display: flex;
@@ -193,8 +392,32 @@
     flex-shrink: 0;
   }
   .bottom-nav { display: none; }
-  .status-bar { display: none; }
 }
+
+/* Settings' "Farm Management" hub (components/farm/settings.tsx,
+ * settings-reorg): mobile's "More" tab destinations for screens the desktop
+ * sidebar already lists as first-class items (Inventory, Weather, People,
+ * Governance, Reports). Hidden rather than removed — a phone still has no
+ * sidebar, so this stays its only path to them. Same 768px breakpoint as
+ * the sidebar itself, and same base-rule-then-override ordering as
+ * .bottom-nav above so the responsive rule reliably wins. */
+.settings-hub-mobile-only { display: block; }
+@media (min-width: 768px) {
+  .settings-hub-mobile-only { display: none; }
+}
+
+/* The app shell deliberately has NO max-width. It used to cap at 1440px and
+ * centre itself, so any viewport wider than that — a large monitor, or simply
+ * zooming out, which grows the viewport in CSS pixels — left the
+ * .farm-viewport background showing as bands down the left and right edges,
+ * and the app appeared to shrink inward instead of filling the screen. Phones
+ * never hit it because their viewports are far narrower than 1440px, which is
+ * why this only ever looked wrong on desktop.
+ *
+ * The sidebar sits flush against the left edge and the main area takes the
+ * rest. Long-form content is still capped for readability by .px-screen
+ * (1320px) below — that is the right place for a reading measure, rather than
+ * boxing in the entire application chrome. */
 
 .screen-scroll {
   height: 100%;
@@ -235,14 +458,22 @@
 }
 .bottom-nav-item.active .nav-icon {
   color: var(--primary-green);
-  filter: drop-shadow(0 0 6px rgba(74,222,128,0.4));
+  filter: none;
 }
 .bottom-nav-item.active .nav-label { color: var(--primary-green); }
 .bottom-nav-item .nav-icon { color: var(--text-muted); font-size: 22px; transition: all 0.15s ease; }
 .bottom-nav-item .nav-label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.02em; transition: all 0.15s ease; }
+/* Keyboard-only focus ring (not :focus, so a mouse click doesn't show it).
+ * outline + outline-offset instead of border/box-shadow so it never shifts
+ * layout or fights the active-state border-radius. */
+.bottom-nav-item:focus-visible,
+.farm-sidebar nav button:focus-visible {
+  outline: 2px solid var(--primary-green);
+  outline-offset: 2px;
+}
 .bottom-nav-item .nav-badge {
   position: absolute; top: 6px; right: 18%;
-  background: var(--accent-red); color: #fff;
+  background: var(--accent-red); color: var(--on-primary);
   font-size: 9px; font-weight: 700;
   border-radius: 100px; min-width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
@@ -251,56 +482,67 @@
 
 /* ── Screen content area ── */
 .screen-content {
+  height: 100%;
+  min-height: 0;
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   overflow-x: hidden;
-  scrollbar-width: none;
-  padding-bottom: 20px;
+  scrollbar-width: thin;
+  /* Base case assumes no bottom nav: detail screens that hide .bottom-nav
+   * still need the safe-area inset here so content isn't obscured by the
+   * gesture-nav bar. Kept as the fallback for browsers without :has(). */
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
 }
-.screen-content::-webkit-scrollbar { display: none; }
+.screen-content::-webkit-scrollbar { width: 5px; }
+.screen-content::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 999px; }
+/* When .bottom-nav IS present it sits in normal flow below .screen-content
+ * and already grows by the safe-area inset (see .bottom-nav above), so
+ * adding the inset here too double-counts it (~34px of dead scroll padding
+ * on gesture-nav Android). Drop the inset from screen-content in that case;
+ * browsers without :has() simply keep the (harmless, just extra) padding
+ * above. */
+.shell-main:has(.bottom-nav) .screen-content { padding-bottom: 24px; }
 
 /* ── Cards ── */
 .farm-card {
   background: var(--card);
   border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  border-radius: 10px;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 .farm-card:hover {
   border-color: var(--border-hover);
-  box-shadow: 0 8px 32px rgba(74,222,128,0.08);
+  box-shadow: none;
+  background: var(--card-hover);
 }
 .farm-card-active {
-  border-color: rgba(74,222,128,0.3);
-  box-shadow: 0 4px 24px rgba(74,222,128,0.12);
+  border-color: var(--border-hover);
+  box-shadow: none;
 }
 
 /* ── Status chips ── */
 .chip {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 10px; border-radius: 100px;
-  font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
-  text-transform: uppercase;
+  padding: 2px 7px; border-radius: 4px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0;
+  text-transform: none;
 }
-.chip-ok { background: rgba(74,222,128,0.15); color: var(--status-ok); }
-.chip-warning { background: rgba(251,191,36,0.15); color: var(--status-warning); }
-.chip-critical { background: rgba(248,113,113,0.15); color: var(--status-critical); }
-.chip-info { background: rgba(96,165,250,0.15); color: var(--status-info); }
-.chip-purple { background: rgba(167,139,250,0.15); color: var(--accent-purple); }
-.chip-cyan { background: rgba(34,211,238,0.15); color: var(--accent-cyan); }
+.chip-ok { background: var(--chip-ok-bg); color: var(--status-ok); }
+.chip-warning { background: var(--chip-warning-bg); color: var(--status-warning); }
+.chip-critical { background: var(--chip-critical-bg); color: var(--status-critical); }
+.chip-info { background: var(--chip-info-bg); color: var(--status-info); }
+.chip-purple, .chip-cyan { background: var(--chip-neutral-bg); color: var(--text-muted); }
 
 /* ── KPI stat blocks ── */
 .kpi-value {
-  font-size: 28px; font-weight: 700;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text; line-height: 1.1;
+  font-size: 32px; font-weight: 700;
+  color: var(--text-primary); line-height: 1.1;
 }
 .kpi-value-sm {
-  font-size: 22px; font-weight: 700;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text; line-height: 1.1;
+  font-size: 26px; font-weight: 700;
+  color: var(--text-primary); line-height: 1.1;
 }
 .kpi-label {
   font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
@@ -309,23 +551,23 @@
 
 /* ── Action buttons ── */
 .btn-primary {
-  background: var(--gradient-primary);
-  color: #0a0f0a; font-weight: 700;
-  border-radius: 100px; border: none;
-  padding: 14px 28px; font-size: 15px;
+  background: var(--primary-green);
+  color: var(--on-primary); font-weight: 650;
+  border-radius: 8px; border: 1px solid var(--primary-green);
+  padding: 11px 18px; font-size: 14px;
   cursor: pointer; transition: all 0.2s ease;
   display: inline-flex; align-items: center; gap: 8px;
 }
-.btn-primary:hover { opacity: 0.9; box-shadow: 0 4px 20px rgba(74,222,128,0.35); }
+.btn-primary:hover { background: var(--primary-green-strong); box-shadow: none; }
 .btn-secondary {
-  background: transparent;
-  border: 1px solid rgba(74,222,128,0.35);
-  color: var(--primary-green); font-weight: 600;
-  border-radius: 100px; padding: 12px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary); font-weight: 600;
+  border-radius: 8px; padding: 10px 16px;
   font-size: 14px; cursor: pointer; transition: all 0.2s ease;
   display: inline-flex; align-items: center; gap: 8px;
 }
-.btn-secondary:hover { background: rgba(74,222,128,0.08); }
+.btn-secondary:hover { background: var(--card-hover); border-color: var(--border-hover); }
 .btn-icon {
   width: 40px; height: 40px; border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
@@ -334,41 +576,14 @@
 }
 .btn-icon:hover { border-color: var(--border-hover); color: var(--primary-green); }
 .btn-fab {
-  width: 56px; height: 56px; border-radius: 18px;
+  width: 52px; height: 52px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
-  background: var(--gradient-primary); color: #0a0f0a;
-  box-shadow: 0 8px 24px rgba(74,222,128,0.35);
+  background: var(--primary-green); color: var(--on-primary);
+  box-shadow: 0 2px 6px rgba(24,32,24,0.18);
   cursor: pointer; transition: all 0.2s ease;
   border: none;
 }
-.btn-fab:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(74,222,128,0.45); }
-
-/* ── Floating save bar (UI Customise) ──
- * Fixed above the bottom nav so the Save button never ends up mid-screen.
- * position:fixed (not sticky) because sticky bottom inside the overflow-y
- * scroll container is exactly the pattern iOS Safari mis-renders. Mobile:
- * spans the content column above the nav. Desktop (>=1024px): the sidebar is
- * 250px wide and the device frame is centered at max-width 1440px, so left/right
- * track the frame's content column via viewport math. */
-.save-bar {
-  position: fixed;
-  left: 20px;
-  right: 20px;
-  bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 12px);
-  z-index: 60;
-  background: var(--surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  padding: 12px 14px 14px;
-  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.25);
-}
-@media (min-width: 1024px) {
-  .save-bar {
-    left: max(20px, calc((100vw - min(100vw, 1440px)) / 2 + 250px + 20px));
-    right: max(20px, calc((100vw - min(100vw, 1440px)) / 2 + 20px));
-    bottom: 16px;
-  }
-}
+.btn-fab:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(24,32,24,0.2); }
 
 /* ── Form inputs ── */
 .farm-input {
@@ -383,11 +598,11 @@
 .farm-input::placeholder { color: var(--text-dim); }
 
 /* ── Table ── */
-.farm-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.farm-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; }
 .farm-table thead th {
-  padding: 10px 12px;
-  text-align: left; font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 12px;
+  text-align: left; font-size: 12px; font-weight: 650;
+  text-transform: none; letter-spacing: 0;
   color: var(--text-muted); white-space: nowrap;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface);
@@ -397,7 +612,7 @@
   border-bottom: 1px solid var(--border-subtle);
   transition: background 0.1s ease;
 }
-.farm-table tbody tr:hover { background: rgba(74,222,128,0.04); }
+.farm-table tbody tr:hover { background: var(--card-hover); }
 .farm-table tbody td {
   padding: 12px 12px; color: var(--text-primary);
   vertical-align: middle;
@@ -406,17 +621,17 @@
 
 /* ── Section headers ── */
 .section-eyebrow {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
-  text-transform: uppercase; color: var(--text-muted);
+  font-size: 12px; font-weight: 600; letter-spacing: 0;
+  text-transform: none; color: var(--text-muted);
 }
-.section-title { font-size: 20px; font-weight: 700; color: var(--text-primary); }
-.section-subtitle { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.section-title { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.section-subtitle { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
 
 /* ── Progress bars ── */
 .progress-track { height: 6px; background: rgba(255,255,255,0.06); border-radius: 100px; overflow: hidden; }
-.progress-fill { height: 100%; border-radius: 100px; background: var(--gradient-primary); transition: width 0.5s ease; }
-.progress-fill-amber { background: var(--gradient-warm); }
-.progress-fill-red { background: #f87171; }
+.progress-fill { height: 100%; border-radius: 100px; background: var(--primary-green); transition: width 0.5s ease; }
+.progress-fill-amber { background: var(--accent-amber); }
+.progress-fill-red { background: var(--status-critical); }
 
 /* ── Divider ── */
 .farm-divider { height: 1px; background: var(--border-subtle); margin: 0; }
@@ -441,8 +656,8 @@
   font-size: 12px; font-weight: 700; flex-shrink: 0;
   transition: all 0.2s ease;
 }
-.step-node.done { background: var(--primary-green); color: #0a0f0a; }
-.step-node.active { background: var(--gradient-primary); color: #0a0f0a; box-shadow: 0 0 0 4px rgba(74,222,128,0.2); }
+.step-node.done { background: var(--primary-green); color: var(--on-primary); }
+.step-node.active { background: var(--gradient-primary); color: var(--on-primary); box-shadow: 0 0 0 4px rgba(74,222,128,0.2); }
 .step-node.pending { background: var(--card); border: 1px solid var(--border-subtle); color: var(--text-muted); }
 .step-line { flex: 1; height: 2px; background: var(--border-subtle); }
 .step-line.done { background: var(--primary-green); }
@@ -505,15 +720,14 @@
 .px-screen { padding-left: 20px; padding-right: 20px; }
 
 /* ── Gradient text ── */
-.text-gradient {
-  background: var(--gradient-primary);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.text-gradient-warm {
-  background: var(--gradient-warm);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
+.text-gradient { color: var(--primary-green); }
+.text-gradient-warm { color: var(--accent-amber); }
+
+@media (min-width: 1024px) {
+  .screen-content { padding-bottom: 36px; }
+  .px-screen { max-width: 1320px; margin: 0 auto; padding-left: 32px; padding-right: 32px; }
+  .top-nav { padding-left: 32px; padding-right: 32px; }
+  .top-nav-title { font-size: 26px !important; letter-spacing: -0.02em; }
 }
 
 nextjs-portal { display: none !important; }

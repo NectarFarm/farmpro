@@ -176,6 +176,12 @@ run('settings backend: password change + per-tenant settings store (issue #255)'
       expect(payload.data.fontSize).toBe('normal')
       expect(payload.data.currencySymbol).toBe('KSh')
       expect(payload.data.weightUnit).toBe('kg')
+      // Regional/session defaults (settings-reorg) — coherent even with no
+      // row in the table at all, same "never a 404, always the documented
+      // defaults" contract as the pre-existing fields above.
+      expect(payload.data.timezone).toBe('Africa/Nairobi')
+      expect(payload.data.dateFormat).toBe('DD/MM/YYYY')
+      expect(payload.data.sessionTimeoutMinutes).toBeNull()
     })
 
     it('rejects an unauthenticated GET (401)', async () => {
@@ -184,31 +190,97 @@ run('settings backend: password change + per-tenant settings store (issue #255)'
       expect(status).toBe(401)
     })
 
-    it('PATCH is forbidden for a manager (403) — write-gated to owner/super_admin', async () => {
+    it('PATCH is forbidden for a manager (403) — write-gated to owner/super_admin, row genuinely unchanged', async () => {
       mockCookie = managerSessionToken
       const { status } = await readJson(
-        await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { theme: 'sun-mode' }))
+        await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { theme: 'sun-mode', timezone: 'Africa/Lagos' }))
       )
       expect(status).toBe(403)
+
+      // Not just the status code — the row itself must still be untouched.
+      mockCookie = ownerSessionToken
+      const { payload } = await readJson(await settingsGET(jsonRequest('http://localhost/api/settings', 'GET')))
+      expect(payload.data.theme).toBe('dark-farm')
+      expect(payload.data.timezone).toBe('Africa/Nairobi')
     })
 
-    it('PATCH is forbidden for a worker (403)', async () => {
+    it('PATCH is forbidden for a worker (403), row genuinely unchanged', async () => {
       mockCookie = workerSessionToken
       const { status } = await readJson(
         await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { theme: 'sun-mode' }))
       )
       expect(status).toBe(403)
+
+      mockCookie = ownerSessionToken
+      const { payload } = await readJson(await settingsGET(jsonRequest('http://localhost/api/settings', 'GET')))
+      expect(payload.data.theme).toBe('dark-farm')
     })
 
-    it('rejects an invalid theme value (400)', async () => {
+    it('rejects an invalid theme value (400) with the fields envelope', async () => {
       mockCookie = ownerSessionToken
-      const { status } = await readJson(
+      const { status, payload } = await readJson(
         await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { theme: 'not-a-real-theme' }))
       )
       expect(status).toBe(400)
+      expect(payload.success).toBe(false)
+      expect(payload.fields).toHaveProperty('theme')
     })
 
-    it('owner PATCH updates theme/fontSize/branding/modules and returns the full row', async () => {
+    it('rejects a bad timezone (400, fields.timezone) and does not store it', async () => {
+      mockCookie = ownerSessionToken
+      const { status, payload } = await readJson(
+        await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { timezone: 'Not/A_Real_Zone' }))
+      )
+      expect(status).toBe(400)
+      expect(payload.success).toBe(false)
+      expect(payload.fields).toHaveProperty('timezone')
+
+      const { payload: after } = await readJson(await settingsGET(jsonRequest('http://localhost/api/settings', 'GET')))
+      expect(after.data.timezone).toBe('Africa/Nairobi')
+    })
+
+    it('rejects a nonsense date format (400, fields.dateFormat)', async () => {
+      mockCookie = ownerSessionToken
+      const { status, payload } = await readJson(
+        await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { dateFormat: 'banana' }))
+      )
+      expect(status).toBe(400)
+      expect(payload.fields).toHaveProperty('dateFormat')
+    })
+
+    it('rejects an out-of-range session timeout (400, fields.sessionTimeoutMinutes)', async () => {
+      mockCookie = ownerSessionToken
+      const tooShort = await readJson(
+        await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { sessionTimeoutMinutes: 1 }))
+      )
+      expect(tooShort.status).toBe(400)
+      expect(tooShort.payload.fields).toHaveProperty('sessionTimeoutMinutes')
+
+      const tooLong = await readJson(
+        await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { sessionTimeoutMinutes: 999_999 }))
+      )
+      expect(tooLong.status).toBe(400)
+      expect(tooLong.payload.fields).toHaveProperty('sessionTimeoutMinutes')
+    })
+
+    it('a PATCH mixing one bad field with good ones collects the failure and stores nothing (400, fields)', async () => {
+      mockCookie = ownerSessionToken
+      const { status, payload } = await readJson(
+        await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', {
+          timezone: 'Africa/Lagos',
+          dateFormat: 'not-a-format',
+        }))
+      )
+      expect(status).toBe(400)
+      expect(payload.fields).toHaveProperty('dateFormat')
+
+      // The whole PATCH is rejected — timezone must NOT have been saved
+      // even though it was individually valid.
+      const { payload: after } = await readJson(await settingsGET(jsonRequest('http://localhost/api/settings', 'GET')))
+      expect(after.data.timezone).toBe('Africa/Nairobi')
+    })
+
+    it('owner PATCH updates theme/fontSize/branding/modules/regional/session-timeout and returns the full row', async () => {
       mockCookie = ownerSessionToken
       const { status, payload } = await readJson(
         await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', {
@@ -222,6 +294,9 @@ run('settings backend: password change + per-tenant settings store (issue #255)'
           currencySymbol: 'UGX',
           weightUnit: 'lbs',
           modules: [{ id: 'finance', enabled: false }, { id: 'crops', enabled: true, customLabel: 'Batches' }],
+          timezone: 'Africa/Lagos',
+          dateFormat: 'YYYY-MM-DD',
+          sessionTimeoutMinutes: 60,
         }))
       )
       expect(status).toBe(200)
@@ -239,6 +314,18 @@ run('settings backend: password change + per-tenant settings store (issue #255)'
         { id: 'finance', enabled: false },
         { id: 'crops', enabled: true, customLabel: 'Batches' },
       ])
+      expect(payload.data.timezone).toBe('Africa/Lagos')
+      expect(payload.data.dateFormat).toBe('YYYY-MM-DD')
+      expect(payload.data.sessionTimeoutMinutes).toBe(60)
+    })
+
+    it('a later PATCH can clear sessionTimeoutMinutes back to the platform default by sending null', async () => {
+      mockCookie = ownerSessionToken
+      const { status, payload } = await readJson(
+        await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { sessionTimeoutMinutes: null }))
+      )
+      expect(status).toBe(200)
+      expect(payload.data.sessionTimeoutMinutes).toBeNull()
     })
 
     it('a second user (manager) on the SAME tenant reads back the owner\'s changes — proving per-tenant, not per-device', async () => {
@@ -272,6 +359,24 @@ run('settings backend: password change + per-tenant settings store (issue #255)'
       expect(payload.data.tenantId).toBe(tenantBId)
       expect(payload.data.theme).toBe('dark-farm')
       expect(payload.data.currencySymbol).toBe('KSh')
+      expect(payload.data.timezone).toBe('Africa/Nairobi')
+    })
+
+    it('tenant B\'s owner PATCHing timezone never touches tenant A\'s row — each tenant writes only its own', async () => {
+      mockCookie = otherOwnerSessionToken
+      const { status, payload } = await readJson(
+        await settingsPATCH(jsonRequest('http://localhost/api/settings', 'PATCH', { timezone: 'Europe/London' }))
+      )
+      expect(status).toBe(200)
+      expect(payload.data.tenantId).toBe(tenantBId)
+      expect(payload.data.timezone).toBe('Europe/London')
+
+      // Tenant A's row (set to Africa/Lagos earlier in this suite) is
+      // completely unaffected by tenant B's write.
+      mockCookie = ownerSessionToken
+      const { payload: tenantA } = await readJson(await settingsGET(jsonRequest('http://localhost/api/settings', 'GET')))
+      expect(tenantA.data.tenantId).toBe(tenantAId)
+      expect(tenantA.data.timezone).toBe('Africa/Lagos')
     })
 
     it('rejects a malformed modules entry (400)', async () => {

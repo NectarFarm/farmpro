@@ -8,7 +8,7 @@
 // decision writeup and the chart-of-accounts rationale.
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
 import { db } from '@/db'
 import { accounts, journalEntries, journalLines, sales, purchases } from '@/db/schemas'
@@ -26,11 +26,13 @@ export const ACCOUNT_CODES = {
   OWNERS_EQUITY: '3001',
   SALES_REVENUE: '4001',
   PURCHASES_EXPENSE: '5001',
+  // Added by the payroll-and-gps task — see db/schemas/finance.ts's
+  // chart-of-accounts comment for why payroll posts at all.
+  PAYROLL_EXPENSE: '5002',
 } as const
 
 // The standard farm chart of accounts this issue seeds — see
-// db/schemas/finance.ts's top-of-file comment for why each account exists
-// (and why there is no payroll account).
+// db/schemas/finance.ts's top-of-file comment for why each account exists.
 const STANDARD_ACCOUNTS: { code: string; name: string; class: string; normalBalance: string }[] = [
   { code: ACCOUNT_CODES.CASH, name: 'Cash and Bank', class: 'ASSET', normalBalance: 'DEBIT' },
   { code: ACCOUNT_CODES.ACCOUNTS_RECEIVABLE, name: 'Accounts Receivable', class: 'ASSET', normalBalance: 'DEBIT' },
@@ -38,6 +40,7 @@ const STANDARD_ACCOUNTS: { code: string; name: string; class: string; normalBala
   { code: ACCOUNT_CODES.OWNERS_EQUITY, name: "Owner's Equity", class: 'EQUITY', normalBalance: 'CREDIT' },
   { code: ACCOUNT_CODES.SALES_REVENUE, name: 'Sales Revenue', class: 'REVENUE', normalBalance: 'CREDIT' },
   { code: ACCOUNT_CODES.PURCHASES_EXPENSE, name: 'Purchases Expense', class: 'EXPENSE', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.PAYROLL_EXPENSE, name: 'Payroll Expense', class: 'EXPENSE', normalBalance: 'DEBIT' },
 ]
 
 // Idempotent: ON CONFLICT DO NOTHING on the unique `code` index, so this is
@@ -62,7 +65,15 @@ async function accountIdByCode(dbOrTx: Tx | typeof db, code: string): Promise<st
 // A sale posts Dr Cash (status 'paid') or Dr Accounts Receivable (status
 // 'pending') for the full amount, Cr Sales Revenue for the full amount — the
 // entry balances by construction (both lines carry the same amount).
-export async function postSaleJournal(tx: Tx, sale: { id: string; tenantId: string; amount: number; status: string }) {
+//
+// Unit (issue: money-unit-enforcement): `sale.amountCents` and
+// `journalLines.debitCents`/`creditCents` are both cents now — posted
+// straight through, no conversion. (Before this issue, `sales.amount` was
+// whole currency units and postPurchaseJournal below converted purchases'
+// cents down to match it — the source of issue #290's bug class. Converting
+// the whole ledger to cents instead of whole units removes that conversion
+// entirely rather than moving it to the other side.)
+export async function postSaleJournal(tx: Tx, sale: { id: string; tenantId: string; amountCents: number; status: string }) {
   await ensureAccountsSeeded(tx)
   const debitAccountId = await accountIdByCode(tx, sale.status === 'pending' ? ACCOUNT_CODES.ACCOUNTS_RECEIVABLE : ACCOUNT_CODES.CASH)
   const revenueAccountId = await accountIdByCode(tx, ACCOUNT_CODES.SALES_REVENUE)
@@ -79,8 +90,8 @@ export async function postSaleJournal(tx: Tx, sale: { id: string; tenantId: stri
     .returning()
 
   await tx.insert(journalLines).values([
-    { id: randomUUID(), entryId: entry.id, accountId: debitAccountId, debit: sale.amount, credit: 0 },
-    { id: randomUUID(), entryId: entry.id, accountId: revenueAccountId, debit: 0, credit: sale.amount },
+    { id: randomUUID(), entryId: entry.id, accountId: debitAccountId, debitCents: sale.amountCents, creditCents: 0 },
+    { id: randomUUID(), entryId: entry.id, accountId: revenueAccountId, debitCents: 0, creditCents: sale.amountCents },
   ])
 
   return entry
@@ -94,36 +105,25 @@ export async function postSaleJournal(tx: Tx, sale: { id: string; tenantId: stri
 // payment posts to both. The entry balances by construction (paid + unpaid
 // remainder always sums back to the full expense amount).
 //
-// ── Unit normalization (issue #290) ─────────────────────────────────────────
-// `purchases.totalCostCents`/`amountPaidCents` are minor-unit (cents) figures
-// while `sales.amount` (postSaleJournal, above) is a plain whole-currency-unit
-// figure — both post into the same journal_lines ledger, so one side has to
-// convert or the trial balance is wrong by ~100x on whichever side didn't.
-// Converting cents -> whole units here (rather than converting sales.amount
-// -> cents in postSaleJournal) matches the convention lib/reports.ts's OWN
-// computation already established for this exact pair of columns:
-// computePlReport takes `periodExpense`/its exported `rows` by dividing
-// `purchases.totalCostCents` by 100 and leaving `sales.amount` untouched (see
-// lib/reports.ts's "Known unit caveat" comment on computePlReport), and
-// components/farm/finance.tsx's purchases-list display does the same
-// (`p.totalCostCents / 100`). Posting purchases into the ledger in whole
-// units — instead of posting sales in cents — keeps the GL convention
-// consistent with every other consumer of these two columns instead of
-// introducing a second, conflicting normalization. The division happens once,
-// on the clamped total/paid cents figures, and `owed` is derived from the
-// already-rounded totals (not rounded independently), so the entry still
-// balances by construction even when totalCostCents isn't an exact multiple
-// of 100.
+// ── Unit normalization (issue: money-unit-enforcement, supersedes #290) ─────
+// `purchases.totalCostCents`/`amountPaidCents` and `journalLines.debitCents`/
+// `creditCents` are ALL cents now (see db/schemas/finance.ts) — posted
+// straight through, no conversion. (Issue #290 previously fixed the trial
+// balance being wrong by ~100x by converting purchases' cents down to whole
+// units here, to match `sales.amount`, which was whole units at the time.
+// That conversion is gone, not moved: converting `sales.amount` itself to
+// cents removes the unit mismatch at its source instead of compensating for
+// it on the purchases side.) `owed` is still derived from the already-
+// clamped total/paid cents figures (not rounded independently), so the entry
+// still balances by construction.
 export async function postPurchaseJournal(
   tx: Tx,
   purchase: { id: string; tenantId: string; totalCostCents: number; amountPaidCents: number }
 ) {
   await ensureAccountsSeeded(tx)
   const expenseAccountId = await accountIdByCode(tx, ACCOUNT_CODES.PURCHASES_EXPENSE)
-  const totalCents = Math.max(0, purchase.totalCostCents)
-  const paidCents = Math.min(Math.max(0, purchase.amountPaidCents), totalCents)
-  const total = Math.round(totalCents / 100)
-  const paid = Math.round(paidCents / 100)
+  const total = Math.max(0, purchase.totalCostCents)
+  const paid = Math.min(Math.max(0, purchase.amountPaidCents), total)
   const owed = total - paid
 
   const [entry] = await tx
@@ -138,17 +138,57 @@ export async function postPurchaseJournal(
     .returning()
 
   const lines: (typeof journalLines.$inferInsert)[] = [
-    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debit: total, credit: 0 },
+    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: total, creditCents: 0 },
   ]
   if (paid > 0) {
     const cashAccountId = await accountIdByCode(tx, ACCOUNT_CODES.CASH)
-    lines.push({ id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debit: 0, credit: paid })
+    lines.push({ id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debitCents: 0, creditCents: paid })
   }
   if (owed > 0) {
     const apAccountId = await accountIdByCode(tx, ACCOUNT_CODES.ACCOUNTS_PAYABLE)
-    lines.push({ id: randomUUID(), entryId: entry.id, accountId: apAccountId, debit: 0, credit: owed })
+    lines.push({ id: randomUUID(), entryId: entry.id, accountId: apAccountId, debitCents: 0, creditCents: owed })
   }
   await tx.insert(journalLines).values(lines)
+
+  return entry
+}
+
+// ── Payroll run -> journal entry (payroll-and-gps task) ─────────────────────
+// A payroll run posts Dr Payroll Expense for the run's full total, Cr Cash
+// for the same amount — treated as paid in full, in cash, at run time (same
+// "cash-basis, no partial/on-account tracking" simplification the rest of
+// this v1 payroll makes; there is no accrued-but-unpaid-wages liability
+// account, unlike purchases' Accounts Payable). The entry balances by
+// construction (one amount posted to both sides). Posted inside the SAME
+// transaction as the run + its payslips (POST /api/payroll/runs) — a run can
+// never exist without its journal entry, same convention as
+// postSaleJournal/postPurchaseJournal above.
+export async function postPayrollJournal(
+  tx: Tx,
+  run: { id: string; tenantId: string; totalAmountCents: number; periodStart: Date; periodEnd: Date }
+) {
+  await ensureAccountsSeeded(tx)
+  const expenseAccountId = await accountIdByCode(tx, ACCOUNT_CODES.PAYROLL_EXPENSE)
+  const cashAccountId = await accountIdByCode(tx, ACCOUNT_CODES.CASH)
+
+  const [entry] = await tx
+    .insert(journalEntries)
+    .values({
+      id: randomUUID(),
+      tenantId: run.tenantId,
+      sourceType: 'payroll_run',
+      sourceId: run.id,
+      memo: `Payroll run ${run.periodStart.toISOString().slice(0, 10)} to ${run.periodEnd.toISOString().slice(0, 10)}`,
+    })
+    .returning()
+
+  // Zero-amount entries would balance trivially but carry no information —
+  // the route this is called from already refuses to create a run with no
+  // eligible (rate > 0) employees, so `totalAmountCents` is always > 0 here.
+  await tx.insert(journalLines).values([
+    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: run.totalAmountCents, creditCents: 0 },
+    { id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debitCents: 0, creditCents: run.totalAmountCents },
+  ])
 
   return entry
 }
@@ -160,8 +200,12 @@ export async function postPurchaseJournal(
 export async function recordSale(input: {
   tenantId: string
   batchId?: string | null
+  // product-unit-inheritance task: optional link to the products catalogue.
+  // `item` stays required and independent of this — see db/schemas/
+  // finance.ts's comment on sales.productId for why both fields exist.
+  productId?: string | null
   item: string
-  amount: number
+  amountCents: number
   method?: string
   status?: string
   soldAt?: Date
@@ -173,8 +217,9 @@ export async function recordSale(input: {
         id: randomUUID(),
         tenantId: input.tenantId,
         batchId: input.batchId ?? null,
+        productId: input.productId ?? null,
         item: input.item,
-        amount: input.amount,
+        amountCents: input.amountCents,
         method: input.method ?? '',
         status: input.status ?? 'paid',
         soldAt: input.soldAt ?? new Date(),
@@ -193,15 +238,15 @@ export type TrialBalanceRow = {
   name: string
   class: string
   normalBalance: string
-  debit: number
-  credit: number
-  balance: number
+  debitCents: number
+  creditCents: number
+  balanceCents: number
 }
 
 export type TrialBalance = {
   rows: TrialBalanceRow[]
-  totalDebits: number
-  totalCredits: number
+  totalDebitsCents: number
+  totalCreditsCents: number
   balanced: boolean
 }
 
@@ -227,38 +272,48 @@ export async function computeTrialBalance(tenantId: string): Promise<TrialBalanc
     ? await db.select().from(journalLines).where(inArray(journalLines.entryId, entryIds))
     : []
 
-  const sums = new Map<string, { debit: number; credit: number }>()
+  const sums = new Map<string, { debitCents: number; creditCents: number }>()
   for (const line of lines) {
-    const cur = sums.get(line.accountId) ?? { debit: 0, credit: 0 }
-    cur.debit += line.debit
-    cur.credit += line.credit
+    const cur = sums.get(line.accountId) ?? { debitCents: 0, creditCents: 0 }
+    cur.debitCents += line.debitCents
+    cur.creditCents += line.creditCents
     sums.set(line.accountId, cur)
   }
 
   const rows: TrialBalanceRow[] = allAccounts.map((a) => {
-    const s = sums.get(a.id) ?? { debit: 0, credit: 0 }
-    const balance = a.normalBalance === 'CREDIT' ? s.credit - s.debit : s.debit - s.credit
+    const s = sums.get(a.id) ?? { debitCents: 0, creditCents: 0 }
+    const balanceCents = a.normalBalance === 'CREDIT' ? s.creditCents - s.debitCents : s.debitCents - s.creditCents
     return {
       accountId: a.id,
       code: a.code,
       name: a.name,
       class: a.class,
       normalBalance: a.normalBalance,
-      debit: s.debit,
-      credit: s.credit,
-      balance,
+      debitCents: s.debitCents,
+      creditCents: s.creditCents,
+      balanceCents,
     }
   })
 
-  const totalDebits = rows.reduce((sum, r) => sum + r.debit, 0)
-  const totalCredits = rows.reduce((sum, r) => sum + r.credit, 0)
+  const totalDebitsCents = rows.reduce((sum, r) => sum + r.debitCents, 0)
+  const totalCreditsCents = rows.reduce((sum, r) => sum + r.creditCents, 0)
 
-  return { rows, totalDebits, totalCredits, balanced: totalDebits === totalCredits }
+  return { rows, totalDebitsCents, totalCreditsCents, balanced: totalDebitsCents === totalCreditsCents }
 }
 
 // GET /api/data/sales' list query.
-export async function listSales(tenantId: string) {
-  return db.select().from(sales).where(eq(sales.tenantId, tenantId)).orderBy(desc(sales.soldAt), desc(sales.id))
+// `batchIds` (farm-scoped-data task): when provided, restricts to sales
+// whose batchId is in this list — the caller (GET /api/data/sales) resolves
+// it from a farmId via lib/farm-scope.ts's batchIdsForFarm (sales has no
+// farm_id of its own; batchId -> batches.unitId -> production_units.farmId
+// is the join). `undefined` means unfiltered, matching every call site that
+// predates this parameter. An explicit `[]` (farm has no batches) returns no
+// rows — the caller is expected to short-circuit before calling with `[]`
+// the same way GET /api/batches does, but this stays correct either way.
+export async function listSales(tenantId: string, batchIds?: string[]) {
+  const conditions = [eq(sales.tenantId, tenantId)]
+  if (batchIds) conditions.push(inArray(sales.batchId, batchIds))
+  return db.select().from(sales).where(and(...conditions)).orderBy(desc(sales.soldAt), desc(sales.id))
 }
 
 export { sales, purchases }

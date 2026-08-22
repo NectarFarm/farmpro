@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { tasks, approvalRequests, auditLog, employees } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { tasks, approvalRequests } from '@/db/schemas'
 import { and, eq } from 'drizzle-orm'
-import { randomUUID } from 'node:crypto'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/PATCH/DELETE /api/tasks/[id] (issue #243) ───────────────────────────
@@ -26,15 +25,11 @@ const notFound = () => NextResponse.json({ success: false, error: 'Task not foun
 
 const VALID_PRIORITIES = new Set(['low', 'medium', 'high'])
 
-function resolveTenantId(req: Request, sessionTenantId: string | null | undefined): string {
-  return sessionTenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim() ?? ''
-}
-
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const rows = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId)))
   if (rows.length === 0) return notFound()
@@ -43,44 +38,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 // PATCH /api/tasks/[id] — partial update. Every field is optional; only
 // fields present in the body are changed. Supported fields: title, dueAt,
-// status, priority, requiresApproval, notes, assigneeId, blockedByTaskId,
-// clarification, reopen.
-//
-// ── Reassign ──
-// `assigneeId` moves the task to another employee (validated against this
-// tenant's employees, same as POST). The legacy "Assigned: <name>" notes
-// first-line is rewritten to stay in sync with the id.
-//
-// ── Reopen ──
-// `reopen: true` is only valid on a completed task (DONE or REJECTED): it
-// returns the task to PENDING, clears any block, stamps `reopenedAt`, and
-// writes a `task.reopened` audit entry — so an approved/closed task can be
-// reactivated (same worker or reassigned via assigneeId in the same call).
-//
-// ── Field-edit audit ──
-// Non-status field changes (title/priority/dueAt/notes/assignee) write a
-// `task.updated` audit entry listing the changed fields, so the timeline
-// shows who edited what, not just status transitions.
-//
-// ── Status history / governance trail ──
-// Every status change here writes an `audit_log` row (entity: 'task',
-// entityId: the task id) attributed to the real actor — session user id, or
-// the `actorId` fallback in standalone mock mode. That's what the Governance
-// → Activity Log screen surfaces (it already lists audit_log with
-// actorName/actorRole resolved), so "who started/blocked/completed this task"
-// is auditable across the system instead of living only in the task row.
-//
-// ── Blocked-by ──
-// `blockedByTaskId` is only meaningful alongside status BLOCKED: the worker
-// picks an existing tenant task that blocks this one, validated here (bad /
-// foreign/other-tenant ids → 400/404, same convention as POST /api/batches's
-// `unitId`). Setting BLOCKED without a blocker, or clearing status away from
-// BLOCKED, drops the reference.
-//
-// ── Clarification ──
-// `clarification` is a free-text note ("what do you need clarified?") the
-// worker appends when they need more info — stored as an audit entry, not a
-// new column, so the request-and-response trail stays in one place.
+// status, priority, requiresApproval, notes.
 //
 // Body may also include `actorId` — the user requesting the change, used as
 // `approval_requests.requestedBy` when a completion routes through approval
@@ -88,9 +46,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // session-then-fallback convention as tenantId elsewhere on this branch).
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.tasks))) {
+    return forbidden('Your role does not have edit access to tasks')
+  }
 
   let raw: unknown
   try {
@@ -99,17 +61,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return badRequest('Invalid JSON body')
   }
   const b = (raw ?? {}) as Record<string, unknown>
-
-  // Role-matrix enforcement (lib/permissions.ts): every mutation here is a
-  // write on the 'tasks' module — status transitions (worker mark-done),
-  // edits, reassigns, reopens. Workers move their own tasks through the
-  // worker portal (which is not gated by this matrix), so only gate when a
-  // real session role resolves AND the matrix restricts; the worker path
-  // below explicitly bypasses. In practice: an owner-configured "view" role
-  // (e.g. manager set to view-only on tasks) is blocked from editing.
-  if (session && !(await canEdit(tenantId, session.role, MODULES.tasks))) {
-    return NextResponse.json({ success: false, error: 'You do not have permission to edit tasks' }, { status: 403 })
-  }
 
   const existingRows = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId)))
   const existing = existingRows[0]
@@ -122,96 +73,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (b.requiresApproval !== undefined) patch.requiresApproval = b.requiresApproval === true
   if (typeof b.notes === 'string') patch.notes = b.notes.trim()
 
-  // Reassign: a real employee of this tenant (validated like POST). The notes
-  // first-line is rewritten to stay in sync with the id for legacy readers.
-  if (typeof b.assigneeId === 'string' && b.assigneeId.trim()) {
-    const newAssigneeId = b.assigneeId.trim()
-    const assigneeRows = await db
-      .select({ id: employees.id, name: employees.name })
-      .from(employees)
-      .where(and(eq(employees.id, newAssigneeId), eq(employees.tenantId, tenantId)))
-    const assignee = assigneeRows[0]
-    if (!assignee) return badRequest('assigneeId must be an employee of this tenant')
-    patch.assigneeId = newAssigneeId
-    const restOfNotes = (patch.notes ?? existing.notes ?? '').replace(/^Assigned: .*\n?/, '')
-    patch.notes = `Assigned: ${assignee.name}${restOfNotes ? `\n${restOfNotes}` : ''}`
-  }
-
-  const requestedStatus = typeof b.status === 'string' && b.status.trim() ? b.status.trim().toUpperCase() : undefined
+  const requestedStatus = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : undefined
   const effectiveRequiresApproval = patch.requiresApproval ?? existing.requiresApproval
 
-  // A task can only be blocked with a real blocker, and can't be blocked by
-  // itself. The blocker must belong to this tenant — validated against real
-  // rows (bad/foreign ids get a clean 400/404, not a bare FK-violation 500).
-  if (requestedStatus === 'BLOCKED') {
-    const blocker = typeof b.blockedByTaskId === 'string' && b.blockedByTaskId.trim() ? b.blockedByTaskId.trim() : ''
-    if (!blocker) return badRequest('blockedByTaskId is required when blocking a task')
-    if (blocker === id) return badRequest('A task cannot block itself')
-    const blockerRows = await db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.id, blocker), eq(tasks.tenantId, tenantId)))
-    if (blockerRows.length === 0) return notFound()
-    patch.blockedByTaskId = blocker
-  } else if (typeof b.blockedByTaskId === 'string' && b.blockedByTaskId.trim()) {
-    // Blocked-by reference without BLOCKED status (or while unblocking) —
-    // treat as "not blocked" rather than silently storing a dangling ref.
-    patch.blockedByTaskId = null
-  }
-
-  // Clarification request: free-text note from the worker, stored as an audit
-  // entry so it appears in the tenant's activity trail with the requester.
-  const clarification = typeof b.clarification === 'string' ? b.clarification.trim() : ''
-  if (clarification) {
-    await db.insert(auditLog).values({
-      id: randomUUID(),
-      tenantId,
-      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
-      action: 'task.clarification_requested',
-      entity: 'task',
-      entityId: id,
-      meta: { note: clarification, title: existing.title },
-    })
-  }
-
-  // ── Reopen ──
-  // Only a completed task (DONE / REJECTED) can be reopened. Returns it to
-  // PENDING, clears any block, stamps reopenedAt, and audits the reopen with
-  // the real actor. Reassigning in the same call (assigneeId) moves the task
-  // to a different worker.
-  if (b.reopen === true) {
-    if (existing.status !== 'DONE' && existing.status !== 'REJECTED') {
-      return badRequest('Only a completed task (DONE or REJECTED) can be reopened')
-    }
-    patch.status = 'PENDING'
-    patch.blockedByTaskId = null
-    patch.reopenedAt = new Date()
-
-    // Reopen is a governance action (reactivating completed work) — gate to
-    // owner/manager, same ALLOWED_ROLES the approve/reject routes use. The
-    // session must be present: an audit entry needs a real actor.
-    if (!session || !['owner', 'manager'].includes(session.role)) {
-      return NextResponse.json({ success: false, error: 'Only an owner or manager can reopen a task' }, { status: 403 })
-    }
-
-    const [updated] = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
-    await db.insert(auditLog).values({
-      id: randomUUID(),
-      tenantId,
-      actor: session.id,
-      action: 'task.reopened',
-      entity: 'task',
-      entityId: id,
-      meta: {
-        title: updated.title,
-        from: existing.status,
-        to: 'PENDING',
-        assigneeId: patch.assigneeId ?? existing.assigneeId ?? null,
-      },
-    })
-    return ok(updated)
-  }
-
   if (requestedStatus && requestedStatus.toUpperCase() === 'DONE' && effectiveRequiresApproval) {
-    const actor = session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : '')
-    if (!actor) return badRequest('actorId is required to request approval for a task that requires it')
+    const actor = session.id
 
     // Idempotent: a task already parked at PENDING_APPROVAL with a live
     // pending request just returns that request instead of creating a
@@ -250,61 +116,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     patch.status = 'PENDING_APPROVAL'
     const [updated] = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
-    // Completion requested — audited so "who asked for approval" is on the
-    // record alongside the later approve/reject (which writes its own entry).
-    await db.insert(auditLog).values({
-      id: randomUUID(),
-      tenantId,
-      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
-      action: 'task.completion_requested',
-      entity: 'task',
-      entityId: id,
-      meta: { title: updated.title, from: existing.status, to: 'PENDING_APPROVAL' },
-    })
     return ok({ ...updated, approvalRequestId: approvalRequest.id })
   }
 
-  // Direct status change (STARTED / BLOCKED / DONE-without-approval / back to
-  // PENDING): record the transition + who did it. `from` is the pre-change
-  // status so the audit trail shows the full lifecycle, not just the latest.
-  if (requestedStatus) {
-    patch.status = requestedStatus
-    await db.insert(auditLog).values({
-      id: randomUUID(),
-      tenantId,
-      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
-      action: `task.${requestedStatus.toLowerCase()}`,
-      entity: 'task',
-      entityId: id,
-      meta: { title: existing.title, from: existing.status, to: requestedStatus, blockedByTaskId: patch.blockedByTaskId ?? null },
-    })
-  }
+  if (requestedStatus) patch.status = requestedStatus
 
-  // Field-edit audit: any non-status field change (title/priority/dueAt/notes/
-  // requiresApproval/assignee) writes a task.updated entry naming the changed
-  // fields, so the timeline shows who edited what. Status-only transitions are
-  // already audited above — exclude `status`/`blockedByTaskId` here.
-  const fieldKeys = ['title', 'dueAt', 'priority', 'notes', 'requiresApproval', 'assigneeId', 'reopenedAt'] as const
-  const changedFields = fieldKeys.filter((k) => k in patch && patch[k] !== existing[k])
-  const hasStatusChange = 'status' in patch || 'blockedByTaskId' in patch
-  if (changedFields.length > 0 && !hasStatusChange) {
-    await db.insert(auditLog).values({
-      id: randomUUID(),
-      tenantId,
-      actor: session?.id ?? (typeof b.actorId === 'string' ? b.actorId.trim() : 'unknown'),
-      action: 'task.updated',
-      entity: 'task',
-      entityId: id,
-      meta: { title: existing.title, fields: changedFields, assigneeId: patch.assigneeId ?? existing.assigneeId ?? null },
-    })
-  }
-
-  if (Object.keys(patch).length === 0) {
-    // Clarification-only PATCH — the note lives in audit_log (inserted above),
-    // not on the task row, so an empty field-patch is a valid request here.
-    if (clarification) return ok(existing)
-    return badRequest('No updatable fields provided')
-  }
+  if (Object.keys(patch).length === 0) return badRequest('No updatable fields provided')
 
   const rows = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
   if (rows.length === 0) return notFound()
@@ -314,9 +131,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 // DELETE /api/tasks/[id] — hard delete, tenant-scoped.
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = resolveTenantId(req, session?.tenantId)
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.tasks))) {
+    return forbidden('Your role does not have edit access to tasks')
+  }
 
   const rows = await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
   if (rows.length === 0) return notFound()

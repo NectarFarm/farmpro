@@ -26,6 +26,12 @@ export interface ProvisionTenantInput {
   email: string
   farmName: string
   location: string
+  // The applicant's GPS pin (onboard_requests.latitude/longitude), carried
+  // onto the new farm row so weather (GET /api/weather) works out of the box
+  // instead of every freshly provisioned farm starting with no coordinates.
+  // Optional/all-or-nothing — undefined when the request never captured one.
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export interface ProvisionTenantResult {
@@ -59,6 +65,8 @@ export async function provisionTenant(input: ProvisionTenantInput): Promise<Prov
       tenantId,
       name: input.farmName,
       location: input.location,
+      latitude: input.latitude ?? null,
+      longitude: input.longitude ?? null,
       code: farmCodeFromName(input.farmName, farmId),
     })
     await tx.insert(users).values({

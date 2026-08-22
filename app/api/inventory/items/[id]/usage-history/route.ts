@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { purchases, inventoryItems } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { and, desc, eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/inventory/items/[id]/usage-history (issue #235 task 6) ────────
 // "derive from purchases (when stock came in) — a real query, not a new
@@ -15,14 +15,13 @@ import { and, desc, eq } from 'drizzle-orm'
 // history.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = () => NextResponse.json({ success: false, error: 'Inventory item not found' }, { status: 404 })
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const itemRows = await db
     .select()

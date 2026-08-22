@@ -20,7 +20,7 @@
 // merged stock-list endpoint (GET /api/inventory/items) re-flattens
 // items+lots server-side for the UI's table shape — see that route for the
 // join and the `status` computation.
-import { pgTable, text, timestamp, integer, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, index } from 'drizzle-orm/pg-core'
 
 // A tenant's catalog of inventory items (feed, vaccines, medicine, seed,
 // etc — `category` is free text, matching the UI's cat filter chips, not an
@@ -58,12 +58,26 @@ export const inventoryLots = pgTable('inventory_lots', {
   itemId: text('item_id').notNull().references(() => inventoryItems.id),
   lotNo: text('lot_no').notNull(),
   qtyOnHand: integer('qty_on_hand').notNull().default(0),
-  unitCostCents: integer('unit_cost_cents').notNull().default(0),
+  // Widened to bigint (issue: money-unit-enforcement) — see the comment on
+  // batches.acquisitionCostCents in db/schemas/index.ts for why.
+  unitCostCents: bigint('unit_cost_cents', { mode: 'number' }).notNull().default(0),
   expiryDate: timestamp('expiry_date'),
   receivedDate: timestamp('received_date').defaultNow().notNull(),
+  // Multi-farm filtering (farm-scoped-data task): the farm belongs on the
+  // physical LOT, not the catalog item — `inventoryItems` is a tenant-wide
+  // catalogue (the same "Broiler Starter Mash" item can have lots sitting at
+  // different farms), while a lot is a specific quantity received at a
+  // specific place. Plain logical reference to farms.id, no DB FK — same
+  // "no import cycle with db/schemas/index.ts" convention this file already
+  // avoids by not importing productionUnits/batches either; validated
+  // against the caller's tenant in the route. Nullable: pre-existing lots
+  // predate farm scoping — the migration backfills them to the tenant's
+  // earliest-created farm rather than leaving them permanently unfilterable.
+  farmId: text('farm_id'),
 }, (t) => [
   index('idx_inventory_lots_tenant').on(t.tenantId),
   index('idx_inventory_lots_tenant_item').on(t.tenantId, t.itemId),
+  index('idx_inventory_lots_farm').on(t.farmId),
 ])
 
 // A purchase: the record of stock coming in. Creating one upserts the item
@@ -81,12 +95,23 @@ export const purchases = pgTable('purchases', {
   supplier: text('supplier').notNull(),
   itemId: text('item_id').notNull().references(() => inventoryItems.id),
   quantity: integer('quantity').notNull(),
-  unitCostCents: integer('unit_cost_cents').notNull().default(0),
-  totalCostCents: integer('total_cost_cents').notNull().default(0),
+  // Widened to bigint (issue: money-unit-enforcement) — see the comment on
+  // batches.acquisitionCostCents in db/schemas/index.ts for why.
+  unitCostCents: bigint('unit_cost_cents', { mode: 'number' }).notNull().default(0),
+  totalCostCents: bigint('total_cost_cents', { mode: 'number' }).notNull().default(0),
   paymentMethod: text('payment_method').notNull().default(''),
-  amountPaidCents: integer('amount_paid_cents').notNull().default(0),
+  amountPaidCents: bigint('amount_paid_cents', { mode: 'number' }).notNull().default(0),
+  // Multi-farm filtering (farm-scoped-data task) — a purchase is a receiving
+  // event for a specific farm's stock, same rationale as inventoryLots.farmId
+  // above (and recordPurchase sets both to the same value: a purchase and
+  // the lot it creates always belong to the same farm). Plain logical
+  // reference, no DB FK, same convention as the rest of this file. Nullable:
+  // pre-existing purchases predate farm scoping — backfilled to the tenant's
+  // earliest-created farm by the migration.
+  farmId: text('farm_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (t) => [
   index('idx_purchases_tenant').on(t.tenantId),
   index('idx_purchases_tenant_item').on(t.tenantId, t.itemId),
+  index('idx_purchases_farm').on(t.farmId),
 ])

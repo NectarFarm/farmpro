@@ -1,4 +1,4 @@
-"use client";
+'use client';
 /**
  * DataTable – mobile-first, large-data-capable table for the IFMS app.
  *
@@ -21,13 +21,13 @@
 
 import React, {
   useCallback, useMemo, useRef, useState, useEffect, DragEvent,
-} from "react";
-import { ChevronUp, ChevronDown } from "./icons";
+} from 'react';
+import { ChevronUp, ChevronDown } from './icons';
 
 /* ── Types ───────────────────────────────────────────────────────────────── */
 
-export type ColAlign = "left" | "right" | "center";
-export type SummaryType = "sum" | "avg" | "count" | "min" | "max";
+export type ColAlign = 'left' | 'right' | 'center';
+export type SummaryType = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
 export interface ColDef<T extends Record<string, unknown>> {
   key: keyof T | string;
@@ -84,7 +84,7 @@ function lsSet(key: string, val: string) {
 function numVals<T extends Record<string, unknown>>(rows: T[], key: string): number[] {
   return rows.map(r => {
     const v = r[key as keyof T];
-    return typeof v === "number" ? v : parseFloat(String(v ?? ""));
+    return typeof v === 'number' ? v : parseFloat(String(v ?? ''));
   }).filter(n => !isNaN(n));
 }
 
@@ -93,20 +93,20 @@ function calcSummary<T extends Record<string, unknown>>(
   rows: T[],
 ): React.ReactNode {
   if (!col.summary) return null;
-  if (typeof col.summary === "function") return col.summary(rows);
+  if (typeof col.summary === 'function') return col.summary(rows);
   const nums = numVals(rows, col.key as string);
-  if (!nums.length) return <span style={{ color: "var(--text-dim)" }}>—</span>;
+  if (!nums.length) return <span style={{ color: 'var(--text-dim)' }}>—</span>;
   let val: number;
   switch (col.summary) {
-    case "sum":   val = nums.reduce((a, b) => a + b, 0); break;
-    case "avg":   val = nums.reduce((a, b) => a + b, 0) / nums.length; break;
-    case "count": val = nums.length; break;
-    case "min":   val = Math.min(...nums); break;
-    case "max":   val = Math.max(...nums); break;
+    case 'sum':   val = nums.reduce((a, b) => a + b, 0); break;
+    case 'avg':   val = nums.reduce((a, b) => a + b, 0) / nums.length; break;
+    case 'count': val = nums.length; break;
+    case 'min':   val = Math.min(...nums); break;
+    case 'max':   val = Math.max(...nums); break;
   }
   return (
-    <span style={{ fontWeight: 700, color: "var(--primary-green)", fontSize: 11 }}>
-      {col.summary === "avg"
+    <span style={{ fontWeight: 700, color: 'var(--primary-green)', fontSize: 'var(--fs-xs)' }}>
+      {col.summary === 'avg'
         ? val.toLocaleString(undefined, { maximumFractionDigits: 1 })
         : val.toLocaleString()}
     </span>
@@ -115,17 +115,17 @@ function calcSummary<T extends Record<string, unknown>>(
 
 /* ── Sort helper ─────────────────────────────────────────────────────────── */
 
-function sortRows<T extends Record<string, unknown>>(rows: T[], key: string, dir: "asc" | "desc"): T[] {
+function sortRows<T extends Record<string, unknown>>(rows: T[], key: string, dir: 'asc' | 'desc'): T[] {
   return [...rows].sort((a, b) => {
     const av = a[key as keyof T];
     const bv = b[key as keyof T];
     if (av === bv) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
-    const cmp = (typeof av === "number" && typeof bv === "number")
+    const cmp = (typeof av === 'number' && typeof bv === 'number')
       ? av - bv
       : String(av).localeCompare(String(bv));
-    return dir === "asc" ? cmp : -cmp;
+    return dir === 'asc' ? cmp : -cmp;
   });
 }
 
@@ -134,7 +134,7 @@ function sortRows<T extends Record<string, unknown>>(rows: T[], key: string, dir
 function getCell<T extends Record<string, unknown>>(row: T, col: ColDef<T>, idx: number): React.ReactNode {
   if (col.render) return col.render(row, idx);
   const v = row[col.key as keyof T];
-  if (v === null || v === undefined) return <span style={{ color: "var(--text-dim)" }}>—</span>;
+  if (v === null || v === undefined) return <span style={{ color: 'var(--text-dim)' }}>—</span>;
   return String(v);
 }
 
@@ -149,8 +149,8 @@ export function DataTable<T extends Record<string, unknown>>({
   defaultPageSize = 20,
   bodyHeight = 340,
   zebra = false,
-  emptyText = "No data to display.",
-  className = "",
+  emptyText = 'No data to display.',
+  className = '',
   tableId,
 }: DataTableProps<T>) {
 
@@ -170,16 +170,16 @@ export function DataTable<T extends Record<string, unknown>>({
   });
 
   const [sortKey,   setSortKey]  = useState<string | null>(null);
-  const [sortDir,   setSortDir]  = useState<"asc" | "desc">("asc");
+  const [sortDir,   setSortDir]  = useState<'asc' | 'desc'>('asc');
   const [page,      setPage]     = useState(0);
   const [pageSize,  setPageSize] = useState<number>(() => {
     const saved = tableId ? lsGet(`dt:${tableId}:pageSize`) : null;
     if (saved) { const n = Number(saved); if (n > 0) return n; }
     return defaultPageSize;
   });
-  const [density,   setDensity]  = useState<"normal" | "compact">(() => {
+  const [density,   setDensity]  = useState<'normal' | 'compact'>(() => {
     const saved = tableId ? lsGet(`dt:${tableId}:density`) : null;
-    return saved === "compact" ? "compact" : "normal";
+    return saved === 'compact' ? 'compact' : 'normal';
   });
   const [scrollTop, setScrollTop] = useState(0);
 
@@ -188,7 +188,7 @@ export function DataTable<T extends Record<string, unknown>>({
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
   const bodyRef = useRef<HTMLDivElement>(null);
-  const rowH = density === "compact" ? RH_COMPACT : RH_NORMAL;
+  const rowH = density === 'compact' ? RH_COMPACT : RH_NORMAL;
 
   /* ── persist on change ── */
   useEffect(() => { if (tableId) lsSet(`dt:${tableId}:density`, density); }, [density, tableId]);
@@ -234,10 +234,10 @@ export function DataTable<T extends Record<string, unknown>>({
     const k = col.key as string;
     setSortKey(prev => {
       if (prev === k) {
-        setSortDir(d => d === "asc" ? "desc" : "asc");
+        setSortDir(d => d === 'asc' ? 'desc' : 'asc');
         return prev;
       }
-      setSortDir("asc");
+      setSortDir('asc');
       return k;
     });
     setPage(0);
@@ -254,13 +254,13 @@ export function DataTable<T extends Record<string, unknown>>({
   /* ── drag reorder ── */
   function onDragStart(e: DragEvent<HTMLTableCellElement>, idx: number) {
     dragSrcIdx.current = idx;
-    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.effectAllowed = 'move';
     // ghost image: use the th itself
     e.dataTransfer.setDragImage(e.currentTarget, 20, 10);
   }
   function onDragOver(e: DragEvent<HTMLTableCellElement>, idx: number) {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = 'move';
     setDragOverIdx(idx);
   }
   function onDragLeave() { setDragOverIdx(null); }
@@ -300,38 +300,38 @@ export function DataTable<T extends Record<string, unknown>>({
         onDragEnd={onDragEnd}
         onClick={() => handleSort(col)}
         style={{
-          padding: density === "compact" ? "5px 8px" : "9px 10px",
-          textAlign: col.align ?? "left",
-          fontSize: 10,
+          padding: density === 'compact' ? '5px 8px' : '9px 10px',
+          textAlign: col.align ?? 'left',
+          fontSize: 'var(--fs-2xs)',
           fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: "0.07em",
-          color: isActive ? "var(--primary-green)" : "var(--text-muted)",
-          whiteSpace: "nowrap",
-          borderBottom: "1px solid var(--border-subtle)",
-          borderLeft: isDragOver ? "2px solid var(--primary-green)" : "2px solid transparent",
+          textTransform: 'uppercase',
+          letterSpacing: '0.07em',
+          color: isActive ? 'var(--primary-green)' : 'var(--text-muted)',
+          whiteSpace: 'nowrap',
+          borderBottom: '1px solid var(--border-subtle)',
+          borderLeft: isDragOver ? '2px solid var(--primary-green)' : '2px solid transparent',
           background: isDragOver
-            ? "rgba(74,222,128,0.08)"
-            : "var(--surface)",
-          position: "sticky",
+            ? 'rgba(74,222,128,0.08)'
+            : 'var(--surface)',
+          position: 'sticky',
           top: 0,
           zIndex: col.pinned ? 20 : 10,
-          cursor: "grab",
-          userSelect: "none",
+          cursor: 'grab',
+          userSelect: 'none',
           minWidth: col.minWidth ?? 60,
-          transition: "background 0.1s, border-left 0.1s",
+          transition: 'background 0.1s, border-left 0.1s',
         }}
       >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           {/* drag grip */}
           <span
             style={{
-              fontSize: 10,
-              color: "var(--text-dim)",
+              fontSize: 'var(--fs-2xs)',
+              color: 'var(--text-dim)',
               opacity: 0.5,
               lineHeight: 1,
               flexShrink: 0,
-              cursor: "grab",
+              cursor: 'grab',
             }}
             title="Drag to reorder"
           >
@@ -340,7 +340,7 @@ export function DataTable<T extends Record<string, unknown>>({
           {col.header}
           {col.sortable && (
             <span style={{ opacity: isActive ? 1 : 0.25 }}>
-              {isActive && sortDir === "desc"
+              {isActive && sortDir === 'desc'
                 ? <ChevronDown size={9} />
                 : <ChevronUp size={9} />}
             </span>
@@ -354,25 +354,25 @@ export function DataTable<T extends Record<string, unknown>>({
   function renderRow(row: T, absIdx: number) {
     const key  = rowKey ? rowKey(row, absIdx) : ((row._id as string | number) ?? absIdx);
     const isEven = absIdx % 2 === 0;
-    const bg   = zebra && isEven ? "rgba(255,255,255,0.02)" : "transparent";
+    const bg   = zebra && isEven ? 'rgba(255,255,255,0.02)' : 'transparent';
     return (
       <tr
         key={key}
         onClick={() => onRowClick?.(row, absIdx)}
-        style={{ height: rowH, background: bg, cursor: onRowClick ? "pointer" : "default", transition: "background 0.1s" }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(74,222,128,0.05)"; }}
+        style={{ height: rowH, background: bg, cursor: onRowClick ? 'pointer' : 'default', transition: 'background 0.1s' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(74,222,128,0.05)'; }}
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
       >
         {orderedCols.map((col, ci) => (
           <td
             key={ci}
             style={{
-              padding: density === "compact" ? "3px 10px" : "9px 12px",
-              verticalAlign: "middle",
-              color: "var(--text-primary)",
-              fontSize: density === "compact" ? 11 : 12,
-              textAlign: col.align ?? "left",
-              borderBottom: "1px solid var(--border-subtle)",
+              padding: density === 'compact' ? '3px 10px' : '9px 12px',
+              verticalAlign: 'middle',
+              color: 'var(--text-primary)',
+              fontSize: density === 'compact' ? 11 : 12,
+              textAlign: col.align ?? 'left',
+              borderBottom: '1px solid var(--border-subtle)',
               minWidth: col.minWidth ?? 60,
             }}
           >
@@ -395,19 +395,19 @@ export function DataTable<T extends Record<string, unknown>>({
               <td
                 key={ci}
                 style={{
-                  padding: density === "compact" ? "4px 10px" : "8px 12px",
-                  textAlign: col.align ?? "left",
-                  fontSize: density === "compact" ? 10 : 11,
-                  borderTop: "2px solid var(--border-subtle)",
-                  background: "rgba(74,222,128,0.05)",
-                  color: "var(--text-secondary)",
+                  padding: density === 'compact' ? '4px 10px' : '8px 12px',
+                  textAlign: col.align ?? 'left',
+                  fontSize: density === 'compact' ? 10 : 11,
+                  borderTop: '2px solid var(--border-subtle)',
+                  background: 'rgba(74,222,128,0.05)',
+                  color: 'var(--text-secondary)',
                   fontWeight: 700,
                   minWidth: col.minWidth ?? 60,
-                  position: "sticky",
+                  position: 'sticky',
                   bottom: 0,
                 }}
               >
-                {cell ?? <span style={{ color: "var(--text-dim)" }}>—</span>}
+                {cell ?? <span style={{ color: 'var(--text-dim)' }}>—</span>}
               </td>
             );
           })}
@@ -423,33 +423,33 @@ export function DataTable<T extends Record<string, unknown>>({
   return (
     <div
       className={className}
-      style={{ borderRadius: 12, border: "1px solid var(--border-subtle)", overflow: "hidden", display: "flex", flexDirection: "column" }}
+      style={{ borderRadius: 12, border: '1px solid var(--border-subtle)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
     >
       {/* ── toolbar ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 10px", borderBottom: "1px solid var(--border-subtle)", background: "var(--surface)", gap: 8, flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 10px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface)', gap: 8, flexShrink: 0 }}>
         {/* density */}
-        <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
-          {(["normal","compact"] as const).map(d => (
+        <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+          {(['normal','compact'] as const).map(d => (
             <button key={d} onClick={() => setDensity(d)} style={{
-              padding: "3px 7px", borderRadius: 5, fontSize: 9, fontWeight: 700,
-              textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer",
-              border: density === d ? "1px solid rgba(74,222,128,0.4)" : "1px solid transparent",
-              background: density === d ? "rgba(74,222,128,0.12)" : "transparent",
-              color: density === d ? "var(--primary-green)" : "var(--text-dim)",
+              padding: '3px 7px', borderRadius: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer',
+              border: density === d ? '1px solid rgba(74,222,128,0.4)' : '1px solid transparent',
+              background: density === d ? 'rgba(74,222,128,0.12)' : 'transparent',
+              color: density === d ? 'var(--primary-green)' : 'var(--text-dim)',
             }}>
-              {d === "normal" ? "≡ Normal" : "⊟ Compact"}
+              {d === 'normal' ? '≡ Normal' : '⊟ Compact'}
             </button>
           ))}
         </div>
         {/* hint */}
-        <span style={{ fontSize: 9, color: "var(--text-dim)", flex: 1, textAlign: "center", whiteSpace: "nowrap", overflow: "hidden" }}>
+        <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', flex: 1, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden' }}>
           ⠿ drag headers to reorder
         </span>
         {/* page size */}
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ fontSize: 9, color: "var(--text-dim)", whiteSpace: "nowrap" }}>Rows</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>Rows</span>
           <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
-            style={{ background: "var(--card)", border: "1px solid var(--border-subtle)", borderRadius: 5, color: "var(--text-secondary)", fontSize: 11, padding: "2px 5px", cursor: "pointer" }}>
+            style={{ background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 5, color: 'var(--text-secondary)', fontSize: 'var(--fs-xs)', padding: '2px 5px', cursor: 'pointer' }}>
             {pageSizes.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
@@ -457,22 +457,22 @@ export function DataTable<T extends Record<string, unknown>>({
 
       {/* ── scrollable body ── */}
       <div ref={bodyRef} onScroll={handleScroll}
-        style={{ overflowX: "auto", overflowY: "auto", height: bodyHeight, flex: "1 1 auto" }}>
-        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "auto" }}>
+        style={{ overflowX: 'auto', overflowY: 'auto', height: bodyHeight, flex: '1 1 auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'auto' }}>
           <thead>
             <tr>{orderedCols.map((col, i) => renderTh(col, i))}</tr>
           </thead>
           <tbody>
             {paddingTop > 0 && (
-              <tr style={{ height: paddingTop }}><td colSpan={orderedCols.length} style={{ padding: 0, border: "none" }} /></tr>
+              <tr style={{ height: paddingTop }}><td colSpan={orderedCols.length} style={{ padding: 0, border: 'none' }} /></tr>
             )}
             {pageRows.length === 0 ? (
-              <tr><td colSpan={orderedCols.length} style={{ padding: "32px 16px", textAlign: "center", color: "var(--text-dim)", fontSize: 13 }}>{emptyText}</td></tr>
+              <tr><td colSpan={orderedCols.length} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>{emptyText}</td></tr>
             ) : (
               visibleRows.map((row, i) => renderRow(row, startIdx + i))
             )}
             {paddingBottom > 0 && (
-              <tr style={{ height: paddingBottom }}><td colSpan={orderedCols.length} style={{ padding: 0, border: "none" }} /></tr>
+              <tr style={{ height: paddingBottom }}><td colSpan={orderedCols.length} style={{ padding: 0, border: 'none' }} /></tr>
             )}
           </tbody>
           {renderSummaryRow()}
@@ -480,14 +480,14 @@ export function DataTable<T extends Record<string, unknown>>({
       </div>
 
       {/* ── footer: count + pagination ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 10px", borderTop: "1px solid var(--border-subtle)", background: "var(--surface)", flexShrink: 0, gap: 8 }}>
-        <span style={{ fontSize: 10, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
-          {sorted.length === 0 ? "0 rows" : `${firstIdx}–${lastIdx} of ${sorted.length}`}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 10px', borderTop: '1px solid var(--border-subtle)', background: 'var(--surface)', flexShrink: 0, gap: 8 }}>
+        <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+          {sorted.length === 0 ? '0 rows' : `${firstIdx}–${lastIdx} of ${sorted.length}`}
         </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
           <PagerBtn onClick={() => goTo(0)}            disabled={safePage === 0}              label="«" />
           <PagerBtn onClick={() => goTo(safePage - 1)} disabled={safePage === 0}              label="‹" />
-          <span style={{ fontSize: 10, color: "var(--text-secondary)", padding: "0 4px", whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', padding: '0 4px', whiteSpace: 'nowrap' }}>
             {safePage + 1} / {totalPages}
           </span>
           <PagerBtn onClick={() => goTo(safePage + 1)} disabled={safePage >= totalPages - 1} label="›" />
@@ -503,10 +503,10 @@ export function DataTable<T extends Record<string, unknown>>({
 function PagerBtn({ onClick, disabled, label }: { onClick: () => void; disabled: boolean; label: string }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
-      width: 22, height: 22, borderRadius: 5, border: "1px solid var(--border-subtle)",
-      background: "var(--card)", color: disabled ? "var(--text-dim)" : "var(--text-secondary)",
-      fontSize: 11, cursor: disabled ? "default" : "pointer",
-      display: "flex", alignItems: "center", justifyContent: "center",
+      width: 22, height: 22, borderRadius: 5, border: '1px solid var(--border-subtle)',
+      background: 'var(--card)', color: disabled ? 'var(--text-dim)' : 'var(--text-secondary)',
+      fontSize: 'var(--fs-xs)', cursor: disabled ? 'default' : 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
       opacity: disabled ? 0.35 : 1, flexShrink: 0,
     }}>{label}</button>
   );

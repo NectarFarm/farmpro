@@ -13,15 +13,18 @@ import { randomUUID } from 'node:crypto'
 import { eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
+
+let mockCookie: string | undefined
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
+  cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
 import { GET as plGET } from '@/app/api/reports/pl/route'
 import { POST as salesPOST } from '@/app/api/data/sales/route'
 import { db } from '@/db'
-import { tenants, sales, purchases, journalEntries, journalLines } from '@/db/schemas'
+import { tenants, users, sessions, sales, purchases, journalEntries, journalLines } from '@/db/schemas'
 import { periodDateRange } from '@/lib/period-range'
+import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -55,20 +58,34 @@ run('Finance Budget Overview: period toggle actually filters real sales (issue #
   const saleInYtdOnly = new Date(2026, 2, 1, 9, 0, 0) // Mar 1 — in ytd only
   const saleLastYear = new Date(2025, 11, 1, 9, 0, 0) // Dec 1, 2025 — outside all three
 
+  const ownerId = randomUUID()
+  const ownerEmail = `period-toggle-owner-${randomUUID()}@test.ifms`
+  let ownerSessionToken: string
+
   beforeAll(async () => {
     await db.insert(tenants).values({ id: tenantId, name: 'Period Toggle Test Co.', active: true })
+    const ownerSalt = `salt-${randomUUID()}`
+    await db.insert(users).values({
+      id: ownerId, tenantId, name: 'Period Toggle Owner', email: ownerEmail,
+      role: 'owner', passwordHash: hashSecret('irrelevant', ownerSalt), passwordSalt: ownerSalt, status: 'ACTIVE',
+    })
+    ownerSessionToken = await createSession(ownerId)
+    // GET /api/reports/pl is now session-only for tenant resolution and
+    // role-gated (vet/auditor screens task) — see lib/reports.ts's
+    // REPORT_VIEWER_ROLES and the route's header comment.
+    mockCookie = ownerSessionToken
 
     await salesPOST(postRequest('http://localhost/api/data/sales', {
-      tenantId, item: 'August batch sale', amount: 40000, status: 'paid', soldAt: saleInMonth.toISOString(),
+      tenantId, item: 'August batch sale', amountCents: 4000000, status: 'paid', soldAt: saleInMonth.toISOString(),
     }))
     await salesPOST(postRequest('http://localhost/api/data/sales', {
-      tenantId, item: 'July batch sale', amount: 25000, status: 'paid', soldAt: saleInQuarterOnly.toISOString(),
+      tenantId, item: 'July batch sale', amountCents: 2500000, status: 'paid', soldAt: saleInQuarterOnly.toISOString(),
     }))
     await salesPOST(postRequest('http://localhost/api/data/sales', {
-      tenantId, item: 'March batch sale', amount: 15000, status: 'paid', soldAt: saleInYtdOnly.toISOString(),
+      tenantId, item: 'March batch sale', amountCents: 1500000, status: 'paid', soldAt: saleInYtdOnly.toISOString(),
     }))
     await salesPOST(postRequest('http://localhost/api/data/sales', {
-      tenantId, item: 'Prior-year sale', amount: 90000, status: 'paid', soldAt: saleLastYear.toISOString(),
+      tenantId, item: 'Prior-year sale', amountCents: 9000000, status: 'paid', soldAt: saleLastYear.toISOString(),
     }))
   })
 
@@ -78,7 +95,10 @@ run('Finance Budget Overview: period toggle actually filters real sales (issue #
     await db.delete(journalEntries).where(eq(journalEntries.tenantId, tenantId))
     await db.delete(sales).where(eq(sales.tenantId, tenantId))
     await db.delete(purchases).where(eq(purchases.tenantId, tenantId))
+    await db.delete(sessions).where(eq(sessions.userId, ownerId))
+    await db.delete(users).where(eq(users.id, ownerId))
     await db.delete(tenants).where(eq(tenants.id, tenantId))
+    mockCookie = undefined
   })
 
   async function revenueFor(period: 'month' | 'quarter' | 'ytd'): Promise<number> {

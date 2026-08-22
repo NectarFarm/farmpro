@@ -8,18 +8,37 @@
 // it (name, phone, role, salary/payday stay UI-local for now — payroll is a
 // separate, not-yet-built epic; this table only carries the fields the
 // issue's task list actually asks for).
-import { pgTable, text, timestamp, integer, jsonb, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, jsonb, index } from 'drizzle-orm/pg-core'
 
 // A tenant's employees — distinct from `users` (auth accounts): an employee
 // may or may not have a login. `userId` is a nullable logical link to the
+//
+// `monthlySalaryCents` (payroll v1): the employee's pay basis. Chosen shape
+// is a flat MONTHLY SALARY, not a daily/hourly wage, for one concrete reason
+// — this app has no attendance/timesheet table anywhere (grepped
+// db/schemas/*.ts), so a wage that depends on days-worked or hours-worked
+// has no real data source to compute it from; inventing one (e.g. assuming
+// every calendar day in the period counts) would be indistinguishable from
+// making up the number. A flat rate per pay period needs no such input: a
+// payroll run pays every active employee with a rate set their full
+// `monthlySalaryCents` for the period, no pro-rating. That IS a real
+// limitation — a worker who joined or left mid-period, or took unpaid leave,
+// still gets a full month — noted as a follow-up once attendance tracking
+// exists, not silently guessed at here. Defaults to 0 ("no pay rate set
+// yet"); POST /api/payroll/runs only pays employees with a rate > 0, so an
+// employee with no rate configured is simply excluded from a run rather than
+// paid 0 (which would create a zero-amount payslip with no meaning).
+
 // `users` row a worker signs in with (no DB FK, same "logical reference"
 // choice `users.tenantId` already makes — an employee can be created before
 // any login is provisioned for them). This is the field the issue's task 3
 // asks to "document which" — GET /api/employees/me resolves the caller's
 // employees row by `userId` (matched against the session user's id), not by
-// phone: `users` has no phone column on this branch, so phone-matching would
-// require format-normalizing two independently-entered free-text fields with
-// no guarantee of a match, while `userId` is an exact id equality once set.
+// phone: even though `users.phone` exists now (added for the admin
+// user-management feature's forgot-password flow — db/schemas/auth.ts),
+// phone-matching would still require format-normalizing two independently
+// -entered free-text fields with no guarantee of a match, while `userId` is
+// an exact id equality once set.
 //
 // `assignedBatchIds` references real `batches.id` rows (issue depends on
 // #231, merged) — validated against the caller's tenant in the route (same
@@ -37,6 +56,7 @@ export const employees = pgTable('employees', {
   name: text('name').notNull(),
   phone: text('phone').notNull().default(''),
   role: text('role').notNull().default('worker'),
+  monthlySalaryCents: bigint('monthly_salary_cents', { mode: 'number' }).notNull().default(0),
   assignedBatchIds: text('assigned_batch_ids').array().notNull().default([]),
   // Deaths-per-record threshold at/above which the worker app requires a
   // photo before a mortality record can be submitted (see
@@ -45,10 +65,19 @@ export const employees = pgTable('employees', {
   // /api/employees/me hands back so that "3" isn't hardcoded per client).
   mortalityPhotoThreshold: integer('mortality_photo_threshold').notNull().default(3),
   status: text('status').notNull().default('ACTIVE'),
+  // Multi-farm filtering (farm-scoped-data task) — the employee's home farm,
+  // distinct from `assignedBatchIds` (which batches they work, not which
+  // farm they're based at). Plain logical reference to farms.id, no DB FK —
+  // same convention `assignedBatchIds`/`userId` already use in this table;
+  // validated against the caller's tenant in the route. Nullable:
+  // pre-existing employees predate farm scoping — backfilled to the
+  // tenant's earliest-created farm by the migration.
+  farmId: text('farm_id'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_employees_tenant').on(t.tenantId),
   index('idx_employees_tenant_user').on(t.tenantId, t.userId),
+  index('idx_employees_farm').on(t.farmId),
 ])
 
 // Generic worker-submission log: feeding / mortality / physical_count today,

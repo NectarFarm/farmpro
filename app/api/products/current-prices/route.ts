@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { products } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
 import { asc, eq } from 'drizzle-orm'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/products/current-prices (issue #227 task 1) ──────────────────
 // Backs the dashboard's price strip: current sale price per product, read
@@ -21,12 +21,11 @@ import { asc, eq } from 'drizzle-orm'
 // convention, not the older wildcard-CORS routes).
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
-export async function GET(req: Request) {
-  const session = await getSessionUser()
-  const tenantId = session?.tenantId ?? new URL(req.url).searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+export async function GET() {
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
 
   const rows = await db
     .select()

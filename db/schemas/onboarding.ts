@@ -6,10 +6,12 @@
 // route does not exist in this branch yet; confirmed by grep, issue #250
 // epic notes).
 //
-// Column set matches components/farm/data.ts's OnboardRequest shape exactly
-// (farmerName, email, phone, farmName, location, enterprises, status, notes,
-// requestedAt) — the mock UI this backend is replacing.
-import { pgTable, text, timestamp, index } from 'drizzle-orm/pg-core'
+// Column set matches components/farm/data.ts's OnboardRequest shape, which
+// also carries address/lat/lng (issues #251/#252: RegisterScreen collects
+// GPS + a reverse-geocoded address, and AdminOnboardingScreen's LocationEditor
+// lets a super_admin set/correct them). All three are nullable — GPS is
+// genuinely optional, so a request with no coordinates must still be valid.
+import { pgTable, text, timestamp, index, doublePrecision } from 'drizzle-orm/pg-core'
 
 export const onboardRequests = pgTable('onboard_requests', {
   id: text('id').primaryKey(),
@@ -22,6 +24,13 @@ export const onboardRequests = pgTable('onboard_requests', {
   // strings, validated against a fixed list client-side; this table just stores
   // whatever the applicant sent.
   enterprises: text('enterprises').array().notNull().default([]),
+  // Optional location detail (issue #252): the applicant's GPS pin and its
+  // reverse-geocoded address, or coordinates a super_admin fills in later via
+  // the admin LocationEditor. `location` above stays required/free-text
+  // (e.g. "Nakuru, Kenya"); these are the precise, all-or-nothing pair.
+  address: text('address'),
+  latitude: doublePrecision('latitude'),
+  longitude: doublePrecision('longitude'),
   // pending | approved | rejected | info-needed (components/farm/data.ts).
   // Not a DB enum: the same "loose text, validated in the route" choice this
   // codebase already makes for users.role / users.status (db/schemas/auth.ts).
@@ -32,6 +41,14 @@ export const onboardRequests = pgTable('onboard_requests', {
   // queue (and tests) confirm a request really produced a tenant, and stops a
   // second PATCH ...approve from provisioning twice.
   tenantId: text('tenant_id'),
+  // Applicant's consent to this request being submitted/processed. Recorded
+  // server-side (never client-supplied) so it's provable, not just checked in
+  // the browser. Nullable because rows that predate this column can't
+  // retroactively acquire consent — every *new* row populates both on POST,
+  // and PATCH never touches them (an admin can't grant/backdate consent on
+  // the applicant's behalf).
+  consentAt: timestamp('consent_at'),
+  consentVersion: text('consent_version'),
 }, (t) => [
   index('idx_onboard_requests_status').on(t.status),
 ])

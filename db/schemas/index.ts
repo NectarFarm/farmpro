@@ -1,7 +1,7 @@
 // IFMS new-backend schema (mobile-ui-upgrade). Tenant is the account/billing
 // scope; `farms` sits below it, and production units belong to a farm — the same
 // shape the reference backend designs toward (issue #219).
-import { pgTable, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, index, uniqueIndex, doublePrecision } from 'drizzle-orm/pg-core'
 
 export * from './auth'
 export * from './dashboard'
@@ -12,6 +12,7 @@ export * from './people'
 export * from './settings'
 export * from './finance'
 export * from './auditor'
+export * from './payroll'
 
 // A tenant's farms. One tenant owns several farms; each farm carries its own
 // production units. The farm switcher in the shell reads these via GET /api/farms.
@@ -20,7 +21,25 @@ export const farms = pgTable('farms', {
   tenantId: text('tenant_id').notNull(),
   name: text('name').notNull(),
   location: text('location').notNull().default(''),
+  // GPS pin for this farm (ui-polish-theme-weather: weather integration).
+  // Nullable, all-or-nothing pair, same shape/rules as
+  // onboard_requests.latitude/longitude (db/schemas/onboarding.ts) —
+  // validated with the same lib/validation.ts#validateLocation. Onboarding
+  // captures coordinates on the REQUEST row, but provisionTenant
+  // (lib/tenant-provisioning.ts) never carried them onto the farm row it
+  // creates, so every existing farm has NULL here regardless of what the
+  // applicant supplied. GET /api/weather treats NULL as "no coordinates set"
+  // and returns an honest empty state rather than guessing a location.
+  latitude: doublePrecision('latitude'),
+  longitude: doublePrecision('longitude'),
   code: text('code').notNull(),
+  // 'ACTIVE' | 'ARCHIVED' — loose text validated in the route (same
+  // convention as users.status/onboardRequests.status), not a DB enum.
+  // Farms are archived, never deleted: production_units.farm_id is a real FK
+  // into farms.id (below), so a hard DELETE would fail once a unit exists,
+  // or orphan production history if that FK were ever dropped. Archiving
+  // keeps the row (hidden from the default farm list/switcher) instead.
+  status: text('status').notNull().default('ACTIVE'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_farms_tenant').on(t.tenantId),
@@ -87,7 +106,12 @@ export const batches = pgTable('batches', {
   status: text('status').notNull().default('ACTIVE'),
   initialQty: integer('initial_qty').notNull().default(0),
   currentQty: integer('current_qty').notNull().default(0),
-  acquisitionCostCents: integer('acquisition_cost_cents').notNull().default(0),
+  // Money units (issue: money-unit-enforcement) — widened to bigint (mode
+  // 'number': safe up to 2^53, far beyond any real farm-finance figure) so
+  // this cents-denominated column isn't capped at ~21.5M KSh by `integer`'s
+  // 2,147,483,647 ceiling. See lib/money.ts for the one place cents<->major
+  // conversion happens.
+  acquisitionCostCents: bigint('acquisition_cost_cents', { mode: 'number' }).notNull().default(0),
   startDate: timestamp('start_date').defaultNow(),
   endDate: timestamp('end_date'),
   harvestDate: timestamp('harvest_date'),

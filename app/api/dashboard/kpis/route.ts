@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { tasks, notifications, products, batches, sales, purchases, approvalRequests } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
-import { and, eq } from 'drizzle-orm'
+import { tasks, notifications, products, batches, sales, approvalRequests } from '@/db/schemas'
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { syncTaskNotifications, DONE_STATUSES } from '@/app/api/notifications/route'
 import { enterpriseTypeFor } from '@/lib/codes'
+import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
+import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/dashboard/kpis (issue #228, revisited #292, #296) ──────────────
 // Built in #228 before `batches` (#231/#232), `sales` (#239) and
@@ -33,20 +34,19 @@ import { enterpriseTypeFor } from '@/lib/codes'
 //                            `null` (not 0) when there are no active batches or
 //                            every active batch has initialQty 0 — there is no
 //                            honest percentage to report in that case.
-//   - revenue              — sum of ALL of the tenant's real `sales.amount`
+//   - revenueCents         — sum of ALL of the tenant's real `sales.amountCents`
 //                            rows, all-time (unchanged from #292 — kept for
 //                            back-compat with any existing caller of this
 //                            field). Every sale — 'paid' or 'pending' — is
 //                            included, matching how lib/finance.ts posts
 //                            every sale to the 4001 Sales Revenue account
-//                            regardless of payment status. `sales.amount` is
-//                            a plain whole-KSh figure (not `*Cents`, see
-//                            db/schemas/finance.ts) — summed as-is. Issue #290
-//                            (open) documents that this unit convention is
-//                            inconsistent with `purchases.totalCostCents`; that
-//                            mismatch is a finance-posting-layer bug, not
-//                            something this read-only KPI route should paper
-//                            over.
+//                            regardless of payment status. `sales.amountCents`
+//                            is cents, same as every other money column in
+//                            this schema (issue: money-unit-enforcement
+//                            renamed/converted it from a plain whole-KSh
+//                            `amount` column and fixed the #290 unit
+//                            mismatch at its source) — summed as-is, exposed
+//                            as `revenueCents`.
 //
 // ── issue #296: real primary KPI grid + Revenue card ────────────────────────
 // The frontend's primary Home-screen tile grid was showing an unrelated
@@ -90,37 +90,23 @@ import { enterpriseTypeFor } from '@/lib/codes'
 //                            'month' on an omitted/invalid value — this route
 //                            never 400s on the toggle, it just falls back).
 //                            Echoed back so the frontend can confirm what the
-//                            server actually computed periodRevenue/
+//                            server actually computed periodRevenueCents/
 //                            revenueTrend against.
-//   - periodRevenue        — sum of the tenant's `sales.amount` rows whose
+//   - periodRevenueCents   — sum of the tenant's `sales.amountCents` rows whose
 //                            `soldAt` falls in [periodStart, now] for the
 //                            resolved `period` (calendar month/quarter/year
 //                            to date, UTC). This is the number the Revenue
 //                            card's toggle actually drives — kept as a
-//                            separate field from the all-time `revenue`
+//                            separate field from the all-time `revenueCents`
 //                            above rather than overloading that field's
 //                            existing meaning.
-//   - expense / periodExpense — the expense side of the same card. The
-//                            dashboard previously showed Revenue + Margin
-//                            only, so a tenant with purchases (see the GL
-//                            trial balance / P&L) never saw its expenses on
-//                            Home. Computed with EXACTLY the formula
-//                            lib/reports.ts's computePlReport uses for its
-//                            `periodExpense` (`Math.round(sum(
-//                            purchases.totalCostCents)/100)`, purchases
-//                            filtered to the resolved period by `createdAt`,
-//                            whole currency units) so this tile can never
-//                            drift from the Finance Overview's Expenses
-//                            figure or the GL's Purchases Expense total —
-//                            the account page the user asked to see mirrored
-//                            here. `expense` is the same sum all-time.
 //   - marginPct            — see the dedicated writeup below (same
 //                            "document the formula choice" instruction issue
 //                            #239's trial-balance decision followed).
-//   - revenueTrend         — one { date: 'YYYY-MM-DD', amount } entry per
+//   - revenueTrend         — one { date: 'YYYY-MM-DD', amountCents } entry per
 //                            calendar day (UTC) in [periodStart, now]
-//                            inclusive, amount = that day's summed
-//                            `sales.amount` for the tenant. Zero-filled for
+//                            inclusive, amountCents = that day's summed
+//                            `sales.amountCents` for the tenant. Zero-filled for
 //                            days with no sales so the frontend's bar chart
 //                            has a complete, continuous x-axis instead of
 //                            gaps — replaces the static PROD_BARS mock array.
@@ -134,7 +120,7 @@ import { enterpriseTypeFor } from '@/lib/codes'
 //
 // ── Margin % formula decision (issue #296, same "document the choice"
 // instruction as #239's trial-balance posting-engine writeup) ───────────────
-// What's realistically computable today: `sales.amount` (real revenue) minus
+// What's realistically computable today: `sales.amountCents` (real revenue) minus
 // the ONLY real per-batch cost figure this branch tracks anywhere —
 // `batches.acquisitionCostCents` (see GET /api/batches/[id]/cost-breakdown's
 // header comment: no purchases/expenses/labor_logs table links a cost to a
@@ -173,12 +159,69 @@ import { enterpriseTypeFor } from '@/lib/codes'
 // #228 comment used):
 //   - avgFCR — needs feed-intake + weight-gain records that don't exist yet.
 //
+// ── farmId (farm-scoped-data task) — which metrics are, and aren't,
+// farm-scoped ─────────────────────────────────────────────────────────────
+// This route used to be the proof that the farm switcher was decorative:
+// `activeFarm` changed a label and every number here stayed tenant-wide. An
+// optional `?farmId=` (validated against the tenant; 'ALL' or absent means
+// unfiltered, same contract as every other route in this task) now actually
+// re-scopes every metric that has a real farm relationship to follow:
+//
+//   FARM-SCOPED when farmId is set (all reached via production_units, the
+//   one direct FK into farms, then one more hop into batches):
+//     - activeBatches, mortalityPct       — only this farm's ACTIVE batches
+//     - revenue, periodRevenue,
+//       revenueTrend, marginPct           — only sales whose batch belongs
+//                                            to this farm (marginPct's cost
+//                                            side already sums the same
+//                                            farm-filtered batch set, so it
+//                                            can't silently mix farms)
+//     - livestockUnitsCount/Qty,
+//       cropBatchGroupsCount               — grouped from the same
+//                                            farm-filtered active batches
+//     - pendingApprovals                   — this farm's batch-linked
+//                                            approvals PLUS every
+//                                            batchId-IS-NULL tenant-level
+//                                            approval (see GET
+//                                            /api/approvals's header for why
+//                                            — hiding tenant-level approvals
+//                                            behind a farm filter would hide
+//                                            decisions that need making)
+//     - activeTasksCount, overdueTasksCount — tasks.farmId is a direct
+//                                            column (migration 0019); a
+//                                            farm-scoped view shows only that
+//                                            farm's tasks. A tenant-level
+//                                            task (farmId IS NULL, e.g. "renew
+//                                            business license") shows only in
+//                                            the ALL/unfiltered view — unlike
+//                                            approvals, this route does NOT
+//                                            fold null-farm tasks into every
+//                                            farm's count, so a farm-scoped
+//                                            task badge never over-counts
+//                                            work that isn't actually this
+//                                            farm's.
+//
+//   STAYS TENANT-WIDE regardless of farmId — no farm relationship exists to
+//   scope them by, and faking one would be dishonest, not a feature:
+//     - unreadNotifications  — `notifications` has no farm_id and no path to
+//                              one (not even through a batch)
+//     - productCount         — `products` is a tenant-wide price catalogue,
+//                              same "catalogue vs. physical/scoped fact"
+//                              split as inventoryItems vs inventoryLots
+//     - avgFCR               — already `null` for the reason above (no
+//                              feed/weight data source exists at all yet);
+//                              farm-scoping a number that doesn't exist is
+//                              moot
+//   The response echoes `farmId` (resolved value or 'ALL') and
+//   `tenantWideMetrics` (the field-name list above) so the UI can label
+//   those tiles honestly ("all farms") instead of implying they respect the
+//   farm switcher when they don't and can't.
+//
 // Same tenant-resolution + envelope conventions as the rest of #227's routes:
 // session tenant wins, `tenantId` query param is the standalone-mock-mode
 // fallback.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
-const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
 type Period = 'month' | 'quarter' | 'year'
 const VALID_PERIODS: readonly Period[] = ['month', 'quarter', 'year']
@@ -206,26 +249,70 @@ function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-export async function GET(req: Request) {
-  const session = await getSessionUser()
-  const url = new URL(req.url)
-  const tenantId = session?.tenantId ?? url.searchParams.get('tenantId')?.trim()
-  if (!tenantId) return badRequest('tenantId is required')
+// Metrics that stay tenant-wide no matter what `farmId` resolves to — see
+// the file header's farmId writeup for why each one has no farm relationship
+// to scope by. Echoed in the response so the UI can label these tiles
+// honestly instead of implying they respect the farm switcher.
+const TENANT_WIDE_METRICS = ['unreadNotifications', 'productCount', 'avgFCR'] as const
 
+export async function GET(req: Request) {
+  const auth = await requireTenantSession()
+  if ('error' in auth) return auth.error
+  const { tenantId } = auth
+
+  const url = new URL(req.url)
   const period = resolvePeriod(url.searchParams.get('period'))
+
+  const farmFilter = await resolveFarmFilter(tenantId, url.searchParams.get('farmId'))
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
 
   // Keep unreadNotifications consistent with GET /api/notifications even when
   // this is the first dashboard-backed endpoint hit in the session.
   await syncTaskNotifications(tenantId)
 
-  const [taskRows, notificationRows, productRows, batchRows, salesRows, purchaseRows, pendingApprovalRows] = await Promise.all([
-    db.select().from(tasks).where(eq(tasks.tenantId, tenantId)),
+  // Batch ids for this farm (batches.unitId -> production_units.farmId,
+  // batches has no farm_id of its own — see file header). `null` means "no
+  // farm filter", not "farm with no batches" — kept distinct from `[]` so
+  // the query builders below know whether to add a batch-id condition at
+  // all versus add one that matches nothing.
+  const farmBatchIds: string[] | null = farmFilter ? await batchIdsForFarm(tenantId, farmFilter) : null
+
+  const taskConditions = [eq(tasks.tenantId, tenantId)]
+  // Direct column — a farm-scoped view shows only that farm's tasks; a
+  // tenant-level task (farmId IS NULL) shows only in the ALL view. See file
+  // header for why this deliberately differs from the approvals decision.
+  if (farmFilter) taskConditions.push(eq(tasks.farmId, farmFilter))
+
+  // Postgres can't express an empty inArray() ("IN ()"), so a farm with zero
+  // batches gets a literal always-false condition instead — provably matches
+  // nothing, same effect as "this farm has no batches" without a special
+  // empty-array code path.
+  const NOTHING = sql`false`
+
+  const batchConditions = [eq(batches.tenantId, tenantId)]
+  if (farmBatchIds !== null) batchConditions.push(farmBatchIds.length > 0 ? inArray(batches.id, farmBatchIds) : NOTHING)
+
+  const salesConditions = [eq(sales.tenantId, tenantId)]
+  if (farmBatchIds !== null) salesConditions.push(farmBatchIds.length > 0 ? inArray(sales.batchId, farmBatchIds) : NOTHING)
+
+  const approvalConditions = [eq(approvalRequests.tenantId, tenantId), eq(approvalRequests.status, 'pending')]
+  if (farmBatchIds !== null) {
+    // Tenant-level approvals (batchId IS NULL) always included — see GET
+    // /api/approvals's header for the full writeup.
+    approvalConditions.push(
+      farmBatchIds.length > 0
+        ? or(inArray(approvalRequests.batchId, farmBatchIds), isNull(approvalRequests.batchId))!
+        : isNull(approvalRequests.batchId)
+    )
+  }
+
+  const [taskRows, notificationRows, productRows, batchRows, salesRows, pendingApprovalRows] = await Promise.all([
+    db.select().from(tasks).where(and(...taskConditions)),
     db.select().from(notifications).where(eq(notifications.tenantId, tenantId)),
     db.select().from(products).where(eq(products.tenantId, tenantId)),
-    db.select().from(batches).where(eq(batches.tenantId, tenantId)),
-    db.select().from(sales).where(eq(sales.tenantId, tenantId)),
-    db.select().from(purchases).where(eq(purchases.tenantId, tenantId)),
-    db.select().from(approvalRequests).where(and(eq(approvalRequests.tenantId, tenantId), eq(approvalRequests.status, 'pending'))),
+    db.select().from(batches).where(and(...batchConditions)),
+    db.select().from(sales).where(and(...salesConditions)),
+    db.select().from(approvalRequests).where(and(...approvalConditions)),
   ])
 
   const now = new Date()
@@ -268,20 +355,16 @@ export async function GET(req: Request) {
   const livestockUnitsQty = livestockGroups.reduce((s, g) => s + g.qty, 0)
   const cropBatchGroupsCount = cropGroups.length
 
-  const revenue = salesRows.reduce((s, sale) => s + sale.amount, 0)
-  const expense = Math.round(purchaseRows.reduce((s, p) => s + p.totalCostCents, 0) / 100)
+  // Unit (issue: money-unit-enforcement): `sales.amountCents` is cents now,
+  // so `revenueCents`/`periodRevenueCents`/the trend bucket totals are all
+  // cents too — no `sales.amountCents`-whole-units conversion anywhere in this
+  // route anymore.
+  const revenueCents = salesRows.reduce((s, sale) => s + sale.amountCents, 0)
 
   // Period-scoped revenue + day-bucketed trend — see file header.
   const start = periodStart(period, now)
   const periodSalesRows = salesRows.filter((s) => (s.soldAt as Date) >= start && (s.soldAt as Date) <= now)
-  const periodRevenue = periodSalesRows.reduce((s, sale) => s + sale.amount, 0)
-
-  // Period-scoped expense — same formula lib/reports.ts's computePlReport
-  // uses for its `periodExpense` (purchases filtered by createdAt, cents ->
-  // whole units), so the dashboard card and the Finance Overview / GL
-  // Purchases Expense figure can never disagree.
-  const periodPurchaseRows = purchaseRows.filter((p) => (p.createdAt as Date) >= start && (p.createdAt as Date) <= now)
-  const periodExpense = Math.round(periodPurchaseRows.reduce((s, p) => s + p.totalCostCents, 0) / 100)
+  const periodRevenueCents = periodSalesRows.reduce((s, sale) => s + sale.amountCents, 0)
 
   const startDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
   const endDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
@@ -294,18 +377,25 @@ export async function GET(req: Request) {
     // Guard rather than crash: every periodSalesRows entry should fall within
     // [startDay, endDay] by construction, but a sale exactly at a boundary
     // instant is safer handled defensively than assumed.
-    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + s.amount)
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + s.amountCents)
   }
-  const revenueTrend = [...buckets.entries()].map(([date, amount]) => ({ date, amount }))
+  const revenueTrend = [...buckets.entries()].map(([date, amountCents]) => ({ date, amountCents }))
 
   // Margin % — see file header's dedicated writeup for the formula choice.
+  // `totalCostCents` (acquisitionCostCents) and `periodRevenueCents` are now
+  // the same unit (cents) — no `/ 100` needed to compare them.
   const totalCostCents = batchRows.reduce((s, b) => s + (b.acquisitionCostCents ?? 0), 0)
-  const totalCostKsh = Math.round(totalCostCents / 100)
-  const marginPct = periodRevenue > 0
-    ? Math.round(((periodRevenue - totalCostKsh) / periodRevenue) * 1000) / 10
+  const marginPct = periodRevenueCents > 0
+    ? Math.round(((periodRevenueCents - totalCostCents) / periodRevenueCents) * 1000) / 10
     : null
 
   return ok({
+    // The farm this response was actually scoped to ('ALL' when no filter
+    // was requested) plus which fields never change with it — see the file
+    // header's farmId writeup. The UI reads this to label tenant-wide tiles
+    // honestly instead of implying every number follows the switcher.
+    farmId: farmFilter ?? 'ALL',
+    tenantWideMetrics: TENANT_WIDE_METRICS,
     activeTasksCount,
     overdueTasksCount,
     unreadNotifications,
@@ -314,15 +404,13 @@ export async function GET(req: Request) {
     mortalityPct,
     // No FCR-capable data source exists yet — see file header.
     avgFCR: null,
-    revenue,
-    expense,
+    revenueCents,
     pendingApprovals,
     livestockUnitsCount,
     livestockUnitsQty,
     cropBatchGroupsCount,
     period,
-    periodRevenue,
-    periodExpense,
+    periodRevenueCents,
     marginPct,
     revenueTrend,
   })

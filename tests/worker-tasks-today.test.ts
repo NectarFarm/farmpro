@@ -21,16 +21,19 @@ import { randomUUID } from 'node:crypto'
 import { inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
+
+let mockCookie: string | undefined
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
+  cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
 import { GET as tasksGET, POST as tasksPOST } from '@/app/api/tasks/route'
 import { PATCH as taskPATCH } from '@/app/api/tasks/[id]/route'
 import { db } from '@/db'
-import { tenants, employees, tasks, approvalRequests } from '@/db/schemas'
+import { tenants, employees, tasks, approvalRequests, users, sessions } from '@/db/schemas'
 import { splitNotes, buildNotes, type ApiTask } from '@/components/farm/tasks'
 import { selectMyTasksToday } from '@/components/farm/worker'
+import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
@@ -85,16 +88,28 @@ describe('selectMyTasksToday (pure filter, no DB needed)', () => {
 run('worker home "My Tasks Today": GET /api/tasks?due=today + assignee filter (issue #303)', () => {
   const tenantId = `t-worker-tasks-${randomUUID()}`
   const workerId = randomUUID()
+  const workerUserId = randomUUID()
+  let workerSessionToken: string
 
   beforeAll(async () => {
     await db.insert(tenants).values({ id: tenantId, name: 'Worker Tasks Test Co.', active: true })
     await db.insert(employees).values({ id: workerId, tenantId, name: 'John Kamau', role: 'worker' })
+    const salt = randomUUID()
+    await db.insert(users).values({
+      id: workerUserId, tenantId, name: 'John Kamau', email: `worker-tasks-${randomUUID()}@test.ifms`,
+      role: 'worker', passwordHash: hashSecret('pw', salt), passwordSalt: salt, status: 'ACTIVE',
+    })
+    workerSessionToken = await createSession(workerUserId)
+    mockCookie = workerSessionToken
   })
 
   afterAll(async () => {
+    mockCookie = undefined
     await db.delete(approvalRequests).where(inArray(approvalRequests.tenantId, [tenantId]))
     await db.delete(tasks).where(inArray(tasks.tenantId, [tenantId]))
     await db.delete(employees).where(inArray(employees.tenantId, [tenantId]))
+    await db.delete(sessions).where(inArray(sessions.userId, [workerUserId]))
+    await db.delete(users).where(inArray(users.id, [workerUserId]))
     await db.delete(tenants).where(inArray(tenants.id, [tenantId]))
   })
 
