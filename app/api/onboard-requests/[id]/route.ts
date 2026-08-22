@@ -9,7 +9,7 @@ import { validateLocation } from '@/lib/validation'
 // belongs to a user. Surfaced as a clean envelope, not a bare 500. The local
 // copy this replaces checked `err.code`, which drizzle's wrapper never sets,
 // so it never actually matched.
-import { isUniqueViolation } from '@/lib/db-errors'
+import { isUniqueViolation, uniqueViolationConstraint } from '@/lib/db-errors'
 
 // ── PATCH /api/onboard-requests/[id] (issue #251) ───────────────────────────
 // super_admin only. Body: { status: 'approved' | 'rejected' | 'info-needed', notes? }.
@@ -123,12 +123,27 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ success: true, data: { ...updated, ownerTempPassword } }, { status: 200 })
     } catch (err) {
       if (isUniqueViolation(err)) {
+        // Attribute the clash to the field that actually collided. users.phone
+        // is unique as well as users.email, so a single hardcoded "email"
+        // message sent an admin looking in the wrong place.
+        const constraint = uniqueViolationConstraint(err) ?? ''
+        const field = constraint.includes('phone') ? 'phone number'
+          : constraint.includes('code') ? 'farm code'
+          : 'email address'
         return NextResponse.json(
-          { success: false, error: 'A tenant or user for this email already exists' },
+          { success: false, error: `Cannot approve: an existing account already uses this ${field}.`, fields: { [field === 'phone number' ? 'phone' : field === 'farm code' ? 'farmName' : 'email']: `Already in use (${constraint || 'unique constraint'})` } },
           { status: 409 }
         )
       }
-      return NextResponse.json({ success: false, error: 'Failed to provision tenant' }, { status: 500 })
+      // Anything else was previously a bare "Failed to provision tenant" with
+      // nothing logged, so the actual cause was invisible to everyone. Log it
+      // and tell the admin enough to report it.
+      const detail = err instanceof Error ? err.message : String(err)
+      console.error('[onboard-approve] provisionTenant failed', { requestId: id, detail, err })
+      return NextResponse.json(
+        { success: false, error: `Failed to provision tenant: ${detail}` },
+        { status: 500 }
+      )
     }
   }
 

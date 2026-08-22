@@ -365,7 +365,7 @@ function RequestDetail({
   onClose,
 }: {
   req: AdminOnboardRequest;
-  onAction: (id: string, action: OnboardRequest['status'], notes?: string) => Promise<boolean>;
+  onAction: (id: string, action: OnboardRequest['status'], notes?: string) => Promise<string | null>;
   onLocationSaved: (id: string, patch: { address: string | null; lat: number | null; lng: number | null }) => void;
   onClose: () => void;
 }) {
@@ -377,10 +377,10 @@ function RequestDetail({
   async function handle(action: OnboardRequest['status']) {
     setSaving(true);
     setActionError('');
-    const ok = await onAction(req.id, action, infoNote.trim() || undefined);
+    const failure = await onAction(req.id, action, infoNote.trim() || undefined);
     setSaving(false);
-    if (ok) onClose();
-    else setActionError('Failed to update this request. Try again.');
+    if (!failure) onClose();
+    else setActionError(failure);
   }
 
   const enterpriseLabels = req.enterprises.map((e) => {
@@ -541,21 +541,26 @@ export function AdminOnboardingScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function act(id: string, action: OnboardRequest['status'], notes?: string): Promise<boolean> {
+  // Returns null on success, or the server's own message on failure. It used
+  // to return a boolean, which threw the reason away — an admin approving a
+  // request whose email already exists was told "Failed to update this
+  // request. Try again.", advice that could never work.
+  async function act(id: string, action: OnboardRequest['status'], notes?: string): Promise<string | null> {
     const res = await apiClient.patch<ApiOnboardRequest>(`/api/onboard-requests/${id}`, {
       status: action,
       ...(notes !== undefined ? { notes } : {}),
     });
     if (!res.success) {
-      setActionError(res.error || 'Failed to update this request.');
-      return false;
+      const message = res.error || 'Failed to update this request.';
+      setActionError(message);
+      return message;
     }
     setActionError('');
     setRequests((rs) => rs.map((r) => (r.id === id ? toOnboardRequest(res.data) : r)));
     if (res.data.ownerTempPassword) {
       setTempPassword({ email: res.data.email, password: res.data.ownerTempPassword });
     }
-    return true;
+    return null;
   }
 
   // LocationEditor already PATCHed and got back the persisted values — this
