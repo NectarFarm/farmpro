@@ -4,7 +4,8 @@ import { purchases } from '@/db/schemas'
 import { recordPurchase } from '@/lib/inventory'
 import { and, desc, eq } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
-import { requireTenantSession } from '@/lib/api-auth'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/purchases (issue #235 task 2) ─────────────────────────────
 // Fresh build: no `purchases` table existed on this branch before this issue.
@@ -59,7 +60,12 @@ export async function POST(req: Request) {
   const b = (raw ?? {}) as Record<string, unknown>
   const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
   if ('error' in auth) return auth.error
-  const { tenantId } = auth
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.finance))) {
+    return forbidden('Your role does not have edit access to finance')
+  }
+
   const supplier = typeof b.supplier === 'string' ? b.supplier.trim() : ''
   const itemName = typeof b.itemName === 'string' ? b.itemName.trim() : ''
   const unit = typeof b.unit === 'string' ? b.unit.trim() : ''

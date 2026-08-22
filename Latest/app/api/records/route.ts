@@ -3,7 +3,8 @@ import { db } from '@/db'
 import { records, batches, employees } from '@/db/schemas'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
-import { requireTenantSession } from '@/lib/api-auth'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/records (issue #247 task 2) ───────────────────────────────
 // Generic worker-submission log — feeding / mortality / physical_count today
@@ -29,6 +30,16 @@ const badRequest = (msg: string) => NextResponse.json({ success: false, error: m
 const notFound = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 404 })
 
 const RECORD_TYPES = new Set(['feeding', 'mortality', 'physical_count'])
+
+// role-permission-enforcement task: each writable record `type` maps to
+// exactly one governance module (see lib/permissions.ts's MODULES) — this is
+// the "map each record type to its module" instruction, done honestly rather
+// than inventing a module `records` itself doesn't have.
+const RECORD_TYPE_MODULES: Record<string, string> = {
+  feeding: MODULES.feeding,
+  mortality: MODULES.mortality,
+  physical_count: MODULES.physicalCount,
+}
 
 // GET /api/records?tenantId=&batchId=&type=&employeeId=&farmId= — activity
 // feed / worker's own history, newest first.
@@ -93,7 +104,7 @@ export async function POST(req: Request) {
     explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined,
   })
   if ('error' in auth) return auth.error
-  const { tenantId } = auth
+  const { session, tenantId } = auth
   const batchId = typeof b.batchId === 'string' ? b.batchId.trim() : ''
   const employeeId = typeof b.employeeId === 'string' ? b.employeeId.trim() : ''
   const type = typeof b.type === 'string' ? b.type.trim() : ''
@@ -102,6 +113,13 @@ export async function POST(req: Request) {
   if (!employeeId) return badRequest('employeeId is required')
   if (!RECORD_TYPES.has(type)) {
     return badRequest(`type must be one of: ${Array.from(RECORD_TYPES).join(', ')}`)
+  }
+
+  // Role-permission matrix (role-permission-enforcement task): the roles
+  // allowlist above only says who MAY submit records at all — this is the
+  // per-module edit check the Governance screen's matrix actually configures.
+  if (!(await canEdit(tenantId, session.role, RECORD_TYPE_MODULES[type]))) {
+    return forbidden(`Your role does not have edit access to ${RECORD_TYPE_MODULES[type]}`)
   }
 
   const batchRows = await db

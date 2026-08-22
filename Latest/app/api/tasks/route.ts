@@ -3,7 +3,8 @@ import { db } from '@/db'
 import { tasks } from '@/db/schemas'
 import { and, asc, eq, gte, lt } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
-import { requireTenantSession } from '@/lib/api-auth'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/tasks (issue #227 task 2, extended by issue #243) ────────
 // Small dedicated endpoint rather than a generic /api/data/[resource] route —
@@ -87,7 +88,12 @@ export async function POST(req: Request) {
   const b = (raw ?? {}) as Record<string, unknown>
   const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
   if ('error' in auth) return auth.error
-  const { tenantId } = auth
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.tasks))) {
+    return forbidden('Your role does not have edit access to tasks')
+  }
+
   const title = typeof b.title === 'string' ? b.title.trim() : ''
 
   if (!title) return badRequest('title is required')

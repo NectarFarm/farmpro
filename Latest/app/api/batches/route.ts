@@ -4,7 +4,8 @@ import { batches, productionUnits, farms } from '@/db/schemas'
 import { and, asc, eq, inArray, like } from 'drizzle-orm'
 import { batchPrefixFor, farmSegment, generateCode } from '@/lib/codes'
 import { farmNotFoundResponse, resolveFarmFilter, unitIdsForFarm } from '@/lib/farm-scope'
-import { requireTenantSession } from '@/lib/api-auth'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { canEdit, MODULES } from '@/lib/permissions'
 
 // ── GET/POST /api/batches (issue #231; auth fix: fix/authenticate-all-apis) ─
 // Fresh build: no `batches` table, `costing.ts`, or `/api/batches/*` route
@@ -86,7 +87,12 @@ export async function POST(req: Request) {
   const b = (raw ?? {}) as Record<string, unknown>
   const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
   if ('error' in auth) return auth.error
-  const { tenantId } = auth
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.batches))) {
+    return forbidden('Your role does not have edit access to batches')
+  }
+
   const unitId = typeof b.unitId === 'string' ? b.unitId.trim() : ''
   const name = typeof b.name === 'string' ? b.name.trim() : ''
   const enterprise = typeof b.enterprise === 'string' ? b.enterprise.trim() : ''
