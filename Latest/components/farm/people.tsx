@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Plus, Key, ChevronRight, Check, X, Search, RefreshCw } from './icons';
+import { Plus, Key, ChevronRight, Check, X, Search, RefreshCw, List, Grid3X3, CheckCircle2 } from './icons';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef, usePersistedView } from './data-table';
 import { useToast } from './ui-shared';
@@ -221,7 +221,7 @@ export function PeopleScreen() {
                   background: viewMode === m ? 'rgba(74,222,128,0.15)' : 'var(--surface)', border: 'none',
                   color: viewMode === m ? 'var(--primary-green)' : 'var(--text-dim)', fontSize: 'var(--fs-md)',
                 }} title={m === 'card' ? 'Card view' : 'Table view'}>
-                  {m === 'card' ? '☰' : '⊞'}
+                  {m === 'card' ? <List size={15} aria-hidden="true" /> : <Grid3X3 size={15} aria-hidden="true" />}
                 </button>
               ))}
             </div>
@@ -430,7 +430,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
           {['Identity', 'Threshold', 'Batches'].map((s, i) => (
             <React.Fragment key={s}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                <div className={`step-node ${i + 1 < addStep ? 'done' : i + 1 === addStep ? 'active' : 'pending'}`} style={{ width: 22, height: 22, fontSize: 'var(--fs-2xs)' }}>{i + 1 < addStep ? '✓' : i + 1}</div>
+                <div className={`step-node ${i + 1 < addStep ? 'done' : i + 1 === addStep ? 'active' : 'pending'}`} style={{ width: 22, height: 22, fontSize: 'var(--fs-2xs)' }}>{i + 1 < addStep ? <Check size={11} aria-hidden="true" /> : i + 1}</div>
                 <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: addStep === i + 1 ? 'var(--primary-green)' : 'var(--text-dim)' }}>{s}</span>
               </div>
               {i < 2 && <div className={`step-line ${i + 1 < addStep ? 'done' : ''}`} style={{ marginTop: 11 }} />}
@@ -657,7 +657,7 @@ export function PeopleDetailScreen() {
                 </button>
               </div>
               {roleSaved && (
-                <div style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--status-ok)', fontWeight: 700 }}>✅ Role updated successfully</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--status-ok)', fontWeight: 700 }}><CheckCircle2 size={12} aria-hidden="true" /> Role updated successfully</div>
               )}
               {showRoleDropdown && (
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>

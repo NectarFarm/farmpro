@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
-import { Plus, Search, X, RefreshCw, Download, Lock } from './icons';
+import { Plus, Search, X, RefreshCw, Download, Lock, Wheat, Syringe, Beaker, Sprout, Receipt, AlertTriangle, type LucideIcon } from './icons';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
 import { parseMoneyToCents, centsToMajor } from '@/lib/money';
@@ -63,9 +63,14 @@ interface ApiVarianceRow {
   flagged: boolean;
 }
 
-const catEmoji: Record<string, string> = {
-  Feed: '🌾', Vaccine: '💉', Medicine: '🧪', Seed: '🌱',
+const catIcon: Record<string, LucideIcon> = {
+  Feed: Wheat, Vaccine: Syringe, Medicine: Beaker, Seed: Sprout,
 };
+
+function CategoryIcon({ category }: { category: string }) {
+  const Icon = catIcon[category];
+  return Icon ? <Icon size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} aria-hidden="true" /> : null;
+}
 
 function fmtDate(d?: string | null): string | undefined {
   if (!d) return undefined;
@@ -251,7 +256,7 @@ const STOCK_COLS: ColDef<Record<string, unknown>>[] = [
     render: (r) => (
       <div>
         <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>
-          {(catEmoji[(r.category as string)] ?? '')} {r.name as string}
+          <CategoryIcon category={r.category as string} />{r.name as string}
         </div>
         <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>
           {(r.lotCount as number) === 1 ? (r.singleLotNo as string) : `${r.lotCount as number} lots`}
@@ -483,7 +488,7 @@ export function InventoryScreen() {
           </div>
           <div className="chip-row" style={{ marginBottom: 12 }}>
             {cats.map((c) => (
-              <button key={c} onClick={() => setCat(c)} className={`filter-chip ${cat === c ? 'active' : ''}`}>{catEmoji[c] ?? ''} {c}</button>
+              <button key={c} onClick={() => setCat(c)} className={`filter-chip ${cat === c ? 'active' : ''}`}><CategoryIcon category={c} />{c}</button>
             ))}
           </div>
           <div style={{ marginBottom: 20 }}>
@@ -508,7 +513,7 @@ export function InventoryScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
             {(purchases ?? []).length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>🧾</div>
+                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Receipt size={40} aria-hidden="true" /></div>
                 <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No purchases yet</div>
                 <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Record one below to bring stock in</div>
               </div>
@@ -542,7 +547,7 @@ export function InventoryScreen() {
       {!loading && tab === 'variance' && (
         <div className="px-screen">
           <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.08)', borderRadius: 12, marginBottom: 16, border: '1px solid rgba(251,191,36,0.25)' }}>
-            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-warning)', marginBottom: 4 }}>⚠ Reconciliation Review</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-warning)', marginBottom: 4 }}><AlertTriangle size={13} aria-hidden="true" /> Reconciliation Review</div>
             <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>How long since each lot&apos;s on-hand figure was last confirmed (received or reason-adjusted). Lots stale past 30 days are flagged for a physical recount — there&apos;s no expected-vs-actual number to show without one.</div>
           </div>
           <div style={{ marginBottom: 20 }}>

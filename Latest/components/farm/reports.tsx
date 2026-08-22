@@ -4,7 +4,11 @@ import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import type { ReportPayload } from '@/lib/report-types';
 import { downloadReportCsv, downloadReportPdf } from '@/lib/report-export';
-import { FileText, Download, AlertTriangle } from './icons';
+import {
+  FileText, Download, AlertTriangle,
+  DollarSign, BarChart3, ClipboardList, Syringe, Wheat, Users, PieChart, Scale,
+  type LucideIcon,
+} from './icons';
 
 // ── Real-data wiring (issue #263) ───────────────────────────────────────────
 // Of the mock's 8 report types below, only 4 have any real backing data on
@@ -26,15 +30,15 @@ import { FileText, Download, AlertTriangle } from './icons';
 // (lib/report-types.ts); lib/report-export.ts builds CSV and PDF (via
 // jspdf/jspdf-autotable, added as real deps this issue) from that one shape
 // client-side — no per-report-type export code.
-const REPORT_TYPES = [
-  { id: 'pl', name: 'P&L Summary', desc: 'Revenue vs expenses by period', icon: '💰', color: 'var(--status-ok)' },
-  { id: 'production', name: 'Production Summary', desc: 'Eggs, meat, products collected', icon: '📊', color: 'var(--accent-blue)' },
-  { id: 'mortality', name: 'Mortality Report', desc: 'Deaths by batch, cause, date', icon: '📋', color: 'var(--status-warning)' },
-  { id: 'vaccination', name: 'Vaccination / Treatment Log', desc: 'Health records, withdrawal windows', icon: '💉', color: 'var(--accent-purple)' },
-  { id: 'feed', name: 'Feed Consumption', desc: 'Feed per batch, FCR analysis', icon: '🌾', color: 'var(--accent-cyan)' },
-  { id: 'labour', name: 'Labour & Task Cost', desc: 'Hours, payroll, task completion', icon: '👥', color: 'var(--accent-amber)' },
-  { id: 'batch-pl', name: 'Batch P&L', desc: 'Per-batch economics & margin', icon: '🐔', color: 'var(--primary-green)' },
-  { id: 'fcr', name: 'FCR & Efficiency', desc: 'Feed conversion by species', icon: '⚖️', color: 'var(--accent-blue)' },
+const REPORT_TYPES: { id: string; name: string; desc: string; icon: LucideIcon; color: string }[] = [
+  { id: 'pl', name: 'P&L Summary', desc: 'Revenue vs expenses by period', icon: DollarSign, color: 'var(--status-ok)' },
+  { id: 'production', name: 'Production Summary', desc: 'Eggs, meat, products collected', icon: BarChart3, color: 'var(--accent-blue)' },
+  { id: 'mortality', name: 'Mortality Report', desc: 'Deaths by batch, cause, date', icon: ClipboardList, color: 'var(--status-warning)' },
+  { id: 'vaccination', name: 'Vaccination / Treatment Log', desc: 'Health records, withdrawal windows', icon: Syringe, color: 'var(--accent-purple)' },
+  { id: 'feed', name: 'Feed Consumption', desc: 'Feed per batch, FCR analysis', icon: Wheat, color: 'var(--accent-cyan)' },
+  { id: 'labour', name: 'Labour & Task Cost', desc: 'Hours, payroll, task completion', icon: Users, color: 'var(--accent-amber)' },
+  { id: 'batch-pl', name: 'Batch P&L', desc: 'Per-batch economics & margin', icon: PieChart, color: 'var(--primary-green)' },
+  { id: 'fcr', name: 'FCR & Efficiency', desc: 'Feed conversion by species', icon: Scale, color: 'var(--accent-blue)' },
 ];
 
 // Report types with a real /api/reports/* endpoint behind them.
@@ -195,7 +199,7 @@ export function ReportsScreen() {
                   border: isSel ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
                   transition: 'all 0.15s ease',
                 }}>
-                <div style={{ fontSize: 'var(--fs-2xl)', marginBottom: 6 }}>{r.icon}</div>
+                <div style={{ marginBottom: 6, color: r.color }}><r.icon size={22} aria-hidden="true" /></div>
                 <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: isSel ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.2, marginBottom: 3 }}>{r.name}</div>
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</div>
                 {isSel && (

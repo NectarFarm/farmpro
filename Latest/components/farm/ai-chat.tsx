@@ -1,7 +1,11 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Send, Bot, UserSingle as User, Sparkles, Leaf, DollarSign, AlertTriangle, RefreshCw } from './icons';
+import {
+  Send, Bot, UserSingle as User, Sparkles, Leaf, DollarSign, AlertTriangle, RefreshCw,
+  Wheat, BarChart3, CloudRain, ClipboardList, Package, Skull, Bird,
+  type LucideIcon,
+} from './icons';
 
 interface Message {
   id: string;
@@ -32,13 +36,13 @@ function getAIResponse(input: string): string {
   return AI_RESPONSES.default;
 }
 
-const QUICK_PROMPTS = [
-  { icon: '🌾', label: 'Feed rates today' },
-  { icon: '📊', label: 'Batch profit summary' },
-  { icon: '🌧️', label: 'Weather impact advice' },
-  { icon: '📋', label: "Today's priority tasks" },
-  { icon: '📦', label: 'Low stock alerts' },
-  { icon: '💀', label: 'Mortality analysis' },
+const QUICK_PROMPTS: { icon: LucideIcon; label: string }[] = [
+  { icon: Wheat, label: 'Feed rates today' },
+  { icon: BarChart3, label: 'Batch profit summary' },
+  { icon: CloudRain, label: 'Weather impact advice' },
+  { icon: ClipboardList, label: "Today's priority tasks" },
+  { icon: Package, label: 'Low stock alerts' },
+  { icon: Skull, label: 'Mortality analysis' },
 ];
 
 const now = () => new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' });
@@ -110,17 +114,17 @@ export function AIChatScreen() {
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
         {/* Context strip */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 4 }}>
-          {[
-            { icon: '🐔', label: '6 batches active' },
-            { icon: '📋', label: '2 overdue tasks' },
-            { icon: '☁️', label: 'Rain Saturday' },
-            { icon: '⚠️', label: '1 low stock' },
-          ].map((c) => (
+          {([
+            { icon: Bird, label: '6 batches active' },
+            { icon: ClipboardList, label: '2 overdue tasks' },
+            { icon: CloudRain, label: 'Rain Saturday' },
+            { icon: AlertTriangle, label: '1 low stock' },
+          ] as { icon: LucideIcon; label: string }[]).map((c) => (
             <div
               key={c.label}
               style={{ display: 'flex', gap: 5, alignItems: 'center', padding: '5px 10px', background: 'var(--card)', borderRadius: 100, border: '1px solid var(--border-subtle)', flexShrink: 0 }}
             >
-              <span style={{ fontSize: 'var(--fs-sm)' }}>{c.icon}</span>
+              <c.icon size={13} color="var(--text-muted)" aria-hidden="true" />
               <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{c.label}</span>
             </div>
           ))}
@@ -177,7 +181,7 @@ export function AIChatScreen() {
                   onClick={() => sendMessage(p.label)}
                   style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer', display: 'flex', gap: 7, alignItems: 'center', textAlign: 'left' }}
                 >
-                  <span style={{ fontSize: 'var(--fs-lg)' }}>{p.icon}</span>
+                  <p.icon size={16} color="var(--text-muted)" aria-hidden="true" />
                   <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-secondary)', lineHeight: 1.3 }}>{p.label}</span>
                 </button>
               ))}

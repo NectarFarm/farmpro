@@ -201,7 +201,7 @@ function RoleBuilderSheet({
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role Name *</label>
             <input className="farm-input" value={name} onChange={e => { setName(e.target.value); setNameError(''); }} placeholder="e.g. night_watchman, harvest_lead…" disabled={!isNew} />
-            {nameError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginTop: 4 }}>⚠ {nameError}</div>}
+            {nameError && <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginTop: 4 }}><AlertTriangle size={11} aria-hidden="true" /> {nameError}</div>}
           </div>
 
           <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
@@ -306,7 +306,7 @@ export function GovernanceScreen() {
     const res = await apiClient.post(`/api/approvals/${a.id}/${decision}?tenantId=${tenantId}`, {});
     setDecidingId(null);
     if (!res.success) { showToast(res.error ?? `Could not ${decision} request`, 'error'); return; }
-    showToast(decision === 'approve' ? '✅ Approved' : '❌ Rejected', decision === 'approve' ? 'success' : 'error');
+    showToast(decision === 'approve' ? 'Approved' : 'Rejected', decision === 'approve' ? 'success' : 'error');
     await Promise.all([loadApprovals(), loadAuditLog()]);
   }
 
@@ -521,8 +521,8 @@ export function GovernanceScreen() {
                               const perm = r.permissions[f.key] ?? 'hidden';
                               if (perm === 'hidden') return null;
                               return (
-                                <span key={f.key} style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: PERM_BG[perm], color: PERM_COLOR[perm], border: `1px solid ${PERM_COLOR[perm]}40` }}>
-                                  {perm === 'edit' ? '✏️' : '👁️'} {f.label}
+                                <span key={f.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: PERM_BG[perm], color: PERM_COLOR[perm], border: `1px solid ${PERM_COLOR[perm]}40` }}>
+                                  {perm === 'edit' ? <Edit2 size={9} aria-hidden="true" /> : <Eye size={9} aria-hidden="true" />} {f.label}
                                 </span>
                               );
                             })}

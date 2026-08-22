@@ -6,6 +6,8 @@ import { apiClient } from '@/lib/request';
 import {
   Plus, Camera,
   ChevronRight, Wifi, Check, Lock, ClipboardList, DollarSign, Calendar,
+  Wheat, AlertTriangle, Hash, Sunrise, Egg, Syringe, Scale, Package, Layers,
+  type LucideIcon,
 } from './icons';
 import { formatMoney } from '@/lib/money';
 import {
@@ -61,10 +63,10 @@ interface ApiPayslip {
   createdAt: string | null;
 }
 
-const RECORD_TYPE_LABEL: Record<string, { label: string; emoji: string }> = {
-  feeding: { label: 'Feeding', emoji: '🌾' },
-  mortality: { label: 'Mortality', emoji: '⚠️' },
-  physical_count: { label: 'Physical Count', emoji: '🔢' },
+const RECORD_TYPE_LABEL: Record<string, { label: string; icon: LucideIcon }> = {
+  feeding: { label: 'Feeding', icon: Wheat },
+  mortality: { label: 'Mortality', icon: AlertTriangle },
+  physical_count: { label: 'Physical Count', icon: Hash },
 };
 
 // The backend only supports these three record types today (db/schemas/people.ts).
@@ -73,11 +75,11 @@ const RECORD_TYPE_LABEL: Record<string, { label: string; emoji: string }> = {
 // honest "not available yet" group instead of silently disappearing or being
 // wired to fabricated data.
 const UNAVAILABLE_RECORD_TYPES = [
-  { label: 'Morning Round', emoji: '🌅' },
-  { label: 'Collect Products', emoji: '🥚' },
-  { label: 'Health & Vaccine', emoji: '💉' },
-  { label: 'Weight Sample', emoji: '⚖️' },
-  { label: 'Closing Stock', emoji: '📦' },
+  { label: 'Morning Round', icon: Sunrise },
+  { label: 'Collect Products', icon: Egg },
+  { label: 'Health & Vaccine', icon: Syringe },
+  { label: 'Weight Sample', icon: Scale },
+  { label: 'Closing Stock', icon: Package },
 ];
 
 /* Shared fetch of the logged-in worker's own employee row + their assigned
@@ -184,7 +186,7 @@ export function WorkerHomeScreen() {
     const res = await apiClient.patch<ApiTask & { approvalRequestId?: string }>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { status: 'DONE' });
     setTaskActionId(null);
     if (!res.success) { showToast(res.error ?? 'Could not update task', 'error'); return; }
-    showToast(res.data.approvalRequestId ? 'Submitted for owner approval' : 'Task marked as done ✓', res.data.approvalRequestId ? 'info' : 'success');
+    showToast(res.data.approvalRequestId ? 'Submitted for owner approval' : 'Task marked as done', res.data.approvalRequestId ? 'info' : 'success');
     loadTasksToday();
   }
 
@@ -198,7 +200,9 @@ export function WorkerHomeScreen() {
       {/* Greeting */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{greeting}</div>
-        <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--text-primary)' }}>{employee?.name ?? '…'} 🌾</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--text-primary)' }}>
+          {employee?.name ?? '…'} <Wheat size={19} color="var(--primary-green)" aria-hidden="true" />
+        </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(96,165,250,0.1)', borderRadius: 100, border: '1px solid rgba(96,165,250,0.25)' }}>
             <Wifi size={11} color="var(--accent-blue)" />
@@ -239,7 +243,7 @@ export function WorkerHomeScreen() {
                     <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{STATUS_LABEL[status] ?? status}</span>
                   )}
                   {pendingApproval && <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-warning)' }}>Pending approval</span>}
-                  {done && <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-ok)' }}>✓ Done</span>}
+                  {done && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--fs-xs)', color: 'var(--status-ok)' }}><Check size={11} aria-hidden="true" /> Done</span>}
                 </div>
               </div>
               {!done && !pendingApproval && (
@@ -273,10 +277,12 @@ export function WorkerHomeScreen() {
         {recent !== null && recent.map((r, i) => (
           <div key={r.id} style={{ padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center', borderBottom: i < recent.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
             <div style={{
-              width: 36, height: 36, borderRadius: 10, flexShrink: 0, fontSize: 'var(--fs-xl)',
-              background: 'rgba(74,222,128,0.12)',
+              width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+              background: 'rgba(74,222,128,0.12)', color: 'var(--primary-green)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>{RECORD_TYPE_LABEL[r.type]?.emoji ?? '📋'}</div>
+            }}>
+              {(() => { const RecordIcon = RECORD_TYPE_LABEL[r.type]?.icon ?? ClipboardList; return <RecordIcon size={17} aria-hidden="true" />; })()}
+            </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
@@ -298,7 +304,7 @@ export function WorkerHomeScreen() {
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'pointer', position: 'relative',
           }}>
             {doneTodayTypes.has(type) && <div style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: '50%', background: 'var(--status-ok)' }} />}
-            <span style={{ fontSize: 'var(--fs-3xl)' }}>{meta.emoji}</span>
+            <meta.icon size={26} color={doneTodayTypes.has(type) ? 'var(--primary-green)' : 'var(--text-muted)'} aria-hidden="true" />
             <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: doneTodayTypes.has(type) ? 'var(--primary-green)' : 'var(--text-muted)', textAlign: 'center', lineHeight: 1.3 }}>{meta.label}</span>
           </button>
         ))}
@@ -310,7 +316,7 @@ export function WorkerHomeScreen() {
             border: '1px dashed var(--border-subtle)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
           }}>
-            <span style={{ fontSize: 'var(--fs-3xl)' }}>{tile.emoji}</span>
+            <tile.icon size={26} color="var(--text-dim)" aria-hidden="true" />
             <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textAlign: 'center', lineHeight: 1.3 }}>{tile.label}</span>
             <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>Not available yet</span>
           </div>
@@ -359,9 +365,9 @@ export function WorkerRecordScreen() {
     {
       label: 'Real record types',
       tiles: [
-        { type: 'feeding', label: 'Feeding', emoji: '🌾', desc: 'Log feed per batch' },
-        { type: 'mortality', label: 'Mortality', emoji: '⚠️', desc: 'Record deaths' },
-        { type: 'count', label: 'Physical Count', emoji: '🔢', desc: 'Vs system count' },
+        { type: 'feeding', label: 'Feeding', icon: Wheat, desc: 'Log feed per batch' },
+        { type: 'mortality', label: 'Mortality', icon: AlertTriangle, desc: 'Record deaths' },
+        { type: 'count', label: 'Physical Count', icon: Hash, desc: 'Vs system count' },
       ],
     },
   ];
@@ -381,9 +387,9 @@ export function WorkerRecordScreen() {
               <button key={tile.type} onClick={() => setActiveForm(tile.type)}
                 className="farm-card" style={{ padding: 14, textAlign: 'left', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'center' }}>
                 <div style={{
-                  width: 44, height: 44, borderRadius: 12, background: 'var(--surface)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-3xl)', flexShrink: 0,
-                }}>{tile.emoji}</div>
+                  width: 44, height: 44, borderRadius: 12, background: 'var(--surface)', color: 'var(--primary-green)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}><tile.icon size={22} aria-hidden="true" /></div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{tile.label}</div>
                   <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>{tile.desc}</div>
@@ -400,7 +406,7 @@ export function WorkerRecordScreen() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {UNAVAILABLE_RECORD_TYPES.map((tile) => (
             <div key={tile.label} className="farm-card" style={{ padding: 14, opacity: 0.5, display: 'flex', gap: 12, alignItems: 'center', border: '1px dashed var(--border-subtle)' }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-3xl)', flexShrink: 0 }}>{tile.emoji}</div>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface)', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><tile.icon size={22} aria-hidden="true" /></div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-dim)' }}>{tile.label}</div>
                 <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>Not available yet</div>
@@ -432,7 +438,8 @@ function BatchPicker({ batches, onPick }: { batches: ApiBatch[] | null; onPick: 
           width: '100%', padding: '14px 16px', marginBottom: 8, borderRadius: 12, textAlign: 'left', cursor: 'pointer',
           background: 'var(--card)', border: '1px solid var(--border-subtle)',
           fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)',
-        }}>🐔 {b.code} – {b.name}</button>
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}><Layers size={15} color="var(--text-muted)" aria-hidden="true" /> {b.code} – {b.name}</button>
       ))}
     </div>
   );
@@ -479,7 +486,7 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
           {['Batch','Feed items','Confirm'].map((s, i) => (
             <React.Fragment key={s}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`} style={{ width: 24, height: 24, fontSize: 'var(--fs-2xs)' }}>{i + 1 < step ? '✓' : i + 1}</div>
+                <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`} style={{ width: 24, height: 24, fontSize: 'var(--fs-2xs)' }}>{i + 1 < step ? <Check size={12} aria-hidden="true" /> : i + 1}</div>
                 <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: step === i + 1 ? 'var(--primary-green)' : 'var(--text-dim)' }}>{s}</span>
               </div>
               {i < 2 && <div className={`step-line ${i + 1 < step ? 'done' : ''}`} style={{ marginTop: 12 }} />}
@@ -587,7 +594,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
           {['Batch','Count & Cause','Photo','Confirm'].map((s, i) => (
             <React.Fragment key={s}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`} style={{ width: 22, height: 22, fontSize: 'var(--fs-2xs)' }}>{i + 1 < step ? '✓' : i + 1}</div>
+                <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`} style={{ width: 22, height: 22, fontSize: 'var(--fs-2xs)' }}>{i + 1 < step ? <Check size={11} aria-hidden="true" /> : i + 1}</div>
                 <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: step === i + 1 ? 'var(--primary-green)' : 'var(--text-dim)' }}>{s}</span>
               </div>
               {i < 3 && <div className={`step-line ${i + 1 < step ? 'done' : ''}`} style={{ marginTop: 11 }} />}
@@ -614,7 +621,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
                 </div>
                 <button onClick={() => setCount(count + 1)} style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--surface)', border: '1px solid var(--border-subtle)', fontSize: 'var(--fs-3xl)', color: 'var(--text-primary)', cursor: 'pointer' }}>+</button>
               </div>
-              {needsPhoto && <div style={{ padding: '8px 12px', background: 'rgba(248,113,113,0.08)', borderRadius: 10, border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', fontWeight: 600, marginBottom: 10 }}>⚠ Photo required for {threshold}+ deaths (your farm&apos;s threshold)</div>}
+              {needsPhoto && <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', background: 'rgba(248,113,113,0.08)', borderRadius: 10, border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', fontWeight: 600, marginBottom: 10 }}><AlertTriangle size={12} aria-hidden="true" /> Photo required for {threshold}+ deaths (your farm&apos;s threshold)</div>}
             </div>
             <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>Cause of death:</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
@@ -632,7 +639,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
         {step === 3 && (
           <div>
             <div style={{ padding: '14px', background: 'rgba(248,113,113,0.06)', borderRadius: 14, border: '1px solid rgba(248,113,113,0.2)', marginBottom: 16, textAlign: 'center' }}>
-              <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>📸</div>
+              <div style={{ marginBottom: 8, color: 'var(--status-critical)' }}><Camera size={40} aria-hidden="true" /></div>
               <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Photo Evidence Required</div>
               <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>Your farm requires a photo for {threshold}+ deaths. This helps with disease investigation.</div>
             </div>
@@ -652,7 +659,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
           <div>
             <div style={{ padding: '14px', background: 'rgba(74,222,128,0.06)', borderRadius: 14, border: '1px solid rgba(74,222,128,0.2)', marginBottom: 16 }}>
               <div style={{ fontWeight: 700, marginBottom: 8 }}>Confirm & Save</div>
-              {[['Batch', batch.code],['Deaths',`${count}`],['Cause', cause],['Photo', photoDataUrl ? 'Attached ✓' : needsPhoto ? 'Missing' : 'Not required']].map(([k, v]) => (
+              {[['Batch', batch.code],['Deaths',`${count}`],['Cause', cause],['Photo', photoDataUrl ? 'Attached' : needsPhoto ? 'Missing' : 'Not required']].map(([k, v]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 'var(--fs-sm)' }}>
                   <span style={{ color: 'var(--text-muted)' }}>{k}</span>
                   <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{v}</span>

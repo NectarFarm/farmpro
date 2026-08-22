@@ -13,7 +13,12 @@ import React, { useState, createContext, useContext, useCallback, useEffect } fr
 import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
-import { ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff } from './icons';
+import {
+  ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff,
+  Package, CloudSun, Users, Shield, FileText, Bot, Palette,
+  Moon, Contrast, Sun, Sunrise, Lightbulb,
+  type LucideIcon,
+} from './icons';
 import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, type DateFormat } from '@/lib/datetime';
 
 /* ── Theme Context (global, used by globals.css overrides) ── */
@@ -131,11 +136,11 @@ export function ThemeProvider({ children, tenantId }: { children: React.ReactNod
 export function useTheme() { return useContext(ThemeCtx); }
 
 /* ── SettingsScreen ── */
-const THEME_OPTIONS: { id: ThemeMode; label: string; desc: string; preview: string }[] = [
-  { id: 'dark-farm',      label: '🌑 Dark Farm',       desc: 'Optional low-light view', preview: '#0a0f0a' },
-  { id: 'high-contrast',  label: '⬛ High Contrast',    desc: 'Black & white, maximum legibility', preview: '#000000' },
-  { id: 'light-farm',     label: '☀️ Light Farm',       desc: 'Default operational view', preview: '#f7f8f5' },
-  { id: 'sun-mode',       label: '🌅 Outdoor / Sun',    desc: 'Warm amber tones for bright sunlight', preview: '#2a1e00' },
+const THEME_OPTIONS: { id: ThemeMode; label: string; desc: string; preview: string; icon: LucideIcon }[] = [
+  { id: 'dark-farm',      label: 'Dark Farm',       desc: 'Optional low-light view', preview: '#0a0f0a', icon: Moon },
+  { id: 'high-contrast',  label: 'High Contrast',    desc: 'Black & white, maximum legibility', preview: '#000000', icon: Contrast },
+  { id: 'light-farm',     label: 'Light Farm',       desc: 'Default operational view', preview: '#f7f8f5', icon: Sun },
+  { id: 'sun-mode',       label: 'Outdoor / Sun',    desc: 'Warm amber tones for bright sunlight', preview: '#2a1e00', icon: Sunrise },
 ];
 
 const FONT_OPTIONS: { id: FontSize; label: string; size: string }[] = [
@@ -253,7 +258,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   }
 
   type SettingsRow = {
-    label: string; desc?: string; action?: () => void; badge?: string;
+    label: string; desc?: string; action?: () => void; badge?: string; icon?: LucideIcon;
     toggle?: boolean; value?: boolean; onToggle?: () => void;
     select?: { value: string; options: { value: string; label: string }[]; onChange: (v: string) => void };
   };
@@ -270,15 +275,15 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   // Reports/etc. would otherwise vanish outright below 768px, not just get
   // decluttered.
   const mobileHubItems: SettingsRow[] = [
-    { label: '📦 Inventory', desc: 'Stock, lots & purchases', action: () => navigate('inventory') },
-    { label: '🌤️ Weather & IoT', desc: 'Forecast & sensor alerts', action: () => navigate('weather') },
-    { label: '👥 People & Staff', desc: 'Employees & role assignment', action: () => navigate('people') },
+    { label: 'Inventory', icon: Package, desc: 'Stock, lots & purchases', action: () => navigate('inventory') },
+    { label: 'Weather & IoT', icon: CloudSun, desc: 'Forecast & sensor alerts', action: () => navigate('weather') },
+    { label: 'People & Staff', icon: Users, desc: 'Employees & role assignment', action: () => navigate('people') },
     // Real count from NavCtx's `pendingApprovals` (GET /api/approvals?status=pending,
     // issue #293) — reused, not re-fetched a second time (issue #298). No
     // badge (not a fake "0 pending") when the tenant has none pending.
-    { label: '🛡️ Governance', desc: 'Approvals, roles & audit', action: () => navigate('governance'), badge: pendingApprovals > 0 ? `${pendingApprovals} pending` : undefined },
-    { label: '📊 Reports', desc: 'Export, share & auditor links', action: () => navigate('reports') },
-    { label: '🤖 AI Farm Assistant', desc: 'Smart farm advisor chatbot', action: () => navigate('ai-chat') },
+    { label: 'Governance', icon: Shield, desc: 'Approvals, roles & audit', action: () => navigate('governance'), badge: pendingApprovals > 0 ? `${pendingApprovals} pending` : undefined },
+    { label: 'Reports', icon: FileText, desc: 'Export, share & auditor links', action: () => navigate('reports') },
+    { label: 'AI Farm Assistant', icon: Bot, desc: 'Smart farm advisor chatbot', action: () => navigate('ai-chat') },
   ];
 
   const sections: { label: string; items: SettingsRow[] }[] = [
@@ -289,7 +294,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     // its old "Farm Management" row was.
     ...(role === 'super_admin' || role === 'owner' ? [{
       label: 'Customisation',
-      items: [{ label: '🎨 UI Customise', desc: 'Module toggles & farm branding', action: () => navigate('ui-customise') }],
+      items: [{ label: 'UI Customise', icon: Palette, desc: 'Module toggles & farm branding', action: () => navigate('ui-customise') }],
     }] : []),
     {
       // Currency/weight unit used to live inside UI Customise's "branding"
@@ -388,6 +393,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                 style={{ padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 12,
                   borderBottom: i < mobileHubItems.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                   cursor: 'pointer' }}>
+                {item.icon && <item.icon size={17} color="var(--text-muted)" aria-hidden="true" />}
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
                   {item.desc && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
@@ -414,6 +420,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                     border: theme === t.id ? '2px solid var(--primary-green)' : '1px solid var(--border-subtle)' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
                     <div style={{ width: 16, height: 16, borderRadius: 4, background: t.preview, border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
+                    <t.icon size={13} color={theme === t.id ? 'var(--primary-green)' : 'var(--text-primary)'} aria-hidden="true" />
                     <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: theme === t.id ? 'var(--primary-green)' : 'var(--text-primary)' }}>{t.label}</div>
                   </div>
                   <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.4 }}>{t.desc}</div>
@@ -446,8 +453,9 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
           </div>
 
           {/* Info strip */}
-          <div style={{ padding: '10px 14px', background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 12, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            💡 <strong>Sun Mode</strong> uses warm amber tones visible in bright outdoor sunlight. <strong>High Contrast</strong> maximises legibility for visually impaired users.
+          <div style={{ display: 'flex', gap: 8, padding: '10px 14px', background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 12, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <Lightbulb size={14} color="var(--accent-blue)" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+            <span><strong>Sun Mode</strong> uses warm amber tones visible in bright outdoor sunlight. <strong>High Contrast</strong> maximises legibility for visually impaired users.</span>
           </div>
         </div>
 
@@ -461,6 +469,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                   style={{ padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 12,
                     borderBottom: i < sec.items.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                     cursor: item.action ? 'pointer' : 'default' }}>
+                  {item.icon && <item.icon size={17} color="var(--text-muted)" aria-hidden="true" />}
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
                     {item.desc && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}

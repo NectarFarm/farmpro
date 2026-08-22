@@ -45,7 +45,9 @@ import { useNav, TopNav } from "./navigation";
 import { BATCHES_DATA, ENTERPRISE_REGISTRY } from "./data";
 import {
   AlertTriangle, CheckCircle2, Package, ChevronRight, Bell,
-  Clock, X, Check, Settings, Info, Leaf, Activity,
+  Clock, X, Check, Settings, Info, Leaf, Activity, ChevronDown,
+  Globe, Building2, CheckSquare, DollarSign, Bot, Shield, Users,
+  ClipboardList, CloudSun, type LucideIcon,
 } from "./icons";
 import { apiClient } from "@/lib/request";
 import { centsToMajor } from "@/lib/money";
@@ -109,13 +111,83 @@ interface NotificationRow {
 
 type DashboardRole = "owner" | "manager" | "worker" | "vet" | "auditor" | "super_admin";
 
+/* ── Revenue trend chart ──
+ * GET /api/dashboard/kpis has returned a real day-bucketed revenueTrend
+ * since issue #296, but nothing ever rendered it — the "Farm performance"
+ * card showed only the single period total, so the same amount of real data
+ * plotting the number's shape over time went completely unused. Single
+ * series (no legend needed), one hue (the tenant's own accent colour, same
+ * token the revenue number already uses), thin bars with rounded tops
+ * anchored to a shared baseline, tap-to-reveal for the exact day instead of
+ * a label crammed onto every bar. */
+function RevenueTrendChart({ trend, color }: { trend: { date: string; amountCents: number }[] | null; color: string }) {
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+
+  if (trend === null) {
+    return <div style={{ height: 64, display: "flex", alignItems: "center", fontSize: 'var(--fs-xs)', color: "var(--text-dim)" }}>Loading trend…</div>;
+  }
+  if (trend.length < 2) {
+    return null; // Not enough points for a trend to mean anything — no chart is better than a fake one.
+  }
+
+  const amounts = trend.map(p => centsToMajor(p.amountCents));
+  const max = Math.max(1, ...amounts);
+  const peakIdx = amounts.indexOf(Math.max(...amounts));
+  const active = activeIdx ?? peakIdx;
+  const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+  return (
+    <div>
+      <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>
+        {fmtDate(trend[active].date)} · KSh {amounts[active].toLocaleString()}
+      </div>
+      <div
+        role="img"
+        aria-label={`Revenue trend from ${fmtDate(trend[0].date)} to ${fmtDate(trend[trend.length - 1].date)}, peaking at KSh ${amounts[peakIdx].toLocaleString()} on ${fmtDate(trend[peakIdx].date)}`}
+        style={{ display: "flex", alignItems: "flex-end", gap: trend.length > 40 ? 1 : 2, height: 56 }}
+      >
+        {trend.map((p, i) => {
+          const amount = amounts[i];
+          const heightPct = Math.max(4, (amount / max) * 100);
+          const isActive = i === active;
+          return (
+            <button
+              key={p.date}
+              onClick={() => setActiveIdx(i)}
+              aria-hidden="true"
+              tabIndex={-1}
+              title={`${fmtDate(p.date)}: KSh ${amount.toLocaleString()}`}
+              style={{
+                flex: 1, minWidth: 2, height: `${heightPct}%`, borderRadius: "3px 3px 0 0", border: "none", padding: 0, cursor: "pointer",
+                background: isActive ? color : `${color}55`,
+                transition: "background 0.15s",
+              }}
+            />
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 'var(--fs-2xs)', color: "var(--text-dim)" }}>
+        <span>{fmtDate(trend[0].date)}</span>
+        <span>{fmtDate(trend[trend.length - 1].date)}</span>
+      </div>
+    </div>
+  );
+}
+
 function OperationalDashboard({
   role, userName, farmName, farmMeta, kpis, tasksToday, notifs, period, setPeriod, navigate, settings,
+  onSwitchFarm, canSwitchFarm,
 }: {
   role: DashboardRole; userName?: string; farmName: string; farmMeta: string; kpis: KpiData | null;
   tasksToday: TaskRow[] | null; notifs: NotificationRow[] | null; period: Period;
   setPeriod: (period: Period) => void; navigate: (screen: any) => void;
   settings: DashboardSettings | null;
+  // Mobile has no sidebar (AppSidebar's "Farm" <select> is desktop-only, CSS
+  // media-query gated) — this is what lets a mobile user with more than one
+  // farm actually switch. Before this, FarmSwitcherSheet existed but nothing
+  // ever rendered it or flipped the state that would: a real multi-farm
+  // owner/manager on a phone had no way to reach a farm other than the first.
+  onSwitchFarm?: () => void; canSwitchFarm?: boolean;
 }) {
   const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
   const scheduled = tasksToday?.length ?? 0;
@@ -139,7 +211,14 @@ function OperationalDashboard({
         <div>
           <div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginBottom: 4 }}>{isManager ? "Today’s operations" : "Executive overview"}</div>
           <div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginBottom: 4 }}>{settings?.dashboardGreeting ?? "Good morning,"} {userName ?? ""}</div>
-          <h1 style={{ margin: 0, fontSize: 'var(--fs-4xl)', lineHeight: 1.15, color: "var(--text-primary)" }}><span aria-hidden="true">{settings?.logoEmoji ?? "🌾"}</span> {farmName}</h1>
+          {canSwitchFarm ? (
+            <button onClick={onSwitchFarm} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer", margin: 0, fontSize: 'var(--fs-4xl)', lineHeight: 1.15, color: "var(--text-primary)", fontWeight: 800 }}>
+              <span aria-hidden="true">{settings?.logoEmoji ?? "🌾"}</span> {farmName}
+              <ChevronDown size={20} color="var(--text-muted)" aria-hidden="true" />
+            </button>
+          ) : (
+            <h1 style={{ margin: 0, fontSize: 'var(--fs-4xl)', lineHeight: 1.15, color: "var(--text-primary)" }}><span aria-hidden="true">{settings?.logoEmoji ?? "🌾"}</span> {farmName}</h1>
+          )}
           <div style={{ fontSize: 'var(--fs-base)', color: "var(--text-muted)", marginTop: 5 }}>{today} · {farmMeta}</div>
         </div>
         <button className="btn-icon" onClick={() => navigate("notifications")} title="Notifications"><Bell size={17} /></button>
@@ -184,7 +263,8 @@ function OperationalDashboard({
               <button onClick={() => navigate("crops")} style={{ background: "none", border: "none", borderLeft: "1px solid var(--border-subtle)", textAlign: "left", paddingLeft: 16, cursor: "pointer" }}><div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700 }}>{kpis?.activeBatches ?? "—"}</div><div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginTop: 4 }}>Active batches</div></button>
               <button onClick={() => navigate("tasks")} style={{ background: "none", border: "none", borderLeft: "1px solid var(--border-subtle)", textAlign: "left", paddingLeft: 16, cursor: "pointer" }}><div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700 }}>{kpis?.activeTasksCount ?? "—"}</div><div style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)", marginTop: 4 }}>Open tasks</div></button>
             </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>{(["month", "quarter", "year"] as const).map(p => <button key={p} onClick={() => setPeriod(p)} className={`filter-chip ${period === p ? "active" : ""}`} style={{ textTransform: "capitalize" }}>{p}</button>)}</div>
+            <div style={{ display: "flex", gap: 6, marginTop: 10, marginBottom: 14 }}>{(["month", "quarter", "year"] as const).map(p => <button key={p} onClick={() => setPeriod(p)} className={`filter-chip ${period === p ? "active" : ""}`} style={{ textTransform: "capitalize" }}>{p}</button>)}</div>
+            <RevenueTrendChart trend={kpis?.revenueTrend ?? null} color={settings?.accentColor ?? "var(--primary-green)"} />
           </section>
           <section style={{ marginBottom: 28 }}>
             <h2 className="section-title" style={{ margin: "0 0 10px" }}>Operational snapshot</h2>
@@ -250,7 +330,7 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
             background: activeFarmId === "ALL" ? "rgba(74,222,128,0.12)" : "var(--card)",
             border: activeFarmId === "ALL" ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
             display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 'var(--fs-xl)' }}>🌐</div>
+          <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: 'var(--primary-green)' }}><Globe size={18} aria-hidden="true" /></div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: "var(--text-primary)" }}>All Farms</div>
             <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)" }}>Aggregated view · {farms.length} farms</div>
@@ -263,7 +343,7 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
               background: activeFarmId === farm.id ? "rgba(74,222,128,0.12)" : "var(--card)",
               border: activeFarmId === farm.id ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
               display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 'var(--fs-xl)' }}>🌾</div>
+            <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: 'var(--primary-green)' }}><Building2 size={18} aria-hidden="true" /></div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: "var(--text-primary)" }}>{farm.name}</div>
               <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)" }}>{farm.code} · {farm.location}</div>
@@ -289,13 +369,13 @@ export function DashboardScreen({ userName }: { userName?: string }) {
   // table exists yet (Epic: Crops & Batches hasn't landed); this issue only
   // scoped the KPI/price/task/notification/weather surfaces below, not a
   // rebuild of this section.
-  const enterpriseMap = new Map<string, { count: number; qty: number; emoji: string; label: string; type: string }>();
+  const enterpriseMap = new Map<string, { count: number; qty: number; icon: LucideIcon; label: string; type: string }>();
   farmBatches.filter(b => b.status === "ACTIVE").forEach(b => {
     const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === b.enterprise);
     if (!cfg) return;
     const existing = enterpriseMap.get(b.enterprise);
     if (existing) { existing.count++; existing.qty += b.qty; }
-    else enterpriseMap.set(b.enterprise, { count: 1, qty: b.qty, emoji: cfg.emoji, label: cfg.label, type: cfg.type });
+    else enterpriseMap.set(b.enterprise, { count: 1, qty: b.qty, icon: cfg.icon, label: cfg.label, type: cfg.type });
   });
   const enterprises = [...enterpriseMap.entries()];
   const livestock = enterprises.filter(([, v]) => v.type === "livestock");
@@ -370,31 +450,38 @@ export function DashboardScreen({ userName }: { userName?: string }) {
   }, [tenantId, activeFarmId]);
 
   const unread = notifs?.filter(n => !n.read).length ?? 0;
-  const maxTrend = Math.max(1, ...(kpis?.revenueTrend.map(p => centsToMajor(p.amountCents)) ?? [0]));
 
   // Quick actions vary by role
   const quickActions = [
-    { label: "Add Task", screen: "tasks" as const, emoji: "✅", roles: ["owner","manager"] },
-    { label: "Record Sale", screen: "finance" as const, emoji: "💰", roles: ["owner"] },
-    { label: "Add Stock", screen: "inventory" as const, emoji: "📦", roles: ["owner","manager"] },
-    { label: "AI Chat", screen: "ai-chat" as const, emoji: "🤖", roles: ["owner","manager","worker"] },
-    { label: "Approvals", screen: "governance" as const, emoji: "🛡️", roles: ["owner"] },
-    { label: "People", screen: "people" as const, emoji: "👥", roles: ["owner","manager"] },
+    { label: "Add Task", screen: "tasks" as const, icon: CheckSquare, roles: ["owner","manager"] },
+    { label: "Record Sale", screen: "finance" as const, icon: DollarSign, roles: ["owner"] },
+    { label: "Add Stock", screen: "inventory" as const, icon: Package, roles: ["owner","manager"] },
+    { label: "AI Chat", screen: "ai-chat" as const, icon: Bot, roles: ["owner","manager","worker"] },
+    { label: "Approvals", screen: "governance" as const, icon: Shield, roles: ["owner"] },
+    { label: "People", screen: "people" as const, icon: Users, roles: ["owner","manager"] },
   ].filter(a => a.roles.includes(role));
 
-  return <OperationalDashboard
-    role={role}
-    userName={userName}
-    farmName={activeFarm === "ALL" ? "All farms" : farm?.name ?? "Farm overview"}
-    farmMeta={activeFarm === "ALL" ? `${farms.length} farms · synced` : `${farm?.location ?? ""} · synced`}
-    kpis={kpis}
-    tasksToday={tasksToday}
-    notifs={notifs}
-    period={period}
-    setPeriod={setPeriod}
-    navigate={navigate}
-    settings={settings}
-  />;
+  return <>
+    <OperationalDashboard
+      role={role}
+      userName={userName}
+      farmName={activeFarm === "ALL" ? "All farms" : farm?.name ?? "Farm overview"}
+      farmMeta={activeFarm === "ALL" ? `${farms.length} farms · synced` : `${farm?.location ?? ""} · synced`}
+      kpis={kpis}
+      tasksToday={tasksToday}
+      notifs={notifs}
+      period={period}
+      setPeriod={setPeriod}
+      navigate={navigate}
+      settings={settings}
+      // Only worth surfacing a switcher when there's something to switch
+      // to — a single-farm tenant gets the plain, non-interactive header it
+      // had before.
+      canSwitchFarm={farms.length > 1}
+      onSwitchFarm={() => setShowFarmSwitcher(true)}
+    />
+    {showFarmSwitcher && <FarmSwitcherSheet onClose={() => setShowFarmSwitcher(false)} />}
+  </>;
 }
 
 /* ── Notifications Screen ── */
@@ -415,7 +502,7 @@ export function NotificationsScreen() {
   // (schema supports them, but no approvals/alerts table feeds them yet —
   // see app/api/notifications/route.ts). Falls back to a generic bell icon
   // for anything else rather than guessing.
-  const typeIcon: Record<string, string> = { task: "📋", alert: "⚠️", approval: "✅" };
+  const typeIcon: Record<string, LucideIcon> = { task: ClipboardList, alert: AlertTriangle, approval: CheckCircle2 };
   const typeColor: Record<string, string> = { task: "var(--primary-green)", alert: "var(--status-critical)", approval: "var(--status-warning)" };
 
   const markRead = useCallback((id: string) => {
@@ -499,8 +586,8 @@ export function NotificationsScreen() {
                         background: n.read ? "var(--card)" : "rgba(74,222,128,0.05)",
                         border: `1px solid ${n.read ? "var(--border-subtle)" : "rgba(74,222,128,0.2)"}` }}>
                       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 10, background: `${color}15`, border: `1px solid ${color}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 'var(--fs-lg)' }}>
-                          {typeIcon[n.sourceType] ?? "🔔"}
+                        <div style={{ width: 32, height: 32, borderRadius: 10, background: `${color}15`, border: `1px solid ${color}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color }}>
+                          {(() => { const NotifIcon = typeIcon[n.sourceType] ?? Bell; return <NotifIcon size={15} aria-hidden="true" />; })()}
                         </div>
                         <div style={{ flex: 1 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -525,12 +612,12 @@ export function NotificationsScreen() {
 }
 
 /* ── Notification Settings Screen ── */
-const NOTIF_TYPES = [
-  { id: "weather", label: "🌦️ Weather Alerts", desc: "Rainfall, temperature extremes, storms" },
-  { id: "approval", label: "✅ Approval Requests", desc: "Worker submissions needing your review" },
-  { id: "task", label: "📋 Task Reminders", desc: "Overdue tasks and upcoming deadlines" },
-  { id: "alert", label: "⚠️ Stock & Farm Alerts", desc: "Low stock, health alerts, anomalies" },
-  { id: "system", label: "🔔 System", desc: "Payroll reminders, subscription, updates" },
+const NOTIF_TYPES: { id: string; label: string; icon: LucideIcon; desc: string }[] = [
+  { id: "weather", label: "Weather Alerts", icon: CloudSun, desc: "Rainfall, temperature extremes, storms" },
+  { id: "approval", label: "Approval Requests", icon: CheckCircle2, desc: "Worker submissions needing your review" },
+  { id: "task", label: "Task Reminders", icon: ClipboardList, desc: "Overdue tasks and upcoming deadlines" },
+  { id: "alert", label: "Stock & Farm Alerts", icon: AlertTriangle, desc: "Low stock, health alerts, anomalies" },
+  { id: "system", label: "System", icon: Bell, desc: "Payroll reminders, subscription, updates" },
 ];
 
 export function NotificationSettingsScreen() {
@@ -551,9 +638,12 @@ export function NotificationSettingsScreen() {
             {NOTIF_TYPES.map((t, i) => (
               <div key={t.id} style={{ padding: "13px 14px", borderBottom: i < NOTIF_TYPES.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: "var(--text-primary)" }}>{t.label}</div>
-                    <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", marginTop: 1 }}>{t.desc}</div>
+                  <div style={{ display: "flex", gap: 9, flex: 1 }}>
+                    <t.icon size={16} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
+                    <div>
+                      <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: "var(--text-primary)" }}>{t.label}</div>
+                      <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", marginTop: 1 }}>{t.desc}</div>
+                    </div>
                   </div>
                   <button onClick={() => setEnabled(e => ({ ...e, [t.id]: !e[t.id] }))}
                     style={{ width: 44, height: 24, borderRadius: 100, border: "none", cursor: "pointer", flexShrink: 0, marginLeft: 10,

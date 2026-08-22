@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye, Stethoscope } from './icons';
 import { FARMS_DATA } from './data';
 import { apiClient } from '@/lib/request';
 
@@ -470,12 +470,14 @@ function RoleSelector({ role, setRole }: { role: NavContext['role']; setRole: (r
     <div style={{ position: 'fixed', top: 'calc(var(--nav-height) + 8px)', right: 8, zIndex: 200, padding: '5px 8px' }}>
       <select value={role} onChange={(e) => setRole(e.target.value as NavContext['role'])}
         style={{ background: 'rgba(10,15,10,0.95)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', borderRadius: 8, fontSize: 'var(--fs-2xs)', padding: '3px 6px', cursor: 'pointer', fontWeight: 700 }}>
-        <option value="owner">👑 Owner</option>
-        <option value="manager">🧑‍💼 Manager</option>
-        <option value="worker">👷 Worker</option>
-        <option value="vet">🩺 Vet</option>
-        <option value="auditor">🔍 Auditor</option>
-        <option value="super_admin">⚙️ Super Admin</option>
+        {/* Plain text — a native <option> can't render an icon component,
+            and this dev-only selector never ships to production anyway. */}
+        <option value="owner">Owner</option>
+        <option value="manager">Manager</option>
+        <option value="worker">Worker</option>
+        <option value="vet">Vet</option>
+        <option value="auditor">Auditor</option>
+        <option value="super_admin">Super Admin</option>
       </select>
     </div>
   );
@@ -497,8 +499,8 @@ export function RoleNoticeScreen() {
   return (
     <div className="screen-content" style={{ padding: '0 20px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '72%', textAlign: 'center', paddingTop: 10 }}>
-        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-6xl)', marginBottom: 18 }}>
-          {role === 'vet' ? '🩺' : '🔍'}
+        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-blue)', marginBottom: 18 }}>
+          {role === 'vet' ? <Stethoscope size={32} aria-hidden="true" /> : <Search size={32} aria-hidden="true" />}
         </div>
         <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Not available for your role</div>
         <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', lineHeight: 1.55, maxWidth: 300 }}>
