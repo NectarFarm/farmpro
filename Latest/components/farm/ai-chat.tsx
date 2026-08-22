@@ -101,7 +101,7 @@ export function AIChatScreen() {
         rightEl={
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 100, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--primary-green)' }} />
-            <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--primary-green)' }}>Online</span>
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)' }}>Online</span>
           </div>
         }
       />
@@ -120,8 +120,8 @@ export function AIChatScreen() {
               key={c.label}
               style={{ display: 'flex', gap: 5, alignItems: 'center', padding: '5px 10px', background: 'var(--card)', borderRadius: 100, border: '1px solid var(--border-subtle)', flexShrink: 0 }}
             >
-              <span style={{ fontSize: 12 }}>{c.icon}</span>
-              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{c.label}</span>
+              <span style={{ fontSize: 'var(--fs-sm)' }}>{c.icon}</span>
+              <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{c.label}</span>
             </div>
           ))}
         </div>
@@ -138,11 +138,11 @@ export function AIChatScreen() {
                 padding: '10px 14px', borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                 background: msg.role === 'user' ? 'rgba(74,222,128,0.2)' : 'var(--card)',
                 border: msg.role === 'user' ? '1px solid rgba(74,222,128,0.35)' : '1px solid var(--border-subtle)',
-                fontSize: 13, lineHeight: 1.55, color: 'var(--text-secondary)',
+                fontSize: 'var(--fs-base)', lineHeight: 1.55, color: 'var(--text-secondary)',
               }}>
                 {renderText(msg.text)}
               </div>
-              <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 4, textAlign: msg.role === 'user' ? 'right' : 'left' }}>{msg.time}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 4, textAlign: msg.role === 'user' ? 'right' : 'left' }}>{msg.time}</div>
             </div>
             {msg.role === 'user' && (
               <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 8, marginTop: 2 }}>
@@ -169,7 +169,7 @@ export function AIChatScreen() {
         {/* Quick prompts (only when few messages) */}
         {messages.length <= 2 && (
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8, textAlign: 'center' }}>Quick questions</div>
+            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8, textAlign: 'center' }}>Quick questions</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
               {QUICK_PROMPTS.map((p) => (
                 <button
@@ -177,8 +177,8 @@ export function AIChatScreen() {
                   onClick={() => sendMessage(p.label)}
                   style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer', display: 'flex', gap: 7, alignItems: 'center', textAlign: 'left' }}
                 >
-                  <span style={{ fontSize: 16 }}>{p.icon}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', lineHeight: 1.3 }}>{p.label}</span>
+                  <span style={{ fontSize: 'var(--fs-lg)' }}>{p.icon}</span>
+                  <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-secondary)', lineHeight: 1.3 }}>{p.label}</span>
                 </button>
               ))}
             </div>
@@ -212,7 +212,7 @@ export function AIChatScreen() {
             <Send size={16} color={input.trim() && !isTyping ? '#0f1a0e' : 'var(--text-muted)'} />
           </button>
         </div>
-        <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 5, textAlign: 'center' }}>
+        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 5, textAlign: 'center' }}>
           AI responses are advisory only. Always verify with farm professionals.
         </div>
       </div>

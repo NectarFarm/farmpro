@@ -137,8 +137,8 @@ function TaskDetailSheet({
       <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '92%', overflowY: 'auto', border: '1px solid var(--border-subtle)', padding: 20 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div style={{ flex: 1, marginRight: 8 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.3, color: 'var(--text-primary)', marginBottom: 4 }}>{task.title}</div>
-            <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 9 }}>{STATUS_LABEL[status] ?? status}</span>
+            <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, lineHeight: 1.3, color: 'var(--text-primary)', marginBottom: 4 }}>{task.title}</div>
+            <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{STATUS_LABEL[status] ?? status}</span>
           </div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
@@ -151,19 +151,19 @@ function TaskDetailSheet({
               ['Priority', task.priority, PRIORITY_COLOR[task.priority]],
             ].map(([k, v, c]) => (
               <div key={k}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{k}</div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: c }}>{v}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{k}</div>
+                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: c }}>{v}</div>
               </div>
             ))}
           </div>
           {task.requiresApproval && (
             <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(251,191,36,0.08)', borderRadius: 8, border: '1px solid rgba(251,191,36,0.25)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <ShieldCheck size={12} color="var(--accent-amber)" />
-              <span style={{ fontSize: 11, color: 'var(--accent-amber)', fontWeight: 600 }}>Requires owner approval before marking done</span>
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)', fontWeight: 600 }}>Requires owner approval before marking done</span>
             </div>
           )}
           {rest && (
-            <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--card)', borderRadius: 8, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--card)', borderRadius: 8, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               📝 {rest}
             </div>
           )}
@@ -171,16 +171,16 @@ function TaskDetailSheet({
 
         <div style={{ display: 'flex', gap: 8 }}>
           {task.status !== 'DONE' && task.status !== 'PENDING_APPROVAL' && (
-            <button onClick={() => { onDone(task); onClose(); }} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 13, fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <button onClick={() => { onDone(task); onClose(); }} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <Check size={14} /> Mark Done
             </button>
           )}
           {task.status !== 'DONE' && (
-            <button onClick={() => { onDelete(task); onClose(); }} style={{ padding: '11px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <button onClick={() => { onDelete(task); onClose(); }} style={{ padding: '11px 14px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
               <Trash2 size={13} />
             </button>
           )}
-          <button onClick={onClose} style={{ padding: '11px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>Close</button>
+          <button onClick={onClose} style={{ padding: '11px 16px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>Close</button>
         </div>
 
         <StatusTimeline tenantId={task.tenantId} entity="task" entityId={task.id} />
@@ -201,24 +201,24 @@ function TaskCard({ task, onOpen }: { task: ApiTask; onOpen: (task: ApiTask) => 
       onClick={() => onOpen(task)}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3, color: task.status === 'DONE' ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: task.status === 'DONE' ? 'line-through' : 'none', flex: 1, marginRight: 8 }}>
+        <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, lineHeight: 1.3, color: task.status === 'DONE' ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: task.status === 'DONE' ? 'line-through' : 'none', flex: 1, marginRight: 8 }}>
           {task.title}
         </div>
-        <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 9, flexShrink: 0 }}>{STATUS_LABEL[status] ?? status}</span>
+        <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 'var(--fs-2xs)', flexShrink: 0 }}>{STATUS_LABEL[status] ?? status}</span>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           <Users size={11} color="var(--text-muted)" />
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{assignee || 'Unassigned'}</span>
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{assignee || 'Unassigned'}</span>
         </div>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           <Clock size={11} color={status === 'OVERDUE' ? 'var(--status-critical)' : 'var(--text-muted)'} />
-          <span style={{ fontSize: 11, color: status === 'OVERDUE' ? 'var(--status-critical)' : 'var(--text-muted)' }}>{fmtDueAt(task.dueAt)}</span>
+          <span style={{ fontSize: 'var(--fs-xs)', color: status === 'OVERDUE' ? 'var(--status-critical)' : 'var(--text-muted)' }}>{fmtDueAt(task.dueAt)}</span>
         </div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
-        <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 100, background: 'rgba(255,255,255,0.05)', color: PRIORITY_COLOR[task.priority], border: '1px solid var(--border-subtle)', textTransform: 'capitalize' }}>{task.priority}</span>
-        {task.requiresApproval && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 100, background: 'rgba(251,191,36,0.1)', color: 'var(--accent-amber)', border: '1px solid rgba(251,191,36,0.3)' }}><ShieldCheck size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} />Approval</span>}
+        <span style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 100, background: 'rgba(255,255,255,0.05)', color: PRIORITY_COLOR[task.priority], border: '1px solid var(--border-subtle)', textTransform: 'capitalize' }}>{task.priority}</span>
+        {task.requiresApproval && <span style={{ fontSize: 'var(--fs-2xs)', padding: '2px 6px', borderRadius: 100, background: 'rgba(251,191,36,0.1)', color: 'var(--accent-amber)', border: '1px solid rgba(251,191,36,0.3)' }}><ShieldCheck size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} />Approval</span>}
       </div>
     </div>
   );
@@ -262,17 +262,17 @@ function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-end', zIndex: 100 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', maxHeight: '90%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>New Task</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>New Task</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Task Title *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Task Title *</label>
           <input className="farm-input" value={title} onChange={e => { setTitle(e.target.value); setError(''); }} placeholder="e.g. Morning feeding — House A1" />
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
           <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
             <option value="">No specific farm (tenant-wide)</option>
             {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -280,7 +280,7 @@ function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assign To</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assign To</label>
           <select className="farm-input" value={assignee} onChange={e => setAssignee(e.target.value)}>
             <option value="">Unassigned</option>
             {employees.map(e => <option key={e.id} value={e.name}>{e.name} ({e.role})</option>)}
@@ -289,28 +289,28 @@ function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due Date</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due Date</label>
             <input className="farm-input" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due Time</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due Time</label>
             <input className="farm-input" type="time" value={dueTime} onChange={e => setDueTime(e.target.value)} />
           </div>
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Priority</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Priority</label>
           <div style={{ display: 'flex', gap: 8 }}>
             {(['high', 'medium', 'low'] as const).map(p => (
-              <button key={p} onClick={() => setPriority(p)} style={{ flex: 1, padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: priority === p ? `${PRIORITY_COLOR[p]}20` : 'var(--card)', border: priority === p ? `1px solid ${PRIORITY_COLOR[p]}60` : '1px solid var(--border-subtle)', color: priority === p ? PRIORITY_COLOR[p] : 'var(--text-muted)', textTransform: 'capitalize' }}>{p}</button>
+              <button key={p} onClick={() => setPriority(p)} style={{ flex: 1, padding: '8px', borderRadius: 8, fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer', background: priority === p ? `${PRIORITY_COLOR[p]}20` : 'var(--card)', border: priority === p ? `1px solid ${PRIORITY_COLOR[p]}60` : '1px solid var(--border-subtle)', color: priority === p ? PRIORITY_COLOR[p] : 'var(--text-muted)', textTransform: 'capitalize' }}>{p}</button>
             ))}
           </div>
         </div>
 
         <div style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Requires Owner Approval</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Assignee submits for review before marking done</div>
+            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Requires Owner Approval</div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>Assignee submits for review before marking done</div>
           </div>
           <button onClick={() => setRequiresApproval(x => !x)} style={{ width: 44, height: 24, borderRadius: 100, cursor: 'pointer', border: 'none', background: requiresApproval ? 'var(--primary-green)' : 'var(--border-subtle)', position: 'relative', flexShrink: 0 }}>
             <div style={{ position: 'absolute', top: 2, left: requiresApproval ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: 'white', transition: 'left 0.15s' }} />
@@ -318,11 +318,11 @@ function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes / Instructions</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes / Instructions</label>
           <textarea className="farm-input" rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Instructions for the assignee…" style={{ resize: 'none' }} />
         </div>
 
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>⚠ {error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>⚠ {error}</div>}
 
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={submit} disabled={saving}>
           <Check size={14} /> {saving ? 'Creating…' : 'Create Task'}
@@ -344,27 +344,27 @@ function FilterSheet({
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '80%', overflowY: 'auto', padding: 20, border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>Filter Tasks</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Filter Tasks</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>Status</div>
+          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>Status</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {['All', 'PENDING', 'OVERDUE', 'PENDING_APPROVAL', 'DONE', 'REJECTED'].map(v => (
-              <button key={v} onClick={() => setFilterStatus(v)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: filterStatus === v ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: filterStatus === v ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)', color: filterStatus === v ? 'var(--primary-green)' : 'var(--text-muted)' }}>{STATUS_LABEL[v] ?? v}</button>
+              <button key={v} onClick={() => setFilterStatus(v)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: filterStatus === v ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: filterStatus === v ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)', color: filterStatus === v ? 'var(--primary-green)' : 'var(--text-muted)' }}>{STATUS_LABEL[v] ?? v}</button>
             ))}
           </div>
         </div>
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>Priority</div>
+          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>Priority</div>
           <div style={{ display: 'flex', gap: 6 }}>
             {['All', 'high', 'medium', 'low'].map(v => (
-              <button key={v} onClick={() => setFilterPriority(v)} style={{ flex: 1, padding: '7px', borderRadius: 100, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: filterPriority === v ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: filterPriority === v ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)', color: filterPriority === v ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{v}</button>
+              <button key={v} onClick={() => setFilterPriority(v)} style={{ flex: 1, padding: '7px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: filterPriority === v ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: filterPriority === v ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)', color: filterPriority === v ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{v}</button>
             ))}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onReset} style={{ flex: 1, padding: '11px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Reset All</button>
+          <button onClick={onReset} style={{ flex: 1, padding: '11px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 'var(--fs-base)', cursor: 'pointer' }}>Reset All</button>
           <button onClick={onClose} className="btn-primary" style={{ flex: 2, justifyContent: 'center' }}>
             <Check size={14} /> Apply Filters
           </button>
@@ -376,7 +376,7 @@ function FilterSheet({
 
 /* ── Main Screen ── */
 export function TasksScreen() {
-  const { tenantId, activeFarmId, farms } = useNav();
+  const { tenantId, activeFarmId, farms, params } = useNav();
   const { showToast } = useToast();
 
   const [tasks, setTasks] = useState<ApiTask[] | null>(null);
@@ -408,6 +408,35 @@ export function TasksScreen() {
       if (res.success) setEmployees(res.data);
     });
   }, [tenantId]);
+
+  // Deep link from a notification (dashboard.tsx's handleNotifTap) or
+  // anywhere else that knows a specific task id: navigate('tasks', { taskId })
+  // used to land on this screen's unfiltered list with no way to tell which
+  // task the tap was actually about. Once the list has loaded, open that
+  // task's existing detail sheet the same way clicking its row would.
+  useEffect(() => {
+    if (!params.taskId || !tasks) return;
+    const match = tasks.find(t => t.id === params.taskId);
+    if (match) setOpenTask(match);
+  }, [params.taskId, tasks]);
+
+  // crops.tsx's "All Batch Tasks" / per-unit shortcuts navigate('tasks', {
+  // batch, unit }) — tasks have no batch/unit column (see ApiTask's header:
+  // "no code/type/batch/unit/GPS/photo"), so there is no real relational
+  // filter to apply here, and pretending otherwise would be exactly the kind
+  // of fake affordance this codebase avoids elsewhere (see e.g. the removed
+  // "Sync Now" in settings.tsx). Best honest connection available: seed the
+  // free-text search with the batch/unit code, since a task made for that
+  // batch is likely to name it in its title — a real (if partial) text
+  // match, not the scoped list the button used to silently fail to produce.
+  useEffect(() => {
+    if (!params.batch) return;
+    // Unit is more specific than batch when both are present (the per-unit
+    // shortcut) — a single substring match, so combining them would require
+    // both codes verbatim in one title, which is less likely to match than
+    // just the more specific one.
+    setSearch(params.unit || params.batch);
+  }, [params.batch, params.unit]);
 
   const activeFilters = [filterStatus !== 'All', filterPriority !== 'All'].filter(Boolean).length;
 
@@ -487,7 +516,7 @@ export function TasksScreen() {
 
       <div className="px-screen" style={{ paddingTop: 12 }}>
         {loadError && (
-          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', fontSize: 12, color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <AlertTriangle size={13} /> {loadError}
           </div>
         )}
@@ -499,16 +528,16 @@ export function TasksScreen() {
             { label: 'Done', value: done, color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.1)' },
           ].map(s => (
             <div key={s.label} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: '12px 8px', textAlign: 'center', border: `1px solid ${s.color}30` }}>
-              <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
+              <div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
             </div>
           ))}
         </div>
 
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Completion</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{completionPct}%</span>
+            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Completion</span>
+            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{completionPct}%</span>
           </div>
           <div className="progress-track"><div className="progress-fill" style={{ width: `${completionPct}%` }} /></div>
         </div>
@@ -516,25 +545,25 @@ export function TasksScreen() {
         <SearchBar value={search} onChange={setSearch} placeholder="Search tasks, assignees…" />
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-          <button onClick={() => setShowFilter(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', background: activeFilters > 0 ? 'rgba(74,222,128,0.12)' : 'var(--card)', border: activeFilters > 0 ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: activeFilters > 0 ? 'var(--primary-green)' : 'var(--text-muted)', flexShrink: 0 }}>
+          <button onClick={() => setShowFilter(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', background: activeFilters > 0 ? 'rgba(74,222,128,0.12)' : 'var(--card)', border: activeFilters > 0 ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: activeFilters > 0 ? 'var(--primary-green)' : 'var(--text-muted)', flexShrink: 0 }}>
             <Filter size={13} /> Filters {activeFilters > 0 && `(${activeFilters})`}
           </button>
-          <button onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+          <button onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
             Due {sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
           {activeFilters > 0 && (
-            <button onClick={resetFilters} style={{ flexShrink: 0, padding: '6px 10px', borderRadius: 8, fontSize: 10, fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>Clear</button>
+            <button onClick={resetFilters} style={{ flexShrink: 0, padding: '6px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>Clear</button>
           )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 80 }}>
           {tasks === null ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading tasks…</div>
+            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading tasks…</div>
           ) : filtered.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
               <CheckCircle2 size={32} style={{ marginBottom: 10, opacity: 0.4 }} />
-              <div style={{ fontSize: 14, fontWeight: 600 }}>No tasks match your filters</div>
-              <button onClick={resetFilters} style={{ marginTop: 12, padding: '8px 16px', borderRadius: 10, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Clear Filters</button>
+              <div style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>No tasks match your filters</div>
+              <button onClick={resetFilters} style={{ marginTop: 12, padding: '8px 16px', borderRadius: 10, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Clear Filters</button>
             </div>
           ) : (
             filtered.map(t => <TaskCard key={t.id} task={t} onOpen={setOpenTask} />)

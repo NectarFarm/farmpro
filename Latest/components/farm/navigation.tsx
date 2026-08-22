@@ -16,7 +16,7 @@ export type ScreenId =
   | 'process-config'
   | 'notification-settings'
   | 'ui-customise' | 'security-settings' | 'role-notice'
-  | 'auditor-reports' | 'vet-herd';
+  | 'auditor-reports' | 'vet-herd' | 'about';
 
 /* ── Session role contract (issue #219) ──
  * The UI role set mirrors the backend exactly (backend: `lib/types/index.ts`):
@@ -132,7 +132,7 @@ const ALL_SCREENS: ScreenId[] = [
   'process-config',
   'notification-settings',
   'ui-customise', 'security-settings', 'role-notice',
-  'auditor-reports', 'vet-herd',
+  'auditor-reports', 'vet-herd', 'about',
 ];
 const SCREEN_SET = new Set<string>(ALL_SCREENS);
 function isScreenId(s: string): s is ScreenId {
@@ -469,7 +469,7 @@ function RoleSelector({ role, setRole }: { role: NavContext['role']; setRole: (r
   return (
     <div style={{ position: 'fixed', top: 'calc(var(--nav-height) + 8px)', right: 8, zIndex: 200, padding: '5px 8px' }}>
       <select value={role} onChange={(e) => setRole(e.target.value as NavContext['role'])}
-        style={{ background: 'rgba(10,15,10,0.95)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', borderRadius: 8, fontSize: 10, padding: '3px 6px', cursor: 'pointer', fontWeight: 700 }}>
+        style={{ background: 'rgba(10,15,10,0.95)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', borderRadius: 8, fontSize: 'var(--fs-2xs)', padding: '3px 6px', cursor: 'pointer', fontWeight: 700 }}>
         <option value="owner">👑 Owner</option>
         <option value="manager">🧑‍💼 Manager</option>
         <option value="worker">👷 Worker</option>
@@ -497,17 +497,17 @@ export function RoleNoticeScreen() {
   return (
     <div className="screen-content" style={{ padding: '0 20px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '72%', textAlign: 'center', paddingTop: 10 }}>
-        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, marginBottom: 18 }}>
+        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-6xl)', marginBottom: 18 }}>
           {role === 'vet' ? '🩺' : '🔍'}
         </div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Not available for your role</div>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, maxWidth: 300 }}>
+        <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Not available for your role</div>
+        <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', lineHeight: 1.55, maxWidth: 300 }}>
           You&apos;re signed in as a <strong style={{ color: 'var(--text-secondary)' }}>{roleLabel}</strong>, which only has access to its own screen in this app. You can sign out below.
         </div>
         <button
           type="button"
           onClick={() => { if (_globalLogout) _globalLogout(); }}
-          style={{ marginTop: 22, padding: '13px 34px', borderRadius: 14, fontSize: 14, fontWeight: 700, cursor: 'pointer',
+          style={{ marginTop: 22, padding: '13px 34px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700, cursor: 'pointer',
             background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <LogOut size={14} /> Sign Out
         </button>
@@ -579,7 +579,7 @@ export function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs
 /* Active-tab detection shared by BottomNav (mobile) and AppSidebar (desktop). */
 function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
   const SUB_SCREENS: Record<string, ScreenId[]> = {
-    settings: ['people','governance','reports','inventory','weather','process-config','notification-settings','ui-customise','ai-chat'],
+    settings: ['people','governance','reports','inventory','weather','process-config','notification-settings','ui-customise','ai-chat','about'],
     crops: ['batch-detail','crop-schedule'],
     'admin-onboarding': ['admin-onboarding'],
   };
@@ -593,7 +593,7 @@ function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
     crops: ['batch-detail', 'crop-schedule'],
     inventory: ['inventory-detail'],
     people: ['people-detail'],
-    settings: ['process-config', 'notification-settings', 'ui-customise', 'ai-chat'],
+    settings: ['process-config', 'notification-settings', 'ui-customise', 'ai-chat', 'about'],
   };
   return current === tabId || (DETAIL_SCREENS[tabId] ?? []).includes(current);
 }
@@ -643,14 +643,14 @@ export function AppSidebar() {
       <div className="farm-sidebar-brand">
         <Leaf size={23} color="var(--primary-green)" strokeWidth={2.2} />
         <div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)' }}>IFMS</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Farm management</div>
+          <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: 'var(--text-primary)' }}>IFMS</div>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Farm management</div>
         </div>
       </div>
       <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }} aria-label="Primary">
         {groups.map((group) => (
           <div key={group.label} style={{ marginBottom: 16 }}>
-            <div style={{ padding: '0 12px', margin: '8px 0 5px', fontSize: 11, fontWeight: 650, color: 'var(--text-dim)' }}>{group.label}</div>
+            <div style={{ padding: '0 12px', margin: '8px 0 5px', fontSize: 'var(--fs-xs)', fontWeight: 650, color: 'var(--text-dim)' }}>{group.label}</div>
             {group.items.map((tab) => {
           const Icon = tab.icon;
           const active = sidebarIsActive(current, tab.id);
@@ -669,7 +669,7 @@ export function AppSidebar() {
                 // no longer breaks in a dark theme.
                 background: active ? 'rgba(74,222,128,0.1)' : 'transparent',
                 border: active ? '1px solid rgba(74,222,128,0.25)' : '1px solid transparent',
-                color: active ? 'var(--primary-green)' : 'var(--text-muted)', fontWeight: active ? 700 : 500, fontSize: 13 }}>
+                color: active ? 'var(--primary-green)' : 'var(--text-muted)', fontWeight: active ? 700 : 500, fontSize: 'var(--fs-base)' }}>
               <Icon size={18} />
               <span style={{ flex: 1 }}>{tab.label}</span>
               {badge !== null && <NavBadge count={badge} tabId={tab.id} />}
@@ -686,12 +686,12 @@ export function AppSidebar() {
          * control (no custom popover to build/maintain); 'ALL' mirrors the
          * same all-farms convention dashboard.tsx's own switcher uses. */}
         <label style={{ display: 'block' }}>
-          <span style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Farm</span>
+          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Farm</span>
           <select
             value={activeFarmId}
             onChange={(e) => setActiveFarmId(e.target.value)}
             style={{ width: '100%', marginTop: 2, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)',
-              background: 'var(--card)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              background: 'var(--card)', color: 'var(--text-primary)', fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer' }}
           >
             <option value="ALL">All farms</option>
             {farms.map((farm) => (
@@ -700,7 +700,7 @@ export function AppSidebar() {
           </select>
         </label>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'capitalize' }}>{role}</div>
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'capitalize' }}>{role}</div>
           {/* Sign-out was only reachable from the mobile TopNav before this —
            * desktop users had no sign-out control anywhere. Reuses the same
            * LogoutButton (and its _globalLogout mechanism/confirm sheet), not
@@ -735,11 +735,11 @@ export function TopNav({
         </button>
       )}
       <div style={{ flex: 1 }}>
-        <div className="top-nav-title" style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{title}</div>
-        {subtitle && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{subtitle}</div>}
+        <div className="top-nav-title" style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 3 }}>{subtitle}</div>}
         {farmBadge && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 100, padding: '2px 8px', marginTop: 3 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary-green)' }}>{farmBadge}</span>
+            <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--primary-green)' }}>{farmBadge}</span>
           </div>
         )}
       </div>
@@ -787,12 +787,12 @@ function LogoutButton() {
       {showMenu && (
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', zIndex: 500 }} onClick={() => setShowMenu(false)}>
           <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, color: 'var(--text-primary)' }}>Sign Out</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>You will be returned to the login screen.</div>
-            <button type="button" onClick={doLogout} style={{ width: '100%', padding: '13px', borderRadius: 14, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+            <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 4, color: 'var(--text-primary)' }}>Sign Out</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 16 }}>You will be returned to the login screen.</div>
+            <button type="button" onClick={doLogout} style={{ width: '100%', padding: '13px', borderRadius: 14, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer' }}>
               Sign Out
             </button>
-            <button type="button" onClick={() => setShowMenu(false)} style={{ width: '100%', marginTop: 10, padding: '11px', borderRadius: 12, background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            <button type="button" onClick={() => setShowMenu(false)} style={{ width: '100%', marginTop: 10, padding: '11px', borderRadius: 12, background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 'var(--fs-base)', cursor: 'pointer' }}>
               Cancel
             </button>
           </div>

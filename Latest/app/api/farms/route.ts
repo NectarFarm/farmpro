@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { farms } from '@/db/schemas'
 import { and, eq, asc } from 'drizzle-orm'
 import { requireTenantSession } from '@/lib/api-auth'
+import { validateLocation } from '@/lib/validation'
 
 // ── Farms API (issue #219; auth fix: fix/authenticate-all-apis) ────────────
 // New-backend routes powering the shell's farm switcher. Built fresh in this
@@ -74,6 +75,15 @@ export async function POST(req: Request) {
   const name = typeof b.name === 'string' ? b.name.trim() : ''
   if (!name) return badRequest('name is required')
 
+  // GPS pin is optional at creation time (ui-polish-theme-weather) — most
+  // farms get one later, from onboarding provisioning or the Weather
+  // screen's empty state, not this form.
+  const loc = validateLocation({ latitude: b.latitude, longitude: b.longitude })
+  if (Object.keys(loc.fields).length > 0) {
+    const firstKey = Object.keys(loc.fields)[0]
+    return NextResponse.json({ success: false, error: loc.fields[firstKey], fields: loc.fields }, { status: 400, headers: corsHeaders })
+  }
+
   const id = crypto.randomUUID()
   const requestedCode = typeof b.code === 'string' ? b.code.trim() : ''
   const location = typeof b.location === 'string' ? b.location.trim() : ''
@@ -89,7 +99,7 @@ export async function POST(req: Request) {
   // unique index (idx_farms_tenant_code) is the real guard for the concurrent case.
   // Either way, a failure here must return the app's error envelope, not a bare 500.
   try {
-    await db.insert(farms).values({ id, tenantId, name, location, code })
+    await db.insert(farms).values({ id, tenantId, name, location, code, latitude: loc.latitude, longitude: loc.longitude })
   } catch (err) {
     if (isUniqueViolation(err)) {
       return NextResponse.json({ success: false, error: 'A farm with this code already exists — retry' }, { status: 409, headers: corsHeaders })

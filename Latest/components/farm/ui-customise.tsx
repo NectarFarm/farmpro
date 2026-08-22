@@ -141,7 +141,7 @@ export function UICustomiseScreen() {
         {/* These settings are tenant-wide (one settings record per tenant, not
            per farm) — every farm on this tenant shares the same module/branding
            configuration, so there is no per-farm switcher here. */}
-        <div style={{ padding: '9px 14px', background: 'rgba(96,165,250,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(96,165,250,0.2)', fontSize: 11, color: 'var(--text-muted)' }}>
+        <div style={{ padding: '9px 14px', background: 'rgba(96,165,250,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(96,165,250,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
           Applies tenant-wide, across all farms ({farmName}{farms.length > 1 ? ` +${farms.length - 1} more` : ''}).
         </div>
 
@@ -152,7 +152,7 @@ export function UICustomiseScreen() {
               key={id}
               onClick={() => setTab(id as typeof tab)}
               style={{
-                flex: 1, padding: '8px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                flex: 1, padding: '8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
                 background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)',
                 border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
                 color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)',
@@ -166,7 +166,7 @@ export function UICustomiseScreen() {
         {/* ── MODULES TAB ── */}
         {tab === 'modules' && (
           <div style={{ paddingBottom: 80 }}>
-            <div style={{ padding: '10px 14px', background: 'rgba(168,85,247,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(168,85,247,0.2)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <div style={{ padding: '10px 14px', background: 'rgba(168,85,247,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(168,85,247,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Toggle which modules are visible in the app for this tenant. Disabled modules are hidden from all users, on every farm.
             </div>
             {modules.map((m) => (
@@ -180,12 +180,12 @@ export function UICustomiseScreen() {
                 }}
               >
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <span style={{ fontSize: 20, opacity: m.enabled ? 1 : 0.4 }}>{m.icon}</span>
+                  <span style={{ fontSize: 'var(--fs-2xl)', opacity: m.enabled ? 1 : 0.4 }}>{m.icon}</span>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: m.enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: m.enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                       {m.customLabel ?? m.defaultLabel}
                     </div>
-                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>{m.description}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 1 }}>{m.description}</div>
                   </div>
                 </div>
                 <button
@@ -210,14 +210,14 @@ export function UICustomiseScreen() {
         {/* ── LABELS TAB ── */}
         {tab === 'labels' && (
           <div style={{ paddingBottom: 80 }}>
-            <div style={{ padding: '10px 14px', background: 'rgba(96,165,250,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(96,165,250,0.2)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <div style={{ padding: '10px 14px', background: 'rgba(96,165,250,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(96,165,250,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Rename module labels to match your farm's terminology. Leave blank to use the default label.
             </div>
             {modules.map((m) => (
               <div key={m.id} style={{ marginBottom: 10 }}>
                 {editingModule === m.id ? (
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ fontSize: 18, flexShrink: 0 }}>{m.icon}</span>
+                    <span style={{ fontSize: 'var(--fs-xl)', flexShrink: 0 }}>{m.icon}</span>
                     <input
                       className="farm-input"
                       style={{ flex: 1 }}
@@ -226,7 +226,7 @@ export function UICustomiseScreen() {
                       placeholder={m.defaultLabel}
                       autoFocus
                     />
-                    <button onClick={() => saveLabel(m.id)} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', fontWeight: 700, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button onClick={() => saveLabel(m.id)} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 4 }}>
                       <Check size={12} /> Save
                     </button>
                     <button onClick={() => setEditingModule(null)} style={{ padding: '8px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>
@@ -236,16 +236,16 @@ export function UICustomiseScreen() {
                 ) : (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border-subtle)' }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <span style={{ fontSize: 18 }}>{m.icon}</span>
+                      <span style={{ fontSize: 'var(--fs-xl)' }}>{m.icon}</span>
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>
                           {m.customLabel ?? m.defaultLabel}
                           {m.customLabel && (
-                            <span style={{ fontSize: 10, color: 'var(--accent-amber)', marginLeft: 6, fontWeight: 600 }}>Custom</span>
+                            <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--accent-amber)', marginLeft: 6, fontWeight: 600 }}>Custom</span>
                           )}
                         </div>
                         {m.customLabel && (
-                          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>Default: {m.defaultLabel}</div>
+                          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 1 }}>Default: {m.defaultLabel}</div>
                         )}
                       </div>
                     </div>
@@ -253,14 +253,14 @@ export function UICustomiseScreen() {
                       {m.customLabel && (
                         <button
                           onClick={() => setModules((ms) => ms.map((x) => x.id === m.id ? { ...x, customLabel: undefined } : x))}
-                          style={{ padding: '5px 8px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 10 }}
+                          style={{ padding: '5px 8px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 'var(--fs-2xs)' }}
                         >
                           <RefreshCw size={10} />
                         </button>
                       )}
                       <button
                         onClick={() => { setEditingModule(m.id); setEditLabel(m.customLabel ?? ''); }}
-                        style={{ padding: '5px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}
+                        style={{ padding: '5px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 'var(--fs-xs)', display: 'flex', alignItems: 'center', gap: 4 }}
                       >
                         <Edit2 size={11} /> Edit
                       </button>
@@ -282,14 +282,14 @@ export function UICustomiseScreen() {
               border: `1px solid ${branding.accentColor}40`,
             }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ fontSize: 28 }}>{branding.logoEmoji}</span>
+                <span style={{ fontSize: 'var(--fs-4xl)' }}>{branding.logoEmoji}</span>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)' }}>{farmName}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{branding.dashboardGreeting}</div>
+                  <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: 'var(--text-primary)' }}>{farmName}</div>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{branding.dashboardGreeting}</div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 100, background: branding.accentColor + '33', color: branding.accentColor, border: `1px solid ${branding.accentColor}60` }}>
+                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, padding: '3px 10px', borderRadius: 100, background: branding.accentColor + '33', color: branding.accentColor, border: `1px solid ${branding.accentColor}60` }}>
                   Live Preview
                 </span>
               </div>
@@ -300,19 +300,19 @@ export function UICustomiseScreen() {
                (settings-reorg) — they're operational, displayed on every
                amount/weight in the app, not a branding choice. */}
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Dashboard Greeting</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Dashboard Greeting</label>
               <input className="farm-input" value={branding.dashboardGreeting} onChange={(e) => updateBranding('dashboardGreeting', e.target.value)} />
             </div>
 
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm Logo Emoji</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm Logo Emoji</label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {['🌾', '🐔', '🐄', '🐷', '🐐', '🌽', '🥦', '🍎', '🐠', '🌿', '🏡', '⚡'].map((e) => (
                   <button
                     key={e}
                     onClick={() => updateBranding('logoEmoji', e)}
                     style={{
-                      width: 38, height: 38, borderRadius: 10, fontSize: 20, cursor: 'pointer',
+                      width: 38, height: 38, borderRadius: 10, fontSize: 'var(--fs-2xl)', cursor: 'pointer',
                       background: branding.logoEmoji === e ? 'rgba(74,222,128,0.15)' : 'var(--card)',
                       border: branding.logoEmoji === e ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
                     }}
@@ -324,7 +324,7 @@ export function UICustomiseScreen() {
             </div>
 
             <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 8 }}>Accent Colour</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 8 }}>Accent Colour</label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {ACCENT_OPTIONS.map((c) => (
                   <button
@@ -343,7 +343,7 @@ export function UICustomiseScreen() {
 
         {/* Save button */}
         <div style={{ position: 'sticky', bottom: 80, paddingBottom: 12 }}>
-          {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 8 }}>{error}</div>}
+          {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{error}</div>}
           <button
             className="btn-primary"
             style={{ width: '100%', justifyContent: 'center' }}

@@ -66,7 +66,7 @@ export function AuditorReportsScreen() {
       <div className="px-screen" style={{ paddingTop: 12, paddingBottom: 40 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 12, marginBottom: 14 }}>
           <Eye size={14} color="var(--accent-blue)" />
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>You have read-only access to this tenant&apos;s reports. Nothing here can change any data.</span>
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>You have read-only access to this tenant&apos;s reports. Nothing here can change any data.</span>
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -76,7 +76,7 @@ export function AuditorReportsScreen() {
               type="button"
               onClick={() => setSelected(r.id)}
               className={selected === r.id ? 'chip chip-ok' : 'chip'}
-              style={{ cursor: 'pointer', border: 'none', fontSize: 12, padding: '6px 12px' }}
+              style={{ cursor: 'pointer', border: 'none', fontSize: 'var(--fs-sm)', padding: '6px 12px' }}
             >
               {r.name}
             </button>
@@ -86,29 +86,29 @@ export function AuditorReportsScreen() {
         <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>From</label>
-              <input className="farm-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ fontSize: 13 }} />
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>From</label>
+              <input className="farm-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>To</label>
-              <input className="farm-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ fontSize: 13 }} />
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>To</label>
+              <input className="farm-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
             </div>
           </div>
         </div>
 
         <div className="farm-card" style={{ padding: 14 }}>
-          {loading && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading…</div>}
+          {loading && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading…</div>}
           {!loading && error && (
-            <div style={{ fontSize: 13, color: 'var(--status-critical)', fontWeight: 600 }}>{error}</div>
+            <div style={{ fontSize: 'var(--fs-base)', color: 'var(--status-critical)', fontWeight: 600 }}>{error}</div>
           )}
           {!loading && !error && report && (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>{report.title}</div>
-                <span className="chip" style={{ fontSize: 9 }}>{report.rows.length} row{report.rows.length === 1 ? '' : 's'}</span>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700 }}>{report.title}</div>
+                <span className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>{report.rows.length} row{report.rows.length === 1 ? '' : 's'}</span>
               </div>
               <div style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid var(--border-subtle)', borderRadius: 10 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
                   <thead>
                     <tr>
                       {report.columns.map((c) => (

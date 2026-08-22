@@ -132,7 +132,7 @@ function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string)
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '75%' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Enterprise Type</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Enterprise Type</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <div style={{ overflowY: 'auto', maxHeight: 380, scrollbarWidth: 'none' }}>
@@ -140,9 +140,9 @@ function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string)
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
             {livestock.map(e => (
               <button key={e.subtype} onClick={() => { onSelect(e.subtype); onClose(); }} style={{ padding: '10px 12px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', textAlign: 'left', cursor: 'pointer' }}>
-                <div style={{ fontSize: 22, marginBottom: 4 }}>{e.emoji}</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{e.label}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{e.unitName}-based</div>
+                <div style={{ fontSize: 'var(--fs-3xl)', marginBottom: 4 }}>{e.emoji}</div>
+                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{e.label}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{e.unitName}-based</div>
               </button>
             ))}
           </div>
@@ -150,9 +150,9 @@ function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string)
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {crops.map(e => (
               <button key={e.subtype} onClick={() => { onSelect(e.subtype); onClose(); }} style={{ padding: '10px 12px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', textAlign: 'left', cursor: 'pointer' }}>
-                <div style={{ fontSize: 22, marginBottom: 4 }}>{e.emoji}</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{e.label}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{e.unitName}-based</div>
+                <div style={{ fontSize: 'var(--fs-3xl)', marginBottom: 4 }}>{e.emoji}</div>
+                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{e.label}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{e.unitName}-based</div>
               </button>
             ))}
           </div>
@@ -170,29 +170,29 @@ function LivestockBatchCard({ batch, navigate }: { batch: ViewBatch; navigate: (
     <button onClick={() => navigate('batch-detail', { id: batch.id, code: batch.code })} className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer', borderLeft: `3px solid ${cfg?.type === 'crop' ? 'rgba(251,191,36,0.6)' : 'rgba(74,222,128,0.5)'}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 24 }}>{cfg?.emoji ?? '❓'}</span>
+          <span style={{ fontSize: 'var(--fs-3xl)' }}>{cfg?.emoji ?? '❓'}</span>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{batch.label}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{batch.code} · {batch.unitCode || 'no unit'}</div>
+            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{batch.label}</div>
+            <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{batch.code} · {batch.unitCode || 'no unit'}</div>
           </div>
         </div>
-        <span className={`chip ${batch.status === 'ACTIVE' ? 'chip-ok' : batch.status === 'QUARANTINE' ? 'chip-critical' : 'chip-info'}`} style={{ fontSize: 9 }}>{batch.status}</span>
+        <span className={`chip ${batch.status === 'ACTIVE' ? 'chip-ok' : batch.status === 'QUARANTINE' ? 'chip-critical' : 'chip-info'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{batch.status}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 6 }}>
         <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{batch.qty.toLocaleString()}</div>
-          <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>{cfg?.type === 'crop' ? 'Plots/Ha' : 'Head'}</div>
+          <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{batch.qty.toLocaleString()}</div>
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>{cfg?.type === 'crop' ? 'Plots/Ha' : 'Head'}</div>
         </div>
         <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{batch.stage || '—'}</div>
-          <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>Stage</div>
+          <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{batch.stage || '—'}</div>
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Stage</div>
         </div>
         <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: Number(mort) > 3 ? 'var(--status-critical)' : 'var(--status-ok)' }}>{cfg?.type === 'crop' ? '—' : `${mort}%`}</div>
-          <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>{cfg?.type === 'crop' ? 'Growth' : 'Mort.'}</div>
+          <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: Number(mort) > 3 ? 'var(--status-critical)' : 'var(--status-ok)' }}>{cfg?.type === 'crop' ? '—' : `${mort}%`}</div>
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>{cfg?.type === 'crop' ? 'Growth' : 'Mort.'}</div>
         </div>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 10, color: 'var(--text-muted)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>
         <span>Start: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{batch.startDate || '—'}</span></span>
         {batch.harvestDate && <span>Harvest: <span style={{ color: 'var(--accent-amber)', fontWeight: 600 }}>{batch.harvestDate}</span></span>}
         {batch.endDate && !batch.harvestDate && <span>End: <span style={{ color: 'var(--accent-amber)', fontWeight: 600 }}>{batch.endDate}</span></span>}
@@ -237,24 +237,24 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Add Production Unit</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Add Production Unit</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
           <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
             {farms.map(f => <option key={f.id} value={f.id}>{f.name} ({f.code})</option>)}
           </select>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit Type</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit Type</label>
           <input className="farm-input" placeholder="e.g. House, Pen, Field" value={type} onChange={e => setType(e.target.value)} />
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit Name</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit Name</label>
           <input className="farm-input" placeholder="e.g. House A02" value={name} onChange={e => setName(e.target.value)} />
         </div>
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
           {saving ? 'Saving…' : 'Create Unit'}
         </button>
@@ -300,28 +300,28 @@ function AddProductSheet({ tenantId, onCreated, onClose }: {
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Add Product</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Add Product</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Product Name *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Product Name *</label>
           <input className="farm-input" placeholder="e.g. Tray Eggs (30)" value={name} onChange={e => setName(e.target.value)}
             style={errors.name ? { border: '1px solid var(--status-critical)' } : undefined} />
-          {errors.name && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.name}</div>}
+          {errors.name && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.name}</div>}
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Type *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Type *</label>
           <input className="farm-input" placeholder="e.g. egg, livebird, produce" value={type} onChange={e => setType(e.target.value)}
             style={errors.type ? { border: '1px solid var(--status-critical)' } : undefined} />
-          {errors.type && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.type}</div>}
+          {errors.type && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.type}</div>}
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sale Price (KSh)</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sale Price (KSh)</label>
           <input className="farm-input" type="number" placeholder="0" value={saleUnits} onChange={e => setSaleUnits(e.target.value)}
             style={errors.saleUnits ? { border: '1px solid var(--status-critical)' } : undefined} />
-          {errors.saleUnits && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.saleUnits}</div>}
+          {errors.saleUnits && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.saleUnits}</div>}
         </div>
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
           {saving ? 'Saving…' : 'Create Product'}
         </button>
@@ -363,28 +363,28 @@ function EditProductSheet({ tenantId, product, onSaved, onClose }: {
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Edit Product</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Edit Product</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Product Name *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Product Name *</label>
           <input className="farm-input" value={name} onChange={e => setName(e.target.value)}
             style={errors.name ? { border: '1px solid var(--status-critical)' } : undefined} />
-          {errors.name && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.name}</div>}
+          {errors.name && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.name}</div>}
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Type *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Type *</label>
           <input className="farm-input" value={type} onChange={e => setType(e.target.value)}
             style={errors.type ? { border: '1px solid var(--status-critical)' } : undefined} />
-          {errors.type && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.type}</div>}
+          {errors.type && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.type}</div>}
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sale Price (KSh)</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sale Price (KSh)</label>
           <input className="farm-input" type="number" value={saleUnits} onChange={e => setSaleUnits(e.target.value)}
             style={errors.saleUnits ? { border: '1px solid var(--status-critical)' } : undefined} />
-          {errors.saleUnits && <div style={{ fontSize: 10.5, color: 'var(--status-critical)', marginTop: 4 }}>{errors.saleUnits}</div>}
+          {errors.saleUnits && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.saleUnits}</div>}
         </div>
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
@@ -444,30 +444,30 @@ function UnitProductsSheet({ tenantId, unit, allProducts, onSaved, onClose }: {
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Products — {unit.name}</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Products — {unit.name}</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14 }}>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 14 }}>
           Every batch in this unit inherits whatever you select here — no need to pick products per batch.
         </div>
         {selected === null ? (
-          <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>Loading…</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading…</div>
         ) : allProducts.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>No products in your catalogue yet — add one from the Products tab first.</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>No products in your catalogue yet — add one from the Products tab first.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
             {allProducts.map(p => (
               <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'capitalize' }}>{p.type}</div>
+                  <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', textTransform: 'capitalize' }}>{p.type}</div>
                 </div>
               </label>
             ))}
           </div>
         )}
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving || selected === null} onClick={save}>
           {saving ? 'Saving…' : 'Save Products'}
         </button>
@@ -569,8 +569,8 @@ export function CropsScreen() {
             { label: 'Total Cost', value: `KSh ${(centsToMajor(farmBatches.reduce((s,b)=>s+b.costCents,0))/1000).toFixed(0)}K`, color: 'var(--text-secondary)' },
           ].map(s => (
             <div key={s.label} style={{ flexShrink: 0, background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '8px 12px', textAlign: 'center', minWidth: 80 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>{s.label}</div>
+              <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>{s.label}</div>
             </div>
           ))}
         </div>
@@ -578,7 +578,7 @@ export function CropsScreen() {
         {/* Type tabs */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
           {[['livestock','🐄 Livestock'],['crops','🌱 Crops'],['units','📍 Units'],['products','📦 Products']].map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)' }}>{label}</button>
+            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)' }}>{label}</button>
           ))}
         </div>
 
@@ -593,7 +593,7 @@ export function CropsScreen() {
       </div>
 
       {loading && (
-        <div className="px-screen"><div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>Loading batches…</div></div>
+        <div className="px-screen"><div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading batches…</div></div>
       )}
 
       {/* LIVESTOCK / CROPS batch cards */}
@@ -602,9 +602,9 @@ export function CropsScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
             {displayed.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>{tab === 'livestock' ? '🐄' : '🌱'}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No {tab} batches</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Tap + to add your first enterprise</div>
+                <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>{tab === 'livestock' ? '🐄' : '🌱'}</div>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No {tab} batches</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Tap + to add your first enterprise</div>
               </div>
             ) : displayed.map(b => (
               <LivestockBatchCard key={b.id} batch={b} navigate={navigate} />
@@ -622,9 +622,9 @@ export function CropsScreen() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
             {farmUnits.length === 0 ? (
               <div style={{ gridColumn: '1 / -1', padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>📍</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No production units yet</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Tap Add Unit below to create one</div>
+                <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>📍</div>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No production units yet</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Tap Add Unit below to create one</div>
               </div>
             ) : farmUnits.map(u => {
               const unitBatches = allViewBatches.filter(b => b.unitId === u.id && b.status !== 'CLOSED');
@@ -632,17 +632,17 @@ export function CropsScreen() {
               return (
                 <div key={u.id} className="farm-card" style={{ padding: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{u.name}</div>
-                    <span className={`chip ${u.status === 'ACTIVE' ? 'chip-ok' : 'chip-warning'}`} style={{ fontSize: 8 }}>{u.status}</span>
+                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{u.name}</div>
+                    <span className={`chip ${u.status === 'ACTIVE' ? 'chip-ok' : 'chip-warning'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{u.status}</span>
                   </div>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'capitalize' }}>{u.type}</div>
-                  <div style={{ fontSize: 9, color: 'var(--text-dim)', fontFamily: 'monospace', marginBottom: 8 }}>{u.code}</div>
-                  <div style={{ fontSize: 11, marginBottom: 8 }}>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'capitalize' }}>{u.type}</div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontFamily: 'monospace', marginBottom: 8 }}>{u.code}</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', marginBottom: 8 }}>
                     {unitBatches.length > 0
                       ? <span><strong style={{ color: 'var(--text-primary)' }}>{occupancy.toLocaleString()}</strong> across {unitBatches.length} batch{unitBatches.length === 1 ? '' : 'es'}</span>
                       : <span style={{ color: 'var(--text-dim)' }}>No active batch assigned</span>}
                   </div>
-                  <button onClick={() => setProductsUnit(u)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, padding: '5px 9px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
+                  <button onClick={() => setProductsUnit(u)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '5px 9px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
                     <Package size={11} /> Products
                   </button>
                 </div>
@@ -664,18 +664,18 @@ export function CropsScreen() {
         <div className="px-screen">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
             {apiProducts === null ? (
-              <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>Loading products…</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading products…</div>
             ) : apiProducts.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>📦</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No products yet</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Add a product once, then attach it to any unit that offers it</div>
+                <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>📦</div>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No products yet</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Add a product once, then attach it to any unit that offers it</div>
               </div>
             ) : apiProducts.map(p => (
               <div key={p.id} className="farm-card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'capitalize', marginTop: 2 }}>{p.type} · KSh {Number(p.saleUnits).toLocaleString()}</div>
+                  <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', textTransform: 'capitalize', marginTop: 2 }}>{p.type} · KSh {Number(p.saleUnits).toLocaleString()}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button className="btn-icon" title="Edit" onClick={() => setEditingProduct(p)}><Edit2 size={13} /></button>
@@ -778,23 +778,23 @@ function BatchProductOverridesSheet({ tenantId, batchId, unitId, unitName, allPr
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Products for this Batch</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Products for this Batch</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
 
         {unitProductIds === null ? (
-          <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '12px 0' }}>Loading…</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading…</div>
         ) : (
           <>
             {unitProductIds.length > 0 && (
               <>
                 <div className="section-eyebrow" style={{ marginTop: 14, marginBottom: 6 }}>Inherited from {unitName}</div>
-                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 8 }}>Uncheck a product this batch specifically doesn&apos;t offer.</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 8 }}>Uncheck a product this batch specifically doesn&apos;t offer.</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
                   {allProducts.filter(p => unitProductIds.includes(p.id)).map(p => (
                     <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={offered.has(p.id)} onChange={() => toggleOffered(p.id)} />
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
                     </label>
                   ))}
                 </div>
@@ -802,15 +802,15 @@ function BatchProductOverridesSheet({ tenantId, batchId, unitId, unitName, allPr
             )}
 
             <div className="section-eyebrow" style={{ marginBottom: 6 }}>Extra products for this batch only</div>
-            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 8 }}>Not offered by {unitName || 'this batch\'s unit'} — check any that apply just to this batch.</div>
+            <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 8 }}>Not offered by {unitName || 'this batch\'s unit'} — check any that apply just to this batch.</div>
             {extraCandidates.length === 0 ? (
-              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 14 }}>Nothing else in the catalogue.</div>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginBottom: 14 }}>Nothing else in the catalogue.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
                 {extraCandidates.map(p => (
                   <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
                     <input type="checkbox" checked={added.has(p.id)} onChange={() => toggleAdded(p.id)} />
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
                   </label>
                 ))}
               </div>
@@ -818,7 +818,7 @@ function BatchProductOverridesSheet({ tenantId, batchId, unitId, unitName, allPr
           </>
         )}
 
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving || unitProductIds === null} onClick={save}>
           {saving ? 'Saving…' : 'Save Overrides'}
         </button>
@@ -914,7 +914,7 @@ export function BatchDetailScreen() {
       <div className="screen-content">
         <TopNav title="Batch" showBack />
         <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Batch not found.</div>
+          <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)' }}>Batch not found.</div>
         </div>
       </div>
     );
@@ -925,7 +925,7 @@ export function BatchDetailScreen() {
       <div className="screen-content">
         <TopNav title="Batch" showBack />
         <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>Loading batch…</div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading batch…</div>
         </div>
       </div>
     );
@@ -975,10 +975,10 @@ export function BatchDetailScreen() {
         <div className="farm-card farm-card-active" style={{ padding: 16, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <span style={{ fontSize: 32 }}>{cfg?.emoji}</span>
+              <span style={{ fontSize: 'var(--fs-5xl)' }}>{cfg?.emoji}</span>
               <div>
                 <span className={`chip ${batch.status === 'ACTIVE' ? 'chip-ok' : batch.status === 'QUARANTINE' ? 'chip-critical' : 'chip-info'}`}>{batch.status}</span>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>
                   Stage: <span style={{ color: 'var(--primary-green)', fontWeight: 700 }}>{batch.stage || '—'}</span>
                   {/* Species (issue #301): moved out of the 3rd stat tile (which
                       now correctly shows the type-specific Area/FCR tile below)
@@ -989,8 +989,8 @@ export function BatchDetailScreen() {
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Farm</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>{farm?.name ?? '—'}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Farm</div>
+              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)' }}>{farm?.name ?? '—'}</div>
             </div>
           </div>
 
@@ -1010,14 +1010,14 @@ export function BatchDetailScreen() {
               { label: 'Cost KSh', value: `${(costKsh/1000).toFixed(0)}K` },
             ].map(s => (
               <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{s.value}</div>
-                <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>{s.label}</div>
+                <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>{s.value}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>{s.label}</div>
               </div>
             ))}
           </div>
 
           {/* Dates */}
-          <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 11, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 'var(--fs-xs)', flexWrap: 'wrap' }}>
             <span style={{ color: 'var(--text-muted)' }}>Start: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{fmtDate(batch.startDate) ?? '—'}</span></span>
             {batch.harvestDate && <span style={{ color: 'var(--text-muted)' }}>Harvest: <span style={{ color: 'var(--accent-amber)', fontWeight: 600 }}>{fmtDate(batch.harvestDate)}</span></span>}
             {batch.endDate && <span style={{ color: 'var(--text-muted)' }}>End: <span style={{ color: 'var(--accent-amber)', fontWeight: 600 }}>{fmtDate(batch.endDate)}</span></span>}
@@ -1034,27 +1034,27 @@ export function BatchDetailScreen() {
             <div>
               <div className="section-eyebrow" style={{ marginBottom: 2 }}>Unit Transfer</div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary-green)' }}>{unit?.code ?? 'no unit assigned'}</span>
+                <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--primary-green)' }}>{unit?.code ?? 'no unit assigned'}</span>
               </div>
             </div>
-            <button onClick={() => setShowTransferForm(f => !f)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+            <button onClick={() => setShowTransferForm(f => !f)} style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>
               {showTransferForm ? 'Cancel' : 'Move Unit'}
             </button>
           </div>
           {showTransferForm && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
-                <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Destination Unit *</label>
-                <select className="farm-input" style={{ fontSize: 12 }} value={transferUnitId} onChange={e => setTransferUnitId(e.target.value)}>
+                <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Destination Unit *</label>
+                <select className="farm-input" style={{ fontSize: 'var(--fs-sm)' }} value={transferUnitId} onChange={e => setTransferUnitId(e.target.value)}>
                   <option value="">Select a unit…</option>
                   {transferCandidates.map(u => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
                 </select>
               </div>
-              {transferError && <div style={{ fontSize: 11, color: 'var(--status-critical)' }}>{transferError}</div>}
+              {transferError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{transferError}</div>}
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setShowTransferForm(false)} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 10 }}>Cancel</button>
+                <button onClick={() => setShowTransferForm(false)} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 10 }}>Cancel</button>
                 <button onClick={saveTransfer}
-                  className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 10 }}
+                  className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 10 }}
                   disabled={!transferUnitId || transferSaving}>
                   <Check size={13} /> {transferSaving ? 'Moving…' : 'Save Transfer'}
                 </button>
@@ -1072,7 +1072,7 @@ export function BatchDetailScreen() {
             <button
               type="button"
               onClick={() => setShowProductOverrides(true)}
-              style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 8, cursor: 'pointer',
+              style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '4px 12px', borderRadius: 8, cursor: 'pointer',
                 background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}
             >
               Customise
@@ -1080,9 +1080,9 @@ export function BatchDetailScreen() {
           </div>
 
           {resolvedProducts === null ? (
-            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>Loading…</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>
           ) : resolvedProducts.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               No products yet. Add them to <strong>{units.find(u => u.id === batch.unitId)?.name ?? 'this unit'}</strong> and
               every batch under it inherits them automatically — including this one.
             </div>
@@ -1092,13 +1092,13 @@ export function BatchDetailScreen() {
                 <div key={pr.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                   padding: '8px 10px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)' }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{pr.name}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>{pr.type}</div>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{pr.name}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 2 }}>{pr.type}</div>
                   </div>
                   {/* Say WHERE an inherited product came from — otherwise the
                     * farmer cannot tell what to change to affect every batch
                     * versus only this one. */}
-                  <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 100,
+                  <span style={{ flexShrink: 0, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 8px', borderRadius: 100,
                     background: pr.inherited ? 'rgba(74,222,128,0.12)' : 'rgba(96,165,250,0.12)',
                     border: pr.inherited ? '1px solid rgba(74,222,128,0.3)' : '1px solid rgba(96,165,250,0.3)',
                     color: pr.inherited ? 'var(--primary-green)' : '#60a5fa' }}>
@@ -1116,20 +1116,20 @@ export function BatchDetailScreen() {
             <div className="section-eyebrow">Economics & Processes</div>
             <div style={{ display: 'flex', gap: 4 }}>
               {(['breakdown','processes'] as const).map(t => (
-                <button key={t} onClick={() => setCostTab(t)} style={{ padding: '2px 8px', borderRadius: 100, fontSize: 9, fontWeight: 700, cursor: 'pointer', background: costTab === t ? 'rgba(74,222,128,0.2)' : 'transparent', border: costTab === t ? '1px solid rgba(74,222,128,0.4)' : '1px solid transparent', color: costTab === t ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{t}</button>
+                <button key={t} onClick={() => setCostTab(t)} style={{ padding: '2px 8px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: costTab === t ? 'rgba(74,222,128,0.2)' : 'transparent', border: costTab === t ? '1px solid rgba(74,222,128,0.4)' : '1px solid transparent', color: costTab === t ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{t}</button>
               ))}
             </div>
           </div>
 
           {costTab === 'breakdown' && (
             !costBreakdown ? (
-              <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>Loading cost breakdown…</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading cost breakdown…</div>
             ) : (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                   <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(costBreakdown.totalTrackedCents).toLocaleString()}</div>
-                    <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Total Tracked Cost</div>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(costBreakdown.totalTrackedCents).toLocaleString()}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Total Tracked Cost</div>
                   </div>
                   {/* Revenue (issue #300): real sales.batchId-scoped revenue.
                       `sales.amountCents` is cents, same unit as every cost
@@ -1138,25 +1138,25 @@ export function BatchDetailScreen() {
                       "KSh 0" (not a fabricated number) when the batch has no
                       recorded sales yet. */}
                   <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: costBreakdown.revenue.tracked ? 'var(--status-ok)' : 'var(--text-dim)' }}>KSh {centsToMajor(costBreakdown.revenue.amountCents).toLocaleString()}</div>
-                    <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Revenue</div>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: costBreakdown.revenue.tracked ? 'var(--status-ok)' : 'var(--text-dim)' }}>KSh {centsToMajor(costBreakdown.revenue.amountCents).toLocaleString()}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Revenue</div>
                   </div>
                   <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-amber)' }}>{batch.currentQty > 0 ? `KSh ${Math.round(centsToMajor(costBreakdown.totalTrackedCents)/batch.currentQty)}/unit` : '—'}</div>
-                    <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Break-even (tracked cost only)</div>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--accent-amber)' }}>{batch.currentQty > 0 ? `KSh ${Math.round(centsToMajor(costBreakdown.totalTrackedCents)/batch.currentQty)}/unit` : '—'}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Break-even (tracked cost only)</div>
                   </div>
                   {/* Gross Margin (issue #300): tracked-cost-only margin (same
                       caveat as Break-even above — feed/health/labour/overhead
                       aren't tracked yet). Honest "—" (not a fabricated "0%")
                       when there's no revenue to compute a margin against. */}
                   <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: costBreakdown.grossMarginPct !== null ? 'var(--primary-green)' : 'var(--text-dim)' }}>{costBreakdown.grossMarginPct !== null ? `${costBreakdown.grossMarginPct}%` : '—'}</div>
-                    <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Gross Margin</div>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: costBreakdown.grossMarginPct !== null ? 'var(--primary-green)' : 'var(--text-dim)' }}>{costBreakdown.grossMarginPct !== null ? `${costBreakdown.grossMarginPct}%` : '—'}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>Gross Margin</div>
                   </div>
                 </div>
                 {costBreakdown.categories.map(c => (
                   <div key={c.key} style={{ marginBottom: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, fontSize: 11 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, fontSize: 'var(--fs-xs)' }}>
                       <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{c.label}</span>
                       {c.tracked ? (
                         <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>KSh {centsToMajor(c.amountCents).toLocaleString()}</span>
@@ -1168,7 +1168,7 @@ export function BatchDetailScreen() {
                   </div>
                 ))}
                 {!costBreakdown.revenue.tracked && (
-                  <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>No sales recorded yet for this batch — Revenue/Gross Margin above are showing an honest zero, not a fabricated estimate.</div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 4 }}>No sales recorded yet for this batch — Revenue/Gross Margin above are showing an honest zero, not a fabricated estimate.</div>
                 )}
               </>
             )
@@ -1179,15 +1179,15 @@ export function BatchDetailScreen() {
               {cfg?.processes.map((p, i, arr) => (
                 <div key={p.code} style={{ padding: '10px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{p.code} · {p.frequency}</div>
+                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{p.code} · {p.frequency}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    {p.requiresApproval && <span className="chip chip-warning" style={{ fontSize: 8 }}>Approval</span>}
+                    {p.requiresApproval && <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>Approval</span>}
                     <button onClick={() => navigate('process-config', {
                       batchCode: batch.code, processCode: p.code, enterprise: batch.enterprise,
                       startDate: fmtDate(batch.startDate) ?? '', endDate: fmtDate(batch.endDate) ?? '', harvestDate: fmtDate(batch.harvestDate) ?? '',
-                    })} style={{ fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>Configure</button>
+                    })} style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>Configure</button>
                   </div>
                 </div>
               ))}
@@ -1199,10 +1199,10 @@ export function BatchDetailScreen() {
         {showAdvanceForm && (
           <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
             <div className="section-eyebrow" style={{ marginBottom: 8 }}>Advance Stage</div>
-            <input className="farm-input" style={{ fontSize: 12, marginBottom: 10 }} placeholder="e.g. Grower, Finisher, Peak Lay…" value={nextStage} onChange={e => setNextStage(e.target.value)} />
+            <input className="farm-input" style={{ fontSize: 'var(--fs-sm)', marginBottom: 10 }} placeholder="e.g. Grower, Finisher, Peak Lay…" value={nextStage} onChange={e => setNextStage(e.target.value)} />
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setShowAdvanceForm(false)} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 10 }}>Cancel</button>
-              <button onClick={saveAdvance} className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: 12, padding: 10 }} disabled={!nextStage.trim() || advanceSaving}>
+              <button onClick={() => setShowAdvanceForm(false)} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 10 }}>Cancel</button>
+              <button onClick={saveAdvance} className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 10 }} disabled={!nextStage.trim() || advanceSaving}>
                 {advanceSaving ? 'Saving…' : 'Save Stage'}
               </button>
             </div>
@@ -1215,16 +1215,16 @@ export function BatchDetailScreen() {
               production/harvest-log table exists yet (Epic: Finance hasn't
               landed) — disabled with a clear reason rather than a silent
               no-op button. */}
-          <button className="btn-primary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 12, opacity: 0.5, cursor: 'not-allowed' }} disabled title="Not available yet — sales/harvest tracking isn't built">
+          <button className="btn-primary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)', opacity: 0.5, cursor: 'not-allowed' }} disabled title="Not available yet — sales/harvest tracking isn't built">
             <Lock size={12} /> Record {cfg?.harvestUnit ? 'Sale' : 'Harvest'}
           </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 12 }} onClick={() => setShowAdvanceForm(f => !f)}>
+          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => setShowAdvanceForm(f => !f)}>
             Advance Stage
           </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 12 }} onClick={() => navigate('tasks', { batch: batch.code })}>
+          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => navigate('tasks', { batch: batch.code })}>
             📋 All Batch Tasks
           </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 12, opacity: 0.5, cursor: 'not-allowed' }} disabled title="Not available yet">
+          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)', opacity: 0.5, cursor: 'not-allowed' }} disabled title="Not available yet">
             Edit Batch
           </button>
         </div>
@@ -1236,7 +1236,7 @@ export function BatchDetailScreen() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button
                 onClick={() => navigate('tasks', { batch: batch.code, unit: unit.code })}
-                style={{ flex: 1, padding: '10px 12px', borderRadius: 12, fontSize: 12, fontWeight: 700, cursor: 'pointer', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                style={{ flex: 1, padding: '10px 12px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
                 🏠 {unit.code}
               </button>
             </div>
@@ -1348,7 +1348,7 @@ export function CropScheduleScreen() {
             <React.Fragment key={s}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                 <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`}>{i + 1 < step ? '✓' : i + 1}</div>
-                <div style={{ fontSize: 9, fontWeight: 700, color: i + 1 === step ? 'var(--primary-green)' : 'var(--text-dim)', whiteSpace: 'nowrap' }}>{s}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: i + 1 === step ? 'var(--primary-green)' : 'var(--text-dim)', whiteSpace: 'nowrap' }}>{s}</div>
               </div>
               {i < steps.length - 1 && <div className={`step-line ${i + 1 < step ? 'done' : ''}`} />}
             </React.Fragment>
@@ -1357,32 +1357,32 @@ export function CropScheduleScreen() {
 
         {/* Enterprise header */}
         <div style={{ padding: '10px 14px', background: 'rgba(74,222,128,0.06)', borderRadius: 12, marginBottom: 14, display: 'flex', gap: 10, alignItems: 'center', border: '1px solid rgba(74,222,128,0.2)' }}>
-          <span style={{ fontSize: 28 }}>{cfg.emoji}</span>
+          <span style={{ fontSize: 'var(--fs-4xl)' }}>{cfg.emoji}</span>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>{cfg.label}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Unit: {cfg.unitName} · Batch code preview: <span style={{ fontFamily: 'monospace', color: 'var(--primary-green)', fontWeight: 700 }}>{autoCode}</span></div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', color: 'var(--text-primary)' }}>{cfg.label}</div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Unit: {cfg.unitName} · Batch code preview: <span style={{ fontFamily: 'monospace', color: 'var(--primary-green)', fontWeight: 700 }}>{autoCode}</span></div>
           </div>
         </div>
 
         {step === 1 && (
           <div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Batch Name</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Batch Name</label>
               <input className="farm-input" value={batchName} onChange={e => setBatchName(e.target.value)} />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
               <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
                 {farms.map(f => <option key={f.id} value={f.id}>{f.name} ({f.code})</option>)}
               </select>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{isCrop ? 'Area (acres)' : 'Initial Count'}</label>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{isCrop ? 'Area (acres)' : 'Initial Count'}</label>
                 <input className="farm-input" type="number" placeholder={isCrop ? '0.00' : '0'} value={initialQty} onChange={e => setInitialQty(e.target.value)} />
               </div>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{isCrop ? 'Crop Variety' : 'Species / Breed'}</label>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{isCrop ? 'Crop Variety' : 'Species / Breed'}</label>
                 <input className="farm-input" placeholder={isCrop ? 'e.g. H614D' : 'e.g. Cobb 500'} value={species} onChange={e => setSpecies(e.target.value)} />
               </div>
             </div>
@@ -1392,14 +1392,14 @@ export function CropScheduleScreen() {
         {step === 2 && (
           <div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{cfg.unitName} Code (auto-generated on save)</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{cfg.unitName} Code (auto-generated on save)</label>
               <input className="farm-input" value={unitCodePreview} disabled style={{ fontFamily: 'monospace', color: 'var(--primary-green)', fontWeight: 700, opacity: 0.7 }} />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{cfg.unitName} Name</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{cfg.unitName} Name</label>
               <input className="farm-input" placeholder={`e.g. ${cfg.unitName} A01`} value={unitName} onChange={e => setUnitName(e.target.value)} />
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>
               Capacity/GPS aren&apos;t tracked yet — the units table doesn&apos;t have those columns.
             </div>
           </div>
@@ -1409,21 +1409,21 @@ export function CropScheduleScreen() {
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Start Date</label>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Start Date</label>
                 <input className="farm-input" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
               </div>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{isCrop ? 'Harvest Date' : 'Expected End'}</label>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{isCrop ? 'Harvest Date' : 'Expected End'}</label>
                 <input className="farm-input" type="date" value={endOrHarvestDate} onChange={e => setEndOrHarvestDate(e.target.value)} />
               </div>
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Initial Input Cost (KSh)</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Initial Input Cost (KSh)</label>
               <input className="farm-input" type="number" placeholder="0" value={initialCost} onChange={e => setInitialCost(e.target.value)} />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assign Employee(s)</label>
-              <select className="farm-input" multiple disabled style={{ height: 90, fontSize: 12, opacity: 0.5 }}>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assign Employee(s)</label>
+              <select className="farm-input" multiple disabled style={{ height: 90, fontSize: 'var(--fs-sm)', opacity: 0.5 }}>
                 <option>Not available yet — no worker assignment on batches</option>
               </select>
             </div>
@@ -1432,24 +1432,24 @@ export function CropScheduleScreen() {
 
         {step === 4 && (
           <div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
               Process schedules aren&apos;t backed by a real table yet — shown for reference only, not saved.
             </div>
             <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14, opacity: 0.6 }}>
               {cfg.processes.map((p, i, arr) => (
                 <div key={p.code} style={{ padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{p.code} · {p.frequency}</div>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{p.code} · {p.frequency}</div>
                   </div>
-                  <span className={`chip ${p.requiresApproval ? 'chip-warning' : 'chip-ok'}`} style={{ fontSize: 8 }}>{p.requiresApproval ? 'Approval On' : 'Auto'}</span>
+                  <span className={`chip ${p.requiresApproval ? 'chip-warning' : 'chip-ok'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{p.requiresApproval ? 'Approval On' : 'Auto'}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {error && <div style={{ fontSize: 12, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 20 }}>
           {step > 1 && <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={() => setStep(step - 1)} disabled={saving}>Back</button>}
@@ -1481,49 +1481,49 @@ export function ProcessConfigScreen() {
       <TopNav title={proc?.name ?? 'Process Config'} subtitle={`${batchCode ?? ''}`} showBack />
       <div className="px-screen" style={{ paddingTop: 14 }}>
         <div style={{ padding: '10px 14px', background: 'rgba(74,222,128,0.06)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(74,222,128,0.2)', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 20 }}>{cfg?.emoji}</span>
+          <span style={{ fontSize: 'var(--fs-2xl)' }}>{cfg?.emoji}</span>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>{proc?.name}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{proc?.code} · {proc?.frequency} · Batch: {batchCode}</div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)' }}>{proc?.name}</div>
+            <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{proc?.code} · {proc?.frequency} · Batch: {batchCode}</div>
           </div>
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assigned Worker</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assigned Worker</label>
           <select className="farm-input" disabled style={{ opacity: 0.5 }}>
             <option>Not available yet — no worker assignment on processes</option>
           </select>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Start Date</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Start Date</label>
             <input className="farm-input" type="date" defaultValue={startDate || ''} disabled style={{ opacity: 0.7 }} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>End Date</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>End Date</label>
             <input className="farm-input" type="date" defaultValue={endDate || harvestDate || ''} disabled style={{ opacity: 0.7 }} />
           </div>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Frequency</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Frequency</label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {['daily','twice-daily','weekly','on-demand'].map(f => (
-              <button key={f} disabled style={{ padding: '9px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: f === proc?.frequency ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: f === proc?.frequency ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: f === proc?.frequency ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'not-allowed', textTransform: 'capitalize', opacity: 0.7 }}>{f}</button>
+              <button key={f} disabled style={{ padding: '9px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 600, background: f === proc?.frequency ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: f === proc?.frequency ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: f === proc?.frequency ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'not-allowed', textTransform: 'capitalize', opacity: 0.7 }}>{f}</button>
             ))}
           </div>
         </div>
         <div className="farm-card" style={{ padding: 12, marginBottom: 14, opacity: 0.7 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Requires Owner Approval</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Owner must sign off on each submission</div>
+              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Requires Owner Approval</div>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>Owner must sign off on each submission</div>
             </div>
             <div style={{ width: 44, height: 24, borderRadius: 100, background: proc?.requiresApproval ? 'var(--gradient-primary)' : 'rgba(255,255,255,0.1)', position: 'relative' }}>
               <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: proc?.requiresApproval ? 23 : 3, boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
             </div>
           </div>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 12, textAlign: 'center' }}>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginBottom: 12, textAlign: 'center' }}>
           Reference view only — there is no processes table to save this to yet.
         </div>
         <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 20 }} onClick={goBack}>Back</button>

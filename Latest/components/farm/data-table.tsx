@@ -105,7 +105,7 @@ function calcSummary<T extends Record<string, unknown>>(
     case 'max':   val = Math.max(...nums); break;
   }
   return (
-    <span style={{ fontWeight: 700, color: 'var(--primary-green)', fontSize: 11 }}>
+    <span style={{ fontWeight: 700, color: 'var(--primary-green)', fontSize: 'var(--fs-xs)' }}>
       {col.summary === 'avg'
         ? val.toLocaleString(undefined, { maximumFractionDigits: 1 })
         : val.toLocaleString()}
@@ -302,7 +302,7 @@ export function DataTable<T extends Record<string, unknown>>({
         style={{
           padding: density === 'compact' ? '5px 8px' : '9px 10px',
           textAlign: col.align ?? 'left',
-          fontSize: 10,
+          fontSize: 'var(--fs-2xs)',
           fontWeight: 700,
           textTransform: 'uppercase',
           letterSpacing: '0.07em',
@@ -326,7 +326,7 @@ export function DataTable<T extends Record<string, unknown>>({
           {/* drag grip */}
           <span
             style={{
-              fontSize: 10,
+              fontSize: 'var(--fs-2xs)',
               color: 'var(--text-dim)',
               opacity: 0.5,
               lineHeight: 1,
@@ -431,7 +431,7 @@ export function DataTable<T extends Record<string, unknown>>({
         <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
           {(['normal','compact'] as const).map(d => (
             <button key={d} onClick={() => setDensity(d)} style={{
-              padding: '3px 7px', borderRadius: 5, fontSize: 9, fontWeight: 700,
+              padding: '3px 7px', borderRadius: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700,
               textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer',
               border: density === d ? '1px solid rgba(74,222,128,0.4)' : '1px solid transparent',
               background: density === d ? 'rgba(74,222,128,0.12)' : 'transparent',
@@ -442,14 +442,14 @@ export function DataTable<T extends Record<string, unknown>>({
           ))}
         </div>
         {/* hint */}
-        <span style={{ fontSize: 9, color: 'var(--text-dim)', flex: 1, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+        <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', flex: 1, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden' }}>
           ⠿ drag headers to reorder
         </span>
         {/* page size */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ fontSize: 9, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>Rows</span>
+          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>Rows</span>
           <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
-            style={{ background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 5, color: 'var(--text-secondary)', fontSize: 11, padding: '2px 5px', cursor: 'pointer' }}>
+            style={{ background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 5, color: 'var(--text-secondary)', fontSize: 'var(--fs-xs)', padding: '2px 5px', cursor: 'pointer' }}>
             {pageSizes.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
@@ -467,7 +467,7 @@ export function DataTable<T extends Record<string, unknown>>({
               <tr style={{ height: paddingTop }}><td colSpan={orderedCols.length} style={{ padding: 0, border: 'none' }} /></tr>
             )}
             {pageRows.length === 0 ? (
-              <tr><td colSpan={orderedCols.length} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-dim)', fontSize: 13 }}>{emptyText}</td></tr>
+              <tr><td colSpan={orderedCols.length} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>{emptyText}</td></tr>
             ) : (
               visibleRows.map((row, i) => renderRow(row, startIdx + i))
             )}
@@ -481,13 +481,13 @@ export function DataTable<T extends Record<string, unknown>>({
 
       {/* ── footer: count + pagination ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 10px', borderTop: '1px solid var(--border-subtle)', background: 'var(--surface)', flexShrink: 0, gap: 8 }}>
-        <span style={{ fontSize: 10, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
           {sorted.length === 0 ? '0 rows' : `${firstIdx}–${lastIdx} of ${sorted.length}`}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
           <PagerBtn onClick={() => goTo(0)}            disabled={safePage === 0}              label="«" />
           <PagerBtn onClick={() => goTo(safePage - 1)} disabled={safePage === 0}              label="‹" />
-          <span style={{ fontSize: 10, color: 'var(--text-secondary)', padding: '0 4px', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', padding: '0 4px', whiteSpace: 'nowrap' }}>
             {safePage + 1} / {totalPages}
           </span>
           <PagerBtn onClick={() => goTo(safePage + 1)} disabled={safePage >= totalPages - 1} label="›" />
@@ -505,7 +505,7 @@ function PagerBtn({ onClick, disabled, label }: { onClick: () => void; disabled:
     <button onClick={onClick} disabled={disabled} style={{
       width: 22, height: 22, borderRadius: 5, border: '1px solid var(--border-subtle)',
       background: 'var(--card)', color: disabled ? 'var(--text-dim)' : 'var(--text-secondary)',
-      fontSize: 11, cursor: disabled ? 'default' : 'pointer',
+      fontSize: 'var(--fs-xs)', cursor: disabled ? 'default' : 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       opacity: disabled ? 0.35 : 1, flexShrink: 0,
     }}>{label}</button>

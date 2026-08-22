@@ -27,16 +27,15 @@ import { useToast, SearchBar } from './ui-shared';
 // per-module "requires approval" both map directly onto real columns
 // (`access`, `approval_required`) and persist through this screen.
 //
-// ── CRUD Rules tab ──
-// The mock's CRUD Rules were a separate, free-standing rule list keyed by
-// operation id (create-task, transfer-batch, …) with per-rule `affectedRoles`
-// — nothing on the real backend models that shape; the only "does this
-// require approval" data that exists is `role_permissions.approval_required`,
-// which is scoped to (role, module), not to an arbitrary operation across
-// roles. Rather than keep a second, unbacked rule list, this tab is
-// redrawn as a module-centric view over that same real data: for each
-// feature module, which roles currently require approval, toggled inline —
-// same PUT, same persistence, just grouped by module instead of by role.
+// ── CRUD Rules tab (removed, ui-polish-theme-weather) ──
+// This used to be its own tab: a module-centric view over
+// `role_permissions.approval_required`, toggled inline, module-by-module.
+// But RoleBuilderSheet's "Modules Requiring Owner Approval" chips (below)
+// write that exact same field, role-by-role, through the same PUT — two
+// tabs editing one column from opposite pivots, which is the kind of
+// in-screen duplication the brief asked Governance to shed. Removed the
+// tab; the summary strip's "Approval rules" tile (still real, still
+// computed from the same data) now points at Roles instead.
 //
 // ── Activity Log tab ──
 // GET /api/audit-log (new in this issue) — tenant-scoped, newest-first,
@@ -46,15 +45,13 @@ import { useToast, SearchBar } from './ui-shared';
 // on `actorRole`, which the route resolves via that same `users` join.
 //
 // ── Summary strip ──
-// The mock's 4th tile ("CRUD Rules") counted rules with `requiresApproval`
-// from its flat mock rule list; there's no such list on the real backend
-// (see the CRUD Rules tab note above). Restored (issue #302) as the sum of
-// `approvalRequired.length` across every role in the already-loaded
-// `roles` state — that's exactly the count of the tenant's real
-// `role_permissions` rows with `approval_required = true` (GET
-// /api/role-permissions groups those rows onto `RoleMatrixEntry.approvalRequired`
-// one entry per true row), so the tile and the CRUD Rules tab's own toggles
-// can never disagree.
+// The 4th tile ("Approval rules") is the sum of `approvalRequired.length`
+// across every role in the already-loaded `roles` state — exactly the count
+// of the tenant's real `role_permissions` rows with `approval_required =
+// true` (GET /api/role-permissions groups those rows onto
+// `RoleMatrixEntry.approvalRequired`, one entry per true row). Tapping it
+// jumps to the Roles tab, the one place that count is still edited from
+// (see the CRUD Rules tab note above).
 
 /* ── Feature modules (mirrors GET/PUT /api/role-permissions' `module` keys) ── */
 const FEATURE_GROUPS = [
@@ -197,17 +194,17 @@ function RoleBuilderSheet({
       <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '90%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '18px 18px 0' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>{isNew ? 'Create Role' : `Edit: ${role?.role}`}</div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>{isNew ? 'Create Role' : `Edit: ${role?.role}`}</div>
             <button className="btn-icon" onClick={onClose}><X size={16} /></button>
           </div>
 
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role Name *</label>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role Name *</label>
             <input className="farm-input" value={name} onChange={e => { setName(e.target.value); setNameError(''); }} placeholder="e.g. night_watchman, harvest_lead…" disabled={!isNew} />
-            {nameError && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginTop: 4 }}>⚠ {nameError}</div>}
+            {nameError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginTop: 4 }}>⚠ {nameError}</div>}
           </div>
 
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
             Feature Permissions &nbsp;<span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>tap to cycle: Hidden → View → Edit</span>
           </div>
 
@@ -215,7 +212,7 @@ function RoleBuilderSheet({
             <div key={g.group} style={{ marginBottom: 8 }}>
               <button onClick={() => setExpandedGroup(expandedGroup === g.group ? null : g.group)}
                 style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '9px 12px', cursor: 'pointer' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{g.group}</span>
+                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{g.group}</span>
                 {expandedGroup === g.group ? <ChevronUp size={14} color="var(--text-muted)" /> : <ChevronDown size={14} color="var(--text-muted)" />}
               </button>
               {expandedGroup === g.group && (
@@ -224,8 +221,8 @@ function RoleBuilderSheet({
                     const perm = perms[f.key] ?? 'hidden';
                     return (
                       <div key={f.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: PERM_BG[perm], borderBottom: i < g.features.length - 1 ? '1px solid var(--border-subtle)' : 'none', cursor: 'pointer' }} onClick={() => cyclePermission(f.key)}>
-                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{f.label}</span>
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: PERM_BG[perm], color: PERM_COLOR[perm], border: `1px solid ${PERM_COLOR[perm]}40`, textTransform: 'uppercase' }}>
+                        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>{f.label}</span>
+                        <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: PERM_BG[perm], color: PERM_COLOR[perm], border: `1px solid ${PERM_COLOR[perm]}40`, textTransform: 'uppercase' }}>
                           {perm === 'hidden' ? <EyeOff size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} /> : perm === 'view' ? <Eye size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} /> : <Edit2 size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />}
                           {perm}
                         </span>
@@ -237,14 +234,14 @@ function RoleBuilderSheet({
             </div>
           ))}
 
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 16, marginBottom: 10 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 16, marginBottom: 10 }}>
             Modules Requiring Owner Approval
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
             {ALL_MODULES.map(f => {
               const active = approvals.includes(f.key);
               return (
-                <button key={f.key} onClick={() => toggleApproval(f.key)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: active ? 'rgba(251,191,36,0.15)' : 'var(--card)', border: active ? '1px solid rgba(251,191,36,0.5)' : '1px solid var(--border-subtle)', color: active ? 'var(--accent-amber)' : 'var(--text-muted)' }}>
+                <button key={f.key} onClick={() => toggleApproval(f.key)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: active ? 'rgba(251,191,36,0.15)' : 'var(--card)', border: active ? '1px solid rgba(251,191,36,0.5)' : '1px solid var(--border-subtle)', color: active ? 'var(--accent-amber)' : 'var(--text-muted)' }}>
                   {active && <Check size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />}
                   {f.label}
                 </button>
@@ -266,7 +263,7 @@ export function GovernanceScreen() {
   const { tenantId, role: sessionRole } = useNav();
   const { showToast } = useToast();
 
-  const [tab, setTab] = useState<'approvals' | 'roles' | 'crud' | 'audit'>('approvals');
+  const [tab, setTab] = useState<'approvals' | 'roles' | 'audit'>('approvals');
   const canEditRoles = sessionRole === 'owner';
 
   const [approvals, setApprovals] = useState<ApprovalRequestRow[] | null>(null);
@@ -344,22 +341,6 @@ export function GovernanceScreen() {
     }
   }
 
-  // CRUD Rules tab: toggle a single (role, module) approvalRequired flag —
-  // same underlying PUT as the Role Builder, just entered from the module side.
-  async function toggleModuleApproval(moduleKey: string, roleName: string) {
-    const current = roles ?? [];
-    const entry = current.find(x => x.role === roleName);
-    if (!entry) return;
-    const has = entry.approvalRequired.includes(moduleKey);
-    const nextApproval = has ? entry.approvalRequired.filter(m => m !== moduleKey) : [...entry.approvalRequired, moduleKey];
-    const next = current.map(x => x.role === roleName ? { ...x, approvalRequired: nextApproval } : x);
-    const ok = await persistRoles(next);
-    if (ok) {
-      showToast(`${roleName}: ${moduleKey} ${has ? 'no longer requires' : 'now requires'} approval`, 'info');
-      await loadAuditLog();
-    }
-  }
-
   const pending = (approvals ?? []).filter(a => a.status === 'pending').length;
   const approvedCount = (approvals ?? []).filter(a => a.status === 'approved').length;
   const filteredApprovals = approvalFilter === 'all' ? (approvals ?? []) : (approvals ?? []).filter(a => a.status === approvalFilter);
@@ -388,28 +369,36 @@ export function GovernanceScreen() {
 
       <div className="px-screen" style={{ paddingTop: 12 }}>
         {loadError && (
-          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', fontSize: 12, color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <AlertTriangle size={13} /> {loadError}
           </div>
         )}
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           {[
-            { label: 'Pending', value: pending, color: 'var(--status-warning)', bg: 'rgba(251,191,36,0.1)' },
-            { label: 'Approved', value: approvedCount, color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.08)' },
-            { label: 'Roles', value: (roles ?? []).length, color: 'var(--accent-purple)', bg: 'rgba(168,85,247,0.08)' },
-            { label: 'CRUD Rules', value: crudRulesCount, color: 'var(--accent-amber)', bg: 'rgba(251,191,36,0.06)' },
+            { label: 'Pending', value: pending, color: 'var(--status-warning)', bg: 'rgba(251,191,36,0.1)', onClick: () => setTab('approvals') },
+            { label: 'Approved', value: approvedCount, color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.08)', onClick: () => setTab('approvals') },
+            { label: 'Roles', value: (roles ?? []).length, color: 'var(--accent-purple)', bg: 'rgba(168,85,247,0.08)', onClick: () => setTab('roles') },
+            // Was its own "CRUD Rules" tab — a role-by-role edit sheet
+            // (RoleBuilderSheet's "Modules Requiring Owner Approval" chips,
+            // below) already edits this exact same `approvalRequired` field,
+            // just per-role instead of per-module. Two tabs writing the same
+            // column from opposite pivots was the "duplicates work" case the
+            // ui-polish-theme-weather brief called out — removed the second
+            // one rather than the data itself. This tile is still real,
+            // still clickable, just points at the one editor that's left.
+            { label: 'Approval rules', value: crudRulesCount, color: 'var(--accent-amber)', bg: 'rgba(251,191,36,0.06)', onClick: () => setTab('roles') },
           ].map(s => (
-            <div key={s.label} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: '10px 4px', textAlign: 'center', border: `1px solid ${s.color}30` }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
-            </div>
+            <button key={s.label} onClick={s.onClick} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: '10px 4px', textAlign: 'center', border: `1px solid ${s.color}30`, cursor: 'pointer' }}>
+              <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
+            </button>
           ))}
         </div>
 
         <div style={{ display: 'flex', gap: 5, marginBottom: 14, overflowX: 'auto', scrollbarWidth: 'none' }}>
-          {[['approvals', 'Approvals'], ['roles', 'Roles'], ['crud', 'CRUD Rules'], ['audit', 'Activity Log']].map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flexShrink: 0, padding: '8px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)' }}>
+          {[['approvals', 'Approvals'], ['roles', 'Roles'], ['audit', 'Activity Log']].map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flexShrink: 0, padding: '8px 12px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)' }}>
               {label}{id === 'approvals' && pending > 0 ? ` (${pending})` : ''}
             </button>
           ))}
@@ -420,11 +409,11 @@ export function GovernanceScreen() {
           <div style={{ paddingBottom: 80 }}>
             <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
               {['all', 'pending', 'approved', 'rejected'].map(f => (
-                <button key={f} onClick={() => setApprovalFilter(f)} style={{ flexShrink: 0, padding: '5px 11px', borderRadius: 100, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: approvalFilter === f ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: approvalFilter === f ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: approvalFilter === f ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{f}</button>
+                <button key={f} onClick={() => setApprovalFilter(f)} style={{ flexShrink: 0, padding: '5px 11px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: approvalFilter === f ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: approvalFilter === f ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: approvalFilter === f ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{f}</button>
               ))}
             </div>
             {approvals === null ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading approvals…</div>
+              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading approvals…</div>
             ) : (
               <>
                 {filteredApprovals.map(a => (
@@ -432,26 +421,26 @@ export function GovernanceScreen() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                       <div>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
-                          <span className="chip chip-info" style={{ fontSize: 9 }}>{a.type}</span>
-                          <span style={{ fontSize: 9, color: 'var(--text-dim)', fontWeight: 600, fontFamily: 'monospace' }}>{a.id.slice(0, 8)}</span>
+                          <span className="chip chip-info" style={{ fontSize: 'var(--fs-2xs)' }}>{a.type}</span>
+                          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontWeight: 600, fontFamily: 'monospace' }}>{a.id.slice(0, 8)}</span>
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>{a.title}</div>
+                        <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>{a.title}</div>
                       </div>
-                      <span className={`chip ${a.status === 'pending' ? 'chip-warning' : a.status === 'approved' ? 'chip-ok' : 'chip-critical'}`} style={{ fontSize: 9, flexShrink: 0 }}>
+                      <span className={`chip ${a.status === 'pending' ? 'chip-warning' : a.status === 'approved' ? 'chip-ok' : 'chip-critical'}`} style={{ fontSize: 'var(--fs-2xs)', flexShrink: 0 }}>
                         {a.status.toUpperCase()}
                       </span>
                     </div>
-                    {a.details && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.5 }}>{a.details}</div>}
+                    {a.details && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.5 }}>{a.details}</div>}
                     <div style={{ display: 'flex', gap: 12, marginBottom: a.status === 'pending' ? 10 : 0, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>By: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{a.requestedBy}</span></span>
-                      <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{fmtTimestamp(a.requestedAt)}</span>
+                      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>By: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{a.requestedBy}</span></span>
+                      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>{fmtTimestamp(a.requestedAt)}</span>
                     </div>
                     {a.status === 'pending' && (
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button disabled={decidingId === a.id} onClick={() => decide(a, 'approve')} style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 12, fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                        <button disabled={decidingId === a.id} onClick={() => decide(a, 'approve')} style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                           <Check size={13} /> Approve
                         </button>
-                        <button disabled={decidingId === a.id} onClick={() => decide(a, 'reject')} style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 12, fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                        <button disabled={decidingId === a.id} onClick={() => decide(a, 'reject')} style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                           <X size={13} /> Reject
                         </button>
                       </div>
@@ -461,7 +450,7 @@ export function GovernanceScreen() {
                 {filteredApprovals.length === 0 && (
                   <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
                     <CheckCircle2 size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>No {approvalFilter !== 'all' ? approvalFilter : ''} requests</div>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600 }}>No {approvalFilter !== 'all' ? approvalFilter : ''} requests</div>
                   </div>
                 )}
               </>
@@ -472,21 +461,21 @@ export function GovernanceScreen() {
         {/* ── ROLE BUILDER TAB ── */}
         {tab === 'roles' && (
           <div style={{ paddingBottom: 80 }}>
-            <div style={{ padding: '10px 14px', background: 'rgba(168,85,247,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(168,85,247,0.2)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <div style={{ padding: '10px 14px', background: 'rgba(168,85,247,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(168,85,247,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               <ShieldCheck size={12} style={{ verticalAlign: 'middle', marginRight: 5 }} color="var(--accent-purple)" />
-              Roles define what each employee can see and do. All role changes are logged in the Activity Log.
+              Roles define what each employee can see and do, including which modules need owner approval before an action takes effect (Edit a role → Modules Requiring Owner Approval). All role changes are logged in the Activity Log.
               {!canEditRoles && ' Only an owner can make changes.'}
             </div>
             {canEditRoles && (
-              <button onClick={() => setEditRole('new')} style={{ width: '100%', marginBottom: 12, padding: '11px', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: 'rgba(74,222,128,0.1)', border: '1px dashed rgba(74,222,128,0.4)', color: 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <button onClick={() => setEditRole('new')} style={{ width: '100%', marginBottom: 12, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, cursor: 'pointer', background: 'rgba(74,222,128,0.1)', border: '1px dashed rgba(74,222,128,0.4)', color: 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 <Plus size={15} /> Create New Role
               </button>
             )}
 
             {roles === null ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading roles…</div>
+              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading roles…</div>
             ) : roles.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 13 }}>No roles configured yet.</div>
+              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>No roles configured yet.</div>
             ) : roles.map(r => {
               const expanded = expandedRole === r.role;
               const editableCount = Object.values(r.permissions).filter(p => p === 'edit').length;
@@ -495,10 +484,10 @@ export function GovernanceScreen() {
                 <div key={r.role} style={{ marginBottom: 10, borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
                   {deleteRoleConfirm === r.role && (
                     <div style={{ padding: '12px 14px', background: 'rgba(248,113,113,0.08)', borderBottom: '1px solid rgba(248,113,113,0.2)' }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--status-critical)', marginBottom: 8 }}>Delete "{r.role}"? This cannot be undone.</div>
+                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-critical)', marginBottom: 8 }}>Delete &quot;{r.role}&quot;? This cannot be undone.</div>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setDeleteRoleConfirm(null)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Cancel</button>
-                        <button onClick={() => deleteRole(r.role)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'rgba(248,113,113,0.15)', border: '1px solid rgba(248,113,113,0.4)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Delete</button>
+                        <button onClick={() => setDeleteRoleConfirm(null)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={() => deleteRole(r.role)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'rgba(248,113,113,0.15)', border: '1px solid rgba(248,113,113,0.4)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Delete</button>
                       </div>
                     </div>
                   )}
@@ -507,14 +496,14 @@ export function GovernanceScreen() {
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                       <div style={{ width: 10, height: 10, borderRadius: '50%', background: ROLE_COLOR[r.role] ?? 'var(--accent-purple)', flexShrink: 0 }} />
                       <div style={{ textAlign: 'left' }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{r.role}</div>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{editableCount} edit · {viewCount} view · {r.approvalRequired.length} need approval</div>
+                        <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{r.role}</div>
+                        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{editableCount} edit · {viewCount} view · {r.approvalRequired.length} need approval</div>
                       </div>
                     </div>
                     {canEditRoles && (
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <button onClick={e => { e.stopPropagation(); setEditRole(r); }} style={{ padding: '5px 10px', borderRadius: 8, fontSize: 10, fontWeight: 700, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>Edit</button>
-                        <button onClick={e => { e.stopPropagation(); setDeleteRoleConfirm(deleteRoleConfirm === r.role ? null : r.role); }} style={{ padding: '5px 8px', borderRadius: 8, fontSize: 10, fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>
+                        <button onClick={e => { e.stopPropagation(); setEditRole(r); }} style={{ padding: '5px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>Edit</button>
+                        <button onClick={e => { e.stopPropagation(); setDeleteRoleConfirm(deleteRoleConfirm === r.role ? null : r.role); }} style={{ padding: '5px 8px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>
                           <Trash2 size={11} />
                         </button>
                         {expanded ? <ChevronUp size={14} color="var(--text-muted)" /> : <ChevronDown size={14} color="var(--text-muted)" />}
@@ -526,13 +515,13 @@ export function GovernanceScreen() {
                     <div style={{ background: 'var(--surface)', borderTop: '1px solid var(--border-subtle)', padding: '12px 14px' }}>
                       {FEATURE_GROUPS.map(g => (
                         <div key={g.group} style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>{g.group}</div>
+                          <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>{g.group}</div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {g.features.map(f => {
                               const perm = r.permissions[f.key] ?? 'hidden';
                               if (perm === 'hidden') return null;
                               return (
-                                <span key={f.key} style={{ fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: PERM_BG[perm], color: PERM_COLOR[perm], border: `1px solid ${PERM_COLOR[perm]}40` }}>
+                                <span key={f.key} style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: PERM_BG[perm], color: PERM_COLOR[perm], border: `1px solid ${PERM_COLOR[perm]}40` }}>
                                   {perm === 'edit' ? '✏️' : '👁️'} {f.label}
                                 </span>
                               );
@@ -542,10 +531,10 @@ export function GovernanceScreen() {
                       ))}
                       {r.approvalRequired.length > 0 && (
                         <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)' }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent-amber)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Requires Owner Approval</div>
+                          <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--accent-amber)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Requires Owner Approval</div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {r.approvalRequired.map(m => (
-                              <span key={m} style={{ fontSize: 10, padding: '3px 9px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 100, color: 'var(--accent-amber)', fontWeight: 600 }}>{m.replace(/-/g, ' ')}</span>
+                              <span key={m} style={{ fontSize: 'var(--fs-2xs)', padding: '3px 9px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 100, color: 'var(--accent-amber)', fontWeight: 600 }}>{m.replace(/-/g, ' ')}</span>
                             ))}
                           </div>
                         </div>
@@ -558,55 +547,19 @@ export function GovernanceScreen() {
           </div>
         )}
 
-        {/* ── CRUD RULES TAB ── */}
-        {tab === 'crud' && (
-          <div style={{ paddingBottom: 80 }}>
-            <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.07)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(251,191,36,0.25)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              <ShieldCheck size={12} style={{ verticalAlign: 'middle', marginRight: 5 }} color="var(--accent-amber)" />
-              Configure which roles need owner approval per module before an action takes effect. Changes are logged.
-              {!canEditRoles && ' Only an owner can make changes.'}
-            </div>
-
-            {roles === null ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
-            ) : roles.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 13 }}>No roles configured yet — create one in the Roles tab first.</div>
-            ) : ALL_MODULES.map(f => (
-              <div key={f.key} style={{ marginBottom: 10, padding: '14px', borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border-subtle)' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{f.label}</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {roles.map(r => {
-                    const active = r.approvalRequired.includes(f.key);
-                    return (
-                      <button
-                        key={r.role}
-                        disabled={!canEditRoles}
-                        onClick={() => toggleModuleApproval(f.key, r.role)}
-                        style={{ padding: '6px 12px', borderRadius: 100, fontSize: 11, fontWeight: 700, cursor: canEditRoles ? 'pointer' : 'default', background: active ? 'rgba(251,191,36,0.15)' : 'var(--surface)', border: active ? '1px solid rgba(251,191,36,0.5)' : '1px solid var(--border-subtle)', color: active ? 'var(--accent-amber)' : 'var(--text-muted)' }}>
-                        {active && <Check size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />}
-                        {r.role}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
         {/* ── ACTIVITY LOG TAB ── */}
         {tab === 'audit' && (
           <div style={{ paddingBottom: 80 }}>
             <SearchBar value={activitySearch} onChange={setActivitySearch} placeholder="Search actions, users, entities…" />
             <div style={{ display: 'flex', gap: 5, marginBottom: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
               {['all', ...Object.keys(ROLE_COLOR)].map(id => (
-                <button key={id} onClick={() => setActivityRoleFilter(id)} style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 100, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: activityRoleFilter === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: activityRoleFilter === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: activityRoleFilter === id ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>
+                <button key={id} onClick={() => setActivityRoleFilter(id)} style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: activityRoleFilter === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: activityRoleFilter === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: activityRoleFilter === id ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>
                   {id === 'all' ? 'All Roles' : id}
                 </button>
               ))}
             </div>
             {auditLog === null ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading activity…</div>
+              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading activity…</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {filteredActivity.map(entry => {
@@ -620,18 +573,18 @@ export function GovernanceScreen() {
                         </div>
                         <div style={{ flex: 1 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{entry.action}</div>
-                            <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 100, background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)', fontWeight: 700, flexShrink: 0, marginLeft: 6 }}>{entry.entity}</span>
+                            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{entry.action}</div>
+                            <span style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 100, background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)', fontWeight: 700, flexShrink: 0, marginLeft: 6 }}>{entry.entity}</span>
                           </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{entry.entityId}</div>
+                          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{entry.entityId}</div>
                           {reason && (
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary, var(--text-primary))', marginTop: 4, fontStyle: 'italic' }}>
+                            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary, var(--text-primary))', marginTop: 4, fontStyle: 'italic' }}>
                               Reason: {reason}
                             </div>
                           )}
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{entry.actorName ?? entry.actorEmail ?? entry.actor}</span>
-                            <span style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'monospace' }}>{fmtTimestamp(entry.at)}</span>
+                            <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{entry.actorName ?? entry.actorEmail ?? entry.actor}</span>
+                            <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontFamily: 'monospace' }}>{fmtTimestamp(entry.at)}</span>
                           </div>
                         </div>
                       </div>
@@ -641,7 +594,7 @@ export function GovernanceScreen() {
                 {filteredActivity.length === 0 && (
                   <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
                     <Activity size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>No activity found</div>
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600 }}>No activity found</div>
                   </div>
                 )}
               </div>

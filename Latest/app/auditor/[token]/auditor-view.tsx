@@ -39,11 +39,11 @@ export function AuditorReportsView({ token }: { token: string }) {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)', color: 'var(--text-primary)' }}>
       <div style={{ maxWidth: 760, margin: '0 auto', padding: '28px 16px 40px' }}>
-        <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: 'var(--accent-purple)', textTransform: 'uppercase' }}>
+        <div style={{ marginBottom: 4, fontSize: 'var(--fs-xs)', fontWeight: 700, letterSpacing: 0.5, color: 'var(--accent-purple)', textTransform: 'uppercase' }}>
           Auditor / Investor Access
         </div>
-        <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Read-only Reports</div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 800, marginBottom: 6 }}>Read-only Reports</div>
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
           You have temporary, read-only access to this farm&apos;s reports. Nothing on this page can modify any data.
         </div>
 
@@ -53,7 +53,7 @@ export function AuditorReportsView({ token }: { token: string }) {
               key={r.id}
               onClick={() => setSelected(r.id)}
               className={selected === r.id ? 'chip chip-ok' : 'chip'}
-              style={{ cursor: 'pointer', border: 'none', fontSize: 12, padding: '6px 12px' }}
+              style={{ cursor: 'pointer', border: 'none', fontSize: 'var(--fs-sm)', padding: '6px 12px' }}
             >
               {r.name}
             </button>
@@ -61,18 +61,18 @@ export function AuditorReportsView({ token }: { token: string }) {
         </div>
 
         <div className="farm-card" style={{ padding: 14 }}>
-          {loading && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading…</div>}
+          {loading && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading…</div>}
           {!loading && error && (
-            <div style={{ fontSize: 13, color: 'var(--status-critical)', fontWeight: 600 }}>{error}</div>
+            <div style={{ fontSize: 'var(--fs-base)', color: 'var(--status-critical)', fontWeight: 600 }}>{error}</div>
           )}
           {!loading && !error && report && (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>{report.title}</div>
-                <span className="chip" style={{ fontSize: 9 }}>{report.rows.length} row{report.rows.length === 1 ? '' : 's'}</span>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700 }}>{report.title}</div>
+                <span className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>{report.rows.length} row{report.rows.length === 1 ? '' : 's'}</span>
               </div>
               <div style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid var(--border-subtle)', borderRadius: 10 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
                   <thead>
                     <tr>
                       {report.columns.map((c) => (

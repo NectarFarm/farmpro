@@ -185,7 +185,7 @@ async function reset() {
   // deletes then trip a foreign key. Clear the demo tenant's child tables
   // wholesale first — this is a demo reset, so "everything for this tenant"
   // is the right scope, and it is ordered children-before-parents.
-  for (const t of ['payslips', 'payroll_runs', 'records', 'sales', 'approval_requests', 'notifications']) {
+  for (const t of ['payslips', 'payroll_runs', 'batch_products', 'product_units', 'records', 'sales', 'approval_requests', 'notifications']) {
     await sql`DELETE FROM ${sql(t)} WHERE tenant_id = ${T}`
   }
 

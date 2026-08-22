@@ -48,52 +48,18 @@ const RegionalCtx = createContext<RegionalCtxShape>({
 });
 export function useRegional() { return useContext(RegionalCtx); }
 
-// Pure CSS side-effects for a theme/font choice — no state, no network. Shared
-// by the fetch-driven initial load and by user-triggered changes below.
+// Applies a theme choice to the DOM — the piece that was entirely missing
+// before this task: picking a theme changed tenant_settings.theme and
+// nothing else, because nothing ever set a class or attribute from it.
+// `data-theme` on <html> is the one thing this needs to set; every actual
+// colour lives in app/global.css's `:root[data-theme='…']` blocks, so this
+// function doesn't know or care what a theme looks like — it can't drift
+// out of sync with the CSS the way the previous version's ~30 scattered
+// `.style.setProperty()` calls could (and did: that version only ever
+// touched 8 of the app's colour tokens, so most of the UI never changed
+// theme at all).
 function applyThemeVisuals(t: ThemeMode) {
-    const root = document.documentElement;
-    if (t === 'high-contrast') {
-      root.style.setProperty('--background', '#000000');
-      root.style.setProperty('--surface', '#0a0a0a');
-      root.style.setProperty('--card', '#111111');
-      root.style.setProperty('--text-primary', '#ffffff');
-      root.style.setProperty('--text-secondary', '#ffff00');
-      root.style.setProperty('--text-muted', '#aaaaaa');
-      root.style.setProperty('--primary-green', '#00ff00');
-      root.style.setProperty('--border-subtle', 'rgba(255,255,255,0.3)');
-    } else if (t === 'light-farm') {
-      root.style.setProperty('--background', '#f7f8f5');
-      root.style.setProperty('--surface', '#ffffff');
-      root.style.setProperty('--card', '#ffffff');
-      root.style.setProperty('--text-primary', '#182018');
-      root.style.setProperty('--text-secondary', '#3f6b49');
-      root.style.setProperty('--text-muted', '#5f685f');
-      root.style.setProperty('--text-dim', '#8a9289');
-      root.style.setProperty('--primary-green', '#2f6f3e');
-      root.style.setProperty('--border-subtle', '#e4e7e1');
-    } else if (t === 'sun-mode') {
-      // High brightness, warm tones — for outdoor use in strong sunlight
-      root.style.setProperty('--background', '#1a1200');
-      root.style.setProperty('--surface', '#231800');
-      root.style.setProperty('--card', '#2a1e00');
-      root.style.setProperty('--text-primary', '#fff9e6');
-      root.style.setProperty('--text-secondary', '#fde68a');
-      root.style.setProperty('--text-muted', '#d97706');
-      root.style.setProperty('--text-dim', '#92400e');
-      root.style.setProperty('--primary-green', '#fbbf24');
-      root.style.setProperty('--border-subtle', 'rgba(251,191,36,0.2)');
-    } else {
-      // Restore dark-farm defaults
-      root.style.setProperty('--background', '#0a0f0a');
-      root.style.setProperty('--surface', '#0f1a0f');
-      root.style.setProperty('--card', '#121f12');
-      root.style.setProperty('--text-primary', '#f0fdf4');
-      root.style.setProperty('--text-secondary', '#86efac');
-      root.style.setProperty('--text-muted', '#4b7c52');
-      root.style.setProperty('--text-dim', '#2d4a30');
-      root.style.setProperty('--primary-green', '#4ade80');
-      root.style.setProperty('--border-subtle', 'rgba(255,255,255,0.07)');
-    }
+  document.documentElement.dataset.theme = t;
 }
 
 function applyFontSizeVisuals(s: FontSize) {
@@ -393,15 +359,15 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
 
         {/* Profile card */}
         <button onClick={() => navigate('people')} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(251,191,36,0.2)', border: '2px solid rgba(251,191,36,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 700, color: 'var(--accent-amber)', flexShrink: 0 }}>JK</div>
+          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(251,191,36,0.2)', border: '2px solid rgba(251,191,36,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--accent-amber)', flexShrink: 0 }}>JK</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>James Kamau</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+            <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)', color: 'var(--text-primary)' }}>James Kamau</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
               {role === 'owner' ? 'Owner' : role === 'manager' ? 'Manager' : role === 'worker' ? 'Worker' : role === 'super_admin' ? 'Platform Admin' : 'Staff'} · Nakuru Farm
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-              <span className="chip chip-warning" style={{ fontSize: 9 }}>{role.toUpperCase()}</span>
-              <span className="chip chip-ok" style={{ fontSize: 9 }}>PRO PLAN</span>
+              <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{role.toUpperCase()}</span>
+              <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)' }}>PRO PLAN</span>
             </div>
           </div>
           <ChevronRight size={16} color="var(--text-muted)" />
@@ -423,10 +389,10 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                   borderBottom: i < mobileHubItems.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                   cursor: 'pointer' }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
-                  {item.desc && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
+                  <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
+                  {item.desc && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
                 </div>
-                {item.badge && <span className="chip chip-warning" style={{ fontSize: 9 }}>{item.badge}</span>}
+                {item.badge && <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{item.badge}</span>}
                 <ChevronRight size={16} color="var(--text-dim)" />
               </div>
             ))}
@@ -439,7 +405,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
 
           {/* Theme picker */}
           <div className="farm-card" style={{ padding: 14, marginBottom: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10 }}>Colour Theme</div>
+            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10 }}>Colour Theme</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {THEME_OPTIONS.map(t => (
                 <button key={t.id} onClick={() => setTheme(t.id)}
@@ -448,9 +414,9 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                     border: theme === t.id ? '2px solid var(--primary-green)' : '1px solid var(--border-subtle)' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
                     <div style={{ width: 16, height: 16, borderRadius: 4, background: t.preview, border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
-                    <div style={{ fontSize: 11, fontWeight: 700, color: theme === t.id ? 'var(--primary-green)' : 'var(--text-primary)' }}>{t.label}</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: theme === t.id ? 'var(--primary-green)' : 'var(--text-primary)' }}>{t.label}</div>
                   </div>
-                  <div style={{ fontSize: 9, color: 'var(--text-dim)', lineHeight: 1.4 }}>{t.desc}</div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.4 }}>{t.desc}</div>
                   {theme === t.id && <Check size={11} color="var(--primary-green)" style={{ marginTop: 4 }} />}
                 </button>
               ))}
@@ -459,9 +425,9 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
 
           {/* Font size picker */}
           <div className="farm-card" style={{ padding: 14, marginBottom: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10 }}>Text Size</div>
+            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10 }}>Text Size</div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>Aa</span>
+              <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>Aa</span>
               <div style={{ flex: 1, display: 'flex', gap: 6 }}>
                 {FONT_OPTIONS.map(f => (
                   <button key={f.id} onClick={() => setFontSize(f.id)}
@@ -472,15 +438,15 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                   </button>
                 ))}
               </div>
-              <span style={{ fontSize: 16, color: 'var(--text-dim)' }}>Aa</span>
+              <span style={{ fontSize: 'var(--fs-lg)', color: 'var(--text-dim)' }}>Aa</span>
             </div>
-            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-dim)', textAlign: 'center' }}>
+            <div style={{ marginTop: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textAlign: 'center' }}>
               Larger text helps in bright sunlight or for low-vision users
             </div>
           </div>
 
           {/* Info strip */}
-          <div style={{ padding: '10px 14px', background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 12, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          <div style={{ padding: '10px 14px', background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 12, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
             💡 <strong>Sun Mode</strong> uses warm amber tones visible in bright outdoor sunlight. <strong>High Contrast</strong> maximises legibility for visually impaired users.
           </div>
         </div>
@@ -496,17 +462,17 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                     borderBottom: i < sec.items.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                     cursor: item.action ? 'pointer' : 'default' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
-                    {item.desc && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
+                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
+                    {item.desc && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
                   </div>
-                  {item.badge && <span className="chip chip-warning" style={{ fontSize: 9 }}>{item.badge}</span>}
+                  {item.badge && <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{item.badge}</span>}
                   {item.select ? (
                     <select
                       value={item.select.value}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => item.select?.onChange(e.target.value)}
                       className="farm-input"
-                      style={{ width: 'auto', maxWidth: 170, padding: '6px 8px', fontSize: 12, flexShrink: 0 }}
+                      style={{ width: 'auto', maxWidth: 170, padding: '6px 8px', fontSize: 'var(--fs-sm)', flexShrink: 0 }}
                     >
                       {item.select.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                     </select>
@@ -528,7 +494,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         ))}
 
         {/* Logout */}
-        <button onClick={onLogout} style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 14, fontWeight: 700,
+        <button onClick={onLogout} style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700,
           background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)',
           color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
           <LogOut size={16} /> Sign Out
@@ -574,31 +540,31 @@ function ChangePasswordSheet({ onClose }: { onClose: () => void }) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 210 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}><Lock size={16} /> Change Password</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)', display: 'flex', alignItems: 'center', gap: 8 }}><Lock size={16} /> Change Password</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Current Password *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Current Password *</label>
           <input className="farm-input" type={showPasswords ? 'text' : 'password'} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoFocus />
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>New Password *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>New Password *</label>
           <input className="farm-input" type={showPasswords ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
         </div>
         <div style={{ marginBottom: 8 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Confirm New Password *</label>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Confirm New Password *</label>
           <input className="farm-input" type={showPasswords ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
         </div>
-        <button onClick={() => setShowPasswords((s) => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, color: 'var(--text-muted)', marginBottom: 12, padding: 0 }}>
+        <button onClick={() => setShowPasswords((s) => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 12, padding: 0 }}>
           {showPasswords ? <EyeOff size={12} /> : <Eye size={12} />} {showPasswords ? 'Hide' : 'Show'} passwords
         </button>
 
-        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.4 }}>
+        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.4 }}>
           Minimum 8 characters. Applies to owner/manager accounts — workers sign in with a PIN.
         </div>
 
-        {error && <div style={{ fontSize: 11, color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
           {saving ? 'Saving…' : 'Change Password'}
         </button>
@@ -709,14 +675,14 @@ export function SecuritySettingsScreen() {
           <section style={{ marginBottom: 18 }}>
             <div className="section-eyebrow" style={{ marginBottom: 8 }}>Worker PINs</div>
             <div className="farm-card" style={{ padding: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>Reset worker sign-in PIN</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 12 }}>PINs are never displayed. Set a new four-digit PIN and share it with the worker privately.</div>
-              {workers === null ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading worker accounts…</div> : workers.length === 0 ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No worker login accounts are available for this farm.</div> : <>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Worker</label>
+              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>Reset worker sign-in PIN</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 12 }}>PINs are never displayed. Set a new four-digit PIN and share it with the worker privately.</div>
+              {workers === null ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading worker accounts…</div> : workers.length === 0 ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>No worker login accounts are available for this farm.</div> : <>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Worker</label>
                 <select className="farm-input" value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)} style={{ marginBottom: 10 }}>
                   {workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.name} · {worker.hasPin ? 'PIN set' : 'Needs PIN'}</option>)}
                 </select>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>New 4-digit PIN</label>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>New 4-digit PIN</label>
                 <input className="farm-input" inputMode="numeric" pattern="[0-9]*" maxLength={4} type="password" value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, ''))} placeholder="••••" style={{ marginBottom: 10 }} />
                 <button className="btn-primary" onClick={rotatePin} disabled={pinSaving} style={{ width: '100%', justifyContent: 'center' }}>{pinSaving ? 'Updating…' : 'Update worker PIN'}</button>
               </>}
@@ -727,9 +693,9 @@ export function SecuritySettingsScreen() {
         <section style={{ marginBottom: 18 }}>
           <div className="section-eyebrow" style={{ marginBottom: 8 }}>Active sessions</div>
           <div className="farm-card" style={{ padding: 14 }}>
-            {sessions === null ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading signed-in sessions…</div> : <>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{sessions.length} active session{sessions.length === 1 ? '' : 's'}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45 }}>This device stays signed in. You can safely end every other session for your account.</div>
+            {sessions === null ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading signed-in sessions…</div> : <>
+              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{sessions.length} active session{sessions.length === 1 ? '' : 's'}</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45 }}>This device stays signed in. You can safely end every other session for your account.</div>
               {otherSessionCount > 0 && <button className="btn-secondary" onClick={revokeOtherSessions} disabled={sessionSaving} style={{ marginTop: 12, width: '100%', justifyContent: 'center' }}>{sessionSaving ? 'Signing out…' : `Sign out ${otherSessionCount} other session${otherSessionCount === 1 ? '' : 's'}`}</button>}
             </>}
           </div>
@@ -738,9 +704,9 @@ export function SecuritySettingsScreen() {
         <section>
           <div className="section-eyebrow" style={{ marginBottom: 8 }}>Farm backup</div>
           <div className="farm-card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Download operational data</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45 }}>Exports farms, batches, work, inventory, finance and audit data as JSON. Passwords, PINs and session tokens are excluded.</div>
-            {canDownloadBackup ? <button className="btn-primary" onClick={downloadBackup} disabled={backupSaving} style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}>{backupSaving ? 'Preparing backup…' : 'Download farm backup'}</button> : <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 10 }}>Only the farm owner can download a full backup.</div>}
+            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Download operational data</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45 }}>Exports farms, batches, work, inventory, finance and audit data as JSON. Passwords, PINs and session tokens are excluded.</div>
+            {canDownloadBackup ? <button className="btn-primary" onClick={downloadBackup} disabled={backupSaving} style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}>{backupSaving ? 'Preparing backup…' : 'Download farm backup'}</button> : <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 10 }}>Only the farm owner can download a full backup.</div>}
           </div>
         </section>
       </div>
