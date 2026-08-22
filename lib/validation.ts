@@ -21,12 +21,23 @@ export function isValidEmail(email: string): boolean {
 }
 
 /* ── phone ── */
-// Two accepted shapes: E.164 international ("+" then 7-15 digits) or a local
-// Kenyan mobile number (10 digits starting 07 or 01 — "07XXXXXXXX" /
-// "01XXXXXXXX"). No libphonenumber; this project doesn't have it and the
-// applicant pool is Kenya-first with occasional international numbers.
+// Four accepted shapes, all of them the same Kenyan mobile number spelled
+// differently: E.164 international ("+254712345678"), a bare-254 number with
+// no leading "+" ("254712345678" — easy to type/paste and easy to confuse
+// with E.164 if this form isn't handled explicitly), and the two local forms
+// ("0712345678" / "0112345678"). Anything else that looks E.164-ish ("+" then
+// 7-15 digits) is also accepted for the occasional non-Kenyan number. No
+// libphonenumber; this project doesn't have it and the applicant pool is
+// Kenya-first with occasional international numbers.
+//
+// All four Kenyan forms MUST normalize to the exact same stored string
+// (toStoredPhone below) — users.phone carries a unique index and worker PIN
+// sign-in resolves the login candidate by looking up that normalized value
+// (see app/api/auth/login/route.ts), so a human typing "0712345678" one time
+// and "+254712345678" the next must resolve to the same row, not two.
 const E164_RE = /^\+\d{7,15}$/
 const KENYA_LOCAL_RE = /^0[17]\d{8}$/
+const KENYA_BARE_254_RE = /^254[17]\d{8}$/
 
 export function normalizePhone(raw: unknown): string {
   if (typeof raw !== 'string') return ''
@@ -34,14 +45,17 @@ export function normalizePhone(raw: unknown): string {
 }
 
 export function isValidPhone(phone: string): boolean {
-  return E164_RE.test(phone) || KENYA_LOCAL_RE.test(phone)
+  return E164_RE.test(phone) || KENYA_LOCAL_RE.test(phone) || KENYA_BARE_254_RE.test(phone)
 }
 
-// Local Kenyan numbers are stored normalized to +254 so the column has one
-// consistent international shape regardless of how the applicant typed it.
-// Only call this on a phone that already passed isValidPhone.
+// Every accepted Kenyan shape is folded to the same "+254…" international
+// form so the column has one consistent representation regardless of how the
+// applicant typed it. Only call this on a phone that already passed
+// isValidPhone.
 export function toStoredPhone(phone: string): string {
-  return KENYA_LOCAL_RE.test(phone) ? `+254${phone.slice(1)}` : phone
+  if (KENYA_LOCAL_RE.test(phone)) return `+254${phone.slice(1)}`
+  if (KENYA_BARE_254_RE.test(phone)) return `+${phone}`
+  return phone
 }
 
 /* ── GPS coordinates ── */

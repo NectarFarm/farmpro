@@ -31,15 +31,19 @@ const TENANTS = [
 // resolves the PIN-login candidate by phone, not by PIN alone — issue: PIN
 // alone let one worker sign in as another). Only the two workers get one;
 // other roles sign in with email/password and phone stays null for them.
-const USERS = [
-  { email: 'james@nakurufarm.com', password: 'farm2026', pin: null, phone: null, role: 'owner', name: 'James Kamau', tenantId: 't1' },
-  { email: 'peter@nakurufarm.com', password: 'mgr123', pin: null, phone: null, role: 'manager', name: 'Peter Njoroge', tenantId: 't1' },
-  { email: 'john@nakurufarm.com', password: 'worker123', pin: '1234', phone: '+254712345001', role: 'worker', name: 'John Kamau', tenantId: 't1' },
-  { email: 'vet@nakurufarm.com', password: 'vet123', pin: null, phone: null, role: 'vet', name: 'Dr. Grace Wanjiru', tenantId: 't1' },
-  { email: 'auditor@ifms.co', password: 'aud123', pin: null, phone: null, role: 'auditor', name: 'Alice Auditor', tenantId: 't1' },
-  { email: 'susan@nakurufarm.com', password: 'susp123', pin: '5678', phone: '+254712345002', role: 'worker', name: 'Susan Mwangi', tenantId: 't2' },
-  { email: 'admin@ifms.co', password: 'admin2026', pin: null, phone: null, role: 'super_admin', name: 'IFMS Admin', tenantId: null },
-]
+//
+// The demo LOGIN accounts (james/peter/john/susan/vet/auditor/admin@ifms.co)
+// that used to live here are gone (real-admin-and-demo-cleanup task) — this
+// is now a public app with one real super_admin (see scripts/
+// seed-real-admin.mjs), and shipping well-known email/password pairs to
+// production was the whole problem. This file still seeds tenants t1/t2 and
+// farms f1/f2 for local dev — scripts/seed-demo-data.mjs's operational rows
+// (batches, sales, tasks, etc.) hang off those ids and keep working with no
+// USERS rows at all, since every lookup in that script already tolerates a
+// missing user (`if (vetUser) {...}`, `payrollOwner ? ... : 'demo-owner'`).
+// A local developer who needs a login signs in with the real admin account
+// seeded by scripts/seed-real-admin.mjs, or registers/impersonates from there.
+const USERS = []
 
 const FARMS = [
   { id: 'f1', tenantId: 't1', name: 'Nakuru Main Farm', location: 'Nakuru', code: 'FRM-NAKURU-MAIN', latitude: -0.3031, longitude: 36.0800 },

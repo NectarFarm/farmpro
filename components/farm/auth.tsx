@@ -8,9 +8,8 @@ import React, { useState, useEffect } from 'react';
 import { ENTERPRISE_REGISTRY } from './data';
 import {
   Eye, EyeOff, Check, ChevronRight, AlertTriangle, Phone, Mail,
-  MapPin, Crown, Briefcase, HardHat, Stethoscope, Search, Settings, Leaf, Hourglass, Hash,
+  MapPin, Leaf, Hourglass, Hash,
   CheckCircle2,
-  type LucideIcon,
 } from './icons';
 import { type Role } from './navigation';
 import { apiClient } from '@/lib/request';
@@ -131,20 +130,6 @@ export function useReverseGeocode(lat: string, lng: string, onResult: (addr: str
   }, [lat, lng]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-/* ── Real demo accounts (seeded via `pnpm db:seed`, issue #221) ──
- * Login is backed by POST /api/auth/login against the `users` table — these
- * credentials are real seeded rows, listed here for the demo hints box. */
-const DEMO_ACCOUNTS: { label: string; icon: LucideIcon; cred: string }[] = [
-  { label: 'Owner',       icon: Crown,       cred: 'james@nakurufarm.com / farm2026' },
-  { label: 'Manager',     icon: Briefcase,   cred: 'peter@nakurufarm.com / mgr123' },
-  // Worker PIN login now requires phone + PIN (a PIN alone let one worker
-  // sign in as another) — both are required to reach the seeded worker.
-  { label: 'Worker PIN',  icon: HardHat,     cred: '+254712345001 / 1234' },
-  { label: 'Vet',         icon: Stethoscope, cred: 'vet@nakurufarm.com / vet123' },
-  { label: 'Auditor',     icon: Search,      cred: 'auditor@ifms.co / aud123' },
-  { label: 'Super Admin', icon: Settings,    cred: 'admin@ifms.co / admin2026' },
-];
-
 /* ── Shared gradient header ── */
 function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
@@ -180,7 +165,7 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
     if (res.success && res.data?.role) {
       onLogin(res.data.role, res.data.tenantId, res.data.name ?? '');
     } else {
-      setError(res.success ? 'Sign-in failed — try the seeded demo accounts below.' : (res.error || 'Sign-in failed'));
+      setError(res.success ? 'Sign-in failed — check your credentials.' : (res.error || 'Sign-in failed'));
       if (payload.pin) setTimeout(() => setPin(''), 600);
     }
   }
@@ -315,21 +300,6 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
           </div>
         </div>
       )}
-
-      {/* Demo hints */}
-      <div style={{ marginTop: 20, padding: '12px 14px', background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.15)', borderRadius: 12 }}>
-        <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Demo Accounts</div>
-        <div style={{ display: 'grid', gap: 4 }}>
-          {DEMO_ACCOUNTS.map(d => (
-            <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-2xs)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontWeight: 600 }}>
-                <d.icon size={11} aria-hidden="true" /> {d.label}
-              </span>
-              <span style={{ color: 'var(--text-dim)', fontFamily: 'monospace' }}>{d.cred}</span>
-            </div>
-          ))}
-        </div>
-      </div>
 
       {/* Register link */}
       <div style={{ textAlign: 'center', marginTop: 20 }}>
