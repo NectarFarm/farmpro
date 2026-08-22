@@ -6,7 +6,12 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { ENTERPRISE_REGISTRY } from './data';
-import { Eye, EyeOff, Check, ChevronRight, AlertTriangle, Phone, Mail } from './icons';
+import {
+  Eye, EyeOff, Check, ChevronRight, AlertTriangle, Phone, Mail,
+  MapPin, Crown, Briefcase, HardHat, Stethoscope, Search, Settings, Leaf, Hourglass, Hash,
+  CheckCircle2,
+  type LucideIcon,
+} from './icons';
 import { type Role } from './navigation';
 import { apiClient } from '@/lib/request';
 import { detectGpsLocation } from '@/lib/geolocation';
@@ -48,10 +53,10 @@ export function GpsMapBlock({
           border: hasCoords ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
           color: hasCoords ? 'var(--primary-green)' : 'var(--text-muted)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
-        📍 {loading ? 'Detecting…' : hasCoords ? `${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}` : 'Detect My GPS Location'}
+        <MapPin size={13} aria-hidden="true" /> {loading ? 'Detecting…' : hasCoords ? `${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}` : 'Detect My GPS Location'}
       </button>
 
-      {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 6 }}>⚠ {error}</div>}
+      {error && <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 6 }}><AlertTriangle size={11} aria-hidden="true" /> {error}</div>}
 
       {/* Manual lat/lng */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
@@ -129,22 +134,27 @@ export function useReverseGeocode(lat: string, lng: string, onResult: (addr: str
 /* ── Real demo accounts (seeded via `pnpm db:seed`, issue #221) ──
  * Login is backed by POST /api/auth/login against the `users` table — these
  * credentials are real seeded rows, listed here for the demo hints box. */
-const DEMO_ACCOUNTS = [
-  { label: '👑 Owner',      cred: 'james@nakurufarm.com / farm2026' },
-  { label: '🧑‍💼 Manager',   cred: 'peter@nakurufarm.com / mgr123' },
+const DEMO_ACCOUNTS: { label: string; icon: LucideIcon; cred: string }[] = [
+  { label: 'Owner',       icon: Crown,       cred: 'james@nakurufarm.com / farm2026' },
+  { label: 'Manager',     icon: Briefcase,   cred: 'peter@nakurufarm.com / mgr123' },
   // Worker PIN login now requires phone + PIN (a PIN alone let one worker
   // sign in as another) — both are required to reach the seeded worker.
-  { label: '👷 Worker PIN',  cred: '+254712345001 / 1234' },
-  { label: '🩺 Vet',        cred: 'vet@nakurufarm.com / vet123' },
-  { label: '🔍 Auditor',    cred: 'auditor@ifms.co / aud123' },
-  { label: '⚙️ Super Admin', cred: 'admin@ifms.co / admin2026' },
+  { label: 'Worker PIN',  icon: HardHat,     cred: '+254712345001 / 1234' },
+  { label: 'Vet',         icon: Stethoscope, cred: 'vet@nakurufarm.com / vet123' },
+  { label: 'Auditor',     icon: Search,      cred: 'auditor@ifms.co / aud123' },
+  { label: 'Super Admin', icon: Settings,    cred: 'admin@ifms.co / admin2026' },
 ];
 
 /* ── Shared gradient header ── */
 function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div style={{ textAlign: 'center', marginBottom: 28 }}>
-      <div style={{ fontSize: 'var(--fs-hero)', marginBottom: 8 }}>🌾</div>
+      {/* Same brand mark as the sidebar (navigation.tsx's AppSidebar) rather
+         than a farm-generic emoji, so the app's identity reads the same on
+         the login screen as everywhere else. */}
+      <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--primary-green)', marginBottom: 8 }}>
+        <Leaf size={40} aria-hidden="true" />
+      </div>
       <div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{title}</div>
       <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>{subtitle}</div>
     </div>
@@ -214,8 +224,9 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
           <button key={t} onClick={() => { setTab(t); setError(''); setPhoneError(''); }}
             style={{ flex: 1, padding: '9px', borderRadius: 9, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', border: 'none',
               background: tab === t ? 'rgba(74,222,128,0.18)' : 'transparent',
-              color: tab === t ? 'var(--primary-green)' : 'var(--text-muted)' }}>
-            {t === 'email' ? '📧 Email / Password' : '🔢 Worker PIN'}
+              color: tab === t ? 'var(--primary-green)' : 'var(--text-muted)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            {t === 'email' ? <><Mail size={13} aria-hidden="true" /> Email / Password</> : <><Hash size={13} aria-hidden="true" /> Worker PIN</>}
           </button>
         ))}
       </div>
@@ -311,7 +322,9 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
         <div style={{ display: 'grid', gap: 4 }}>
           {DEMO_ACCOUNTS.map(d => (
             <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-2xs)' }}>
-              <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{d.label}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontWeight: 600 }}>
+                <d.icon size={11} aria-hidden="true" /> {d.label}
+              </span>
               <span style={{ color: 'var(--text-dim)', fontFamily: 'monospace' }}>{d.cred}</span>
             </div>
           ))}
@@ -643,7 +656,9 @@ export function RegisterScreen({ onBack }: {
   if (submitted) {
     return (
       <div className="screen-content px-screen" style={{ paddingTop: 60, textAlign: 'center' }}>
-        <div style={{ fontSize: 'var(--fs-hero)', marginBottom: 16 }}>✅</div>
+        <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--primary-green)', marginBottom: 16 }}>
+          <CheckCircle2 size={48} aria-hidden="true" />
+        </div>
         <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 800, color: 'var(--primary-green)', marginBottom: 8 }}>Request Submitted!</div>
         <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 24 }}>
           Your onboarding request has been sent to the IFMS admin team.{'\n'}Expect a response within 1–2 business days — the admin team will review it and contact you directly with your login details.
@@ -661,8 +676,8 @@ export function RegisterScreen({ onBack }: {
           {/* Roadmap note, not a warning — today an admin relays login details by
              hand (no mail dependency exists in this codebase). Kept in the same
              muted weight as the steps above so it doesn't compete with them. */}
-          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 4 }}>
-            ⏳ Automatic email notifications — coming soon
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 4 }}>
+            <Hourglass size={11} aria-hidden="true" /> Automatic email notifications — coming soon
           </div>
         </div>
         <button onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>← Back to Login</button>
@@ -759,7 +774,7 @@ export function RegisterScreen({ onBack }: {
                   style={{ padding: '11px 10px', borderRadius: 14, cursor: 'pointer', textAlign: 'center',
                     background: sel ? 'rgba(74,222,128,0.15)' : 'var(--card)',
                     border: sel ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)' }}>
-                  <div style={{ fontSize: 'var(--fs-3xl)', marginBottom: 4 }}>{e.emoji}</div>
+                  <div style={{ marginBottom: 4, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}><e.icon size={28} aria-hidden="true" /></div>
                   <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}>{e.label}</div>
                   <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 2 }}>{e.type}</div>
                   {sel && <Check size={12} color="var(--primary-green)" style={{ marginTop: 4 }} />}

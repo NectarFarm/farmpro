@@ -3,29 +3,35 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
-import { Check, X, ChevronDown, ChevronUp, Eye, EyeOff, Edit2, RefreshCw } from './icons';
+import {
+  Check, X, ChevronDown, ChevronUp, Eye, EyeOff, Edit2, RefreshCw,
+  Home, Leaf, CheckSquare, Package, DollarSign, Users, Shield, FileText, CloudSun, Bot,
+  type LucideIcon,
+} from './icons';
 
 /* ── Module and label definitions ── */
 interface ModuleConfig {
   id: string;
   defaultLabel: string;
-  icon: string;
+  // Same icon set/mapping as the sidebar (navigation.tsx's AppSidebar) so a
+  // module reads as the same thing in both places.
+  icon: LucideIcon;
   enabled: boolean;
   customLabel?: string;
   description: string;
 }
 
 const DEFAULT_MODULES: ModuleConfig[] = [
-  { id: 'dashboard', defaultLabel: 'Dashboard', icon: '🏠', enabled: true, description: 'Main farm overview screen' },
-  { id: 'crops', defaultLabel: 'Farm / Batches', icon: '🌿', enabled: true, description: 'Enterprise batches and livestock/crop management' },
-  { id: 'tasks', defaultLabel: 'Tasks', icon: '✅', enabled: true, description: 'Daily task assignment and completion' },
-  { id: 'inventory', defaultLabel: 'Inventory / Stock', icon: '📦', enabled: true, description: 'Feed, supplies, and stock management' },
-  { id: 'finance', defaultLabel: 'Finance', icon: '💰', enabled: true, description: 'P&L, expenses, sales and GL accounts' },
-  { id: 'people', defaultLabel: 'People / HR', icon: '👥', enabled: true, description: 'Employee management and payroll' },
-  { id: 'governance', defaultLabel: 'Governance', icon: '🛡️', enabled: true, description: 'Approvals, roles and audit log' },
-  { id: 'reports', defaultLabel: 'Reports', icon: '📊', enabled: true, description: 'Analytics, exports and auditor links' },
-  { id: 'weather', defaultLabel: 'Weather & IoT', icon: '🌤️', enabled: true, description: 'Forecast, sensors and farm advisories' },
-  { id: 'ai-chat', defaultLabel: 'AI Assistant', icon: '🤖', enabled: true, description: 'AI-powered farm advisor chatbot' },
+  { id: 'dashboard', defaultLabel: 'Dashboard', icon: Home, enabled: true, description: 'Main farm overview screen' },
+  { id: 'crops', defaultLabel: 'Farm / Batches', icon: Leaf, enabled: true, description: 'Enterprise batches and livestock/crop management' },
+  { id: 'tasks', defaultLabel: 'Tasks', icon: CheckSquare, enabled: true, description: 'Daily task assignment and completion' },
+  { id: 'inventory', defaultLabel: 'Inventory / Stock', icon: Package, enabled: true, description: 'Feed, supplies, and stock management' },
+  { id: 'finance', defaultLabel: 'Finance', icon: DollarSign, enabled: true, description: 'P&L, expenses, sales and GL accounts' },
+  { id: 'people', defaultLabel: 'People / HR', icon: Users, enabled: true, description: 'Employee management and payroll' },
+  { id: 'governance', defaultLabel: 'Governance', icon: Shield, enabled: true, description: 'Approvals, roles and audit log' },
+  { id: 'reports', defaultLabel: 'Reports', icon: FileText, enabled: true, description: 'Analytics, exports and auditor links' },
+  { id: 'weather', defaultLabel: 'Weather & IoT', icon: CloudSun, enabled: true, description: 'Forecast, sensors and farm advisories' },
+  { id: 'ai-chat', defaultLabel: 'AI Assistant', icon: Bot, enabled: true, description: 'AI-powered farm advisor chatbot' },
 ];
 
 // Branding is a single tenant-wide record (db/schemas/settings.ts's
@@ -180,7 +186,7 @@ export function UICustomiseScreen() {
                 }}
               >
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <span style={{ fontSize: 'var(--fs-2xl)', opacity: m.enabled ? 1 : 0.4 }}>{m.icon}</span>
+                  <m.icon size={22} color="var(--text-primary)" style={{ opacity: m.enabled ? 1 : 0.4 }} aria-hidden="true" />
                   <div>
                     <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: m.enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                       {m.customLabel ?? m.defaultLabel}
@@ -217,7 +223,7 @@ export function UICustomiseScreen() {
               <div key={m.id} style={{ marginBottom: 10 }}>
                 {editingModule === m.id ? (
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ fontSize: 'var(--fs-xl)', flexShrink: 0 }}>{m.icon}</span>
+                    <m.icon size={19} color="var(--text-primary)" style={{ flexShrink: 0 }} aria-hidden="true" />
                     <input
                       className="farm-input"
                       style={{ flex: 1 }}
@@ -236,7 +242,7 @@ export function UICustomiseScreen() {
                 ) : (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border-subtle)' }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <span style={{ fontSize: 'var(--fs-xl)' }}>{m.icon}</span>
+                      <m.icon size={19} color="var(--text-primary)" aria-hidden="true" />
                       <div>
                         <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>
                           {m.customLabel ?? m.defaultLabel}

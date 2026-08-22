@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { ENTERPRISE_REGISTRY } from './data';
 import { apiClient } from '@/lib/request';
-import { Plus, X, Check, Upload, Lock, Package, Archive, Edit2 } from './icons';
+import { Plus, X, Check, Upload, Lock, Package, Archive, Edit2, PawPrint, Sprout, MapPin, HelpCircle, ClipboardList, Home } from './icons';
 import { StatusTimeline } from './status-timeline';
 import { parseMoneyToCents, centsToMajor } from '@/lib/money';
 
@@ -136,21 +136,25 @@ function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string)
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <div style={{ overflowY: 'auto', maxHeight: 380, scrollbarWidth: 'none' }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>🐄 Livestock</div>
+          <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <PawPrint size={12} aria-hidden="true" /> Livestock
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
             {livestock.map(e => (
               <button key={e.subtype} onClick={() => { onSelect(e.subtype); onClose(); }} style={{ padding: '10px 12px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', textAlign: 'left', cursor: 'pointer' }}>
-                <div style={{ fontSize: 'var(--fs-3xl)', marginBottom: 4 }}>{e.emoji}</div>
+                <div style={{ marginBottom: 4 }}><e.icon size={28} color="var(--text-primary)" aria-hidden="true" /></div>
                 <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{e.label}</div>
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{e.unitName}-based</div>
               </button>
             ))}
           </div>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>🌱 Crops & Produce</div>
+          <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <Sprout size={12} aria-hidden="true" /> Crops &amp; Produce
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {crops.map(e => (
               <button key={e.subtype} onClick={() => { onSelect(e.subtype); onClose(); }} style={{ padding: '10px 12px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', textAlign: 'left', cursor: 'pointer' }}>
-                <div style={{ fontSize: 'var(--fs-3xl)', marginBottom: 4 }}>{e.emoji}</div>
+                <div style={{ marginBottom: 4 }}><e.icon size={28} color="var(--text-primary)" aria-hidden="true" /></div>
                 <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{e.label}</div>
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{e.unitName}-based</div>
               </button>
@@ -170,7 +174,7 @@ function LivestockBatchCard({ batch, navigate }: { batch: ViewBatch; navigate: (
     <button onClick={() => navigate('batch-detail', { id: batch.id, code: batch.code })} className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer', borderLeft: `3px solid ${cfg?.type === 'crop' ? 'rgba(251,191,36,0.6)' : 'rgba(74,222,128,0.5)'}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 'var(--fs-3xl)' }}>{cfg?.emoji ?? '❓'}</span>
+          {cfg?.icon ? <cfg.icon size={28} color="var(--text-primary)" aria-hidden="true" /> : <HelpCircle size={28} color="var(--text-muted)" aria-hidden="true" />}
           <div>
             <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{batch.label}</div>
             <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{batch.code} · {batch.unitCode || 'no unit'}</div>
@@ -577,8 +581,15 @@ export function CropsScreen() {
 
         {/* Type tabs */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-          {[['livestock','🐄 Livestock'],['crops','🌱 Crops'],['units','📍 Units'],['products','📦 Products']].map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)' }}>{label}</button>
+          {([
+            ['livestock', PawPrint, 'Livestock'],
+            ['crops', Sprout, 'Crops'],
+            ['units', MapPin, 'Units'],
+            ['products', Package, 'Products'],
+          ] as const).map(([id, Icon, label]) => (
+            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+              <Icon size={12} aria-hidden="true" /> {label}
+            </button>
           ))}
         </div>
 
@@ -602,7 +613,9 @@ export function CropsScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
             {displayed.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>{tab === 'livestock' ? '🐄' : '🌱'}</div>
+                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}>
+                  {tab === 'livestock' ? <PawPrint size={40} aria-hidden="true" /> : <Sprout size={40} aria-hidden="true" />}
+                </div>
                 <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No {tab} batches</div>
                 <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Tap + to add your first enterprise</div>
               </div>
@@ -622,7 +635,7 @@ export function CropsScreen() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
             {farmUnits.length === 0 ? (
               <div style={{ gridColumn: '1 / -1', padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>📍</div>
+                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><MapPin size={40} aria-hidden="true" /></div>
                 <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No production units yet</div>
                 <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Tap Add Unit below to create one</div>
               </div>
@@ -667,7 +680,7 @@ export function CropsScreen() {
               <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading products…</div>
             ) : apiProducts.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>📦</div>
+                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Package size={40} aria-hidden="true" /></div>
                 <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No products yet</div>
                 <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Add a product once, then attach it to any unit that offers it</div>
               </div>
@@ -975,7 +988,7 @@ export function BatchDetailScreen() {
         <div className="farm-card farm-card-active" style={{ padding: 16, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <span style={{ fontSize: 'var(--fs-5xl)' }}>{cfg?.emoji}</span>
+              {cfg?.icon && <cfg.icon size={36} color="var(--text-primary)" aria-hidden="true" />}
               <div>
                 <span className={`chip ${batch.status === 'ACTIVE' ? 'chip-ok' : batch.status === 'QUARANTINE' ? 'chip-critical' : 'chip-info'}`}>{batch.status}</span>
                 <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>
@@ -1222,7 +1235,7 @@ export function BatchDetailScreen() {
             Advance Stage
           </button>
           <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => navigate('tasks', { batch: batch.code })}>
-            📋 All Batch Tasks
+            <ClipboardList size={13} aria-hidden="true" /> All Batch Tasks
           </button>
           <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)', opacity: 0.5, cursor: 'not-allowed' }} disabled title="Not available yet">
             Edit Batch
@@ -1237,7 +1250,7 @@ export function BatchDetailScreen() {
               <button
                 onClick={() => navigate('tasks', { batch: batch.code, unit: unit.code })}
                 style={{ flex: 1, padding: '10px 12px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                🏠 {unit.code}
+                <Home size={13} aria-hidden="true" /> {unit.code}
               </button>
             </div>
           </div>
@@ -1347,7 +1360,7 @@ export function CropScheduleScreen() {
           {steps.map((s, i) => (
             <React.Fragment key={s}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`}>{i + 1 < step ? '✓' : i + 1}</div>
+                <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`}>{i + 1 < step ? <Check size={14} aria-hidden="true" /> : i + 1}</div>
                 <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: i + 1 === step ? 'var(--primary-green)' : 'var(--text-dim)', whiteSpace: 'nowrap' }}>{s}</div>
               </div>
               {i < steps.length - 1 && <div className={`step-line ${i + 1 < step ? 'done' : ''}`} />}
@@ -1357,7 +1370,7 @@ export function CropScheduleScreen() {
 
         {/* Enterprise header */}
         <div style={{ padding: '10px 14px', background: 'rgba(74,222,128,0.06)', borderRadius: 12, marginBottom: 14, display: 'flex', gap: 10, alignItems: 'center', border: '1px solid rgba(74,222,128,0.2)' }}>
-          <span style={{ fontSize: 'var(--fs-4xl)' }}>{cfg.emoji}</span>
+          <cfg.icon size={32} color="var(--primary-green)" aria-hidden="true" />
           <div>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', color: 'var(--text-primary)' }}>{cfg.label}</div>
             <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Unit: {cfg.unitName} · Batch code preview: <span style={{ fontFamily: 'monospace', color: 'var(--primary-green)', fontWeight: 700 }}>{autoCode}</span></div>
@@ -1481,7 +1494,7 @@ export function ProcessConfigScreen() {
       <TopNav title={proc?.name ?? 'Process Config'} subtitle={`${batchCode ?? ''}`} showBack />
       <div className="px-screen" style={{ paddingTop: 14 }}>
         <div style={{ padding: '10px 14px', background: 'rgba(74,222,128,0.06)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(74,222,128,0.2)', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 'var(--fs-2xl)' }}>{cfg?.emoji}</span>
+          {cfg?.icon && <cfg.icon size={22} color="var(--primary-green)" aria-hidden="true" />}
           <div>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)' }}>{proc?.name}</div>
             <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{proc?.code} · {proc?.frequency} · Batch: {batchCode}</div>

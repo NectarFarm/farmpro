@@ -32,7 +32,15 @@ import {
   Sparkles,
   Archive, RotateCcw,
   Cloud, CloudFog, CloudLightning, Snowflake,
+  // Enterprise / product icons (replace ENTERPRISE_REGISTRY & product emoji)
+  Bird, Egg, Milk, Ham, Rabbit, Carrot, Salad, PawPrint, Drumstick,
+  // Role icons (replace role-picker emoji)
+  Crown, Briefcase, HardHat, Stethoscope,
+  // Status / severity / misc chrome (replace remaining emoji glyphs)
+  Ban, ThumbsUp, ThumbsDown, Hourglass, FolderOpen,
+  Contrast, Sunrise, Play, FileImage, PenLine, Hash, Lightbulb, Skull,
 } from 'lucide-react';
+export type { LucideIcon } from 'lucide-react';
 
 export {
   Home, Leaf, Package, CloudSun, DollarSign, CheckSquare,
@@ -66,4 +74,8 @@ export {
   Sparkles,
   Archive, RotateCcw,
   Cloud, CloudFog, CloudLightning, Snowflake,
+  Bird, Egg, Milk, Ham, Rabbit, Carrot, Salad, PawPrint, Drumstick,
+  Crown, Briefcase, HardHat, Stethoscope,
+  Ban, ThumbsUp, ThumbsDown, Hourglass, FolderOpen,
+  Contrast, Sunrise, Play, FileImage, PenLine, Hash, Lightbulb, Skull,
 };

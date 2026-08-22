@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
-import { Plus, Search, X, Download, ChevronRight } from './icons';
+import { Plus, Search, X, Download, ChevronRight, Receipt } from './icons';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
@@ -956,7 +956,7 @@ export function FinanceScreen() {
             <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading purchases…</div>
           ) : (purchases ?? []).length === 0 ? (
             <div style={{ padding: 24, textAlign: 'center' }}>
-              <div style={{ fontSize: 'var(--fs-6xl)', marginBottom: 8 }}>🧾</div>
+              <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Receipt size={40} aria-hidden="true" /></div>
               <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No expenses yet</div>
               <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Record one below.</div>
             </div>

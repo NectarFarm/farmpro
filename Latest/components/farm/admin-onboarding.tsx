@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import {
   Check, X, Clock, ChevronRight, MessageSquare,
-  UserSingle as User, MapPin, Phone, Mail, Building2, AlertTriangle, CheckCircle2
+  UserSingle as User, MapPin, Phone, Mail, Building2, AlertTriangle, CheckCircle2, Sprout
 } from './icons';
 import { ENTERPRISE_REGISTRY, type OnboardRequest } from './data';
 import { GpsMapBlock, useReverseGeocode } from './auth';
@@ -235,14 +235,18 @@ function LocationEditor({
         <div>
           <div className="section-eyebrow" style={{ marginBottom: 2 }}>Farm Location</div>
           {locationSaved && !showLocationForm && (
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 3 }}>
-              📍 {persisted.address || req.location}
-              {persisted.lat && persisted.lng && <span style={{ marginLeft: 6, color: 'var(--accent-cyan)', fontFamily: 'monospace', fontSize: 'var(--fs-2xs)' }}>{parseFloat(persisted.lat).toFixed(4)}, {parseFloat(persisted.lng).toFixed(4)}</span>}
-              {justSaved && <span style={{ marginLeft: 6, color: 'var(--primary-green)', fontWeight: 700 }}>· saved</span>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 3 }}>
+              <MapPin size={11} aria-hidden="true" />
+              {persisted.address || req.location}
+              {persisted.lat && persisted.lng && <span style={{ marginLeft: 2, color: 'var(--accent-cyan)', fontFamily: 'monospace', fontSize: 'var(--fs-2xs)' }}>{parseFloat(persisted.lat).toFixed(4)}, {parseFloat(persisted.lng).toFixed(4)}</span>}
+              {justSaved && <span style={{ marginLeft: 2, color: 'var(--primary-green)', fontWeight: 700 }}>· saved</span>}
             </div>
           )}
           {!locationSaved && !showLocationForm && (
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 3 }}>📍 {req.location} · no coordinates on file</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 3 }}>
+              <MapPin size={11} aria-hidden="true" />
+              {req.location} · no coordinates on file
+            </div>
           )}
         </div>
         <button onClick={() => (showLocationForm ? setShowLocationForm(false) : openForm())} style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: locationSaved ? 'rgba(74,222,128,0.1)' : 'var(--surface)', border: '1px solid var(--border-subtle)', color: locationSaved ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'pointer' }}>
@@ -272,13 +276,13 @@ function LocationEditor({
           />
           {(fieldErrors.address || fieldErrors.latitude || fieldErrors.longitude) && (
             <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>
-              {fieldErrors.address && <div>⚠ {fieldErrors.address}</div>}
-              {fieldErrors.latitude && <div>⚠ {fieldErrors.latitude}</div>}
-              {fieldErrors.longitude && !fieldErrors.latitude && <div>⚠ {fieldErrors.longitude}</div>}
+              {fieldErrors.address && <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><AlertTriangle size={11} aria-hidden="true" /> {fieldErrors.address}</div>}
+              {fieldErrors.latitude && <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><AlertTriangle size={11} aria-hidden="true" /> {fieldErrors.latitude}</div>}
+              {fieldErrors.longitude && !fieldErrors.latitude && <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><AlertTriangle size={11} aria-hidden="true" /> {fieldErrors.longitude}</div>}
             </div>
           )}
           {saveError && !fieldErrors.address && !fieldErrors.latitude && !fieldErrors.longitude && (
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>⚠ {saveError}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}><AlertTriangle size={11} aria-hidden="true" /> {saveError}</div>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setShowLocationForm(false)} disabled={saving} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 9 }}>Cancel</button>
@@ -381,7 +385,7 @@ function RequestDetail({
 
   const enterpriseLabels = req.enterprises.map((e) => {
     const cfg = ENTERPRISE_REGISTRY.find((r) => r.subtype === e);
-    return cfg ? `${cfg.emoji} ${cfg.label}` : e;
+    return { key: e, Icon: cfg?.icon ?? Sprout, label: cfg ? cfg.label : e };
   });
 
   return (
@@ -446,8 +450,11 @@ function RequestDetail({
         <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
           <div className="section-eyebrow" style={{ marginBottom: 8 }}>Requested Enterprises</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {enterpriseLabels.map((e) => (
-              <span key={e} style={{ fontSize: 'var(--fs-sm)', padding: '5px 11px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 100, color: 'var(--primary-green)', fontWeight: 600 }}>{e}</span>
+            {enterpriseLabels.map(({ key, Icon, label }) => (
+              <span key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', padding: '5px 11px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 100, color: 'var(--primary-green)', fontWeight: 600 }}>
+                <Icon size={13} aria-hidden="true" />
+                {label}
+              </span>
             ))}
           </div>
         </div>
@@ -634,7 +641,7 @@ export function AdminOnboardingScreen() {
               const s = STATUS_CONFIG[req.status];
               const enterprises = req.enterprises.map((e) => {
                 const cfg = ENTERPRISE_REGISTRY.find((r) => r.subtype === e);
-                return cfg ? cfg.emoji : '🌱';
+                return cfg?.icon ?? Sprout;
               });
 
               return (
@@ -659,8 +666,8 @@ export function AdminOnboardingScreen() {
 
                   {/* Enterprises row */}
                   <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                    {enterprises.map((e, i) => (
-                      <span key={i} style={{ fontSize: 'var(--fs-lg)' }}>{e}</span>
+                    {enterprises.map((Icon, i) => (
+                      <Icon key={i} size={15} color="var(--text-muted)" aria-hidden="true" />
                     ))}
                     <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', alignSelf: 'center' }}>
                       {req.enterprises.join(', ')}

@@ -1,7 +1,7 @@
 'use client';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Lock, Plus, X, Edit2, Archive, RotateCcw, Palette } from './icons';
+import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Lock, Plus, X, Edit2, Archive, RotateCcw, Palette, Check } from './icons';
 import { apiClient } from '@/lib/request';
 
 // ── Real backend wiring (issue #252) ────────────────────────────────────────
@@ -655,7 +655,7 @@ export function AdminSettingsScreen() {
 
                 {saveError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{saveError}</div>}
                 <button className="btn-primary" disabled={saving} style={{ width: '100%', justifyContent: 'center', borderRadius: 12, padding: 12, opacity: saving ? 0.7 : 1, marginBottom: 20 }} onClick={handleSave}>
-                  {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Tenant Settings'}
+                  {saving ? 'Saving…' : saved ? <><Check size={14} aria-hidden="true" /> Saved</> : 'Save Tenant Settings'}
                 </button>
               </>
             )}

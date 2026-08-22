@@ -23,6 +23,7 @@ import {
   AdminDashboardScreen, AdminFarmsScreen, AdminSettingsScreen,
 } from '@/components/farm/admin';
 import { AIChatScreen } from '@/components/farm/ai-chat';
+import { Leaf } from '@/components/farm/icons';
 import { AdminOnboardingScreen } from '@/components/farm/admin-onboarding';
 import { AdminUsersScreen, ImpersonationBanner, type ImpersonationInfo } from '@/components/farm/admin-users';
 import { UICustomiseScreen } from '@/components/farm/ui-customise';
@@ -200,7 +201,7 @@ export default function Home() {
                   <div className="farm-shell">
                     <div className="shell-main">
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-                        <div style={{ fontSize: 'var(--fs-6xl)' }}>🌾</div>
+                        <Leaf size={40} color="var(--primary-green)" aria-hidden="true" />
                         <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading your session…</div>
                       </div>
                     </div>

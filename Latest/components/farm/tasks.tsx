@@ -4,7 +4,7 @@ import { useNav, TopNav } from './navigation';
 import {
   Plus, CheckCircle2, Clock, AlertTriangle, Users,
   X, Check, Filter, RefreshCw, ShieldCheck,
-  Trash2, ChevronDown, ChevronUp, Download,
+  Trash2, ChevronDown, ChevronUp, Download, FileText,
 } from './icons';
 import { apiClient } from '@/lib/request';
 import { useToast } from './ui-shared';
@@ -163,8 +163,8 @@ function TaskDetailSheet({
             </div>
           )}
           {rest && (
-            <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--card)', borderRadius: 8, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              📝 {rest}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 10, padding: '8px 10px', background: 'var(--card)', borderRadius: 8, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              <FileText size={13} style={{ flexShrink: 0, marginTop: 3 }} aria-hidden="true" /> {rest}
             </div>
           )}
         </div>
@@ -322,7 +322,7 @@ function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
           <textarea className="farm-input" rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Instructions for the assignee…" style={{ resize: 'none' }} />
         </div>
 
-        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>⚠ {error}</div>}
+        {error && <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}><AlertTriangle size={11} aria-hidden="true" /> {error}</div>}
 
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={submit} disabled={saving}>
           <Check size={14} /> {saving ? 'Creating…' : 'Create Task'}
@@ -481,7 +481,7 @@ export function TasksScreen() {
   async function markDone(task: ApiTask) {
     const res = await apiClient.patch<ApiTask & { approvalRequestId?: string }>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { status: 'DONE' });
     if (!res.success) { showToast(res.error ?? 'Could not update task', 'error'); return; }
-    showToast(res.data.approvalRequestId ? 'Submitted for owner approval' : 'Task marked as done ✓', res.data.approvalRequestId ? 'info' : 'success');
+    showToast(res.data.approvalRequestId ? 'Submitted for owner approval' : 'Task marked as done', res.data.approvalRequestId ? 'info' : 'success');
     await loadTasks();
   }
 

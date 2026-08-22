@@ -1,6 +1,10 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Clock, ChevronDown, ChevronUp } from './icons';
+import {
+  Clock, ChevronDown, ChevronUp, Plus, Play, Ban, HelpCircle, ClipboardCheck,
+  Unlock, PenLine, CheckCircle2, ThumbsUp, ThumbsDown, Package, Sprout, UserSingle,
+  FileText, type LucideIcon,
+} from './icons';
 import { useRegional } from './settings';
 import { formatDateTime, type DateFormat } from '@/lib/datetime';
 
@@ -39,22 +43,22 @@ const ACTION_LABELS: Record<string, string> = {
   'employee.updated': 'Employee updated',
 };
 
-const ACTION_ICONS: Record<string, string> = {
-  'task.created': '➕',
-  'task.started': '▶️',
-  'task.blocked': '🚫',
-  'task.clarification_requested': '❓',
-  'task.completion_requested': '✅',
-  'task.reopened': '🔓',
-  'task.updated': '✏️',
-  'task.completed': '✔️',
-  'approval.approved': '👍',
-  'approval.rejected': '👎',
-  'inventory.adjust': '📦',
-  'batch.created': '🌱',
-  'batch.updated': '🌱',
-  'employee.created': '👤',
-  'employee.updated': '👤',
+const ACTION_ICONS: Record<string, LucideIcon> = {
+  'task.created': Plus,
+  'task.started': Play,
+  'task.blocked': Ban,
+  'task.clarification_requested': HelpCircle,
+  'task.completion_requested': ClipboardCheck,
+  'task.reopened': Unlock,
+  'task.updated': PenLine,
+  'task.completed': CheckCircle2,
+  'approval.approved': ThumbsUp,
+  'approval.rejected': ThumbsDown,
+  'inventory.adjust': Package,
+  'batch.created': Sprout,
+  'batch.updated': Sprout,
+  'employee.created': UserSingle,
+  'employee.updated': UserSingle,
 };
 
 // Recent entries (<24h) stay relative ("3h ago") regardless of settings —
@@ -135,7 +139,7 @@ export function StatusTimeline({
         <div style={{ position: 'absolute', left: 5, top: 4, bottom: 4, width: 2, background: 'var(--border-subtle)', borderRadius: 1 }} />
         {displayed.map((entry, i) => {
           const label = ACTION_LABELS[entry.action] ?? entry.action.replace(/[._]/g, ' ');
-          const icon = ACTION_ICONS[entry.action] ?? '📝';
+          const ActionIcon = ACTION_ICONS[entry.action] ?? FileText;
           const actorName = entry.actorName ?? entry.actorEmail ?? 'System';
           const metaReason = entry.meta && typeof entry.meta === 'object' && 'reason' in entry.meta
             ? String((entry.meta as Record<string, unknown>).reason)
@@ -147,7 +151,7 @@ export function StatusTimeline({
               <div style={{ position: 'absolute', left: -14, top: 3, width: 8, height: 8, borderRadius: '50%', background: entry.action.includes('rejected') || entry.action.includes('blocked') ? 'var(--status-critical)' : entry.action.includes('approved') || entry.action.includes('completed') ? 'var(--primary-green)' : 'var(--accent-blue)', border: '2px solid var(--surface)' }} />
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 'var(--fs-xs)' }}>{icon}</span>
+                  <ActionIcon size={12} color="var(--text-dim)" aria-hidden="true" />
                   <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
                   <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>by {actorName}</span>
                   {entry.actorRole && (

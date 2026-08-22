@@ -21,6 +21,8 @@
 
 'use client';
 
+import { Drumstick, Egg, Ham, Milk, PawPrint, Fish, Wheat, Salad, Carrot, Apple, type LucideIcon } from './icons';
+
 /* ── Auto-code generator ── */
 const _counters: Record<string, number> = {};
 export function genCode(prefix: string, farmCode: string): string {
@@ -52,7 +54,17 @@ export type CropSubtype = 'maize' | 'wheat' | 'sorghum' | 'kitchen_garden' | 'si
 export interface EnterpriseConfig {
   type: EnterpriseType;
   subtype: LivestockSubtype | CropSubtype;
-  emoji: string;
+  // Icon component (lucide, via ./icons — see components/farm/icons.tsx).
+  // Was a raw emoji string; lucide has no Cow/Goat/Chicken glyphs, so
+  // subtypes are represented by their product/output where a direct animal
+  // icon doesn't exist (dairy_cow -> Milk, broiler -> Drumstick). Goat has no
+  // close lucide match at all — PawPrint is used as the least-wrong stand-in:
+  // a generic animal mark claims nothing false, where a Rabbit would read as
+  // rabbits rather than goats
+  // for "small four-legged livestock", picked over reusing Milk (would
+  // collide with dairy_cow) or a food icon (would erase the animal/crop
+  // distinction the registry otherwise keeps).
+  icon: LucideIcon;
   label: string;
   unitName: string;
   batchPrefix: string;
@@ -74,7 +86,7 @@ export interface ProcessTemplate {
 
 export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
   {
-    type: 'livestock', subtype: 'broiler', emoji: '🐔', label: 'Broilers',
+    type: 'livestock', subtype: 'broiler', icon: Drumstick, label: 'Broilers',
     unitName: 'House', batchPrefix: 'BRO', unitPrefix: 'HSE',
     metrics: ['head count', 'age (days)', 'FCR', 'mortality %', 'weight (kg)'],
     harvestable: true, harvestUnit: 'birds',
@@ -87,7 +99,7 @@ export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
     ],
   },
   {
-    type: 'livestock', subtype: 'layer', emoji: '🥚', label: 'Layers',
+    type: 'livestock', subtype: 'layer', icon: Egg, label: 'Layers',
     unitName: 'Pen', batchPrefix: 'LYR', unitPrefix: 'PEN',
     metrics: ['head count', 'age (days)', 'egg production', 'lay rate %', 'mortality %'],
     harvestable: true, harvestUnit: 'trays',
@@ -100,7 +112,7 @@ export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
     ],
   },
   {
-    type: 'livestock', subtype: 'pig', emoji: '🐷', label: 'Pigs',
+    type: 'livestock', subtype: 'pig', icon: Ham, label: 'Pigs',
     unitName: 'Sty', batchPrefix: 'PIG', unitPrefix: 'STY',
     metrics: ['head count', 'age (days)', 'weight (kg)', 'FCR', 'mortality %'],
     harvestable: true, harvestUnit: 'kg liveweight',
@@ -112,7 +124,7 @@ export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
     ],
   },
   {
-    type: 'livestock', subtype: 'dairy_cow', emoji: '🐄', label: 'Dairy Cattle',
+    type: 'livestock', subtype: 'dairy_cow', icon: Milk, label: 'Dairy Cattle',
     unitName: 'Paddock', batchPrefix: 'COW', unitPrefix: 'PAD',
     metrics: ['head count', 'age', 'daily milk (L)', 'lactation stage', 'BCS score'],
     harvestable: true, harvestUnit: 'litres',
@@ -124,7 +136,7 @@ export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
     ],
   },
   {
-    type: 'livestock', subtype: 'goat', emoji: '🐐', label: 'Goats',
+    type: 'livestock', subtype: 'goat', icon: PawPrint, label: 'Goats',
     unitName: 'Pen', batchPrefix: 'GOT', unitPrefix: 'PEN',
     metrics: ['head count', 'age', 'daily milk (L)', 'weight (kg)', 'mortality %'],
     harvestable: true, harvestUnit: 'litres',
@@ -135,7 +147,7 @@ export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
     ],
   },
   {
-    type: 'livestock', subtype: 'fish', emoji: '🐠', label: 'Fish / Aquaculture',
+    type: 'livestock', subtype: 'fish', icon: Fish, label: 'Fish / Aquaculture',
     unitName: 'Tank/Pond', batchPrefix: 'FSH', unitPrefix: 'TNK',
     metrics: ['stocking density', 'age (days)', 'water temp (°C)', 'DO (mg/L)', 'mortality %'],
     harvestable: true, harvestUnit: 'kg',
@@ -146,7 +158,7 @@ export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
     ],
   },
   {
-    type: 'crop', subtype: 'maize', emoji: '🌽', label: 'Maize',
+    type: 'crop', subtype: 'maize', icon: Wheat, label: 'Maize',
     unitName: 'Field', batchPrefix: 'MZE', unitPrefix: 'FLD',
     metrics: ['area (acres)', 'plant stand', 'growth stage', 'expected yield (bags)'],
     harvestable: true, harvestUnit: '90kg bags',
@@ -158,7 +170,7 @@ export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
     ],
   },
   {
-    type: 'crop', subtype: 'kitchen_garden', emoji: '🥬', label: 'Kitchen Garden',
+    type: 'crop', subtype: 'kitchen_garden', icon: Salad, label: 'Kitchen Garden',
     unitName: 'Plot', batchPrefix: 'KIT', unitPrefix: 'PLT',
     metrics: ['area (sqm)', 'crop varieties', 'watering schedule', 'harvest frequency'],
     harvestable: true, harvestUnit: 'kg',
@@ -169,7 +181,7 @@ export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
     ],
   },
   {
-    type: 'crop', subtype: 'vegetables', emoji: '🥦', label: 'Vegetables',
+    type: 'crop', subtype: 'vegetables', icon: Carrot, label: 'Vegetables',
     unitName: 'Plot', batchPrefix: 'VEG', unitPrefix: 'PLT',
     metrics: ['area (sqm)', 'variety mix', 'growth stage', 'yield (kg)'],
     harvestable: true, harvestUnit: 'kg',
@@ -180,7 +192,7 @@ export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
     ],
   },
   {
-    type: 'crop', subtype: 'fruit_orchard', emoji: '🍎', label: 'Fruit Orchard',
+    type: 'crop', subtype: 'fruit_orchard', icon: Apple, label: 'Fruit Orchard',
     unitName: 'Block', batchPrefix: 'FRT', unitPrefix: 'BLK',
     metrics: ['tree count', 'age (years)', 'variety', 'expected yield (kg)'],
     harvestable: true, harvestUnit: 'kg',
