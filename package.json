@@ -13,7 +13,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "node db/seed.mjs",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "deploy:migrate": "node scripts/deploy-migrate.mjs",
+    "vercel-build": "pnpm deploy:migrate && next build"
   },
   "dependencies": {
     "clsx": "^2.1.1",
