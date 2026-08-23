@@ -237,6 +237,12 @@ export async function POST(req: Request) {
         latitude: result.latitude,
         longitude: result.longitude,
         status: 'pending',
+        // Re-stamped so the resubmission surfaces where a reviewer looks.
+        // The admin queue is ordered newest-first by this column, and a
+        // corrected application keeping its original timestamp would sink to
+        // the position it held when it was first wrong — which is exactly
+        // where nobody would look for it.
+        requestedAt: new Date(),
         // This resubmission carries its own fresh consentGiven: true (checked
         // above), so re-stamping consentAt to now is recording THIS consent,
         // not backdating/granting one on the applicant's behalf the way
