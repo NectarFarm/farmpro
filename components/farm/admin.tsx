@@ -496,8 +496,14 @@ export function AdminSettingsScreen() {
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Farms for the selected tenant (farms-for-a-tenant task) — a super_admin
+  // has no tenant of its own, so every call here names `tenantId` explicitly,
+  // same as TenantFarmsPanel above does from AdminFarmsScreen.
+  const [tenantFarms, setTenantFarms] = useState<ApiFarm[] | null>(null);
+  const [farmsError, setFarmsError] = useState('');
+  const [showAddFarm, setShowAddFarm] = useState(false);
 
-  useEffect(() => {
+  const loadTenants = useCallback(() => {
     apiClient.get<ApiTenant[]>('/api/admin/tenants').then((res) => {
       if (res.success) {
         setTenants(res.data);
@@ -508,6 +514,18 @@ export function AdminSettingsScreen() {
       }
     });
   }, []);
+
+  useEffect(() => { loadTenants(); }, [loadTenants]);
+
+  const loadFarms = useCallback(() => {
+    if (!tenantId) return;
+    apiClient.get<ApiFarm[]>(`/api/farms?tenantId=${tenantId}`).then((res) => {
+      if (res.success) { setTenantFarms(res.data); setFarmsError(''); }
+      else { setTenantFarms(null); setFarmsError(res.error || 'Failed to load farms.'); }
+    });
+  }, [tenantId]);
+
+  useEffect(() => { loadFarms(); }, [loadFarms]);
 
   const loadSettings = useCallback(() => {
     if (!tenantId) return;
@@ -583,6 +601,46 @@ export function AdminSettingsScreen() {
                 </div>
               )}
             </div>
+
+            {/* Create a farm for the selected tenant (farms-for-a-tenant
+               task) — POST /api/farms already accepts an explicit tenantId
+               from a super_admin session (see that route's header), so no
+               new API was needed here. */}
+            <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div className="section-eyebrow">Farms</div>
+                <button
+                  onClick={() => setShowAddFarm(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)' }}
+                >
+                  <Plus size={12} /> Add Farm
+                </button>
+              </div>
+              {farmsError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{farmsError}</div>}
+              {tenantFarms === null && !farmsError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>Loading farms…</div>}
+              {tenantFarms !== null && tenantFarms.length === 0 && !farmsError && (
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>No farms yet for this tenant.</div>
+              )}
+              {tenantFarms !== null && tenantFarms.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {tenantFarms.map((f) => (
+                    <div key={f.id} style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border-subtle)' }}>
+                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{f.name}</div>
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{f.code} · {f.location || '—'}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {showAddFarm && (
+              <FarmFormModal
+                tenantId={tenantId}
+                farm={null}
+                onClose={() => setShowAddFarm(false)}
+                onSaved={() => { setShowAddFarm(false); loadFarms(); loadTenants(); }}
+              />
+            )}
 
             {loadError && (
               <div className="farm-card" style={{ padding: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>

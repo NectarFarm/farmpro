@@ -379,6 +379,8 @@ function RequestDetail({
   const [infoNote, setInfoNote] = useState(req.notes ?? '');
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [sendingGuide, setSendingGuide] = useState(false);
+  const [guideMessage, setGuideMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const s = STATUS_CONFIG[req.status];
 
   async function handle(action: OnboardRequest['status']) {
@@ -388,6 +390,18 @@ function RequestDetail({
     setSaving(false);
     if (!failure) onClose();
     else setActionError(failure);
+  }
+
+  // POST /api/onboard-requests/[id]/send-guide — only valid once approved
+  // (the route itself enforces this; the button below is hidden otherwise so
+  // an admin never sees it fail for a reason that isn't actually fixable
+  // from here).
+  async function sendGuide() {
+    setSendingGuide(true);
+    setGuideMessage(null);
+    const res = await apiClient.post<{ sent: boolean }>(`/api/onboard-requests/${req.id}/send-guide`, {});
+    setSendingGuide(false);
+    setGuideMessage(res.success ? { text: 'Getting-started guide sent.', ok: true } : { text: res.error || 'Failed to send the guide.', ok: false });
   }
 
   const enterpriseLabels = req.enterprises.map((e) => {
@@ -433,6 +447,34 @@ function RequestDetail({
 
         {/* Farm Location — admin-editable */}
         <LocationEditor req={req} onSaved={onLocationSaved} />
+
+        {/* Resend the getting-started guide (feat/email-notifications
+           follow-up) — only once approved: that's the only state where the
+           guide describes anything real (a signed-in account with a farm
+           already provisioned). No set-password link is offered here — see
+           lib/email.ts's sendOnboardingGuideEmail for why re-sending that
+           specific link would be wrong. */}
+        {req.status === 'approved' && (
+          <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Getting-started guide</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.5 }}>
+              Sent once already, on approval. Send it again if the applicant asks what to do next.
+            </div>
+            <button
+              disabled={sendingGuide}
+              onClick={() => void sendGuide()}
+              className="btn-secondary"
+              style={{ width: '100%', justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 9, opacity: sendingGuide ? 0.6 : 1 }}
+            >
+              {sendingGuide ? 'Sending…' : 'Resend Getting-Started Guide'}
+            </button>
+            {guideMessage && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', marginTop: 8, color: guideMessage.ok ? 'var(--status-ok)' : 'var(--status-critical)' }}>
+                {guideMessage.ok ? <CheckCircle2 size={12} aria-hidden="true" /> : <AlertTriangle size={12} aria-hidden="true" />} {guideMessage.text}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Applicant consent — display-only; PATCH never touches this */}
         <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>

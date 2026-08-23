@@ -14,6 +14,7 @@ import { ReportsScreen } from '@/components/farm/reports';
 import { SettingsScreen, SecuritySettingsScreen } from '@/components/farm/settings';
 import { RoutinesScreen } from '@/components/farm/routines';
 import { AboutScreen } from '@/components/farm/about';
+import { GettingStartedScreen } from '@/components/farm/getting-started';
 import { ThemeProvider } from '@/components/farm/settings';
 import { ToastProvider } from '@/components/farm/ui-shared';
 import { ConfirmProvider } from '@/components/farm/ui-shared';
@@ -73,6 +74,7 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'security-settings': return <SecuritySettingsScreen />;
       case 'routines':          return <RoutinesScreen />;
       case 'about':             return <AboutScreen />;
+      case 'getting-started':   return <GettingStartedScreen />;
       case 'notifications':     return <NotificationsScreen />;
       case 'notification-settings': return <NotificationSettingsScreen />;
       case 'worker-home':       return <WorkerHomeScreen />;

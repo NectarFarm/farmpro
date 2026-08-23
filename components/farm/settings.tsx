@@ -17,7 +17,7 @@ import { apiClient } from '@/lib/request';
 import {
   ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff,
   Package, CloudSun, Users, Shield, FileText, Bot, Palette,
-  Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle,
+  Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, ClipboardList,
   type LucideIcon,
 } from './icons';
 import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, type DateFormat } from '@/lib/datetime';
@@ -392,6 +392,10 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         // the screen is the kind of thing that makes a walkthrough feel
         // broken.
         { label: 'Show me around', icon: HelpCircle, desc: 'Replay the guided walkthrough of the app', action: () => { navigate('dashboard'); requestTour(); } },
+        // The same list emailed on approval (lib/onboarding-guide.ts) —
+        // for anyone who deleted that email or just wants to check what's
+        // next without digging through their inbox.
+        { label: 'Getting started guide', icon: ClipboardList, desc: 'What to set up, and in what order', action: () => navigate('getting-started') },
         // This row has always been inert — it described the About screen and
         // never opened it, which made it read as a dead label rather than a
         // link. AboutScreen has existed and been routed the whole time
