@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { tasks, approvalRequests } from '@/db/schemas'
+import { tasks, approvalRequests, employees } from '@/db/schemas'
 import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { isRecurrence, spawnNextOccurrence } from '@/lib/tasks'
 import { resolveAssignee, resolveApprover } from '@/lib/task-people'
+import { notifyApprovalRaised } from '@/lib/governance'
+import { createAndEmailNotification } from '@/lib/notification-email'
 
 // ── GET/PATCH/DELETE /api/tasks/[id] (issue #243) ───────────────────────────
 // Tenant-scoped: an id only reads/updates/deletes when its tenantId matches
@@ -105,6 +107,38 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return badRequest('A repeating task needs a due date — that is what each repeat is counted from')
   }
 
+  // ── Notify a newly-assigned employee (notifications-wiring task) ─────────
+  // Only when the assignee actually CHANGES to someone new — re-saving a
+  // task with the same assigneeId (or any other field patch that leaves
+  // assigneeId untouched) must not re-notify. Clearing the assignee
+  // (explicit null) has nobody new to tell, so it's excluded too.
+  const assigneeChangedTo = patch.assigneeId !== undefined && patch.assigneeId !== existing.assigneeId
+    ? patch.assigneeId
+    : null
+  async function notifyNewAssignee(taskTitle: string): Promise<void> {
+    if (!assigneeChangedTo) return
+    const [employee] = await db
+      .select({ userId: employees.userId })
+      .from(employees)
+      .where(eq(employees.id, assigneeChangedTo))
+      .limit(1)
+    // Not every employee has a login (see db/schemas/people.ts) — nobody to
+    // email, so this is a silent no-op, not an error.
+    if (!employee?.userId) return
+    await createAndEmailNotification({
+      tenantId,
+      sourceType: 'task',
+      // Suffixed with the assignee id, not just the task id: the task-
+      // due/overdue sync (syncTaskNotifications) also keys off sourceType
+      // 'task' + the bare task id, and a reassignment must not collide with
+      // (or get silently skipped by) that unrelated notification.
+      sourceId: `${id}:assigned:${assigneeChangedTo}`,
+      title: `You were assigned: ${taskTitle}`,
+      message: taskTitle,
+      userId: employee.userId,
+    })
+  }
+
   const requestedStatus = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : undefined
   const effectiveRequiresApproval = patch.requiresApproval ?? existing.requiresApproval
 
@@ -148,10 +182,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         })
         .returning()
       approvalRequest = inserted
+      // Only for a genuinely new request — the idempotent branch above
+      // returns an already-raised one, which was already notified on.
+      await notifyApprovalRaised(approvalRequest)
     }
 
     patch.status = 'PENDING_APPROVAL'
     const [updated] = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
+    await notifyNewAssignee(updated.title)
     return ok({ ...updated, approvalRequestId: approvalRequest.id })
   }
 
@@ -161,6 +199,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const rows = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
   if (rows.length === 0) return notFound()
+
+  await notifyNewAssignee(rows[0].title)
 
   // A repeating task that just finished schedules its own successor. The
   // other place a task can finish is an approval being granted, which spawns
