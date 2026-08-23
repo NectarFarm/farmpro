@@ -204,7 +204,34 @@ const SESSION_TIMEOUT_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
-  const { navigate, role, tenantId, pendingApprovals } = useNav();
+  const { navigate, role, tenantId, pendingApprovals, farms, activeFarmId } = useNav();
+  // Who is actually signed in. Fetched here rather than threaded through the
+  // shell, matching how components/farm/governance.tsx already reads its own
+  // user id — there is no user in NavContext to read.
+  const [me, setMe] = useState<{ name: string; email: string } | null>(null);
+  useEffect(() => {
+    apiClient.get<{ name?: string; email?: string }>('/api/auth/session').then((res) => {
+      if (res.success) setMe({ name: res.data.name ?? '', email: res.data.email ?? '' });
+    });
+  }, []);
+
+  // Initials from the real name. Two words give two letters, one word gives
+  // one — no padding with a letter the person does not have.
+  const initials = (me?.name ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || '·';
+
+  // The farm this session is looking at. "All farms" is only worth saying
+  // when there is more than one; with a single farm its name is the honest
+  // label, and with none there is nothing true to put here.
+  const farmLabel = activeFarmId !== 'ALL'
+    ? farms.find((f) => f.id === activeFarmId)?.name ?? ''
+    : farms.length === 1 ? farms[0].name
+    : farms.length > 1 ? `${farms.length} farms`
+    : '';
   const { showToast } = useToast();
   const { theme, setTheme, fontSize, setFontSize } = useTheme();
   const [settings, setSettings] = useState<ApiSettings | null>(null);
@@ -379,17 +406,31 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
       <TopNav title="More" subtitle="Settings & configuration" showBell />
       <div className="px-screen" style={{ paddingTop: 14 }}>
 
-        {/* Profile card */}
+        {/* Profile card — the signed-in user, not a mock.
+         *
+         * This card used to read "JK / James Kamau / Owner · Nakuru Farm /
+         * PRO PLAN" for everybody, hardcoded, with only the role label wired
+         * to anything real. On a screen whose whole job is "your account", a
+         * fixed name is worse than no name: it tells every user they are
+         * someone else, and it made the demo tenant look like the only one.
+         *
+         * The PRO PLAN chip is gone rather than wired up. There is no plan or
+         * tier anywhere in the schema (db/schemas/auth.ts's `tenants` is id,
+         * name, active, createdAt) — inventing a tier badge is exactly the
+         * kind of thing this card was already doing. */}
         <button onClick={() => navigate('people')} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(251,191,36,0.2)', border: '2px solid rgba(251,191,36,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--accent-amber)', flexShrink: 0 }}>JK</div>
+          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(251,191,36,0.2)', border: '2px solid rgba(251,191,36,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--accent-amber)', flexShrink: 0 }}>{initials}</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)', color: 'var(--text-primary)' }}>James Kamau</div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)', color: 'var(--text-primary)' }}>{me?.name || 'Your account'}</div>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
-              {role === 'owner' ? 'Owner' : role === 'manager' ? 'Manager' : role === 'worker' ? 'Worker' : role === 'super_admin' ? 'Platform Admin' : 'Staff'} · Nakuru Farm
+              {role === 'owner' ? 'Owner' : role === 'manager' ? 'Manager' : role === 'worker' ? 'Worker' : role === 'super_admin' ? 'Platform Admin' : 'Staff'}
+              {farmLabel ? ` · ${farmLabel}` : ''}
             </div>
+            {me?.email && (
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 2 }}>{me.email}</div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
               <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{role.toUpperCase()}</span>
-              <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)' }}>PRO PLAN</span>
             </div>
           </div>
           <ChevronRight size={16} color="var(--text-muted)" />
