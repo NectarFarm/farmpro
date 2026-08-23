@@ -270,8 +270,14 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
       `/api/farms?tenantId=${tenantId}`
     ).then(res => {
       if (cancelled) return;
-      // Empty (valid) responses keep the mock set — the standalone app isn't seeded.
-      if (res.success && Array.isArray(res.data) && res.data.length) {
+      // A successful response is authoritative even when it's empty: a
+      // super_admin (no tenant) and a freshly provisioned tenant both
+      // legitimately have zero farms, and keeping the mock set there put
+      // demo farms — "Rift Valley Poultry" and friends — in the switcher of
+      // a real, live account. The mock is only a fallback for the standalone
+      // app, which has no /api/farms route at all and so fails the request
+      // outright rather than answering with [].
+      if (res.success && Array.isArray(res.data)) {
         const real = res.data.map(f => ({ id: f.id, code: f.code || f.id, name: f.name, location: f.location ?? '' }));
         setFarms(real);
         // 'ALL' is always valid and needs no correction. If activeFarmId
@@ -640,6 +646,10 @@ export function AppSidebar() {
   const groups = role === 'owner' || role === 'manager'
     ? enterpriseGroups.map((group) => ({ label: group.label, items: group.items.filter((item) => role === 'owner' || !item.ownerOnly) }))
     : [{ label: 'Workspace', items: tabs }];
+  // Platform-admin screens are tenant-scoped, not farm-scoped: they carry
+  // their own tenant picker and never read activeFarmId.
+  const showFarmFilter = farms.length > 0 && !current.startsWith('admin-');
+
   return (
     <aside className="farm-sidebar">
       <div className="farm-sidebar-brand">
@@ -686,7 +696,15 @@ export function AppSidebar() {
          * to switch farms was a bottom sheet inside dashboard.tsx, which the
          * desktop shell never surfaces. A native <select> is the lowest-risk
          * control (no custom popover to build/maintain); 'ALL' mirrors the
-         * same all-farms convention dashboard.tsx's own switcher uses. */}
+         * same all-farms convention dashboard.tsx's own switcher uses.
+         *
+         * Hidden where it would do nothing: the platform admin screens are
+         * scoped by TENANT (they have their own tenant picker) and read
+         * activeFarmId nowhere, so a farm filter sitting in the sidebar there
+         * only invites the question of what it's filtering. Hidden too when
+         * the account has no farms — an owner mid-setup, or a super_admin,
+         * who would otherwise see a control offering only "All farms". */}
+        {showFarmFilter && (
         <label style={{ display: 'block' }}>
           <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Farm</span>
           <select
@@ -701,6 +719,7 @@ export function AppSidebar() {
             ))}
           </select>
         </label>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'capitalize' }}>{role}</div>
           {/* Sign-out was only reachable from the mobile TopNav before this —
