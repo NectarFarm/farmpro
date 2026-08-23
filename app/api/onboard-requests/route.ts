@@ -10,6 +10,8 @@ import {
   isValidPhone,
   toStoredPhone,
   validateLocation,
+  gpsRequirementError,
+  hasCoordinateInput,
 } from '@/lib/validation'
 
 // ── Onboarding-request queue (issue #251) ───────────────────────────────────
@@ -169,10 +171,26 @@ export async function POST(req: Request) {
   const b = (raw ?? {}) as Record<string, unknown>
 
   const result = validateBody(b)
-  if (!result.ok) {
-    const fieldNames = Object.keys(result.fields)
+
+  // The GPS-pin requirement is applied here rather than inside validateBody
+  // because validateBody is also the applicant's resubmission validator, and
+  // that form deliberately omits coordinates it isn't editing so the stored
+  // pin survives. POST /api/onboard-requests/update/[token] therefore runs
+  // the same shared rule against the MERGED pin (submitted ?? already on
+  // file); applying it inside validateBody would reject every resubmission
+  // that simply didn't restate its coordinates.
+  //
+  // Reported under `latitude` so the register form's existing
+  // field-to-step map walks the applicant back to the GPS block, which is
+  // where the thing they need to act on lives.
+  const gpsError = gpsRequirementError(hasCoordinateInput(b), b.locationSkipped)
+  const fields: Record<string, string> = { ...result.fields }
+  if (gpsError && !fields.latitude) fields.latitude = gpsError
+
+  if (!result.ok || gpsError) {
+    const fieldNames = Object.keys(fields)
     return NextResponse.json(
-      { success: false, error: result.fields[fieldNames[0]], fields: result.fields },
+      { success: false, error: fields[fieldNames[0]], fields },
       { status: 400 }
     )
   }

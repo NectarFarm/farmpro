@@ -49,6 +49,10 @@ function newRequestBody(overrides: Record<string, unknown> = {}) {
     location: 'Nakuru, Kenya',
     enterprises: ['layer'],
     consentGiven: true,
+    // A pin (or an explicit acknowledgement of having none) is required —
+    // see lib/validation.ts#gpsRequirementError.
+    latitude: '-0.303099',
+    longitude: '36.080025',
     ...overrides,
   }
 }
@@ -262,6 +266,66 @@ run('onboarding emails (feat/email-notifications)', () => {
       await updatePOST(jsonRequest('http://localhost', 'POST', newRequestBody()), { params: Promise.resolve({ token }) })
     )
     expect(reuseRes.status).toBe(401)
+  })
+
+  it('a resubmission keeps the pin it already had, but a pinless one must decide again', async () => {
+    process.env.BREVO_API_KEY = 'test-key'
+
+    // Two applications reach info-needed: one that pinned its farm, one that
+    // acknowledged it couldn't.
+    async function askForInfo(overrides: Record<string, unknown>) {
+      const { id } = await submitRequest(overrides)
+      mockCookie = superAdminSessionToken
+      await onboardPATCH(
+        jsonRequest(`http://localhost/api/onboard-requests/${id}`, 'PATCH', { status: 'info-needed', notes: 'Please confirm' }),
+        { params: Promise.resolve({ id }) }
+      )
+      mockCookie = undefined
+      const body = JSON.parse(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1].body)
+      const token = (body.textContent.match(/\/onboard-requests\/update\/([^\s]+)/) as RegExpMatchArray)[1]
+      return { id, token }
+    }
+
+    const pinned = await askForInfo({})
+    const pinless = await askForInfo({ latitude: undefined, longitude: undefined, locationSkipped: true })
+
+    // The pinned one resubmits without restating its coordinates — the form
+    // doesn't show them when they're already on file. The stored pin both
+    // satisfies the requirement and survives the write.
+    const keptRes = await readJson(
+      await updatePOST(
+        jsonRequest('http://localhost', 'POST', { ...newRequestBody({ latitude: undefined, longitude: undefined }), farmerName: 'Still Pinned' }),
+        { params: Promise.resolve({ token: pinned.token }) }
+      )
+    )
+    expect(keptRes.status).toBe(200)
+    const [keptRow] = await db.select().from(onboardRequests).where(eq(onboardRequests.id, pinned.id))
+    expect(keptRow.farmerName).toBe('Still Pinned')
+    expect(keptRow.latitude).toBeCloseTo(-0.303099, 5)
+
+    // The pinless one is asked the question again, because after this write
+    // the row would still have no pin.
+    const refusedRes = await readJson(
+      await updatePOST(
+        jsonRequest('http://localhost', 'POST', newRequestBody({ latitude: undefined, longitude: undefined })),
+        { params: Promise.resolve({ token: pinless.token }) }
+      )
+    )
+    expect(refusedRes.status).toBe(400)
+    expect(refusedRes.payload.fields.latitude).toContain('GPS location')
+
+    // Supplying the pin this time round is accepted and stored — which is the
+    // whole point of sending the applicant a correction link.
+    const fixedRes = await readJson(
+      await updatePOST(
+        jsonRequest('http://localhost', 'POST', newRequestBody({ latitude: '0.514300', longitude: '35.269800' })),
+        { params: Promise.resolve({ token: pinless.token }) }
+      )
+    )
+    expect(fixedRes.status).toBe(200)
+    const [fixedRow] = await db.select().from(onboardRequests).where(eq(onboardRequests.id, pinless.id))
+    expect(fixedRow.latitude).toBeCloseTo(0.5143, 4)
+    expect(fixedRow.longitude).toBeCloseTo(35.2698, 4)
   })
 
   it('an update-request token only edits its OWN request, never another one', async () => {
