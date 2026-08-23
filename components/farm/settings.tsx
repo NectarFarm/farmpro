@@ -686,7 +686,7 @@ export function SecuritySettingsScreen() {
             <div className="farm-card" style={{ padding: 14 }}>
               <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>Reset worker sign-in PIN</div>
               <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 12 }}>PINs are never displayed. Set a new four-digit PIN and share it with the worker privately.</div>
-              {workers === null ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading worker accounts…</div> : workers.length === 0 ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>No worker login accounts are available for this farm.</div> : <>
+              {workers === null ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading worker accounts…</div> : workers.length === 0 ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>No worker has a sign-in yet. Open Workers, pick the person, and use the <strong>Sign-in</strong> card to give them a phone and PIN — this screen resets PINs, it doesn&apos;t create the accounts.</div> : <>
                 <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Worker</label>
                 <select className="farm-input" value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)} style={{ marginBottom: 10 }}>
                   {workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.name} · {worker.hasPin ? 'PIN set' : 'Needs PIN'}</option>)}
