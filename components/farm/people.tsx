@@ -512,6 +512,179 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
   );
 }
 
+/* ── Worker sign-in card (employee detail) ─────────────────────────────────
+ * The missing half of worker access. Settings › Security could already RESET
+ * a worker's PIN, but only for an account that already existed — and nothing
+ * in the owner's app could create one, because POST /api/admin/users is
+ * super_admin-only. On a new tenant that left every employee unable to sign
+ * in with no owner-side fix, so this card issues the account from the person
+ * it belongs to. */
+interface WorkerLoginState {
+  hasLogin: boolean;
+  userId?: string;
+  phone: string | null;
+  hasPin: boolean;
+  status: string | null;
+}
+
+function WorkerLoginCard({ employee, tenantId, onLinked }: {
+  employee: ApiEmployee;
+  tenantId: string;
+  onLinked: () => void;
+}) {
+  const { role } = useNav();
+  const { showToast } = useToast();
+  const [state, setState] = useState<WorkerLoginState | null>(null);
+  const [phone, setPhone] = useState(employee.phone || '');
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+
+  const canManage = role === 'owner' || role === 'manager';
+
+  const load = useCallback(() => {
+    if (!canManage) return;
+    apiClient.get<WorkerLoginState>(`/api/employees/${employee.id}/login?tenantId=${tenantId}`).then((res) => {
+      if (res.success) { setState(res.data); setPhone((current) => current || res.data.phone || ''); }
+      else setError(res.error || 'Could not load sign-in details.');
+    });
+  }, [canManage, employee.id, tenantId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Only workers sign in with a PIN; managers and owners use a password and
+  // are still issued by a platform admin. Saying so beats a card whose
+  // buttons always fail.
+  if (!canManage) return null;
+  if (employee.role !== 'worker') {
+    return (
+      <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+        <div className="section-eyebrow" style={{ marginBottom: 6 }}>Sign-in</div>
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          {roleLabel(employee.role)} accounts sign in with an email and password, not a PIN. Ask the platform admin to issue one.
+        </div>
+      </div>
+    );
+  }
+
+  async function createLogin() {
+    setError('');
+    if (!/^\d{4}$/.test(pin)) { setError('Enter an exact 4-digit PIN.'); return; }
+    setBusy(true);
+    const res = await apiClient.post<WorkerLoginState>(`/api/employees/${employee.id}/login`, { tenantId, phone, pin });
+    setBusy(false);
+    if (!res.success) { setError(res.error || 'Could not create the login.'); return; }
+    setPin('');
+    showToast(`Login created. ${employee.name} signs in with ${res.data.phone} and this PIN — share it privately.`, 'success');
+    load();
+    onLinked();
+  }
+
+  async function resetPin() {
+    setError('');
+    if (!/^\d{4}$/.test(pin)) { setError('Enter an exact 4-digit PIN.'); return; }
+    if (!state?.userId) return;
+    setBusy(true);
+    // The existing tenant-scoped rotation endpoint — not a second way to do
+    // the same thing.
+    const res = await apiClient.post('/api/security/worker-pins', { userId: state.userId, pin, phone });
+    setBusy(false);
+    if (!res.success) { setError(res.error || 'Could not update the PIN.'); return; }
+    setPin('');
+    showToast('PIN updated. Share it with the worker privately.', 'success');
+    load();
+  }
+
+  async function revoke() {
+    setError('');
+    setBusy(true);
+    const res = await apiClient.delete(`/api/employees/${employee.id}/login?tenantId=${tenantId}`);
+    setBusy(false);
+    setConfirmRevoke(false);
+    if (!res.success) { setError(res.error || 'Could not revoke the login.'); return; }
+    showToast('Sign-in revoked. Their PIN no longer works and open sessions were ended.', 'success');
+    load();
+  }
+
+  const hasLogin = state?.hasLogin ?? false;
+  const suspended = state?.status === 'SUSPENDED';
+
+  return (
+    <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+      <div className="section-eyebrow" style={{ marginBottom: 8 }}>Sign-in</div>
+
+      {state === null ? (
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading…</div>
+      ) : (
+        <>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
+            {hasLogin
+              ? suspended
+                ? <>Sign-in is <strong>revoked</strong>. Setting a new PIN below restores access.</>
+                : <>Signs in with <strong>{state.phone}</strong> and a 4-digit PIN{state.hasPin ? '' : ' — no PIN is set yet, so they cannot sign in'}.</>
+              : <>{employee.name} has no way to sign in yet. Give them a phone number and a 4-digit PIN — that pair is their login.</>}
+          </div>
+
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone</label>
+          <input
+            className="farm-input" value={phone} onChange={(e) => setPhone(e.target.value)}
+            placeholder="07XXXXXXXX" inputMode="tel" style={{ marginBottom: 10 }}
+          />
+
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
+            {hasLogin ? 'New 4-digit PIN' : '4-digit PIN'}
+          </label>
+          <input
+            className="farm-input" type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4}
+            value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+            placeholder="••••" style={{ marginBottom: 10 }}
+          />
+
+          {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="btn-primary" disabled={busy}
+              onClick={hasLogin ? resetPin : createLogin}
+              style={{ flex: 1, justifyContent: 'center' }}
+            >
+              {busy ? 'Saving…' : hasLogin ? 'Update PIN' : 'Create login'}
+            </button>
+            {hasLogin && !suspended && (
+              <button
+                className="btn-secondary" disabled={busy}
+                onClick={() => setConfirmRevoke(true)}
+                style={{ justifyContent: 'center' }}
+              >
+                Revoke
+              </button>
+            )}
+          </div>
+
+          {confirmRevoke && (
+            <div style={{ marginTop: 10, padding: 10, borderRadius: 10, border: '1px solid var(--status-critical)', background: 'rgba(248,113,113,0.06)' }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 8 }}>
+                Revoke sign-in for {employee.name}? Their PIN stops working immediately and any open session ends. Their work records are kept.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn-secondary" onClick={() => setConfirmRevoke(false)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+                <button disabled={busy} onClick={revoke} style={{ flex: 1, justifyContent: 'center', padding: 10, borderRadius: 10, fontWeight: 700, fontSize: 'var(--fs-sm)', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)', color: 'var(--status-critical)', cursor: 'pointer' }}>
+                  Revoke sign-in
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 10, lineHeight: 1.5 }}>
+            PINs are stored hashed and are never shown again — if it&apos;s forgotten, set a new one here.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function PeopleDetailScreen() {
   const { params, tenantId } = useNav();
   const id = params.id;
@@ -684,6 +857,9 @@ export function PeopleDetailScreen() {
               {[
                 { label: 'Employee ID', value: employee.id.slice(0, 8) },
                 { label: 'Phone', value: employee.phone || '—' },
+                // "Account linked" was as far as this went — see the Sign-in
+                // card below, which is where an owner can actually do
+                // something about it.
                 { label: 'Login', value: employee.userId ? 'Account linked' : 'No login account' },
                 { label: 'Photo threshold', value: `${employee.mortalityPhotoThreshold}+ deaths` },
                 { label: 'Monthly salary', value: employee.monthlySalaryCents > 0 ? formatMoney(employee.monthlySalaryCents) : 'Not set' },
@@ -695,6 +871,8 @@ export function PeopleDetailScreen() {
                 </div>
               ))}
             </div>
+            <WorkerLoginCard employee={employee} tenantId={tenantId} onLinked={loadEmployee} />
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
               <button className="btn-secondary" style={{ justifyContent: 'center', padding: 12, borderRadius: 12 }} onClick={() => setShowEdit(true)}>Edit Details</button>
               <button disabled={busy} onClick={() => { setToggleError(''); setShowToggleConfirm(true); }} style={{ padding: 12, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)', border: `1px solid ${employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}`, color: employee.status === 'ACTIVE' ? 'var(--status-critical)' : 'var(--status-ok)', cursor: 'pointer' }}>
