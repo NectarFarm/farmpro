@@ -4,6 +4,7 @@ import { batches, productionUnits } from '@/db/schemas'
 import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
+import { applyMovement, BatchLedgerError } from '@/lib/batch-ledger'
 
 // ── GET/PATCH /api/batches/[id] (issue #231; auth fix: fix/authenticate-all-apis) ─
 // PATCH is the single update endpoint for a batch's mutable lifecycle fields
@@ -77,9 +78,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (typeof b.status === 'string') patch.status = b.status.trim()
   if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim()
   if (typeof b.species === 'string') patch.species = b.species.trim()
-  if (b.currentQty !== undefined && Number.isFinite(Number(b.currentQty))) {
-    patch.currentQty = Math.max(0, Math.trunc(Number(b.currentQty)))
-  }
+  // currentQty is deliberately NOT patched here any more — see the ledger
+  // block after the update. Overwriting it directly is what let the number
+  // drift with no explanation attached.
+  const requestedQty = b.currentQty !== undefined && Number.isFinite(Number(b.currentQty))
+    ? Math.max(0, Math.trunc(Number(b.currentQty)))
+    : null
   if (b.initialQty !== undefined && Number.isFinite(Number(b.initialQty))) {
     patch.initialQty = Math.max(0, Math.trunc(Number(b.initialQty)))
   }
@@ -99,13 +103,54 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     patch.unitId = newUnitId
   }
 
-  if (Object.keys(patch).length === 0) return badRequest('No updatable fields provided')
+  if (Object.keys(patch).length === 0 && requestedQty === null) {
+    return badRequest('No updatable fields provided')
+  }
 
-  const rows = await db
-    .update(batches)
-    .set(patch)
-    .where(and(eq(batches.id, id), eq(batches.tenantId, tenantId)))
-    .returning()
+  let rows: (typeof batches.$inferSelect)[] = []
+  try {
+    rows = await db.transaction(async (tx) => {
+      let current = await tx
+        .select()
+        .from(batches)
+        .where(and(eq(batches.id, id), eq(batches.tenantId, tenantId)))
+        .limit(1)
+      if (!current[0]) return []
+
+      if (Object.keys(patch).length > 0) {
+        current = await tx
+          .update(batches)
+          .set(patch)
+          .where(and(eq(batches.id, id), eq(batches.tenantId, tenantId)))
+          .returning()
+      }
+
+      // A hand-edited headcount goes through the ledger like everything else
+      // (batch-ledger task). An owner correcting a number is a legitimate
+      // thing to do — silently is not, because the next person to ask why the
+      // count changed has nothing to read.
+      if (requestedQty !== null && requestedQty !== current[0].currentQty) {
+        const updated = await applyMovement(tx, {
+          tenantId,
+          batchId: id,
+          type: 'manual_adjustment',
+          qtyDelta: requestedQty - current[0].currentQty,
+          reason: typeof b.reason === 'string' && b.reason.trim() ? b.reason.trim() : 'Edited by hand',
+          sourceType: 'user',
+          sourceId: session.id,
+          actor: session.email,
+        })
+        return [updated]
+      }
+
+      return current
+    })
+  } catch (err) {
+    if (err instanceof BatchLedgerError) {
+      return NextResponse.json({ success: false, error: err.message }, { status: err.status })
+    }
+    throw err
+  }
 
   if (rows.length === 0) return notFound()
   return ok(rows[0])

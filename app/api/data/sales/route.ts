@@ -6,6 +6,7 @@ import { and, eq } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
+import { BatchLedgerError } from '@/lib/batch-ledger'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -90,9 +91,9 @@ export async function POST(req: Request) {
   const batchId = typeof b.batchId === 'string' && b.batchId.trim() ? b.batchId.trim() : null
   const productId = typeof b.productId === 'string' && b.productId.trim() ? b.productId.trim() : null
 
-  let product: { id: string; name: string } | undefined
+  let product: { id: string; name: string; stockEffect: string } | undefined
   if (productId) {
-    const rows = await db.select({ id: products.id, name: products.name }).from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId)))
+    const rows = await db.select({ id: products.id, name: products.name, stockEffect: products.stockEffect }).from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId)))
     product = rows[0]
     if (!product) return notFound('Product not found for this tenant')
     if (!item) item = product.name
@@ -110,16 +111,38 @@ export async function POST(req: Request) {
   const method = typeof b.method === 'string' ? b.method.trim() : ''
   const soldAt = typeof b.soldAt === 'string' && b.soldAt ? new Date(b.soldAt) : undefined
 
-  const sale = await recordSale({
-    tenantId,
-    batchId,
-    productId,
-    item,
-    amountCents: Math.trunc(amountCents),
-    method,
-    status,
-    soldAt,
-  })
+  // How many were sold. Optional, because a sale can legitimately be an
+  // amount with no unit count behind it (a bulk lot, a service) — but a sale
+  // that is going to reduce a batch's headcount cannot be, so that case is
+  // refused rather than silently recorded as a sale of zero birds.
+  const qty = b.qty !== undefined && b.qty !== null && b.qty !== '' ? Math.trunc(Number(b.qty)) : null
+  if (qty !== null && (!Number.isFinite(qty) || qty <= 0)) return badRequest('qty must be a positive whole number')
+  if (product?.stockEffect === 'batch_quantity' && batchId && qty === null) {
+    return badRequest(`${product.name} comes out of the batch when sold — enter how many were sold`)
+  }
 
-  return created(sale)
+  try {
+    const sale = await recordSale({
+      tenantId,
+      batchId,
+      productId,
+      item,
+      qty,
+      stockEffect: product?.stockEffect ?? null,
+      actor: session.email,
+      amountCents: Math.trunc(amountCents),
+      method,
+      status,
+      soldAt,
+    })
+    return created(sale)
+  } catch (err) {
+    // Selling more birds than the batch has is a data-entry mistake worth
+    // stopping at the door: the money would be recorded against a headcount
+    // that cannot be right.
+    if (err instanceof BatchLedgerError) {
+      return NextResponse.json({ success: false, error: err.message }, { status: err.status })
+    }
+    throw err
+  }
 }

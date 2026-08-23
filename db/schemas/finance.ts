@@ -99,6 +99,12 @@ export const sales = pgTable('sales', {
   batchId: text('batch_id'),
   productId: text('product_id'),
   item: text('item').notNull(),
+  // How many were sold. Nullable because every sale recorded before this
+  // column existed has no quantity to backfill with — and guessing one from
+  // the amount would invent a per-unit price nobody entered. A sale with no
+  // qty moves no stock, which is the honest reading of "we know it was sold,
+  // we don't know how many".
+  qty: integer('qty'),
   amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
   method: text('method').notNull().default(''),
   status: text('status').notNull().default('paid'), // 'paid' | 'pending'

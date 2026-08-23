@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { records, batches, employees, productionUnits } from '@/db/schemas'
+import { records, batches, employees, productionUnits, approvalRequests } from '@/db/schemas'
+import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
-import { canEdit, MODULES } from '@/lib/permissions'
+import { canEdit, needsApproval, MODULES } from '@/lib/permissions'
+import { applyMovement, applyCount, BatchLedgerError } from '@/lib/batch-ledger'
 import { consumeStock, InsufficientStockError, UnknownItemError, type ConsumeResult } from '@/lib/inventory-consume'
 
 // ── GET/POST /api/records (issue #247 task 2) ───────────────────────────────
@@ -167,6 +169,37 @@ export async function POST(req: Request) {
   const data = (b.data && typeof b.data === 'object' && !Array.isArray(b.data)) ? (b.data as Record<string, unknown>) : {}
   const photoUrl = typeof b.photoUrl === 'string' && b.photoUrl.trim() ? b.photoUrl.trim() : null
 
+  // ── What this record does to the batch's headcount ────────────────────────
+  // A mortality entry used to leave `batches.currentQty` untouched: the death
+  // was filed, the count carried on as before, and every figure derived from
+  // it — dashboard KPIs, reports, the batch card — drifted away from the
+  // birds actually in the house. A physical count was the same: it recorded
+  // what was counted and changed nothing.
+  //
+  // Whether it applies NOW or waits is the tenant's own decision, read from
+  // the approval_required column their Governance screen has always written
+  // and nothing has ever read (lib/permissions.ts#needsApproval). With it
+  // set, the record is filed and an approval raised; the headcount moves when
+  // someone approves it (lib/governance.ts), not before.
+  const deaths = type === 'mortality' ? Math.trunc(Number(data.count ?? data.deaths ?? 0)) : 0
+  if (type === 'mortality' && (!Number.isFinite(deaths) || deaths <= 0)) {
+    return badRequest('A mortality record needs how many died')
+  }
+  // `physicalCount` is what the worker form has always sent (see
+  // components/farm/worker.tsx's PhysicalCountForm); `counted` is the name
+  // the rest of this file uses. Both are accepted rather than renaming a
+  // field that existing clients post.
+  const counted = type === 'physical_count'
+    ? Math.trunc(Number(data.counted ?? data.physicalCount ?? data.count ?? NaN))
+    : NaN
+  const hasCount = type === 'physical_count' && Number.isFinite(counted)
+  if (type === 'physical_count' && !hasCount) {
+    return badRequest('A physical count needs the number you counted')
+  }
+
+  const movesHeadcount = type === 'mortality' || hasCount
+  const deferred = movesHeadcount && await needsApproval(tenantId, session.role, RECORD_TYPE_MODULES[type])
+
   // Which lines name real stock. A line with an `itemId` moves inventory; a
   // line with only free text does not, which is how records written before
   // this existed keep working rather than being rejected retroactively.
@@ -181,14 +214,56 @@ export async function POST(req: Request) {
     const result = await db.transaction(async (tx) => {
       const inserted: (typeof records.$inferSelect)[] = []
       const consumed: ConsumeResult[] = []
+      const approvals: string[] = []
 
       for (const targetId of targetBatchIds) {
         const id = crypto.randomUUID()
         const [row] = await tx
           .insert(records)
-          .values({ id, tenantId, batchId: targetId, employeeId, type, data: dataFor(data, targetId), photoUrl })
+          .values({
+            id, tenantId, batchId: targetId, employeeId, type,
+            // The record carries its own pending flag, so a worker's history
+            // can say "waiting for approval" instead of looking applied.
+            data: deferred ? { ...dataFor(data, targetId), pendingApproval: true } : dataFor(data, targetId),
+            photoUrl,
+          })
           .returning()
         inserted.push(row)
+
+        if (movesHeadcount && deferred) {
+          const [approval] = await tx.insert(approvalRequests).values({
+            id: randomUUID(),
+            tenantId,
+            type: type === 'mortality' ? 'mortality' : 'physical_count',
+            title: type === 'mortality' ? `Mortality: ${deaths} head` : `Physical count: ${counted} head`,
+            requestedBy: session.id,
+            batchId: targetId,
+            entityId: id,
+            details: typeof data.cause === 'string' ? data.cause : '',
+            status: 'pending',
+            priority: 'medium',
+          }).returning()
+          approvals.push(approval.id)
+        } else if (movesHeadcount) {
+          if (type === 'mortality') {
+            await applyMovement(tx, {
+              tenantId, batchId: targetId, type: 'mortality', qtyDelta: -deaths,
+              reason: typeof data.cause === 'string' && data.cause ? String(data.cause) : 'Mortality recorded',
+              // A death report is never blocked by a headcount nobody
+              // entered — see lib/batch-ledger.ts#applyMovement.
+              allowClamp: true,
+              sourceType: 'record', sourceId: id, actor: session.email,
+            })
+          } else {
+            await applyCount(tx, {
+              tenantId, batchId: targetId, counted,
+              reason: typeof data.varianceReason === 'string' && data.varianceReason.trim()
+                ? String(data.varianceReason).trim()
+                : undefined,
+              sourceType: 'record', sourceId: id, actor: session.email,
+            })
+          }
+        }
 
         for (const line of stockLines) {
           const qty = qtyForBatch(line, targetId)
@@ -205,23 +280,28 @@ export async function POST(req: Request) {
         }
       }
 
-      return { inserted, consumed }
+      return { inserted, consumed, approvals }
     })
 
     // The single-batch response keeps its original shape — one record object,
     // with the stock it moved attached when there was any.
     if (targetBatchIds.length === 1) {
-      return created(result.consumed.length > 0
-        ? { ...result.inserted[0], consumed: result.consumed }
-        : result.inserted[0])
+      const extras = {
+        ...(result.consumed.length > 0 ? { consumed: result.consumed } : {}),
+        ...(result.approvals.length > 0 ? { approvalRequestId: result.approvals[0], pendingApproval: true } : {}),
+      }
+      return created(Object.keys(extras).length > 0 ? { ...result.inserted[0], ...extras } : result.inserted[0])
     }
-    return created({ records: result.inserted, consumed: result.consumed })
+    return created({ records: result.inserted, consumed: result.consumed, approvalRequestIds: result.approvals })
   } catch (err) {
     // A shortfall rolls back every record in the submission, not just the
     // line that ran out: half a feeding round saved is worse than none,
     // because the batches that did get recorded look complete.
     if (err instanceof InsufficientStockError) return badRequest(err.message)
     if (err instanceof UnknownItemError) return badRequest(err.message)
+    if (err instanceof BatchLedgerError) {
+      return NextResponse.json({ success: false, error: err.message }, { status: err.status })
+    }
     throw err
   }
 }

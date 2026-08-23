@@ -225,6 +225,20 @@
       "when": 1787454887196,
       "tag": "0031_hot_anita_blake",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1787455634648,
+      "tag": "0032_overrated_starbolt",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1787455880611,
+      "tag": "0033_sturdy_alex_wilder",
+      "breakpoints": true
     }
   ]
 }
