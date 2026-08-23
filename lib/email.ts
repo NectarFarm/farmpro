@@ -23,6 +23,7 @@
 //     inline-styled HTML wrapper, same sender and footer every time. No
 //     template engine — three call sites don't need one.
 import 'server-only'
+import { renderGuideHtml, renderGuideText } from './onboarding-guide'
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
@@ -49,6 +50,7 @@ export type EmailTemplate =
   | 'onboarding-info-needed'
   | 'onboarding-approved'
   | 'onboarding-rejected'
+  | 'onboarding-guide'
   | 'notification'
 
 // Every send — success, no-op, or failure — reports this shape so the
@@ -82,6 +84,12 @@ interface ComposeOptions {
   // "label: url" line in plain text (a plain-text-only mail client still
   // needs the raw URL to click/copy).
   cta?: { label: string; url: string }
+  // A pre-rendered block placed after the CTA — e.g. the onboarding guide's
+  // ordered list (lib/onboarding-guide.ts). Kept generic here (this file
+  // doesn't need to know what a "guide" is, matching the "one render path"
+  // rule above) — the caller renders both the HTML and the text form and
+  // this just places them.
+  extra?: { heading?: string; html: string; text: string }
 }
 
 function escapeHtml(s: string): string {
@@ -99,6 +107,10 @@ function escapeHtml(s: string): string {
 export function composeMessage(opts: ComposeOptions): ComposedMessage {
   const textParts = [...opts.paragraphs]
   if (opts.cta) textParts.push(`${opts.cta.label}: ${opts.cta.url}`)
+  if (opts.extra) {
+    if (opts.extra.heading) textParts.push(opts.extra.heading)
+    textParts.push(opts.extra.text)
+  }
   textParts.push('—', FOOTER_TEXT)
   const text = textParts.join('\n\n')
 
@@ -108,10 +120,14 @@ export function composeMessage(opts: ComposeOptions): ComposedMessage {
   const htmlCta = opts.cta
     ? `<p style="margin:0 0 20px;"><a href="${escapeHtml(opts.cta.url)}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;">${escapeHtml(opts.cta.label)}</a></p>`
     : ''
+  const htmlExtra = opts.extra
+    ? `${opts.extra.heading ? `<div style="font-size:13px;font-weight:700;color:#1a1a1a;margin:4px 0 12px;">${escapeHtml(opts.extra.heading)}</div>` : ''}<div style="margin:0 0 20px;font-size:14px;line-height:1.5;">${opts.extra.html}</div>`
+    : ''
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
 <div style="font-size:13px;font-weight:700;letter-spacing:0.5px;color:#16a34a;text-transform:uppercase;margin-bottom:12px;">${APP_NAME}</div>
 ${htmlParagraphs}
 ${htmlCta}
+${htmlExtra}
 <hr style="border:none;border-top:1px solid #e5e5e5;margin:20px 0;" />
 <p style="margin:0;color:#888888;font-size:12px;line-height:1.5;">${escapeHtml(FOOTER_TEXT)}</p>
 </div>`
@@ -232,8 +248,37 @@ export async function sendOnboardingApprovedEmail(opts: {
     subject: `${APP_NAME}: your application was approved — set your password`,
     paragraphs,
     cta: { label: 'Set your password', url: opts.setPasswordUrl },
+    // lib/onboarding-guide.ts is the one place this list is written — see
+    // that file's header for why the email and the in-app "Getting Started"
+    // page both render it instead of keeping separate copy.
+    extra: { heading: 'Getting started', html: renderGuideHtml(), text: renderGuideText() },
   })
   return sendEmail({ to: opts.to, template: 'onboarding-approved', message })
+}
+
+// Re-sends the getting-started guide on its own, with NO set-password link —
+// that link is minted once and consumed the moment the applicant sets a
+// password (or silently expires if they never do), so handing it out again
+// here would either be dead or invalidate a link they still have. "Forgot
+// password" is the real way back in for someone who already has an account,
+// and this says so. See POST /api/onboard-requests/[id]/send-guide, the only
+// caller — an admin resending the guide to an already-approved applicant.
+export async function sendOnboardingGuideEmail(opts: {
+  to: string
+  farmerName: string
+  farmName: string
+}): Promise<EmailResult> {
+  const paragraphs = [
+    `Hi ${opts.farmerName},`,
+    `Here's the getting-started guide for ${opts.farmName} again.`,
+    'If you need to sign in and don\'t remember your password, use "Forgot password" on the sign-in screen — the one-time link from your approval email has already been used or has expired.',
+  ]
+  const message = composeMessage({
+    subject: `${APP_NAME}: your getting-started guide`,
+    paragraphs,
+    extra: { heading: 'Getting started', html: renderGuideHtml(), text: renderGuideText() },
+  })
+  return sendEmail({ to: opts.to, template: 'onboarding-guide', message })
 }
 
 // rejected: short and plain, deliberately no credentials and no link.

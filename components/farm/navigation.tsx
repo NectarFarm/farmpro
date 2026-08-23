@@ -16,7 +16,7 @@ export type ScreenId =
   | 'process-config'
   | 'notification-settings'
   | 'ui-customise' | 'security-settings' | 'role-notice' | 'routines'
-  | 'auditor-reports' | 'vet-herd' | 'about';
+  | 'auditor-reports' | 'vet-herd' | 'about' | 'getting-started';
 
 /* ── Session role contract (issue #219) ──
  * The UI role set mirrors the backend exactly (backend: `lib/types/index.ts`):
@@ -132,7 +132,7 @@ const ALL_SCREENS: ScreenId[] = [
   'process-config',
   'notification-settings',
   'ui-customise', 'security-settings', 'role-notice',
-  'auditor-reports', 'vet-herd', 'about', 'routines',
+  'auditor-reports', 'vet-herd', 'about', 'routines', 'getting-started',
 ];
 const SCREEN_SET = new Set<string>(ALL_SCREENS);
 function isScreenId(s: string): s is ScreenId {
@@ -599,7 +599,7 @@ export function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs
 /* Active-tab detection shared by BottomNav (mobile) and AppSidebar (desktop). */
 function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
   const SUB_SCREENS: Record<string, ScreenId[]> = {
-    settings: ['people','governance','reports','inventory','weather','process-config','notification-settings','ui-customise','ai-chat','about','routines'],
+    settings: ['people','governance','reports','inventory','weather','process-config','notification-settings','ui-customise','ai-chat','about','routines','getting-started'],
     crops: ['batch-detail','crop-schedule'],
     'admin-onboarding': ['admin-onboarding'],
   };
@@ -613,7 +613,7 @@ function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
     crops: ['batch-detail', 'crop-schedule'],
     inventory: ['inventory-detail'],
     people: ['people-detail'],
-    settings: ['process-config', 'notification-settings', 'ui-customise', 'ai-chat', 'about', 'routines'],
+    settings: ['process-config', 'notification-settings', 'ui-customise', 'ai-chat', 'about', 'routines', 'getting-started'],
   };
   return current === tabId || (DETAIL_SCREENS[tabId] ?? []).includes(current);
 }

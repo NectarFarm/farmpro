@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { desc } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { onboardRequests } from '@/db/schemas'
+import { onboardRequests, users } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import {
   normalizeEmail,
@@ -195,6 +195,66 @@ export async function POST(req: Request) {
     )
   }
 
+  // A caller who already has an account is refused outright rather than
+  // allowed to also file an onboarding request. This DOES confirm to an
+  // anonymous caller that the address belongs to an existing account — a
+  // real enumeration signal — accepted deliberately: the alternative is a
+  // farmer whose second application silently vanishes with no way to find
+  // out why, which is worse, and this same form already emails the address
+  // on approval/rejection regardless, so an attacker learns nothing here
+  // they couldn't already infer from "forgot password" on the same address.
+  const existingUser = await db.select({ id: users.id }).from(users).where(eq(users.email, result.email)).limit(1)
+  if (existingUser.length > 0) {
+    const msg = 'This email already has an account. Sign in, or use "Forgot password" if you don\'t remember your password.'
+    return NextResponse.json({ success: false, error: msg, fields: { email: msg } }, { status: 409 })
+  }
+
+  // A second application from the same address while the first is still
+  // open almost always means "I made a mistake, let me fix it" or "I never
+  // heard back" — not a second, independent farm — so this UPDATES that row
+  // instead of leaving the admin two entries for one farmer. `approved` rows
+  // are left alone (the tenant already exists — this is history, not a
+  // draft), and so are `rejected` ones: re-applying after a rejection is a
+  // genuinely new decision for the admin to make, not a correction of the
+  // old one, so it gets its own fresh row.
+  const priorRows = await db
+    .select()
+    .from(onboardRequests)
+    .where(eq(onboardRequests.email, result.email))
+    .orderBy(desc(onboardRequests.requestedAt))
+  const reopenable = priorRows.find((r) => r.status === 'pending' || r.status === 'info-needed')
+
+  if (reopenable) {
+    const [updated] = await db
+      .update(onboardRequests)
+      .set({
+        farmerName: result.farmerName,
+        phone: result.phone,
+        farmName: result.farmName,
+        location: result.location,
+        enterprises: result.enterprises,
+        address: result.address,
+        latitude: result.latitude,
+        longitude: result.longitude,
+        status: 'pending',
+        // Re-stamped so the resubmission surfaces where a reviewer looks.
+        // The admin queue is ordered newest-first by this column, and a
+        // corrected application keeping its original timestamp would sink to
+        // the position it held when it was first wrong — which is exactly
+        // where nobody would look for it.
+        requestedAt: new Date(),
+        // This resubmission carries its own fresh consentGiven: true (checked
+        // above), so re-stamping consentAt to now is recording THIS consent,
+        // not backdating/granting one on the applicant's behalf the way
+        // PATCH is forbidden from doing.
+        consentAt: new Date(),
+        consentVersion: result.consentVersion,
+      })
+      .where(eq(onboardRequests.id, reopenable.id))
+      .returning()
+    return NextResponse.json({ success: true, data: { id: updated.id, updated: true } }, { status: 201 })
+  }
+
   const id = crypto.randomUUID()
   await db.insert(onboardRequests).values({
     id,
@@ -214,7 +274,7 @@ export async function POST(req: Request) {
     consentVersion: result.consentVersion,
   })
 
-  return NextResponse.json({ success: true, data: { id } }, { status: 201 })
+  return NextResponse.json({ success: true, data: { id, updated: false } }, { status: 201 })
 }
 
 // GET /api/onboard-requests — super_admin review queue, newest first.
