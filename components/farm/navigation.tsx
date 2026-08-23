@@ -542,6 +542,11 @@ export function BottomNav() {
             className={`bottom-nav-item ${isActive ? 'active' : ''}`}
             onClick={() => navigate(tab.id)}
             aria-current={isActive ? 'page' : undefined}
+            // Anchor for the guided tour (components/farm/tour.tsx). The
+            // sidebar's equivalent button carries the same id — only one of
+            // the two shells is visible at a time, and the tour picks
+            // whichever one that is.
+            data-tour={`nav-${tab.id}`}
           >
             <Icon className="nav-icon" size={22} />
             {badge !== null && <NavBadge count={badge} tabId={tab.id} />}
@@ -673,6 +678,7 @@ export function AppSidebar() {
               type="button"
               onClick={() => navigate(tab.id)}
               aria-current={active ? 'page' : undefined}
+              data-tour={`nav-${tab.id}`}
               style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', marginBottom: 2,
                 borderRadius: 10, cursor: 'pointer', textAlign: 'left', position: 'relative',
                 // Was a hardcoded #e8f0e9 / #c9ddcc pair — switched to the same
@@ -705,7 +711,7 @@ export function AppSidebar() {
          * the account has no farms — an owner mid-setup, or a super_admin,
          * who would otherwise see a control offering only "All farms". */}
         {showFarmFilter && (
-        <label style={{ display: 'block' }}>
+        <label style={{ display: 'block' }} data-tour="farm-switcher">
           <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Farm</span>
           <select
             value={activeFarmId}

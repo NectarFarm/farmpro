@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, createContext, useContext } from 'react';
 import { NavProvider, useNav, BottomNav, AppSidebar, setGlobalLogout, RoleNoticeScreen, type Role } from '@/components/farm/navigation';
+import { TourController } from '@/components/farm/tour';
 import { DashboardScreen, NotificationsScreen, NotificationSettingsScreen } from '@/components/farm/dashboard';
 import { CropsScreen, BatchDetailScreen, CropScheduleScreen, ProcessConfigScreen } from '@/components/farm/crops';
 import { InventoryScreen, InventoryDetailScreen } from '@/components/farm/inventory';
@@ -121,6 +122,9 @@ export default function Home() {
   const [role, setRole] = useState<Role>('owner');
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>('');
+  // Only used to key the guided tour's "already seen" flag per person, so
+  // two people sharing a device don't inherit each other's dismissal.
+  const [userId, setUserId] = useState<string>('');
   // Admin user-management feature: set only when the active session is a
   // time-boxed impersonation (GET /api/auth/session's additive
   // `impersonatedBy` field) — drives the global ImpersonationBanner below.
@@ -135,7 +139,7 @@ export default function Home() {
     let cancelled = false;
     // Timeout race mirrors the logout pattern (issue #220): a session endpoint
     // that hangs must not leave the shell stuck on the boot screen forever.
-    const boot = apiClient.get<{ role?: string; tenantId?: string | null; name?: string; impersonatedBy?: ImpersonationInfo | null }>('/api/auth/session');
+    const boot = apiClient.get<{ id?: string; role?: string; tenantId?: string | null; name?: string; impersonatedBy?: ImpersonationInfo | null }>('/api/auth/session');
     const timeout = new Promise<{ success: false }>((resolve) =>
       setTimeout(() => resolve({ success: false }), 3000)
     );
@@ -148,6 +152,7 @@ export default function Home() {
           setRole(r);
           setTenantId(tenant);
           if (res.success && typeof res.data?.name === 'string' && res.data.name.trim()) setUserName(res.data.name);
+          if (res.success && typeof res.data?.id === 'string') setUserId(res.data.id);
           setImpersonation(res.success ? res.data?.impersonatedBy ?? null : null);
           setAuthState('app');
         } else {
@@ -232,6 +237,9 @@ export default function Home() {
                 {authState === 'app' && (
                   <NavProvider initialRole={role} initialTenantId={tenantId ?? undefined}>
                     <ScreenRouter onLogout={handleLogout} userName={userName} />
+                    {/* Mounted inside the shell so the controls it points at
+                       exist by the time it looks for them. */}
+                    {userId && <TourController role={role} userKey={userId} />}
                   </NavProvider>
                 )}
               </div>
