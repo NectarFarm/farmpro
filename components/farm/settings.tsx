@@ -12,6 +12,7 @@
 import React, { useState, createContext, useContext, useCallback, useEffect } from 'react';
 import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
+import { requestTour } from './tour';
 import { apiClient } from '@/lib/request';
 import {
   ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff,
@@ -352,6 +353,11 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         // wired to something invented. About IFMS is real: the version
         // below is the actual package.json version, inlined at build
         // time (next.config.ts) — no fabricated build number.
+        // The walkthrough runs itself once, on a person's first sign-in, and
+        // then never again — which is exactly when it is least useful,
+        // because nothing has been set up yet and none of it means anything.
+        // This is how you get it back after you have some data to look at.
+        { label: 'Show me around', desc: 'Replay the guided walkthrough of the app', action: () => requestTour() },
         { label: 'About IFMS', desc: `Version ${process.env.NEXT_PUBLIC_APP_VERSION ?? '—'}` },
       ],
     },
