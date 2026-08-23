@@ -96,7 +96,11 @@ export async function syncTaskNotifications(tenantId: string): Promise<void> {
     const employeeRows = await db
       .select({ id: employees.id, userId: employees.userId })
       .from(employees)
-      .where(inArray(employees.id, assigneeIds))
+      // Tenant-scoped as well as id-scoped. The ids come from this tenant's
+      // own tasks, so today it cannot match anything foreign — but that is a
+      // property of the write path, not of this query, and an unscoped read
+      // is one bad assigneeId away from mailing another farm's worker.
+      .where(and(eq(employees.tenantId, tenantId), inArray(employees.id, assigneeIds)))
     for (const e of employeeRows) userIdByEmployeeId.set(e.id, e.userId)
   }
 
