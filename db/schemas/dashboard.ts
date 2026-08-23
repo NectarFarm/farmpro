@@ -36,6 +36,26 @@ export const products = pgTable('products', {
   type: text('type').notNull(),
   name: text('name').notNull(),
   saleUnits: numeric('sale_units', { precision: 12, scale: 2 }).notNull().default('0'),
+  // ── What selling this takes away (batch-ledger task) ─────────────────────
+  // The farmer's own question: which products reduce stock, and which stock
+  // do they reduce? Selling twenty birds takes twenty off the batch's
+  // headcount; selling twenty trays of eggs takes nothing off it, because
+  // the hens are still there. Nothing in the data said which kind a product
+  // was, so a sale could not safely change any count at all.
+  //
+  //   'batch_quantity' — the thing sold IS the livestock/crop in the batch
+  //                      (live birds, culls, a harvested field). Reduces
+  //                      batches.currentQty.
+  //   'produce'        — what the batch yields while it stays intact (eggs,
+  //                      milk, honey). Reduces collected produce, not the
+  //                      batch.
+  //   'none'           — a service or by-product nothing tracks (manure,
+  //                      transport).
+  //
+  // Default 'produce' because that is what most catalogue rows in practice
+  // are, and because it is the option that never silently deletes livestock
+  // from a batch if somebody leaves it unset.
+  stockEffect: text('stock_effect').notNull().default('produce'),
   status: text('status').notNull().default('ACTIVE'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
