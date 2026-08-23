@@ -7,6 +7,7 @@ import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { BatchLedgerError } from '@/lib/batch-ledger'
+import { ProduceShortfallError } from '@/lib/produce'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -143,6 +144,7 @@ export async function POST(req: Request) {
     if (err instanceof BatchLedgerError) {
       return NextResponse.json({ success: false, error: err.message }, { status: err.status })
     }
+    if (err instanceof ProduceShortfallError) return badRequest(err.message)
     throw err
   }
 }
