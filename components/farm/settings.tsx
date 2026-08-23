@@ -279,6 +279,9 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     { label: 'Inventory', icon: Package, desc: 'Stock, lots & purchases', action: () => navigate('inventory') },
     { label: 'Weather & IoT', icon: CloudSun, desc: 'Forecast & sensor alerts', action: () => navigate('weather') },
     { label: 'People & Staff', icon: Users, desc: 'Employees & role assignment', action: () => navigate('people') },
+    // Where an owner says what a "morning round" is. The worker app has
+    // always had the tile; this is the definition behind it.
+    { label: 'Daily routines', icon: Sunrise, desc: 'What your workers are asked to do each round', action: () => navigate('routines') },
     // Real count from NavCtx's `pendingApprovals` (GET /api/approvals?status=pending,
     // issue #293) — reused, not re-fetched a second time (issue #298). No
     // badge (not a fake "0 pending") when the tenant has none pending.

@@ -13,6 +13,7 @@ import type { PgTransaction } from 'drizzle-orm/pg-core'
 import { db } from '@/db'
 import { accounts, journalEntries, journalLines, sales, purchases } from '@/db/schemas'
 import { applyMovement } from '@/lib/batch-ledger'
+import { availableProduce, ProduceShortfallError } from '@/lib/produce'
 
 // Minimal transaction type covering what the posting helpers below need —
 // lets them run either inside `db.transaction(...)` (recordSale) or inside an
@@ -241,6 +242,17 @@ export async function recordSale(input: {
     // stockEffect is what distinguishes them, and without a quantity there
     // is nothing to subtract — so both have to be present before the
     // headcount moves, in this same transaction as the sale itself.
+    // Selling produce cannot exceed what was collected and not already sold.
+    // Checked inside the transaction and after the sale row is written, so
+    // the balance being read already includes this sale — two concurrent
+    // sales of the last tray cannot both pass.
+    if (input.stockEffect === 'produce' && input.productId && input.qty && input.qty > 0) {
+      const remaining = await availableProduce(input.tenantId, input.productId, input.batchId ?? null, tx)
+      if (remaining < 0) {
+        throw new ProduceShortfallError(input.item, input.qty, input.qty + remaining)
+      }
+    }
+
     if (input.stockEffect === 'batch_quantity' && input.batchId && input.qty && input.qty > 0) {
       await applyMovement(tx, {
         tenantId: input.tenantId,

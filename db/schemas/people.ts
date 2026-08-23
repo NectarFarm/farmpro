@@ -8,7 +8,7 @@
 // it (name, phone, role, salary/payday stay UI-local for now — payroll is a
 // separate, not-yet-built epic; this table only carries the fields the
 // issue's task list actually asks for).
-import { pgTable, text, timestamp, integer, bigint, jsonb, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, boolean, jsonb, index } from 'drizzle-orm/pg-core'
 
 // A tenant's employees — distinct from `users` (auth accounts): an employee
 // may or may not have a login. `userId` is a nullable logical link to the
@@ -113,4 +113,111 @@ export const records = pgTable('records', {
   index('idx_records_tenant_batch').on(t.tenantId, t.batchId),
   index('idx_records_tenant_type').on(t.tenantId, t.type),
   index('idx_records_employee').on(t.employeeId),
+])
+
+// ── Routines: what a "morning round" actually is (worker-routines task) ─────
+// The worker portal offered "Morning Round" as a greyed-out tile because
+// nothing anywhere said what a morning round consists of. It differs per farm
+// and per enterprise — one farm's morning round is feed, water check, egg
+// collection and a mortality sweep; another's is milking and a temperature
+// reading — so it cannot be a fixed list in the code, which is exactly what
+// components/farm/data.ts's ENTERPRISE_REGISTRY tried to be and why it stayed
+// unwired.
+//
+// The owner defines it instead. A routine is a named, ordered set of steps;
+// the worker's portal shows the routine and walks them through it; each step
+// that produces data files the same `records` row it would have filed on its
+// own. Nothing here duplicates record storage — a routine is the CHECKLIST,
+// not a second copy of what was recorded.
+export const routines = pgTable('routines', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  // Nullable: a routine can be tenant-wide (every farm does the same morning
+  // round) or specific to one farm. Same nullable-farm convention as
+  // tasks.farmId.
+  farmId: text('farm_id'),
+  name: text('name').notNull(),
+  // 'morning' | 'midday' | 'evening' | 'weekly' | 'any' — a hint for when it
+  // is meant to happen, used to group the worker's tiles. Not a schedule:
+  // nothing fires from it, and pretending otherwise would create a reminder
+  // system that never reminds anyone.
+  timeOfDay: text('time_of_day').notNull().default('any'),
+  active: boolean('active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_routines_tenant').on(t.tenantId),
+  index('idx_routines_farm').on(t.farmId),
+])
+
+// One step of a routine. `kind` decides which form the worker gets and, for
+// the ones that produce data, which `records.type` it writes:
+//
+//   feeding | mortality | physical_count | production | health | weight
+//     — real record types, each with its own form and permission module.
+//   check
+//     — an observation with no numbers: "water lines clear?", "lights off?".
+//       Files a record too, because "the worker confirmed it" is exactly the
+//       thing an owner wants to be able to look up later.
+export const routineSteps = pgTable('routine_steps', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  routineId: text('routine_id').notNull().references(() => routines.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  label: text('label').notNull(),
+  // A step the worker cannot skip. Optional steps exist because half a round
+  // recorded is still worth having, and forcing every step turns a checklist
+  // into something people work around.
+  required: boolean('required').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+}, (t) => [
+  index('idx_routine_steps_routine').on(t.routineId),
+  index('idx_routine_steps_tenant').on(t.tenantId),
+])
+
+// One worker doing one routine on one batch, once. Kept separate from the
+// records each step filed so an owner can ask "was the morning round done
+// today?" — a question the records alone cannot answer, because a round with
+// nothing to report produces no records at all.
+export const routineRuns = pgTable('routine_runs', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  routineId: text('routine_id').notNull(),
+  batchId: text('batch_id').notNull(),
+  employeeId: text('employee_id').notNull(),
+  // Which steps were actually completed, and any note left on each.
+  completedSteps: jsonb('completed_steps').$type<Record<string, unknown>>().notNull().default({}),
+  skippedCount: integer('skipped_count').notNull().default(0),
+  completedAt: timestamp('completed_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_routine_runs_tenant').on(t.tenantId),
+  index('idx_routine_runs_batch').on(t.tenantId, t.batchId),
+  index('idx_routine_runs_routine').on(t.routineId),
+])
+
+// ── What the batch produced (worker-routines task) ─────────────────────────
+// "Collect Products" was the other greyed-out tile. Eggs and milk leave the
+// batch every day and nothing recorded them, so a layer batch's whole reason
+// for existing was invisible: production charts had no source, and
+// products.stockEffect = 'produce' had nothing to reduce when the produce was
+// sold.
+//
+// Deliberately not folded into `records`: a collection is a quantity of a
+// specific product that can later be SOLD, so it needs to be queryable as a
+// balance (collected minus sold), not just as an activity-feed entry. The
+// matching `records` row is still written for the worker's own history, and
+// `recordId` ties the two together.
+export const productCollections = pgTable('product_collections', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  batchId: text('batch_id').notNull(),
+  productId: text('product_id').notNull(),
+  employeeId: text('employee_id'),
+  recordId: text('record_id'),
+  qty: integer('qty').notNull(),
+  collectedAt: timestamp('collected_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_product_collections_tenant').on(t.tenantId),
+  index('idx_product_collections_batch').on(t.tenantId, t.batchId),
+  index('idx_product_collections_product').on(t.tenantId, t.productId),
 ])
