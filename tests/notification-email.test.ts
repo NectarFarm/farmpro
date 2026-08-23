@@ -5,7 +5,7 @@
 // DATABASE_URL is set — same convention as tests/notification-scoping.test.ts,
 // which this file complements (that suite proves recipient VISIBILITY over
 // the API; this one proves recipient visibility is what actually gets
-// emailed, and that delivery is deduplicated). The Resend provider is
+// emailed, and that delivery is deduplicated). The Brevo provider is
 // stubbed at the `fetch` boundary — never a real network call.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
@@ -28,7 +28,8 @@ const hasDb = !!process.env.DATABASE_URL
 const run = hasDb ? describe : describe.skip
 
 function recipientsOf(fetchMock: ReturnType<typeof vi.fn>): string[] {
-  return fetchMock.mock.calls.map((call) => JSON.parse(call[1].body).to[0])
+  // Brevo's payload is `to: [{ email }]`, not a bare string array.
+  return fetchMock.mock.calls.map((call) => JSON.parse(call[1].body).to[0].email)
 }
 
 run('notification email delivery (feat/email-notifications)', () => {
@@ -47,7 +48,7 @@ run('notification email delivery (feat/email-notifications)', () => {
   const allUserIds = [ownerId, managerId, workerId]
 
   let fetchMock: ReturnType<typeof vi.fn>
-  const originalApiKey = process.env.RESEND_API_KEY
+  const originalApiKey = process.env.BREVO_API_KEY
 
   beforeAll(async () => {
     await db.insert(tenants).values({ id: tenantId, name: 'Notif Email Test Co.', active: true })
@@ -68,15 +69,15 @@ run('notification email delivery (feat/email-notifications)', () => {
 
   beforeEach(() => {
     mockCookie = undefined
-    process.env.RESEND_API_KEY = 'test-key'
+    process.env.BREVO_API_KEY = 'test-key'
     fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: `test-${randomUUID()}` }) })
     vi.stubGlobal('fetch', fetchMock)
   })
 
   afterEach(async () => {
     vi.unstubAllGlobals()
-    if (originalApiKey === undefined) delete process.env.RESEND_API_KEY
-    else process.env.RESEND_API_KEY = originalApiKey
+    if (originalApiKey === undefined) delete process.env.BREVO_API_KEY
+    else process.env.BREVO_API_KEY = originalApiKey
     await db.delete(notifications).where(eq(notifications.tenantId, tenantId))
     await db.delete(tasks).where(eq(tasks.tenantId, tenantId))
     await db.delete(tenantSettings).where(eq(tenantSettings.tenantId, tenantId))

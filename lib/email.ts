@@ -5,16 +5,16 @@
 // about "an admin will be notified" / "contact your administrator" as if
 // mail existed. This is that capability, built deliberately small:
 //
-//   - Resend's REST API over plain `fetch` — three endpoints' worth of use
+//   - Brevo's REST API over plain `fetch` — three endpoints' worth of use
 //     does not justify an SDK dependency.
-//   - Fails safe: with no RESEND_API_KEY configured, every send is a
+//   - Fails safe: with no BREVO_API_KEY configured, every send is a
 //     logged no-op that still reports success to its caller. The app is
 //     already deployed and the key may land after this code does; a route
 //     that emails as a side effect (an approval, a rejection, a
 //     notification) must keep working exactly as it did before mail
 //     existed, key or no key.
 //   - Sending NEVER throws. Every failure — no key, a network error, a
-//     non-2xx from Resend — is caught here and reported back as a result
+//     non-2xx from Brevo — is caught here and reported back as a result
 //     object the caller can log, never an exception the caller must
 //     remember to catch. An approval that already provisioned a tenant, or
 //     a notification that already exists in the DB, must not be rolled
@@ -24,12 +24,23 @@
 //     template engine — three call sites don't need one.
 import 'server-only'
 
-const RESEND_API_URL = 'https://api.resend.com/emails'
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
-// Resend's own shared sandbox sender — works with zero domain setup, which
-// matters here because RESEND_API_KEY may exist before any domain is
+// Brevo rather than Resend: Resend will only deliver to the account owner's
+// own address until a DNS-verified sending domain exists, which is a cost this
+// project cannot carry yet. Brevo verifies a SINGLE SENDER ADDRESS instead, so
+// a plain Gmail sender can reach real recipients. Sender identity, not domain
+// ownership, is the thing being proved.
+//
+// Note for whoever configures the account: Brevo enables an authorised-IP
+// restriction by default. It must be DISABLED, not populated — Vercel's egress
+// addresses are dynamic and cannot be allowlisted, so an IP list that works
+// locally still refuses every send from production.
+
+// Falls back to the verified single sender. Brevo proves sender identity
+// matters here because BREVO_API_KEY may exist before any domain is
 // verified. EMAIL_FROM overrides it once the user has a verified domain.
-const DEFAULT_FROM = 'IFMS <onboarding@resend.dev>'
+const DEFAULT_FROM = 'IFMS <marlon.gmx1@gmail.com>'
 
 const APP_NAME = 'IFMS'
 const FOOTER_TEXT = `This is an automated message from ${APP_NAME}. If you weren't expecting it, you can ignore it.`
@@ -41,7 +52,7 @@ export type EmailTemplate =
   | 'notification'
 
 // Every send — success, no-op, or failure — reports this shape so the
-// caller can log it. `providerId` is Resend's message id (useful for
+// caller can log it. `providerId` is Brevo's message id (useful for
 // support/debugging); `error` is set on any failure, including the no-op
 // case being logged as informational rather than an error. Never includes
 // the API key, a password, or a token — see the rule this file is held to.
@@ -51,7 +62,7 @@ export interface EmailResult {
   template: EmailTemplate
   providerId?: string
   error?: string
-  /** Set when no RESEND_API_KEY is configured — the send was skipped, not failed. */
+  /** Set when no BREVO_API_KEY is configured — the send was skipped, not failed. */
   skipped?: boolean
 }
 
@@ -114,34 +125,40 @@ export interface SendEmailInput {
   message: ComposedMessage
 }
 
-// The only function that actually talks to Resend. Never throws — every
+// The only function that actually talks to the provider. Never throws — every
 // failure path returns `{ ok: false, error }` instead. With no
-// RESEND_API_KEY set, this is a logged no-op that still returns `ok: true`
+// BREVO_API_KEY set, this is a logged no-op that still returns `ok: true`
 // (the send was legitimately skipped, not a failure the caller should act
 // on) so a caller that just does `const result = await sendEmail(...)` and
 // logs it never has to special-case "email isn't configured yet".
 export async function sendEmail({ to, template, message }: SendEmailInput): Promise<EmailResult> {
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = process.env.BREVO_API_KEY
   if (!apiKey) {
-    console.log('[email] RESEND_API_KEY not configured — skipping send', { to, template })
+    console.log('[email] BREVO_API_KEY not configured — skipping send', { to, template })
     return { ok: true, recipient: to, template, skipped: true }
   }
 
+  // EMAIL_FROM is "Name <address>" for readability; Brevo wants them apart.
   const from = process.env.EMAIL_FROM || DEFAULT_FROM
+  const match = /^\s*(.*?)\s*<([^>]+)>\s*$/.exec(from)
+  const sender = match
+    ? { name: match[1] || 'IFMS', email: match[2] }
+    : { name: 'IFMS', email: from.trim() }
 
   try {
-    const res = await fetch(RESEND_API_URL, {
+    const res = await fetch(BREVO_API_URL, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        'api-key': apiKey,
         'Content-Type': 'application/json',
+        accept: 'application/json',
       },
       body: JSON.stringify({
-        from,
-        to: [to],
+        sender,
+        to: [{ email: to }],
         subject: message.subject,
-        text: message.text,
-        html: message.html,
+        textContent: message.text,
+        htmlContent: message.html,
       }),
     })
 
@@ -149,19 +166,19 @@ export async function sendEmail({ to, template, message }: SendEmailInput): Prom
     try {
       body = await res.json()
     } catch {
-      // Resend always returns JSON on both success and error; an unparsable
+      // Brevo returns JSON on both success and error; an unparsable
       // body just means we can't extract a message/id from it below.
     }
 
     if (!res.ok) {
       const errBody = body as { message?: string } | null
-      const error = errBody?.message || `Resend responded ${res.status}`
+      const error = errBody?.message || `Brevo responded ${res.status}`
       console.error('[email] send failed', { to, template, status: res.status, error })
       return { ok: false, recipient: to, template, error }
     }
 
-    const okBody = body as { id?: string } | null
-    return { ok: true, recipient: to, template, providerId: okBody?.id }
+    const okBody = body as { messageId?: string } | null
+    return { ok: true, recipient: to, template, providerId: okBody?.messageId }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     console.error('[email] send threw', { to, template, error })
