@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { records, batches, employees, productionUnits, approvalRequests } from '@/db/schemas'
+import {
+  records, batches, employees, productionUnits, approvalRequests,
+  productCollections, products as productsTable,
+} from '@/db/schemas'
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
@@ -32,7 +35,32 @@ const created = <T>(data: T) => NextResponse.json({ success: true, data }, { sta
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 404 })
 
-const RECORD_TYPES = new Set(['feeding', 'mortality', 'physical_count'])
+// worker-routines task: the worker portal listed five more record types as
+// "Coming Soon" tiles because the backend accepted only three. The greyed-out
+// list was honest at the time and became the reason those jobs went
+// unrecorded — so the types exist now, each mapped to the permission module
+// that already governs it.
+const RECORD_TYPES = new Set([
+  'feeding', 'mortality', 'physical_count',
+  // Eggs, milk, honey — what the batch yields while it stays intact. Also
+  // writes product_collections rows (see below), because produce can later
+  // be sold and therefore needs a balance, not just an activity entry.
+  'production',
+  // Vaccinations and treatments.
+  'health',
+  // Sample weights, for growth tracking.
+  'weight',
+  // An observation with no numbers — "water lines clear", "lights off". The
+  // step of a routine that produces no data still produces the fact that
+  // somebody checked.
+  'check',
+  // End-of-day stock count. Deliberately does NOT adjust the lots: correcting
+  // stock is an audited, reason-required action an owner takes through PATCH
+  // /api/inventory/lots/[id], and letting a closing count silently rewrite
+  // quantities would put that correction in the one place nobody reviews.
+  // What this records is the count and the variance, for someone to act on.
+  'stock_count',
+])
 
 // role-permission-enforcement task: each writable record `type` maps to
 // exactly one governance module (see lib/permissions.ts's MODULES) — this is
@@ -42,6 +70,16 @@ const RECORD_TYPE_MODULES: Record<string, string> = {
   feeding: MODULES.feeding,
   mortality: MODULES.mortality,
   physical_count: MODULES.physicalCount,
+  // Collecting eggs/milk is the egg-collection module the matrix already
+  // has; there is no separate 'production' module to invent.
+  production: MODULES.eggCollection,
+  health: MODULES.health,
+  // Weighing and observing are part of doing the round, and the matrix has
+  // no module of their own — they ride with the batch module rather than
+  // getting a fabricated one the Governance screen cannot configure.
+  weight: MODULES.batches,
+  check: MODULES.batches,
+  stock_count: MODULES.inventory,
 }
 
 // GET /api/records?tenantId=&batchId=&type=&employeeId=&farmId= — activity
@@ -200,6 +238,16 @@ export async function POST(req: Request) {
   const movesHeadcount = type === 'mortality' || hasCount
   const deferred = movesHeadcount && await needsApproval(tenantId, session.role, RECORD_TYPE_MODULES[type])
 
+  // ── What was collected (worker-routines task) ─────────────────────────────
+  // A production record carries { items: [{ productId, qty }] }. Each line
+  // becomes a product_collections row so the produce has a BALANCE that a
+  // later sale can draw down — the activity-feed record alone could never
+  // answer "how many trays are unsold".
+  const collectedLines = type === 'production' ? parseCollectionLines(data) : []
+  if (type === 'production' && collectedLines.length === 0) {
+    return badRequest('A collection needs at least one product and quantity')
+  }
+
   // Which lines name real stock. A line with an `itemId` moves inventory; a
   // line with only free text does not, which is how records written before
   // this existed keep working rather than being rejected retroactively.
@@ -265,6 +313,24 @@ export async function POST(req: Request) {
           }
         }
 
+        for (const line of collectedLines) {
+          const [product] = await tx
+            .select({ id: productsTable.id })
+            .from(productsTable)
+            .where(and(eq(productsTable.id, line.productId), eq(productsTable.tenantId, tenantId)))
+            .limit(1)
+          if (!product) throw new UnknownProductError()
+          await tx.insert(productCollections).values({
+            id: randomUUID(),
+            tenantId,
+            batchId: targetId,
+            productId: line.productId,
+            employeeId,
+            recordId: id,
+            qty: line.qty,
+          })
+        }
+
         for (const line of stockLines) {
           const qty = qtyForBatch(line, targetId)
           if (qty <= 0) continue
@@ -299,6 +365,7 @@ export async function POST(req: Request) {
     // because the batches that did get recorded look complete.
     if (err instanceof InsufficientStockError) return badRequest(err.message)
     if (err instanceof UnknownItemError) return badRequest(err.message)
+    if (err instanceof UnknownProductError) return badRequest(err.message)
     if (err instanceof BatchLedgerError) {
       return NextResponse.json({ success: false, error: err.message }, { status: err.status })
     }
@@ -363,4 +430,30 @@ function dataFor(data: Record<string, unknown>, batchId: string): Record<string,
       return !Number.isFinite(qty) || qty > 0
     })
   return { ...data, feedItems }
+}
+
+
+class UnknownProductError extends Error {
+  constructor() {
+    super('That product is not in this farm’s catalogue')
+  }
+}
+
+// A production record's lines: { productId, qty }. A line with no product or
+// a non-positive quantity is dropped rather than stored as a collection of
+// nothing — an empty submission is refused above, so this cannot silently
+// swallow the whole thing.
+function parseCollectionLines(data: Record<string, unknown>): { productId: string; qty: number }[] {
+  const raw = data.items
+  if (!Array.isArray(raw)) return []
+  const out: { productId: string; qty: number }[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const line = entry as Record<string, unknown>
+    const productId = typeof line.productId === 'string' ? line.productId.trim() : ''
+    const qty = Math.trunc(Number(line.qty))
+    if (!productId || !Number.isFinite(qty) || qty <= 0) continue
+    out.push({ productId, qty })
+  }
+  return out
 }
