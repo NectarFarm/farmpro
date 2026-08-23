@@ -7,6 +7,7 @@ import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { isRecurrence } from '@/lib/tasks'
 import { resolveAssignee, resolveApprover } from '@/lib/task-people'
+import { createAndEmailNotification } from '@/lib/notification-email'
 
 // ── GET/POST /api/tasks (issue #227 task 2, extended by issue #243) ────────
 // Small dedicated endpoint rather than a generic /api/data/[resource] route —
@@ -196,6 +197,28 @@ export async function POST(req: Request) {
       recurrenceUntil,
     })
     .returning()
+
+  // ── Notify the assignee (notifications-wiring task) ───────────────────────
+  // A brand-new task's assignee is always a "change" (there was no prior
+  // assignee to compare against), so this fires whenever `assigneeId` was
+  // given — no equivalent to PATCH's "unchanged" guard is needed here.
+  if (assigneeId) {
+    const [employee] = await db.select({ userId: employees.userId }).from(employees).where(eq(employees.id, assigneeId)).limit(1)
+    if (employee?.userId) {
+      await createAndEmailNotification({
+        tenantId,
+        sourceType: 'task',
+        // Same sourceId scheme as the PATCH reassignment path
+        // (app/api/tasks/[id]/route.ts) — keeps a task's "assigned" events
+        // keyed apart from its due/overdue sync notification regardless of
+        // which route created the assignment.
+        sourceId: `${rows[0].id}:assigned:${assigneeId}`,
+        title: `You were assigned: ${title}`,
+        message: title,
+        userId: employee.userId,
+      })
+    }
+  }
 
   return created(rows[0])
 }

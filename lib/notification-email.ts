@@ -11,7 +11,15 @@
 //
 // Called by the two producers named in the task: syncTaskNotifications
 // (app/api/notifications/route.ts) and POST /api/auth/forgot-password.
+//
+// notifications-wiring task: `createAndEmailNotification` below is the single
+// insert-then-email entry point every OTHER producer (approval raised,
+// approval decided, task assigned, per-assignee due/overdue) now goes
+// through, so none of them hand-roll a second insert-and-claim path that
+// could drift from the dedup/failure-swallowing guarantees this file already
+// gives syncTaskNotifications.
 import 'server-only'
+import { randomUUID } from 'node:crypto'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/db'
 import { notifications, tenantSettings, users } from '@/db/schemas'
@@ -106,5 +114,55 @@ export async function notifyRecipientsByEmail(notificationId: string): Promise<v
     }
   } catch (err) {
     console.error('[notification-email] failed to process notification for email', { notificationId, err })
+  }
+}
+
+// ── Shared insert-then-email entry point (notifications-wiring task) ───────
+// Every producer wired up for this task (approval raised, approval decided,
+// task assigned, per-assignee task due/overdue) creates its row the same
+// way: an idempotent insert keyed on (tenantId, sourceType, sourceId) —
+// `onConflictDoNothing().returning()` is what makes a caller's own retry, or
+// two concurrent callers racing the same event, cost at most one row and at
+// most one email — followed by handing the freshly-inserted id to
+// `notifyRecipientsByEmail`, which claims and sends it. A conflict returns
+// nothing, so nothing is (re-)emailed for a source id already raised.
+//
+// Never throws: every call site here reports on a task/approval/record
+// operation that must succeed whether or not the notification does. Callers
+// pick a `sourceId` that will not collide across two DIFFERENT events they
+// both want notified (e.g. an approval being raised vs. that same approval
+// later being decided) — see each call site's own comment for its scheme.
+export async function createAndEmailNotification(row: {
+  tenantId: string
+  sourceType: string
+  sourceId: string
+  title: string
+  message?: string
+  userId?: string | null
+  role?: string | null
+}): Promise<void> {
+  try {
+    const inserted = await db
+      .insert(notifications)
+      .values({
+        id: randomUUID(),
+        tenantId: row.tenantId,
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        title: row.title,
+        message: row.message ?? '',
+        read: false,
+        userId: row.userId ?? null,
+        role: row.role ?? null,
+      })
+      .onConflictDoNothing()
+      .returning({ id: notifications.id })
+
+    const created = inserted[0]
+    if (!created) return // this exact source id was already raised — nothing new to email
+
+    await notifyRecipientsByEmail(created.id)
+  } catch (err) {
+    console.error('[notification-email] failed to create notification', { sourceType: row.sourceType, sourceId: row.sourceId, err })
   }
 }

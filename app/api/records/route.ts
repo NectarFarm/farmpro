@@ -11,6 +11,7 @@ import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, needsApproval, MODULES } from '@/lib/permissions'
 import { applyMovement, applyCount, BatchLedgerError } from '@/lib/batch-ledger'
 import { consumeStock, InsufficientStockError, UnknownItemError, type ConsumeResult } from '@/lib/inventory-consume'
+import { notifyApprovalRaised } from '@/lib/governance'
 
 // ── GET/POST /api/records (issue #247 task 2) ───────────────────────────────
 // Generic worker-submission log — feeding / mortality / physical_count today
@@ -262,7 +263,11 @@ export async function POST(req: Request) {
     const result = await db.transaction(async (tx) => {
       const inserted: (typeof records.$inferSelect)[] = []
       const consumed: ConsumeResult[] = []
-      const approvals: string[] = []
+      // Full rows, not just ids: notifyApprovalRaised (called AFTER this
+      // transaction resolves — see the comment where it's called) needs the
+      // title/assignedApproverId, and re-querying them post-commit would be
+      // more code for data already sitting right here.
+      const approvals: (typeof approvalRequests.$inferSelect)[] = []
 
       for (const targetId of targetBatchIds) {
         const id = crypto.randomUUID()
@@ -291,7 +296,7 @@ export async function POST(req: Request) {
             status: 'pending',
             priority: 'medium',
           }).returning()
-          approvals.push(approval.id)
+          approvals.push(approval)
         } else if (movesHeadcount) {
           if (type === 'mortality') {
             await applyMovement(tx, {
@@ -349,16 +354,32 @@ export async function POST(req: Request) {
       return { inserted, consumed, approvals }
     })
 
+    // Notify AFTER the transaction has committed, not from inside it: an
+    // approval raised mid-transaction could still be rolled back by a later
+    // batch in the same round failing (e.g. insufficient stock on batch 2 of
+    // 3) — creating the notification/email in there would leave an approver
+    // told about a record that no longer exists. `assignedApproverId` is
+    // never set on a record-raised approval (unlike task_completion, records
+    // carry no approver field), so this always broadcasts to owner/manager —
+    // see notifyApprovalRaised (lib/governance.ts) for that targeting choice.
+    for (const approval of result.approvals) {
+      await notifyApprovalRaised(approval)
+    }
+
     // The single-batch response keeps its original shape — one record object,
     // with the stock it moved attached when there was any.
     if (targetBatchIds.length === 1) {
       const extras = {
         ...(result.consumed.length > 0 ? { consumed: result.consumed } : {}),
-        ...(result.approvals.length > 0 ? { approvalRequestId: result.approvals[0], pendingApproval: true } : {}),
+        ...(result.approvals.length > 0 ? { approvalRequestId: result.approvals[0].id, pendingApproval: true } : {}),
       }
       return created(Object.keys(extras).length > 0 ? { ...result.inserted[0], ...extras } : result.inserted[0])
     }
-    return created({ records: result.inserted, consumed: result.consumed, approvalRequestIds: result.approvals })
+    return created({
+      records: result.inserted,
+      consumed: result.consumed,
+      approvalRequestIds: result.approvals.map((a) => a.id),
+    })
   } catch (err) {
     // A shortfall rolls back every record in the submission, not just the
     // line that ran out: half a feeding round saved is worse than none,
