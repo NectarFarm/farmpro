@@ -42,6 +42,22 @@ export async function GET(req: Request) {
 
   const conditions = [eq(approvalRequests.tenantId, tenantId)]
   if (status) conditions.push(eq(approvalRequests.status, status))
+
+  // `scope` answers the two questions an approver actually has, without
+  // making the client filter a whole tenant's queue client-side:
+  //   mine    — waiting on ME: named on me, plus the unassigned ones anyone
+  //             with governance rights is expected to pick up. Leaving those
+  //             out would hide work that genuinely is mine to do.
+  //   decided — what I have already signed off or refused.
+  const scope = url.searchParams.get('scope')?.trim().toLowerCase()
+  if (scope === 'mine') {
+    conditions.push(or(
+      eq(approvalRequests.assignedApproverId, auth.session.id),
+      isNull(approvalRequests.assignedApproverId)
+    )!)
+  } else if (scope === 'decided') {
+    conditions.push(eq(approvalRequests.decidedBy, auth.session.id))
+  }
   if (farmFilter) {
     const batchIds = await batchIdsForFarm(tenantId, farmFilter)
     // Tenant-level approvals (batchId IS NULL) always included — see the
