@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { batches, sales } from '@/db/schemas'
-import { and, eq } from 'drizzle-orm'
+import { batches, sales, inventoryConsumption } from '@/db/schemas'
+import { and, eq, sum } from 'drizzle-orm'
 import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/batches/[id]/cost-breakdown (issue #231 task 4) ───────────────
@@ -22,6 +22,14 @@ import { requireTenantSession } from '@/lib/api-auth'
 //     `reason` naming the missing table each would need.
 // A real multi-category cost engine needs those tables and is Epic: Finance's
 // job (flagged as a follow-up in the PR), not this issue's.
+//
+// feed-from-stock update: `feed` is REAL now. inventory_consumption records
+// what each batch was actually issued, priced from the lot it came out of at
+// the moment it was taken (db/schemas/inventory.ts), so this is a sum of
+// things that happened rather than a share of a guess. It stays `tracked:
+// false` while a batch has no consumption rows at all — a batch fed before
+// this existed genuinely has no data, and reporting 0 as a tracked figure
+// would read as "this batch ate nothing".
 //
 // Issue #300 update: Revenue/Gross Margin were correctly left off this
 // response's shape when this endpoint was first built (no `sales` table
@@ -46,6 +54,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const stockCents = batch.acquisitionCostCents ?? 0
 
+  // Feed actually issued to this batch, at the cost of the lots it came from.
+  const [feedRow] = await db
+    .select({ total: sum(inventoryConsumption.totalCostCents), lines: sum(inventoryConsumption.qty) })
+    .from(inventoryConsumption)
+    .where(and(eq(inventoryConsumption.tenantId, tenantId), eq(inventoryConsumption.batchId, id)))
+  const feedCents = Number(feedRow?.total ?? 0)
+  const feedQty = Number(feedRow?.lines ?? 0)
+
   const categories = [
     {
       key: 'stock',
@@ -56,9 +72,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     {
       key: 'feed',
       label: 'Feed/Inputs',
-      amountCents: 0,
-      tracked: false,
-      reason: 'No feed purchase/consumption data source yet (no purchases/feed-log table).',
+      amountCents: feedCents,
+      tracked: feedQty > 0,
+      ...(feedQty > 0 ? {} : { reason: 'Nothing has been issued to this batch from stock yet.' }),
     },
     {
       key: 'health',

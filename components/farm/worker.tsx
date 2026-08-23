@@ -445,36 +445,126 @@ function BatchPicker({ batches, onPick }: { batches: ApiBatch[] | null; onPick: 
   );
 }
 
+/* ── Feeding ────────────────────────────────────────────────────────────────
+ * Rewritten for the feed-from-stock task. What changed and why:
+ *
+ * The feed used to be a free-text box — the worker typed "Broiler Starter
+ * Mash", or "broiler starter", or "BSM", and the app stored whatever they
+ * typed. Nothing matched it to the item in the store, so stock never moved
+ * and per-batch feed cost had no source. Now they pick from what is actually
+ * on the farm, with the remaining quantity next to each name, and submitting
+ * deducts it.
+ *
+ * The batch step takes several batches, not one: a bag of the same feed
+ * routinely covers more than one house, and forcing one submission per batch
+ * both wasted the worker's time and made the stock figure jump in a way that
+ * looked wrong. Quantity is entered per batch, so 80kg can go 50 to one and
+ * 30 to another rather than 80 to each.
+ *
+ * The remaining figure is fetched per selected batch because stock is held
+ * per FARM (db/schemas/inventory.ts) — a worker must not be shown feed that
+ * is physically at another farm. GET /api/inventory/available resolves that
+ * from the batch, since a worker knows their batch, not their farm id.
+ */
+interface AvailableItem {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  qtyOnHand: number;
+  lowStockThreshold: number;
+  nextExpiry: string | null;
+}
+
+interface FeedLine {
+  itemId: string;
+  /** Quantity per batch id — the same issue split across the batches it fed. */
+  perBatch: Record<string, string>;
+}
+
+function totalOf(line: FeedLine): number {
+  return Object.values(line.perBatch).reduce((sum, v) => sum + (Number(v) || 0), 0);
+}
+
 function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
-  const [batchId, setBatchId] = useState<string | null>(null);
-  const [feedItems, setFeedItems] = useState<{ item: string; qtyKg: string }[]>([{ item: '', qtyKg: '' }]);
+  const [batchIds, setBatchIds] = useState<string[]>([]);
+  const [lines, setLines] = useState<FeedLine[]>([{ itemId: '', perBatch: {} }]);
+  const [stock, setStock] = useState<AvailableItem[] | null>(null);
+  const [stockError, setStockError] = useState('');
+  const [search, setSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const batch = ctx.batches?.find((b) => b.id === batchId) ?? null;
+  const chosenBatches = (ctx.batches ?? []).filter((b) => batchIds.includes(b.id));
 
-  function updateItem(i: number, field: 'item' | 'qtyKg', value: string) {
-    setFeedItems((prev) => prev.map((it, idx) => idx === i ? { ...it, [field]: value } : it));
+  // Keyed on the first selected batch: every batch a worker is assigned to is
+  // normally on one farm, and asking per batch would mean intersecting
+  // several farms' stock into a number that is true for none of them.
+  const stockBatchId = batchIds[0];
+  useEffect(() => {
+    if (!stockBatchId) return;
+    setStock(null);
+    apiClient.get<AvailableItem[]>(`/api/inventory/available?tenantId=${ctx.tenantId}&batchId=${stockBatchId}`).then((res) => {
+      if (res.success) { setStock(res.data); setStockError(''); }
+      else { setStock([]); setStockError(res.error || 'Could not load what is in stock.'); }
+    });
+  }, [stockBatchId, ctx.tenantId]);
+
+  function toggleBatch(id: string) {
+    setBatchIds((prev) => (prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]));
+    // Drop quantities for a batch that is no longer selected, so an
+    // unselected house can't be fed by a leftover number nobody can see.
+    setLines((prev) => prev.map((l) => {
+      const next = { ...l.perBatch };
+      if (batchIds.includes(id)) delete next[id];
+      return { ...l, perBatch: next };
+    }));
   }
 
+  function setLineItem(i: number, itemId: string) {
+    setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, itemId } : l)));
+  }
+
+  function setLineQty(i: number, batchId: string, value: string) {
+    setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, perBatch: { ...l.perBatch, [batchId]: value } } : l)));
+  }
+
+  const filledLines = lines.filter((l) => l.itemId && totalOf(l) > 0);
+
+  // What each item has left AFTER everything on this form — the worker sees
+  // the shortfall before submitting rather than as a rejection afterwards.
+  function remainingAfterForm(item: AvailableItem): number {
+    const used = filledLines.filter((l) => l.itemId === item.id).reduce((sum, l) => sum + totalOf(l), 0);
+    return item.qtyOnHand - used;
+  }
+
+  const overIssued = (stock ?? []).filter((item) => remainingAfterForm(item) < 0);
+
   async function handleSubmit() {
-    if (!ctx.employee || !batchId) return;
+    if (!ctx.employee || batchIds.length === 0) return;
     setSubmitting(true); setError('');
-    const items = feedItems.filter((f) => f.item.trim() && f.qtyKg).map((f) => ({ item: f.item.trim(), qtyKg: Number(f.qtyKg) }));
     const res = await apiClient.post('/api/records', {
       tenantId: ctx.tenantId,
-      batchId,
+      batchIds,
       employeeId: ctx.employee.id,
       type: 'feeding',
-      data: { feedItems: items },
+      data: {
+        feedItems: filledLines.map((l) => ({
+          itemId: l.itemId,
+          qty: totalOf(l),
+          perBatch: Object.fromEntries(Object.entries(l.perBatch).map(([k, v]) => [k, Number(v) || 0])),
+        })),
+      },
     });
     setSubmitting(false);
     if (!res.success) { setError(res.error || 'Failed to save record.'); return; }
-    showToast('Feeding record saved.', 'success');
+    showToast(`Feeding saved for ${batchIds.length} batch${batchIds.length === 1 ? '' : 'es'} — stock updated.`, 'success');
     onBack();
   }
+
+  const visibleStock = (stock ?? []).filter((i) => !search || i.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="screen-content">
@@ -483,7 +573,7 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
       </div>
       <div className="px-screen" style={{ paddingTop: 16 }}>
         <div style={{ display: 'flex', gap: 0, marginBottom: 20 }}>
-          {['Batch','Feed items','Confirm'].map((s, i) => (
+          {['Batches','Feed','Confirm'].map((s, i) => (
             <React.Fragment key={s}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                 <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`} style={{ width: 24, height: 24, fontSize: 'var(--fs-2xs)' }}>{i + 1 < step ? <Check size={12} aria-hidden="true" /> : i + 1}</div>
@@ -496,39 +586,135 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
 
         {step === 1 && (
           <div>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Select batch to feed:</div>
-            <BatchPicker batches={ctx.batches} onPick={(id) => { setBatchId(id); setStep(2); }} />
+            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Which batches are you feeding?</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+              Pick every batch getting feed from the same bag — you enter how much each one gets on the next step.
+            </div>
+            <MultiBatchPicker batches={ctx.batches} selected={batchIds} onToggle={toggleBatch} />
+            <button
+              className="btn-primary"
+              disabled={batchIds.length === 0}
+              style={{ width: '100%', justifyContent: 'center', borderRadius: 12, marginTop: 12, opacity: batchIds.length === 0 ? 0.5 : 1 }}
+              onClick={() => setStep(2)}
+            >
+              Continue{batchIds.length > 0 ? ` with ${batchIds.length}` : ''}
+            </button>
           </div>
         )}
 
-        {step === 2 && batch && (
+        {step === 2 && (
           <div>
-            <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', marginBottom: 12 }}>{batch.code} – {batch.name} · {batch.currentQty} in system</div>
-            {feedItems.map((f, i) => (
-              <div key={i} className="farm-card" style={{ padding: 14, marginBottom: 8 }}>
-                <input className="farm-input" placeholder="Feed item (e.g. Broiler Starter Mash)" value={f.item} onChange={(e) => updateItem(i, 'item', e.target.value)} style={{ marginBottom: 8 }} />
-                <input className="farm-input" placeholder="Quantity (kg)" type="number" value={f.qtyKg} onChange={(e) => updateItem(i, 'qtyKg', e.target.value)} />
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 10 }}>
+              {chosenBatches.map((b) => b.code).join(' · ')}
+            </div>
+
+            {stockError && (
+              <div style={{ padding: '10px 12px', marginBottom: 10, borderRadius: 10, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{stockError}</div>
+            )}
+            {stock === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', marginBottom: 10 }}>Loading what is in stock…</div>}
+            {stock !== null && stock.length === 0 && !stockError && (
+              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+                There is no stock recorded for this farm yet. Ask your manager to add the feed to the store before recording a feeding.
               </div>
-            ))}
-            <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 14 }} onClick={() => setFeedItems((prev) => [...prev, { item: '', qtyKg: '' }])}>
-              <Plus size={13} /> Add another item
+            )}
+
+            {stock !== null && stock.length > 6 && (
+              <input className="farm-input" placeholder="Search feed…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 10 }} />
+            )}
+
+            {lines.map((line, i) => {
+              const item = (stock ?? []).find((s) => s.id === line.itemId) ?? null;
+              const left = item ? remainingAfterForm(item) : null;
+              return (
+                <div key={i} className="farm-card" style={{ padding: 14, marginBottom: 8 }}>
+                  <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Feed from store</label>
+                  <select className="farm-input" value={line.itemId} onChange={(e) => setLineItem(i, e.target.value)} style={{ marginBottom: 8 }}>
+                    <option value="">Choose an item…</option>
+                    {visibleStock.map((s) => (
+                      <option key={s.id} value={s.id} disabled={s.qtyOnHand <= 0}>
+                        {s.name} — {s.qtyOnHand} {s.unit} left{s.qtyOnHand <= 0 ? ' (out of stock)' : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  {item && (
+                    <div style={{
+                      fontSize: 'var(--fs-2xs)', lineHeight: 1.5, marginBottom: 8,
+                      color: left !== null && left < 0 ? 'var(--status-critical)' : left !== null && left <= item.lowStockThreshold ? 'var(--status-warning)' : 'var(--text-muted)',
+                    }}>
+                      {left !== null && left < 0
+                        ? `That is ${Math.abs(left)} ${item.unit} more than the farm has.`
+                        : `${left} ${item.unit} will be left after this.`}
+                      {item.nextExpiry && ` · Oldest stock expires ${new Date(item.nextExpiry).toLocaleDateString()}`}
+                    </div>
+                  )}
+
+                  {chosenBatches.map((b) => (
+                    <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{ flex: 1, fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>{b.code}</span>
+                      <input
+                        className="farm-input" type="number" inputMode="decimal" min="0"
+                        placeholder={item ? item.unit : 'qty'}
+                        value={line.perBatch[b.id] ?? ''}
+                        onChange={(e) => setLineQty(i, b.id, e.target.value)}
+                        style={{ width: 110 }}
+                      />
+                    </div>
+                  ))}
+
+                  {lines.length > 1 && (
+                    <button
+                      onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}
+                      style={{ marginTop: 4, padding: '6px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}
+                    >Remove</button>
+                  )}
+                </div>
+              );
+            })}
+
+            <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 14 }} onClick={() => setLines((prev) => [...prev, { itemId: '', perBatch: {} }])}>
+              <Plus size={13} /> Add another feed
             </button>
+
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={() => setStep(1)}>Back</button>
-              <button className="btn-primary" style={{ flex: 2, justifyContent: 'center', borderRadius: 12 }} onClick={() => setStep(3)}>Review</button>
+              <button
+                className="btn-primary"
+                disabled={filledLines.length === 0 || overIssued.length > 0}
+                style={{ flex: 2, justifyContent: 'center', borderRadius: 12, opacity: filledLines.length === 0 || overIssued.length > 0 ? 0.5 : 1 }}
+                onClick={() => setStep(3)}
+              >Review</button>
             </div>
           </div>
         )}
 
-        {step === 3 && batch && (
+        {step === 3 && (
           <div>
             <div style={{ padding: '14px', background: 'rgba(74,222,128,0.06)', borderRadius: 14, border: '1px solid rgba(74,222,128,0.2)', marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 10 }}>Summary – {batch.code}</div>
-              {feedItems.filter((f) => f.item.trim() && f.qtyKg).map((f, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 'var(--fs-base)' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{f.item}</span><span style={{ fontWeight: 700 }}>{f.qtyKg} kg</span>
-                </div>
-              ))}
+              <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 10 }}>Summary</div>
+              {filledLines.map((line, i) => {
+                const item = (stock ?? []).find((s) => s.id === line.itemId);
+                return (
+                  <div key={i} style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-base)', marginBottom: 3 }}>
+                      <span style={{ color: 'var(--text-muted)' }}>{item?.name ?? 'Item'}</span>
+                      <span style={{ fontWeight: 700 }}>{totalOf(line)} {item?.unit}</span>
+                    </div>
+                    {chosenBatches.map((b) => {
+                      const qty = Number(line.perBatch[b.id]) || 0;
+                      if (qty <= 0) return null;
+                      return (
+                        <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>
+                          <span>{b.code}</span><span>{qty} {item?.unit}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5, borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
+                Saving this takes the feed out of the store — the oldest stock is used first.
+              </div>
             </div>
             {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -540,6 +726,40 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function MultiBatchPicker({ batches, selected, onToggle }: {
+  batches: ApiBatch[] | null;
+  selected: string[];
+  onToggle: (id: string) => void;
+}) {
+  if (batches === null) return <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading your batches…</div>;
+  if (batches.length === 0) {
+    return (
+      <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+        No batches are assigned to you yet. Ask your manager to assign one before submitting records.
+      </div>
+    );
+  }
+  return (
+    <div>
+      {batches.map((b) => {
+        const on = selected.includes(b.id);
+        return (
+          <button key={b.id} onClick={() => onToggle(b.id)} style={{
+            width: '100%', padding: '14px 16px', marginBottom: 8, borderRadius: 12, textAlign: 'left', cursor: 'pointer',
+            background: on ? 'rgba(74,222,128,0.12)' : 'var(--card)',
+            border: on ? '1px solid var(--primary-green)' : '1px solid var(--border-subtle)',
+            fontSize: 'var(--fs-base)', fontWeight: 600, color: on ? 'var(--primary-green)' : 'var(--text-primary)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            {on ? <Check size={15} aria-hidden="true" /> : <Layers size={15} color="var(--text-muted)" aria-hidden="true" />}
+            {b.code} – {b.name}
+          </button>
+        );
+      })}
     </div>
   );
 }
