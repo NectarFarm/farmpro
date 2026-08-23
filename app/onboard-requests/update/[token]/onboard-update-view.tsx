@@ -2,6 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/request';
 import { ENTERPRISE_REGISTRY } from '@/components/farm/data';
+import { GpsMapBlock } from '@/components/farm/auth';
+import { detectGpsLocation } from '@/lib/geolocation';
 
 // Public, token-gated "fix and resubmit your application" form — no
 // session, no app shell. Same minimal self-contained styling approach as
@@ -11,10 +13,15 @@ import { ENTERPRISE_REGISTRY } from '@/components/farm/data';
 // Field set matches what POST /api/onboard-requests/update/[token] actually
 // accepts (validateBody, shared with the original public POST
 // /api/onboard-requests — see that route's header for why there's no
-// second set of rules). Address/GPS are left untouched by this form on
-// purpose: the route preserves whatever was already on file when they're
-// not part of the submitted body, so this page doesn't need to reimplement
-// the RegisterScreen's GPS capture step just to avoid erasing it.
+// second set of rules).
+//
+// GPS: when a pin is already on file this form doesn't show or send one, and
+// the route preserves it (a body without location fields leaves the stored
+// pin alone). When there is NO pin, the block appears — because "the
+// location is missing" is one of the commonest reasons an admin asks for
+// info in the first place, and sending the applicant a correction link that
+// can't correct the actual gap would be pointless. Same rule as the public
+// form then applies: add the pin, or tick the box saying you can't.
 const ENTERPRISE_OPTIONS = Array.from(
   new Map(ENTERPRISE_REGISTRY.map((e) => [e.subtype, e.label])).entries()
 );
@@ -28,6 +35,9 @@ interface RequestData {
   enterprises: string[];
   status: string;
   notes: string | null;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export function OnboardUpdateView({ token }: { token: string }) {
@@ -42,6 +52,15 @@ export function OnboardUpdateView({ token }: { token: string }) {
   const [location, setLocation] = useState('');
   const [enterprises, setEnterprises] = useState<string[]>([]);
   const [consentGiven, setConsentGiven] = useState(false);
+
+  // Only used when the request arrived without a pin — see the header.
+  const [needsPin, setNeedsPin] = useState(false);
+  const [lat, setLat] = useState('');
+  const [lng, setLng] = useState('');
+  const [address, setAddress] = useState('');
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsError, setGpsError] = useState('');
+  const [locationSkipped, setLocationSkipped] = useState(false);
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState('');
@@ -67,8 +86,27 @@ export function OnboardUpdateView({ token }: { token: string }) {
       setLocation(d.location);
       setEnterprises(d.enterprises);
       setNotes(d.notes);
+      setNeedsPin(d.latitude === null || d.longitude === null);
+      setAddress(d.address ?? '');
     });
   }, [token]);
+
+  function detectGPS() {
+    setGpsLoading(true);
+    setGpsError('');
+    detectGpsLocation(
+      (coords) => {
+        setLat(coords.latitude);
+        setLng(coords.longitude);
+        setLocationSkipped(false);
+        setGpsLoading(false);
+      },
+      (message) => {
+        setGpsError(message);
+        setGpsLoading(false);
+      }
+    );
+  }
 
   function toggleEnterprise(subtype: string) {
     setEnterprises((prev) => (prev.includes(subtype) ? prev.filter((e) => e !== subtype) : [...prev, subtype]));
@@ -79,7 +117,7 @@ export function OnboardUpdateView({ token }: { token: string }) {
     setSubmitError('');
     setFieldErrors({});
     setSubmitting(true);
-    const res = await apiClient.post(`/api/onboard-requests/update/${encodeURIComponent(token)}`, {
+    const body: Record<string, unknown> = {
       farmerName,
       email,
       phone,
@@ -87,7 +125,20 @@ export function OnboardUpdateView({ token }: { token: string }) {
       location,
       enterprises,
       consentGiven,
-    });
+    };
+    // Send location keys ONLY when this form is the one capturing them.
+    // Omitting them entirely is what tells the route to keep the pin already
+    // on file, so a request that arrived with a pin must not send them.
+    if (needsPin) {
+      if (lat.trim() !== '' && lng.trim() !== '') {
+        body.latitude = lat.trim();
+        body.longitude = lng.trim();
+        if (address.trim()) body.address = address.trim();
+      } else if (locationSkipped) {
+        body.locationSkipped = true;
+      }
+    }
+    const res = await apiClient.post(`/api/onboard-requests/update/${encodeURIComponent(token)}`, body);
     setSubmitting(false);
     if (res.success) {
       setDone(true);
@@ -161,6 +212,40 @@ export function OnboardUpdateView({ token }: { token: string }) {
               <label style={labelStyle}>Location</label>
               <input style={inputStyle} value={location} onChange={(e) => setLocation(e.target.value)} />
               {fieldErrors.location && <div style={errStyle}>{fieldErrors.location}</div>}
+
+              {needsPin && (
+                <div style={{
+                  marginTop: 14, padding: 12, borderRadius: 12,
+                  border: `1px solid ${lat && lng ? 'rgba(74,222,128,0.35)' : 'var(--status-warning, #f59e0b)'}`,
+                  background: lat && lng ? 'rgba(74,222,128,0.06)' : 'rgba(245,158,11,0.06)',
+                }}>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    Farm GPS location {lat && lng ? '· pinned' : '· missing'}
+                  </div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
+                    Your application has no map pin. It&apos;s what weather forecasts are calculated from, and how the reviewing admin finds your farm. Detecting or typing coordinates sends them to OpenStreetMap&apos;s Nominatim service to look up the matching address.
+                  </div>
+                  <GpsMapBlock
+                    lat={lat} lng={lng} address={address}
+                    onLatChange={setLat} onLngChange={setLng} onAddressChange={setAddress}
+                    loading={gpsLoading} error={gpsError} onDetect={detectGPS}
+                  />
+                  {!(lat && lng) && (
+                    <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-subtle)' }}>
+                      <input
+                        type="checkbox" checked={locationSkipped}
+                        onChange={(e) => setLocationSkipped(e.target.checked)}
+                        style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }}
+                      />
+                      <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        I can&apos;t add GPS coordinates right now — I understand this farm will have no weather forecasts until I add them.
+                      </span>
+                    </label>
+                  )}
+                  {fieldErrors.latitude && <div style={{ ...errStyle, marginTop: 8 }}>{fieldErrors.latitude}</div>}
+                  {fieldErrors.longitude && <div style={{ ...errStyle, marginTop: 4 }}>{fieldErrors.longitude}</div>}
+                </div>
+              )}
 
               <label style={labelStyle}>Enterprises</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>

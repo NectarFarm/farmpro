@@ -492,6 +492,20 @@ function RequestDetail({
           <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{actionError}</div>
         )}
 
+        {/* Approving a pinless request provisions a farm that can never show
+           a forecast — the weather API needs a lat/lng, and nothing later in
+           the flow asks for one. The admin has the LocationEditor right above
+           this, so the fix is one scroll away; this just makes sure they know
+           there is something to fix before they click Approve. */}
+        {ACTIONABLE.has(req.status) && (req.lat === undefined || req.lng === undefined) && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: 10, marginBottom: 10, borderRadius: 10, border: '1px solid var(--status-warning)', background: 'rgba(251,191,36,0.08)' }}>
+            <AlertTriangle size={13} color="var(--status-warning)" aria-hidden="true" style={{ marginTop: 1, flexShrink: 0 }} />
+            <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              <strong>No GPS pin on this request.</strong> Approving as-is creates a farm with no weather forecasts — set the location above, or ask the applicant for it with &ldquo;Request Info&rdquo;.
+            </div>
+          </div>
+        )}
+
         {/* Action buttons */}
         {ACTIONABLE.has(req.status) && (
           <div style={{ display: 'flex', gap: 8 }}>

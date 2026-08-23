@@ -14,6 +14,7 @@ import {
 import { type Role } from './navigation';
 import { apiClient } from '@/lib/request';
 import { detectGpsLocation } from '@/lib/geolocation';
+import { gpsRequirementError, GPS_REQUIRED_MESSAGE } from '@/lib/validation';
 
 /* ── Shared GPS + Map block ──────────────────────────────────────────────── */
 export function GpsMapBlock({
@@ -317,7 +318,9 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
 function Step2FarmDetails({
   farmName, setFarmName, location, setLocation,
   address, setAddress, lat, setLat, lng, setLng,
-  gpsLoading, gpsError, detectGPS, onBack, onNext,
+  gpsLoading, gpsError, detectGPS,
+  locationSkipped, setLocationSkipped,
+  onBack, onNext,
   errors, clearFieldError,
 }: {
   farmName: string; setFarmName: (v: string) => void;
@@ -326,6 +329,7 @@ function Step2FarmDetails({
   lat: string; setLat: (v: string) => void;
   lng: string; setLng: (v: string) => void;
   gpsLoading: boolean; gpsError: string; detectGPS: () => void;
+  locationSkipped: boolean; setLocationSkipped: (v: boolean) => void;
   onBack: () => void; onNext: () => void;
   errors: FieldErrors; clearFieldError: (field: string) => void;
 }) {
@@ -333,6 +337,15 @@ function Step2FarmDetails({
   useReverseGeocode(lat, lng, (addr) => {
     if (!address) setAddress(addr);
   });
+
+  const hasPin = lat.trim() !== '' && lng.trim() !== '';
+  // `latitude` carries two very different errors: "you didn't pin the farm",
+  // which is about the whole block, and "that isn't a valid latitude", which
+  // belongs under the latitude input. Splitting them keeps the long
+  // requirement message out of a narrow half-width field — and stops it
+  // rendering twice.
+  const gpsRequiredError = errors.latitude === GPS_REQUIRED_MESSAGE ? errors.latitude : undefined;
+  const coordFormatError = gpsRequiredError ? undefined : errors.latitude;
 
   return (
     <div>
@@ -362,16 +375,28 @@ function Step2FarmDetails({
           : <div id="farm-location-hint" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 3 }}>Short area name shown throughout the app (required)</div>}
       </div>
 
-      <div style={{ marginBottom: 20 }}>
+      {/* The GPS block used to be a plain, unlabelled "(optional)" section
+         below two required fields, and applicants routinely scrolled past it
+         without registering that a farm pin was on offer at all. It is now a
+         bordered, tinted panel that changes state once a pin exists, so
+         "there is something here I haven't done" is visible at a glance
+         rather than something you have to read for. */}
+      <div style={{
+        marginBottom: 20, padding: 12, borderRadius: 12,
+        border: `1px solid ${hasPin ? 'rgba(74,222,128,0.35)' : 'var(--status-warning, #f59e0b)'}`,
+        background: hasPin ? 'rgba(74,222,128,0.06)' : 'rgba(245,158,11,0.06)',
+      }}>
         <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
-          GPS &amp; Full Address <span style={{ fontWeight: 400, color: 'var(--text-dim)' }}>(optional)</span>
+          Farm GPS Location {hasPin
+            ? <span style={{ fontWeight: 400, color: 'var(--primary-green)' }}>· pinned</span>
+            : <span style={{ fontWeight: 400, color: 'var(--status-warning, #f59e0b)' }}>· required</span>}
         </label>
         {/* Point-of-collection notice (not a modal) — the browser's own permission
            prompt says only whether location is shared, never why, and it never
            mentions that useReverseGeocode hands the coordinates to a third
            party (Nominatim) to turn them into an address. */}
         <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
-          Optional — sharing your location helps the reviewing admin find your farm. If you detect or enter coordinates, we look up the matching address using OpenStreetMap&apos;s Nominatim service, which receives those coordinates directly.
+          Your farm&apos;s pin is what weather forecasts are calculated from, and it&apos;s how the reviewing admin finds you. If you detect or enter coordinates, we look up the matching address using OpenStreetMap&apos;s Nominatim service, which receives those coordinates directly.
         </div>
         <GpsMapBlock
           lat={lat} lng={lng} address={address}
@@ -379,8 +404,43 @@ function Step2FarmDetails({
           onLngChange={v => { setLng(v); clearFieldError('latitude'); clearFieldError('longitude'); }}
           onAddressChange={setAddress}
           loading={gpsLoading} error={gpsError} onDetect={detectGPS}
-          latError={errors.latitude} lngError={errors.longitude}
+          latError={coordFormatError} lngError={errors.longitude}
         />
+
+        {/* The escape hatch. A hard requirement would lock out anyone whose
+           GPS is denied, who has no fix indoors, or who is on a desktop — so
+           skipping stays possible, but only as a deliberate tick that comes
+           with the warning attached. Hidden once a pin exists: there is
+           nothing left to skip. */}
+        {!hasPin && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-subtle)' }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input
+                type="checkbox" checked={locationSkipped}
+                onChange={e => { setLocationSkipped(e.target.checked); clearFieldError('latitude'); }}
+                style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0, accentColor: 'var(--status-warning, #f59e0b)' }}
+              />
+              <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                I can&apos;t add GPS coordinates right now
+              </span>
+            </label>
+            {locationSkipped && (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 8, fontSize: 'var(--fs-2xs)', color: 'var(--status-warning, #f59e0b)', lineHeight: 1.5 }}>
+                <AlertTriangle size={12} aria-hidden="true" style={{ marginTop: 2, flexShrink: 0 }} />
+                <span>
+                  Without a pin your farm gets no weather forecasts, and the admin reviewing this request has only the area name to go on — they may come back asking for it. You can add it later from Settings.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {gpsRequiredError && (
+          <div role="alert" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 10, fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', lineHeight: 1.5 }}>
+            <AlertTriangle size={12} aria-hidden="true" style={{ marginTop: 2, flexShrink: 0 }} />
+            <span>{gpsRequiredError}</span>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
@@ -449,7 +509,7 @@ function validateStep1(farmerName: string, email: string, phone: string): FieldE
   return errors;
 }
 
-function validateStep2(farmName: string, location: string, lat: string, lng: string): FieldErrors {
+function validateStep2(farmName: string, location: string, lat: string, lng: string, locationSkipped: boolean): FieldErrors {
   const errors: FieldErrors = {};
   const farmNameErr = validateRequiredText(farmName, 'Farm name');
   if (farmNameErr) errors.farmName = farmNameErr;
@@ -467,6 +527,14 @@ function validateStep2(farmName: string, location: string, lat: string, lng: str
     if (latErr) errors.latitude = latErr;
     const lngErr = validateCoordinate(lng, -180, 180, 'Longitude');
     if (lngErr) errors.longitude = lngErr;
+  } else {
+    // No pin at all: the server rejects this unless the applicant has
+    // explicitly acknowledged going without one, so refuse it here too
+    // rather than letting them reach step 3 and bounce back off a 400.
+    // gpsRequirementError is the server's own function, imported — the
+    // rule and its wording cannot drift between the two.
+    const gpsErr = gpsRequirementError(false, locationSkipped);
+    if (gpsErr) errors.latitude = gpsErr;
   }
   return errors;
 }
@@ -503,6 +571,10 @@ export function RegisterScreen({ onBack }: {
   const [lng, setLng] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState('');
+  // Not a farm attribute — just a record that the applicant was shown the
+  // "no pin" warning and chose to continue. Never persisted; see
+  // lib/validation.ts#gpsRequirementError.
+  const [locationSkipped, setLocationSkipped] = useState(false);
   const [selectedEnterprises, setSelectedEnterprises] = useState<string[]>([]);
   const [consentGiven, setConsentGiven] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -536,7 +608,7 @@ export function RegisterScreen({ onBack }: {
   }
 
   function handleStep2Next() {
-    const stepErrors = validateStep2(farmName, location, lat, lng);
+    const stepErrors = validateStep2(farmName, location, lat, lng, locationSkipped);
     applyStepErrors(['farmName', 'location', 'latitude', 'longitude'], stepErrors);
     if (Object.keys(stepErrors).length === 0) setStep(3);
   }
@@ -561,7 +633,13 @@ export function RegisterScreen({ onBack }: {
   function detectGPS() {
     setGpsLoading(true); setGpsError('');
     detectGpsLocation(
-      coords => { setLat(coords.latitude); setLng(coords.longitude); setGpsLoading(false); },
+      coords => {
+        setLat(coords.latitude); setLng(coords.longitude); setGpsLoading(false);
+        // A pin arrived, so there is nothing left to skip — drop the
+        // acknowledgement rather than sending both.
+        setLocationSkipped(false);
+        clearFieldError('latitude'); clearFieldError('longitude');
+      },
       message => { setGpsError(message); setGpsLoading(false); }
     );
   }
@@ -575,7 +653,7 @@ export function RegisterScreen({ onBack }: {
     // earlier steps' Next buttons re-checking edited values.
     const allErrors: FieldErrors = {
       ...validateStep1(farmerName, email, phone),
-      ...validateStep2(farmName, location, lat, lng),
+      ...validateStep2(farmName, location, lat, lng, locationSkipped),
       ...validateStep3(selectedEnterprises, consentGiven),
     };
     if (Object.keys(allErrors).length > 0) {
@@ -603,6 +681,9 @@ export function RegisterScreen({ onBack }: {
     if (lat.trim() !== '' && lng.trim() !== '') {
       body.latitude = lat.trim();
       body.longitude = lng.trim();
+    } else if (locationSkipped) {
+      // Tells the server the pin is missing on purpose, not by oversight.
+      body.locationSkipped = true;
     }
 
     const res = await apiClient.post<{ id: string }>('/api/onboard-requests', body);
@@ -726,6 +807,7 @@ export function RegisterScreen({ onBack }: {
           lat={lat} setLat={setLat}
           lng={lng} setLng={setLng}
           gpsLoading={gpsLoading} gpsError={gpsError} detectGPS={detectGPS}
+          locationSkipped={locationSkipped} setLocationSkipped={setLocationSkipped}
           onBack={() => setStep(1)} onNext={handleStep2Next}
           errors={errors} clearFieldError={clearFieldError}
         />

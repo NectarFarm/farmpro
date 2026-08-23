@@ -113,6 +113,8 @@ run('onboarding requests: submit -> admin queue -> approve provisions a tenant (
           location: 'Nakuru, Kenya',
           enterprises: ['layer', 'broiler'],
           consentGiven: true,
+          latitude: '-0.303099',
+          longitude: '36.080025',
         })
       )
     )
@@ -258,6 +260,11 @@ run('onboarding requests: field validation + location + consent (issues #251/#25
       location: 'Nakuru, Kenya',
       enterprises: ['layer'],
       consentGiven: true,
+      // A submission with no GPS pin is only accepted when the applicant
+      // acknowledged going without one, so the baseline body carries the
+      // acknowledgement. Tests that supply real coordinates override it, and
+      // the two tests immediately below cover the rule itself.
+      locationSkipped: true,
       ...overrides,
     }
   }
@@ -311,11 +318,38 @@ run('onboarding requests: field validation + location + consent (issues #251/#25
     expect(found.longitude).toBeCloseTo(36.080025)
   })
 
-  it('succeeds with no location fields at all (they are optional)', async () => {
+  it('succeeds with no coordinates when the applicant acknowledged having none', async () => {
     mockCookie = undefined
     const { status, payload } = await submit(validBody())
     expect(status).toBe(201)
     expect(typeof payload.data.id).toBe('string')
+
+    const [row] = await db.select().from(onboardRequests).where(eq(onboardRequests.id, payload.data.id))
+    // The acknowledgement gates the submission and is then discarded — it
+    // says nothing about the farm, and `latitude IS NULL` already tells
+    // every reader downstream that the pin is missing.
+    expect(row.latitude).toBeNull()
+    expect(row.longitude).toBeNull()
+  })
+
+  it('rejects a submission with neither coordinates nor the acknowledgement', async () => {
+    mockCookie = undefined
+    const body = validBody()
+    delete (body as Record<string, unknown>).locationSkipped
+    const { status, payload } = await submit(body)
+    expect(status).toBe(400)
+    expect(payload.success).toBe(false)
+    expect(payload.fields.latitude).toContain('GPS location')
+  })
+
+  it('does not accept a merely truthy acknowledgement', async () => {
+    mockCookie = undefined
+    // Same literal-`true` rule consentGiven uses: "false" and 1 are not
+    // consent, and neither is a decision to skip the pin.
+    for (const value of ['true', 1, {}]) {
+      const { status } = await submit(validBody({ locationSkipped: value }))
+      expect(status).toBe(400)
+    }
   })
 
   it('rejects latitude supplied without longitude', async () => {

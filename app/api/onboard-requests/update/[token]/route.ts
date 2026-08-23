@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { onboardRequests } from '@/db/schemas'
 import { validateBody } from '@/app/api/onboard-requests/route'
+import { gpsRequirementError, hasCoordinateInput } from '@/lib/validation'
 import { closeOnboardUpdateToken, loadOnboardRequestForUpdate, resolveOnboardUpdateToken } from '@/lib/onboard-update'
 
 // ── GET/POST /api/onboard-requests/update/[token] (feat/email-notifications) ─
@@ -77,10 +78,31 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   const b = (raw ?? {}) as Record<string, unknown>
 
   const result = validateBody(b)
-  if (!result.ok) {
-    const fieldNames = Object.keys(result.fields)
+
+  // Same "pin your farm, or say you can't" rule the public POST applies —
+  // but measured against what the row will actually hold AFTER this
+  // resubmission, not against what this body happens to restate. A form
+  // that never touches location keeps the pin already on file and so
+  // satisfies the rule without resending anything; a body that sends
+  // `address` alone would blank the pin (see locationSet below) and
+  // therefore has to carry the acknowledgement like any other pinless
+  // submission.
+  //
+  // This matters most for exactly the case that produces these links: an
+  // admin asking for info BECAUSE the location is missing. That applicant
+  // now cannot resubmit without either adding the pin or stating they
+  // can't.
+  const hasLocationInput = b.address !== undefined || b.latitude !== undefined || b.longitude !== undefined
+  const willHaveCoords = hasCoordinateInput(b)
+    || (!hasLocationInput && existing.latitude !== null && existing.longitude !== null)
+  const gpsError = gpsRequirementError(willHaveCoords, b.locationSkipped)
+  const fields: Record<string, string> = { ...result.fields }
+  if (gpsError && !fields.latitude) fields.latitude = gpsError
+
+  if (!result.ok || gpsError) {
+    const fieldNames = Object.keys(fields)
     return NextResponse.json(
-      { success: false, error: result.fields[fieldNames[0]], fields: result.fields },
+      { success: false, error: fields[fieldNames[0]], fields },
       { status: 400 }
     )
   }
@@ -94,7 +116,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   // touches location must not silently erase it. Mirrors PATCH
   // /api/onboard-requests/[id]'s own hasLocationInput/locationSet — only
   // apply validateBody's location result when the caller actually sent one.
-  const hasLocationInput = b.address !== undefined || b.latitude !== undefined || b.longitude !== undefined
   const locationSet = hasLocationInput
     ? { address: result.address, latitude: result.latitude, longitude: result.longitude }
     : { address: existing.address, latitude: existing.latitude, longitude: existing.longitude }

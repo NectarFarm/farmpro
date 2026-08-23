@@ -144,3 +144,42 @@ export function validateLocation(input: LocationInput): LocationResult {
 
   return { address, latitude, longitude, fields }
 }
+
+// ── "A farm must have a GPS pin, or a stated reason it can't" ───────────────
+// Coordinates used to be plainly optional on an onboarding request, and the
+// register form said so. The result was farms arriving with no pin at all:
+// weather (which needs a lat/lng to ask Open-Meteo for a forecast) has
+// nothing to work with, and the reviewing admin has only a free-text area
+// name like "Nakuru" to go on.
+//
+// Requiring coordinates outright is the wrong fix. An applicant whose GPS is
+// denied, who is indoors with no fix, or who is filling the form on a desktop
+// has no way to produce a latitude — a hard requirement would simply lock
+// them out of applying at all.
+//
+// So the rule is: you must make a *choice*. Either provide the pin, or tick
+// the box saying you can't right now — which is what `locationSkipped`
+// carries. Skipping stays possible; skipping silently, by not noticing the
+// field, does not. The acknowledgement is deliberately not persisted: it
+// records nothing about the farm, only that the applicant was shown the
+// warning, and `latitude IS NULL` already tells every reader downstream that
+// the pin is missing.
+export const GPS_REQUIRED_MESSAGE =
+  'Add your farm’s GPS location, or tick “I can’t add GPS coordinates right now” to continue without it'
+
+export function gpsRequirementError(hasCoords: boolean, locationSkipped: unknown): string | null {
+  if (hasCoords) return null
+  // Literal `true` only — matching how consentGiven is checked, so a stray
+  // "false" string or a 1 can't wave the requirement through.
+  if (locationSkipped === true) return null
+  return GPS_REQUIRED_MESSAGE
+}
+
+// Whether a body carries a coordinate pair at all — distinct from whether
+// that pair is *valid*, which validateLocation decides. Callers need the
+// "did they even try" question answered separately, because a bad latitude
+// already produces its own error and must not also produce the
+// "you didn't pin your farm" one on top of it.
+export function hasCoordinateInput(input: LocationInput): boolean {
+  return hasValue(input.latitude) && hasValue(input.longitude)
+}
