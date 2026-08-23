@@ -67,8 +67,21 @@ export const approvalRequests = pgTable('approval_requests', {
   requestedAt: timestamp('requested_at').defaultNow().notNull(),
   status: text('status').notNull().default('pending'),
   priority: text('priority').notNull().default('medium'),
+  // Copied from tasks.approverId when the request is raised, rather than
+  // read through the task at decision time: the queue is a record of who was
+  // asked, and later reassigning a task's approver must not silently rewrite
+  // who was accountable for a decision already made. NULL keeps the old
+  // behaviour — anyone with governance edit rights may decide.
+  assignedApproverId: text('assigned_approver_id'),
+  // Who actually decided, and when. The audit log has always recorded this,
+  // but only as a log line: the queue itself could not answer "which of
+  // these did I approve?", which is the question an approver asks most.
+  decidedBy: text('decided_by'),
+  decidedAt: timestamp('decided_at'),
 }, (t) => [
   index('idx_approval_requests_tenant').on(t.tenantId),
+  index('idx_approval_requests_approver').on(t.tenantId, t.assignedApproverId),
+  index('idx_approval_requests_decided_by').on(t.tenantId, t.decidedBy),
   index('idx_approval_requests_tenant_status').on(t.tenantId, t.status),
   // Farm scoping resolves approvals through their batch (batch_id IN (...)),
   // and batch_id appears in no other index — tenant/status are led by

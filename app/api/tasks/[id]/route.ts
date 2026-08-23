@@ -4,6 +4,8 @@ import { tasks, approvalRequests } from '@/db/schemas'
 import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
+import { isRecurrence, spawnNextOccurrence } from '@/lib/tasks'
+import { resolveAssignee, resolveApprover } from '@/lib/task-people'
 
 // ── GET/PATCH/DELETE /api/tasks/[id] (issue #243) ───────────────────────────
 // Tenant-scoped: an id only reads/updates/deletes when its tenantId matches
@@ -73,6 +75,36 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (b.requiresApproval !== undefined) patch.requiresApproval = b.requiresApproval === true
   if (typeof b.notes === 'string') patch.notes = b.notes.trim()
 
+  // Reassignment. An explicit null clears it — "nobody in particular" is a
+  // real state, distinct from "leave whoever is on it alone" (field absent).
+  if (b.assigneeId === null) patch.assigneeId = null
+  else if (typeof b.assigneeId === 'string' && b.assigneeId.trim()) {
+    const resolved = await resolveAssignee(tenantId, b.assigneeId.trim())
+    if (!resolved) return badRequest('That employee is not on this farm')
+    patch.assigneeId = resolved
+  }
+
+  if (b.approverId === null) patch.approverId = null
+  else if (typeof b.approverId === 'string' && b.approverId.trim()) {
+    const approver = await resolveApprover(tenantId, b.approverId.trim())
+    if ('problem' in approver) {
+      return badRequest(approver.problem === 'not-found'
+        ? 'That approver is not a user on this farm'
+        : `${approver.name} cannot approve tasks — give their role governance access first, or pick someone else`)
+    }
+    patch.approverId = approver.id
+  }
+
+  if (isRecurrence(b.recurrence)) patch.recurrence = b.recurrence
+  if (b.recurrenceUntil === null) patch.recurrenceUntil = null
+  else if (typeof b.recurrenceUntil === 'string' && b.recurrenceUntil) patch.recurrenceUntil = new Date(b.recurrenceUntil)
+
+  const effectiveRecurrence = patch.recurrence ?? existing.recurrence
+  const effectiveDueAt = patch.dueAt !== undefined ? patch.dueAt : existing.dueAt
+  if (effectiveRecurrence !== 'none' && !effectiveDueAt) {
+    return badRequest('A repeating task needs a due date — that is what each repeat is counted from')
+  }
+
   const requestedStatus = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : undefined
   const effectiveRequiresApproval = patch.requiresApproval ?? existing.requiresApproval
 
@@ -109,6 +141,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           details: patch.notes ?? existing.notes ?? '',
           status: 'pending',
           priority: patch.priority ?? existing.priority,
+          // Snapshot, not a live lookup: the queue records who was ASKED.
+          // Reassigning the task's approver later must not rewrite who was
+          // accountable for a decision already taken on this request.
+          assignedApproverId: patch.approverId !== undefined ? patch.approverId : existing.approverId,
         })
         .returning()
       approvalRequest = inserted
@@ -125,7 +161,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const rows = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
   if (rows.length === 0) return notFound()
-  return ok(rows[0])
+
+  // A repeating task that just finished schedules its own successor. The
+  // other place a task can finish is an approval being granted, which spawns
+  // it inside that decision's transaction (lib/governance.ts) — both go
+  // through the same helper so a chain can't break depending on which route
+  // completed it.
+  const completedNow = rows[0].status === 'DONE' && existing.status !== 'DONE'
+  const next = completedNow ? await spawnNextOccurrence(rows[0]) : null
+
+  return ok(next ? { ...rows[0], nextOccurrenceId: next.id, nextOccurrenceDueAt: next.dueAt } : rows[0])
 }
 
 // DELETE /api/tasks/[id] — hard delete, tenant-scoped.

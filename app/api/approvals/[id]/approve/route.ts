@@ -29,7 +29,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params
 
   try {
-    const result = await decideApproval(id, session.tenantId, session.id, 'approved')
+    const result = await decideApproval(id, session.tenantId, session.id, 'approved', session.role)
     return NextResponse.json({ success: true, data: result }, { status: 200 })
   } catch (err) {
     if (err instanceof ApprovalError) return bad(err.message, err.status)

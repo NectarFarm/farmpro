@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { tasks } from '@/db/schemas'
+import { tasks, employees } from '@/db/schemas'
 import { and, asc, eq, gte, lt } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
+import { isRecurrence } from '@/lib/tasks'
+import { resolveAssignee, resolveApprover } from '@/lib/task-people'
 
 // ── GET/POST /api/tasks (issue #227 task 2, extended by issue #243) ────────
 // Small dedicated endpoint rather than a generic /api/data/[resource] route —
@@ -50,6 +52,43 @@ export async function GET(req: Request) {
   if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
 
   const conditions = [eq(tasks.tenantId, tenantId)]
+
+  // A calendar asks for a window, not "today" — `from`/`to` are ISO
+  // instants, `to` exclusive, so a month view is one request instead of
+  // thirty-one.
+  const fromParam = url.searchParams.get('from')
+  const toParam = url.searchParams.get('to')
+  if (fromParam) {
+    const from = new Date(fromParam)
+    if (Number.isNaN(from.getTime())) return badRequest('from must be a valid date')
+    conditions.push(gte(tasks.dueAt, from))
+  }
+  if (toParam) {
+    const to = new Date(toParam)
+    if (Number.isNaN(to.getTime())) return badRequest('to must be a valid date')
+    conditions.push(lt(tasks.dueAt, to))
+  }
+
+  // Who the work is on. `me` resolves through the caller's own employee row
+  // so the worker app doesn't have to know its employees.id.
+  const assignee = url.searchParams.get('assigneeId')?.trim()
+  if (assignee) {
+    if (assignee === 'me') {
+      const [own] = await db
+        .select({ id: employees.id })
+        .from(employees)
+        .where(and(eq(employees.tenantId, tenantId), eq(employees.userId, auth.session.id)))
+        .limit(1)
+      // No employee row means no assigned work — an empty list is the honest
+      // answer, not every task on the farm.
+      conditions.push(own ? eq(tasks.assigneeId, own.id) : eq(tasks.assigneeId, '\u0000no-such-employee'))
+    } else {
+      conditions.push(eq(tasks.assigneeId, assignee))
+    }
+  }
+
+  const statusFilter = url.searchParams.get('status')?.trim()
+  if (statusFilter) conditions.push(eq(tasks.status, statusFilter.toUpperCase()))
   if (due === 'today') {
     const start = startOfUtcDay(new Date())
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
@@ -107,6 +146,38 @@ export async function POST(req: Request) {
   const requiresApproval = b.requiresApproval === true
   const notes = typeof b.notes === 'string' ? b.notes.trim() : null
 
+  // Who does the work (an employee) and who signs it off (a signed-in user).
+  let assigneeId: string | null = null
+  if (typeof b.assigneeId === 'string' && b.assigneeId.trim()) {
+    assigneeId = await resolveAssignee(tenantId, b.assigneeId.trim())
+    if (!assigneeId) return badRequest('That employee is not on this farm')
+  }
+
+  let approverId: string | null = null
+  if (typeof b.approverId === 'string' && b.approverId.trim()) {
+    const approver = await resolveApprover(tenantId, b.approverId.trim())
+    if ('problem' in approver) {
+      return badRequest(approver.problem === 'not-found'
+        ? 'That approver is not a user on this farm'
+        : `${approver.name} cannot approve tasks — give their role governance access first, or pick someone else`)
+    }
+    approverId = approver.id
+  }
+
+  const recurrence = isRecurrence(b.recurrence) ? b.recurrence : 'none'
+  // A recurring task with no due date has nothing to advance, so the
+  // repetition would silently never happen — refuse it at write time rather
+  // than storing a schedule that does nothing.
+  if (recurrence !== 'none' && !dueAt) {
+    return badRequest('A repeating task needs a due date — that is what each repeat is counted from')
+  }
+  const recurrenceUntil = typeof b.recurrenceUntil === 'string' && b.recurrenceUntil
+    ? new Date(b.recurrenceUntil)
+    : null
+  if (recurrenceUntil && dueAt && recurrenceUntil < dueAt) {
+    return badRequest('The repeat end date is before the first due date')
+  }
+
   const rows = await db
     .insert(tasks)
     .values({
@@ -119,6 +190,10 @@ export async function POST(req: Request) {
       requiresApproval,
       notes,
       farmId: farmFilter ?? null,
+      assigneeId,
+      approverId,
+      recurrence,
+      recurrenceUntil,
     })
     .returning()
 

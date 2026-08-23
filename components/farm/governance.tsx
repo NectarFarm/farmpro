@@ -117,6 +117,20 @@ interface ApprovalRequestRow {
   requestedAt: string;
   status: string;
   priority: string;
+  // tasks-scheduling task (migration 0029). `assignedApproverId` is the
+  // person the task named; NULL means the old behaviour — anyone with
+  // governance rights. `decidedBy`/`decidedAt` let the queue answer "which
+  // of these did I sign off?", which the audit log could only answer by
+  // being read line by line.
+  assignedApproverId: string | null;
+  decidedBy: string | null;
+  decidedAt: string | null;
+}
+
+interface ApproverRow {
+  userId: string;
+  name: string;
+  role: string;
 }
 interface AuditLogRow {
   id: string;
@@ -278,12 +292,21 @@ export function GovernanceScreen() {
   const [activitySearch, setActivitySearch] = useState('');
   const [activityRoleFilter, setActivityRoleFilter] = useState('all');
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [approvers, setApprovers] = useState<ApproverRow[]>([]);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
 
+  // Scoping, not decoration: anyone other than the owner is sent only the
+  // requests that are actually theirs — named on them, or unassigned and so
+  // open to whoever can approve. A manager seeing another manager's queue,
+  // and being able to sign it off, is exactly what naming an approver is
+  // meant to stop. The owner still sees everything, because they are the one
+  // who has to unblock a queue when an approver is unavailable.
+  const scopeParam = sessionRole === 'owner' ? '' : '&scope=mine';
   const loadApprovals = useCallback(async () => {
-    const res = await apiClient.get<ApprovalRequestRow[]>(`/api/approvals?tenantId=${tenantId}`);
+    const res = await apiClient.get<ApprovalRequestRow[]>(`/api/approvals?tenantId=${tenantId}${scopeParam}`);
     if (res.success) setApprovals(res.data);
     else setLoadError(res.error ?? 'Could not load approvals');
-  }, [tenantId]);
+  }, [tenantId, scopeParam]);
 
   const loadRoles = useCallback(async () => {
     const res = await apiClient.get<RoleMatrixEntry[]>(`/api/role-permissions?tenantId=${tenantId}`);
@@ -298,6 +321,15 @@ export function GovernanceScreen() {
   }, [tenantId]);
 
   useEffect(() => { loadApprovals(); }, [loadApprovals]);
+  useEffect(() => {
+    apiClient.get<ApproverRow[]>(`/api/approvals/approvers?tenantId=${tenantId}`).then((res) => {
+      if (res.success) setApprovers(res.data);
+    });
+    // Who am I — needed to tell "waiting on me" from "waiting on Grace".
+    apiClient.get<{ id: string }>('/api/auth/session').then((res) => {
+      if (res.success) setMyUserId(res.data.id);
+    });
+  }, [tenantId]);
   useEffect(() => { loadRoles(); }, [loadRoles]);
   useEffect(() => { loadAuditLog(); }, [loadAuditLog]);
 
@@ -343,7 +375,30 @@ export function GovernanceScreen() {
 
   const pending = (approvals ?? []).filter(a => a.status === 'pending').length;
   const approvedCount = (approvals ?? []).filter(a => a.status === 'approved').length;
-  const filteredApprovals = approvalFilter === 'all' ? (approvals ?? []) : (approvals ?? []).filter(a => a.status === approvalFilter);
+  const approverName = useCallback((userId: string | null) => {
+    if (!userId) return null;
+    if (userId === myUserId) return 'you';
+    return approvers.find((p) => p.userId === userId)?.name ?? 'someone no longer on this farm';
+  }, [approvers, myUserId]);
+
+  // Can I actually decide this one? Mirrors approverCanDecide in
+  // lib/governance.ts — the server is still the authority, this only decides
+  // whether to offer a button that would be refused.
+  const canDecide = useCallback((a: ApprovalRequestRow) => {
+    if (!a.assignedApproverId) return true;
+    if (a.assignedApproverId === myUserId) return true;
+    return sessionRole === 'owner';
+  }, [myUserId, sessionRole]);
+
+  const filteredApprovals = useMemo(() => {
+    const rows = approvals ?? [];
+    switch (approvalFilter) {
+      case 'all': return rows;
+      case 'mine': return rows.filter(a => a.status === 'pending' && canDecide(a));
+      case 'decided': return rows.filter(a => a.decidedBy && a.decidedBy === myUserId);
+      default: return rows.filter(a => a.status === approvalFilter);
+    }
+  }, [approvals, approvalFilter, canDecide, myUserId]);
 
   // Sum of every role's approvalRequired list = count of the tenant's real
   // role_permissions rows with approval_required = true (see comment above).
@@ -408,8 +463,11 @@ export function GovernanceScreen() {
         {tab === 'approvals' && (
           <div style={{ paddingBottom: 80 }}>
             <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
-              {['all', 'pending', 'approved', 'rejected'].map(f => (
-                <button key={f} onClick={() => setApprovalFilter(f)} style={{ flexShrink: 0, padding: '5px 11px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: approvalFilter === f ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: approvalFilter === f ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: approvalFilter === f ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{f}</button>
+              {[
+                ['all', 'All'], ['mine', 'Waiting on me'], ['decided', 'I decided'],
+                ['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected'],
+              ].map(([f, label]) => (
+                <button key={f} onClick={() => setApprovalFilter(f)} style={{ flexShrink: 0, padding: '5px 11px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: approvalFilter === f ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: approvalFilter === f ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: approvalFilter === f ? 'var(--primary-green)' : 'var(--text-muted)' }}>{label}</button>
               ))}
             </div>
             {approvals === null ? (
@@ -434,10 +492,26 @@ export function GovernanceScreen() {
                     <div style={{ display: 'flex', gap: 12, marginBottom: a.status === 'pending' ? 10 : 0, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>By: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{a.requestedBy}</span></span>
                       <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>{fmtTimestamp(a.requestedAt)}</span>
+                      {a.status === 'pending' && (
+                        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                          Waiting on: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{approverName(a.assignedApproverId) ?? 'anyone who can approve'}</span>
+                        </span>
+                      )}
+                      {a.status !== 'pending' && a.decidedBy && (
+                        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+                          {a.status === 'approved' ? 'Approved' : 'Rejected'} by <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{approverName(a.decidedBy)}</span>
+                          {a.decidedAt ? ` · ${fmtTimestamp(a.decidedAt)}` : ''}
+                        </span>
+                      )}
                     </div>
-                    {a.status === 'pending' && (
+                    {a.status === 'pending' && !canDecide(a) && (
+                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                        {approverName(a.assignedApproverId)} was named to decide this one.
+                      </div>
+                    )}
+                    {a.status === 'pending' && canDecide(a) && (
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button disabled={decidingId === a.id} onClick={() => decide(a, 'approve')} style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                        <button disabled={decidingId === a.id} onClick={() => decide(a, 'approve')} title={a.assignedApproverId && a.assignedApproverId !== myUserId ? `Deciding on behalf of ${approverName(a.assignedApproverId)} — recorded as an override` : undefined} style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                           <Check size={13} /> Approve
                         </button>
                         <button disabled={decidingId === a.id} onClick={() => decide(a, 'reject')} style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>

@@ -423,7 +423,11 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   const [openTasksCount, setOpenTasksCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    apiClient.get<{ id: string }[]>(`/api/approvals?tenantId=${tenantId}&status=pending&farmId=${activeFarmId}`).then(res => {
+    // Scoped the same way the governance queue is (see its loadApprovals):
+    // a badge counting decisions that are somebody else's to make sends the
+    // user to a screen where those rows aren't even listed.
+    const approvalScope = role === 'owner' ? '' : '&scope=mine'
+    apiClient.get<{ id: string }[]>(`/api/approvals?tenantId=${tenantId}&status=pending&farmId=${activeFarmId}${approvalScope}`).then(res => {
       if (!cancelled && res.success && Array.isArray(res.data)) setPendingApprovals(res.data.length);
     });
     apiClient.get<{ read: boolean }[]>(`/api/notifications?tenantId=${tenantId}`).then(res => {
@@ -437,7 +441,10 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
       }
     });
     return () => { cancelled = true; };
-  }, [tenantId, activeFarmId]);
+    // `role` is in here because the approvals badge is scoped by it — an
+    // impersonation switch that changed role without refetching would show
+    // the previous role's count.
+  }, [tenantId, activeFarmId, role]);
 
   // issue #298: admin-onboarding tab badge — real count of `onboard_requests`
   // rows with status 'pending' (issue #251/#252). GET /api/onboard-requests is

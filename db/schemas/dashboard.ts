@@ -159,11 +159,38 @@ export const tasks = pgTable('tasks', {
   // earliest-created farm (by createdAt) rather than leaving it permanently
   // unfilterable/invisible once farm filters land in the UI.
   farmId: text('farm_id'),
+  // ── Who does it, who signs it off (tasks-scheduling task) ────────────────
+  // `assigneeId` is an employees.id: the person ordered to do the work. It is
+  // the employee rather than the user because not every worker has a login
+  // yet, and a task can be assigned to someone before their account exists.
+  //
+  // `approverId` is a users.id, and deliberately not an employee: approving
+  // is an action taken while signed in, so the only useful identity is the
+  // one a session resolves to. NULL means "anyone with governance edit
+  // rights", which is the behaviour every existing row had before this
+  // column, and is what keeps the queue from deadlocking on a task nobody
+  // was named on.
+  assigneeId: text('assignee_id'),
+  approverId: text('approver_id'),
+  // ── Recurrence ───────────────────────────────────────────────────────────
+  // Stored on the task rather than in a separate schedule table: a recurring
+  // chore here is "when this one is done, the next one is due in N days",
+  // not a calendar subscription with exceptions and overrides. Each
+  // occurrence is a real, independently completable row, and
+  // `recurrenceParentId` points back at the one it was spawned from so a
+  // chain can be traced (and stopped) without inventing a series entity.
+  recurrence: text('recurrence').notNull().default('none'),
+  recurrenceUntil: timestamp('recurrence_until'),
+  recurrenceParentId: text('recurrence_parent_id'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_tasks_tenant').on(t.tenantId),
   index('idx_tasks_tenant_due').on(t.tenantId, t.dueAt),
   index('idx_tasks_farm').on(t.farmId),
+  // The worker app's "my tasks" and the approver's "waiting on me" queue are
+  // both single-column lookups within a tenant.
+  index('idx_tasks_assignee').on(t.tenantId, t.assigneeId),
+  index('idx_tasks_approver').on(t.tenantId, t.approverId),
 ])
 
 // Dashboard notification feed (issue #227 task 3). This table is the source

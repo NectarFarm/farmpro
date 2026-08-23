@@ -5,6 +5,7 @@ import {
   Plus, CheckCircle2, Clock, AlertTriangle, Users,
   X, Check, Filter, RefreshCw, ShieldCheck,
   Trash2, ChevronDown, ChevronUp, Download, FileText,
+  ChevronLeft, ChevronRight, Calendar, List,
 } from './icons';
 import { apiClient } from '@/lib/request';
 import { useToast } from './ui-shared';
@@ -20,14 +21,14 @@ import { SearchBar } from './ui-shared';
 // decorations rather than fake-persist them; see PATCH /api/tasks/[id]'s own
 // header comment for the same v1-scope reasoning.
 //
-// ── Assignee (no column exists) ──
-// There's no `assignee` column on `tasks`. Rather than silently dropping the
-// picker, the chosen assignee's name is stored as the first line of `notes`
-// ("Assigned: <name>") and parsed back out for display/filtering — the one
-// free-form field the table has. This is a real, persisted round-trip (the
-// acceptance criterion), just encoded rather than a dedicated column; adding
-// a real `assignee_id` FK is flagged as a follow-on in the PR. The picker's
-// options come from the real GET /api/employees (issue #247), not a mock list.
+// ── Assignee ──
+// There IS an `assignee_id` column now (migration 0029) and it holds an
+// employees.id. Assignment used to be encoded as the first line of `notes`
+// ("Assigned: <name>") because no column existed; splitNotes/buildNotes are
+// kept because rows written before that migration still carry the old
+// encoding, and the backfill can only match the ones whose stored name still
+// matches an employee. `assigneeNameFor` below reads the column first and
+// falls back to the text, so neither generation of row loses its assignee.
 
 // ApiTask/splitNotes/buildNotes/ASSIGNEE_PREFIX and the status/formatting
 // helpers below are also imported by components/farm/worker.tsx's "My Tasks
@@ -45,12 +46,48 @@ export interface ApiTask {
   notes: string | null;
   createdAt: string | null;
   farmId?: string | null; // farm-scoped-data task (migration 0019)
+  // tasks-scheduling task (migration 0029): assignment stopped being a line
+  // of text inside `notes` and became real columns. `assigneeId` is an
+  // employees.id, `approverId` a users.id — see db/schemas/dashboard.ts for
+  // why those are different kinds of identity.
+  assigneeId?: string | null;
+  approverId?: string | null;
+  recurrence?: string;
+  recurrenceUntil?: string | null;
+  recurrenceParentId?: string | null;
 }
 
 interface Employee {
   id: string;
   name: string;
   role: string;
+}
+
+// GET /api/approvals/approvers — the people who may be NAMED as a task's
+// approver: they can sign in, and their role has governance edit access
+// under this tenant's own matrix.
+export interface Approver {
+  userId: string;
+  name: string;
+  role: string;
+  employeeId: string | null;
+}
+
+// What the create sheet hands back. Kept as one object because every caller
+// (the + button, a calendar day, "schedule again" on a finished task) fills
+// in a different subset and the rest defaults.
+export interface TaskDraft {
+  title: string;
+  assigneeId: string;
+  approverId: string;
+  dueDate: string;
+  dueTime: string;
+  priority: 'high' | 'medium' | 'low';
+  requiresApproval: boolean;
+  recurrence: string;
+  recurrenceUntil: string;
+  notes: string;
+  farmId: string;
 }
 
 export const ASSIGNEE_PREFIX = 'Assigned: ';
@@ -83,6 +120,19 @@ export const PRIORITY_COLOR: Record<string, string> = {
 export const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pending', DONE: 'Done', OVERDUE: 'Overdue',
   PENDING_APPROVAL: 'Pending approval', REJECTED: 'Rejected',
+};
+
+// The assignee to SHOW: the real column when it's set, otherwise whatever
+// the pre-migration "Assigned: <name>" line in notes said.
+export function assigneeNameFor(task: ApiTask, employees: { id: string; name: string }[]): string {
+  if (task.assigneeId) {
+    return employees.find((e) => e.id === task.assigneeId)?.name ?? 'Assigned';
+  }
+  return splitNotes(task.notes).assignee;
+}
+
+export const RECURRENCE_LABEL: Record<string, string> = {
+  none: 'Does not repeat', daily: 'Every day', weekly: 'Every week', monthly: 'Every month',
 };
 
 export function isOverdue(t: ApiTask): boolean {
@@ -122,15 +172,48 @@ function exportTaskCSV(tasks: ApiTask[], filename = 'tasks_export.csv') {
 
 /* ── Task Detail Sheet ── */
 function TaskDetailSheet({
-  task, onClose, onDone, onDelete,
+  task, employees, approvers, onClose, onDone, onDelete, onUpdate, onScheduleAgain,
 }: {
   task: ApiTask;
+  employees: Employee[];
+  approvers: Approver[];
   onClose: () => void;
   onDone: (task: ApiTask) => void;
   onDelete: (task: ApiTask) => void;
+  onUpdate: (task: ApiTask, patch: Record<string, unknown>) => Promise<string | null>;
+  onScheduleAgain: (draft: Partial<TaskDraft>) => void;
 }) {
-  const { assignee, rest } = splitNotes(task.notes);
+  const { rest } = splitNotes(task.notes);
+  const assignee = assigneeNameFor(task, employees);
   const status = displayStatus(task);
+  const finished = task.status === 'DONE' || task.status === 'REJECTED';
+
+  // Reassignment happens in place rather than through a separate edit
+  // screen: "who is doing this" is the field that changes most, and on a
+  // finished task it is the whole reason for opening it again.
+  const [editing, setEditing] = useState(false);
+  const [draftAssignee, setDraftAssignee] = useState(task.assigneeId ?? '');
+  const [draftApprover, setDraftApprover] = useState(task.approverId ?? '');
+  const [draftDue, setDraftDue] = useState(task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 16) : '');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  const approverName = task.approverId
+    ? approvers.find(a => a.userId === task.approverId)?.name ?? 'Someone no longer on this farm'
+    : 'Anyone who can approve';
+
+  async function saveEdits() {
+    setSaving(true);
+    setSaveError('');
+    const failure = await onUpdate(task, {
+      assigneeId: draftAssignee || null,
+      approverId: draftApprover || null,
+      dueAt: draftDue ? new Date(draftDue).toISOString() : '',
+    });
+    setSaving(false);
+    if (failure) { setSaveError(failure); return; }
+    setEditing(false);
+  }
 
   return (
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
@@ -149,6 +232,7 @@ function TaskDetailSheet({
               ['Assigned To', assignee || 'Unassigned', 'var(--text-secondary)'],
               ['Due', fmtDueAt(task.dueAt), status === 'OVERDUE' ? 'var(--status-critical)' : 'var(--text-secondary)'],
               ['Priority', task.priority, PRIORITY_COLOR[task.priority]],
+              ['Repeats', RECURRENCE_LABEL[task.recurrence ?? 'none'] ?? 'Does not repeat', 'var(--text-secondary)'],
             ].map(([k, v, c]) => (
               <div key={k}>
                 <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{k}</div>
@@ -159,7 +243,14 @@ function TaskDetailSheet({
           {task.requiresApproval && (
             <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(251,191,36,0.08)', borderRadius: 8, border: '1px solid rgba(251,191,36,0.25)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <ShieldCheck size={12} color="var(--accent-amber)" />
-              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)', fontWeight: 600 }}>Requires owner approval before marking done</span>
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)', fontWeight: 600 }}>
+                {task.approverId ? `${approverName} approves this before it counts as done` : 'Needs approval before it counts as done'}
+              </span>
+            </div>
+          )}
+          {task.recurrenceParentId && (
+            <div style={{ marginTop: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>
+              Created automatically when the previous one was completed.
             </div>
           )}
           {rest && (
@@ -169,7 +260,63 @@ function TaskDetailSheet({
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        {editing && (
+          <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Change who and when</div>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assigned to</label>
+            <select className="farm-input" value={draftAssignee} onChange={e => setDraftAssignee(e.target.value)} style={{ marginBottom: 10 }}>
+              <option value="">Unassigned</option>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.role})</option>)}
+            </select>
+
+            {task.requiresApproval && (
+              <>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Approved by</label>
+                <select className="farm-input" value={draftApprover} onChange={e => setDraftApprover(e.target.value)} style={{ marginBottom: 10 }}>
+                  <option value="">Anyone who can approve</option>
+                  {approvers.map(a => <option key={a.userId} value={a.userId}>{a.name} ({a.role})</option>)}
+                </select>
+              </>
+            )}
+
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due</label>
+            <input className="farm-input" type="datetime-local" value={draftDue} onChange={e => setDraftDue(e.target.value)} style={{ marginBottom: 10 }} />
+
+            {saveError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{saveError}</div>}
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-secondary" onClick={() => { setEditing(false); setSaveError(''); }} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+              <button className="btn-primary" onClick={saveEdits} disabled={saving} style={{ flex: 1, justifyContent: 'center' }}>{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {/* A finished task used to be a dead end: you could look at it and
+             nothing else. Doing the same job again is the commonest thing an
+             owner wants from one, so it opens the create sheet prefilled from
+             this task rather than making them retype it. */}
+          {finished && (
+            <button
+              onClick={() => onScheduleAgain({
+                title: task.title,
+                assigneeId: task.assigneeId ?? '',
+                approverId: task.approverId ?? '',
+                priority: task.priority,
+                requiresApproval: task.requiresApproval,
+                notes: rest,
+                farmId: task.farmId ?? '',
+              })}
+              style={{ flex: 1, minWidth: 150, padding: '11px', borderRadius: 10, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            >
+              <RefreshCw size={13} /> Schedule again
+            </button>
+          )}
+          {!editing && (
+            <button onClick={() => setEditing(true)} style={{ padding: '11px 14px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {finished ? 'Reassign' : 'Reassign / reschedule'}
+            </button>
+          )}
           {task.status !== 'DONE' && task.status !== 'PENDING_APPROVAL' && (
             <button onClick={() => { onDone(task); onClose(); }} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <Check size={14} /> Mark Done
@@ -190,8 +337,8 @@ function TaskDetailSheet({
 }
 
 /* ── Task Card ── */
-function TaskCard({ task, onOpen }: { task: ApiTask; onOpen: (task: ApiTask) => void }) {
-  const { assignee } = splitNotes(task.notes);
+function TaskCard({ task, employees, onOpen }: { task: ApiTask; employees: Employee[]; onOpen: (task: ApiTask) => void }) {
+  const assignee = assigneeNameFor(task, employees);
   const status = displayStatus(task);
 
   return (
@@ -225,7 +372,7 @@ function TaskCard({ task, onOpen }: { task: ApiTask; onOpen: (task: ApiTask) => 
 }
 
 /* ── Add Task Sheet ── */
-function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
+function AddTaskSheet({ employees, farms, activeFarmId, approvers, initial, onClose, onCreate }: {
   employees: Employee[];
   // farm-scoped-data task: defaults to the shell's active farm; a task can
   // also legitimately have NO farm (a tenant-level task, e.g. "renew
@@ -233,28 +380,41 @@ function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
   // purchase/lot forms, this picker is never forced to a value.
   farms: { id: string; name: string }[];
   activeFarmId: string;
+  approvers: Approver[];
+  // Prefilled when the sheet is opened from a calendar day or from "schedule
+  // again" on a finished task, so the user isn't retyping what they just
+  // clicked on.
+  initial?: Partial<TaskDraft>;
   onClose: () => void;
-  onCreate: (payload: { title: string; assignee: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string; farmId: string }) => Promise<boolean>;
+  onCreate: (payload: TaskDraft) => Promise<string | null>;
 }) {
-  const [title, setTitle] = useState('');
-  const [assignee, setAssignee] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [dueTime, setDueTime] = useState('08:00');
-  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
-  const [requiresApproval, setRequiresApproval] = useState(false);
-  const [notes, setNotes] = useState('');
-  const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [assigneeId, setAssigneeId] = useState(initial?.assigneeId ?? '');
+  const [approverId, setApproverId] = useState(initial?.approverId ?? '');
+  const [dueDate, setDueDate] = useState(initial?.dueDate ?? '');
+  const [dueTime, setDueTime] = useState(initial?.dueTime ?? '08:00');
+  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>(initial?.priority ?? 'medium');
+  const [requiresApproval, setRequiresApproval] = useState(initial?.requiresApproval ?? false);
+  const [recurrence, setRecurrence] = useState(initial?.recurrence ?? 'none');
+  const [recurrenceUntil, setRecurrenceUntil] = useState(initial?.recurrenceUntil ?? '');
+  const [notes, setNotes] = useState(initial?.notes ?? '');
+  const [farmId, setFarmId] = useState(initial?.farmId ?? (activeFarmId !== 'ALL' ? activeFarmId : ''));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function submit() {
     if (!title.trim()) { setError('Task title is required'); return; }
+    // The server refuses this too — saying it here saves a round trip and
+    // explains WHY, which a bare 400 in a toast doesn't.
+    if (recurrence !== 'none' && !dueDate) { setError('A repeating task needs a due date — each repeat is counted from it'); return; }
     setSaving(true);
     setError('');
-    const dueAt = dueDate ? new Date(`${dueDate}T${dueTime || '00:00'}`).toISOString() : '';
-    const ok = await onCreate({ title: title.trim(), assignee, dueAt, priority, requiresApproval, notes, farmId });
+    const failure = await onCreate({
+      title: title.trim(), assigneeId, approverId, dueDate, dueTime, priority,
+      requiresApproval, recurrence, recurrenceUntil, notes, farmId,
+    });
     setSaving(false);
-    if (!ok) { setError('Could not create task — please try again'); return; }
+    if (failure) { setError(failure); return; }
     onClose();
   }
 
@@ -281,10 +441,26 @@ function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
 
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assign To</label>
-          <select className="farm-input" value={assignee} onChange={e => setAssignee(e.target.value)}>
+          <select className="farm-input" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
             <option value="">Unassigned</option>
-            {employees.map(e => <option key={e.id} value={e.name}>{e.name} ({e.role})</option>)}
+            {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.role})</option>)}
           </select>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Repeats</label>
+          <select className="farm-input" value={recurrence} onChange={e => setRecurrence(e.target.value)}>
+            {Object.entries(RECURRENCE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          {recurrence !== 'none' && (
+            <div style={{ marginTop: 8 }}>
+              <label style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontWeight: 600, display: 'block', marginBottom: 3 }}>Stop repeating after (optional)</label>
+              <input className="farm-input" type="date" value={recurrenceUntil} onChange={e => setRecurrenceUntil(e.target.value)} />
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>
+                The next one is created when this one is completed — so a chore that nobody does doesn&apos;t quietly pile up unfinished copies.
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -307,14 +483,39 @@ function AddTaskSheet({ employees, farms, activeFarmId, onClose, onCreate }: {
           </div>
         </div>
 
-        <div style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Requires Owner Approval</div>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>Assignee submits for review before marking done</div>
+        <div style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Needs approval</div>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>The assignee submits it for review instead of marking it done</div>
+            </div>
+            <button onClick={() => setRequiresApproval(x => !x)} style={{ width: 44, height: 24, borderRadius: 100, cursor: 'pointer', border: 'none', background: requiresApproval ? 'var(--primary-green)' : 'var(--border-subtle)', position: 'relative', flexShrink: 0 }}>
+              <div style={{ position: 'absolute', top: 2, left: requiresApproval ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: 'white', transition: 'left 0.15s' }} />
+            </button>
           </div>
-          <button onClick={() => setRequiresApproval(x => !x)} style={{ width: 44, height: 24, borderRadius: 100, cursor: 'pointer', border: 'none', background: requiresApproval ? 'var(--primary-green)' : 'var(--border-subtle)', position: 'relative', flexShrink: 0 }}>
-            <div style={{ position: 'absolute', top: 2, left: requiresApproval ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: 'white', transition: 'left 0.15s' }} />
-          </button>
+
+          {/* Naming the approver is what turns "anyone with governance
+             rights" into one person's queue. Left blank it behaves exactly
+             as before, which is what every task created until now did. */}
+          {requiresApproval && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-subtle)' }}>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Who approves it</label>
+              <select className="farm-input" value={approverId} onChange={e => setApproverId(e.target.value)}>
+                <option value="">Anyone who can approve</option>
+                {approvers.map(a => <option key={a.userId} value={a.userId}>{a.name} ({a.role})</option>)}
+              </select>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>
+                {approverId
+                  ? 'Only this person sees it in their approvals queue and can sign it off. The owner can step in if they are unavailable.'
+                  : 'It goes to everyone who can approve, and any of them can sign it off.'}
+              </div>
+              {approvers.length === 0 && (
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', marginTop: 6, lineHeight: 1.5 }}>
+                  Nobody on this farm can approve yet — a person needs a login and a role with governance access.
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: 16 }}>
@@ -374,6 +575,159 @@ function FilterSheet({
   );
 }
 
+
+/* ── Schedule calendar ─────────────────────────────────────────────────────
+ * The question this answers is the one a list cannot: not "what is on this
+ * task" but "when is nobody doing anything". A farm's problem is rarely a
+ * single forgotten job — it is a week with no feeding scheduled that nobody
+ * noticed until the week arrived. So empty upcoming days are drawn as
+ * something missing rather than as blank space, and counted in a line above
+ * the grid.
+ *
+ * Built from the tasks already loaded for the current farm filter rather
+ * than a second fetch: the list and the calendar must never disagree about
+ * what is scheduled, and a month is a small slice of an already-small set. */
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function TaskCalendar({ tasks, employees, month, onMonthChange, onOpenTask, onAddOn }: {
+  tasks: ApiTask[];
+  employees: Employee[];
+  month: Date;
+  onMonthChange: (next: Date) => void;
+  onOpenTask: (task: ApiTask) => void;
+  onAddOn: (isoDate: string) => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const byDay = useMemo(() => {
+    const map = new Map<string, ApiTask[]>();
+    for (const t of tasks) {
+      if (!t.dueAt) continue;
+      const key = ymd(new Date(t.dueAt));
+      const list = map.get(key);
+      if (list) list.push(t); else map.set(key, [t]);
+    }
+    return map;
+  }, [tasks]);
+
+  // A Monday-first grid: JS getDay() is Sunday-0, and a farm week that
+  // starts on Sunday reads wrong here.
+  const cells = useMemo(() => {
+    const first = new Date(month.getFullYear(), month.getMonth(), 1);
+    const lead = (first.getDay() + 6) % 7;
+    const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+    const out: (Date | null)[] = [];
+    for (let i = 0; i < lead; i++) out.push(null);
+    for (let d = 1; d <= daysInMonth; d++) out.push(new Date(month.getFullYear(), month.getMonth(), d));
+    while (out.length % 7 !== 0) out.push(null);
+    return out;
+  }, [month]);
+
+  const todayKey = ymd(new Date());
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  // Only days still ahead count as "nothing scheduled" — an empty day last
+  // week is history, not a gap you can still fill.
+  const upcomingEmpty = cells.filter((d) => d && d >= startOfToday && !byDay.has(ymd(d))).length;
+
+  const selectedTasks = selected ? (byDay.get(selected) ?? []) : [];
+
+  return (
+    <div style={{ paddingBottom: 80 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <button className="btn-icon" aria-label="Previous month" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft size={16} /></button>
+        <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>
+          {month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+        </div>
+        <button className="btn-icon" aria-label="Next month" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight size={16} /></button>
+      </div>
+
+      <div style={{ fontSize: 'var(--fs-xs)', color: upcomingEmpty > 0 ? 'var(--status-warning)' : 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+        {upcomingEmpty > 0
+          ? `${upcomingEmpty} upcoming day${upcomingEmpty === 1 ? '' : 's'} with nothing scheduled — tap one to plan work for it.`
+          : 'Every remaining day this month has work scheduled.'}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+        {WEEKDAYS.map((w) => (
+          <div key={w} style={{ textAlign: 'center', fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase' }}>{w}</div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+        {cells.map((day, i) => {
+          if (!day) return <div key={`pad-${i}`} />;
+          const key = ymd(day);
+          const dayTasks = byDay.get(key) ?? [];
+          const isToday = key === todayKey;
+          const isPast = day < startOfToday;
+          const emptyUpcoming = dayTasks.length === 0 && !isPast;
+          const overdueHere = dayTasks.some((t) => displayStatus(t) === 'OVERDUE');
+          return (
+            <button
+              key={key}
+              onClick={() => setSelected(selected === key ? null : key)}
+              style={{
+                minHeight: 58, padding: 4, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+                background: selected === key ? 'rgba(74,222,128,0.12)' : emptyUpcoming ? 'transparent' : 'var(--card)',
+                border: selected === key
+                  ? '1px solid var(--primary-green)'
+                  : emptyUpcoming
+                    ? '1px dashed var(--border-subtle)'
+                    : '1px solid var(--border-subtle)',
+                opacity: isPast && dayTasks.length === 0 ? 0.45 : 1,
+                display: 'flex', flexDirection: 'column', gap: 2,
+              }}
+            >
+              <span style={{
+                fontSize: 'var(--fs-2xs)', fontWeight: isToday ? 800 : 600,
+                color: isToday ? 'var(--primary-green)' : 'var(--text-muted)',
+              }}>{day.getDate()}</span>
+              {dayTasks.slice(0, 2).map((t) => (
+                <span key={t.id} style={{
+                  fontSize: 'var(--fs-2xs)', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  color: displayStatus(t) === 'DONE' ? 'var(--text-dim)' : PRIORITY_COLOR[t.priority],
+                }}>{t.title}</span>
+              ))}
+              {dayTasks.length > 2 && (
+                <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>+{dayTasks.length - 2} more</span>
+              )}
+              {overdueHere && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--status-critical)' }} />}
+            </button>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <div className="farm-card" style={{ padding: 14, marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700 }}>
+              {new Date(`${selected}T12:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+            </div>
+            <button className="btn-primary" style={{ padding: '6px 10px', fontSize: 'var(--fs-xs)' }} onClick={() => onAddOn(selected)}>
+              <Plus size={12} /> Add
+            </button>
+          </div>
+          {selectedTasks.length === 0 ? (
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Nothing scheduled. If work happens on this day, it isn&apos;t written down anywhere.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {selectedTasks.map((t) => <TaskCard key={t.id} task={t} employees={employees} onOpen={onOpenTask} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Screen ── */
 export function TasksScreen() {
   const { tenantId, activeFarmId, farms, params } = useNav();
@@ -381,9 +735,18 @@ export function TasksScreen() {
 
   const [tasks, setTasks] = useState<ApiTask[] | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [approvers, setApprovers] = useState<Approver[]>([]);
   const [loadError, setLoadError] = useState('');
 
+  const [view, setView] = useState<'list' | 'calendar'>('list');
   const [showAdd, setShowAdd] = useState(false);
+  // Prefill for the create sheet — set when it's opened from a calendar day
+  // or from "schedule again" on a finished task.
+  const [addDraft, setAddDraft] = useState<Partial<TaskDraft> | undefined>(undefined);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [showFilter, setShowFilter] = useState(false);
   const [openTask, setOpenTask] = useState<ApiTask | null>(null);
 
@@ -406,6 +769,9 @@ export function TasksScreen() {
   useEffect(() => {
     apiClient.get<Employee[]>(`/api/employees?tenantId=${tenantId}`).then(res => {
       if (res.success) setEmployees(res.data);
+    });
+    apiClient.get<Approver[]>(`/api/approvals/approvers?tenantId=${tenantId}`).then(res => {
+      if (res.success) setApprovers(res.data);
     });
   }, [tenantId]);
 
@@ -444,7 +810,7 @@ export function TasksScreen() {
     let ts = tasks ?? [];
     if (search) {
       const q = search.toLowerCase();
-      ts = ts.filter(t => t.title.toLowerCase().includes(q) || splitNotes(t.notes).assignee.toLowerCase().includes(q));
+      ts = ts.filter(t => t.title.toLowerCase().includes(q) || assigneeNameFor(t, employees).toLowerCase().includes(q));
     }
     if (filterStatus !== 'All') ts = ts.filter(t => displayStatus(t) === filterStatus);
     if (filterPriority !== 'All') ts = ts.filter(t => t.priority === filterPriority);
@@ -454,7 +820,7 @@ export function TasksScreen() {
       return sortDir === 'asc' ? av - bv : bv - av;
     });
     return ts;
-  }, [tasks, search, filterStatus, filterPriority, sortDir]);
+  }, [tasks, search, filterStatus, filterPriority, sortDir, employees]);
 
   const all = tasks ?? [];
   const overdue = all.filter(t => displayStatus(t) === 'OVERDUE').length;
@@ -462,26 +828,53 @@ export function TasksScreen() {
   const done = all.filter(t => t.status === 'DONE').length;
   const completionPct = all.length > 0 ? Math.round((done / all.length) * 100) : 0;
 
-  async function createTask(payload: { title: string; assignee: string; dueAt: string; priority: string; requiresApproval: boolean; notes: string; farmId: string }) {
+  // Returns the server's own message on failure so the sheet can show WHY
+  // next to the field, instead of a generic "please try again" that hides a
+  // perfectly clear 400.
+  async function createTask(payload: TaskDraft): Promise<string | null> {
+    const dueAt = payload.dueDate ? new Date(`${payload.dueDate}T${payload.dueTime || '00:00'}`).toISOString() : undefined;
     const res = await apiClient.post<ApiTask>('/api/tasks', {
       tenantId,
       title: payload.title,
-      dueAt: payload.dueAt || undefined,
+      dueAt,
       priority: payload.priority,
       requiresApproval: payload.requiresApproval,
-      notes: buildNotes(payload.assignee, payload.notes),
+      // The assignee is a real column now; notes carry only notes.
+      notes: payload.notes.trim() || undefined,
       farmId: payload.farmId || undefined,
+      assigneeId: payload.assigneeId || undefined,
+      approverId: payload.requiresApproval && payload.approverId ? payload.approverId : undefined,
+      recurrence: payload.recurrence,
+      recurrenceUntil: payload.recurrenceUntil ? new Date(`${payload.recurrenceUntil}T23:59`).toISOString() : undefined,
     });
-    if (!res.success) { showToast(res.error ?? 'Could not create task', 'error'); return false; }
-    showToast('Task created', 'success');
+    if (!res.success) return res.error ?? 'Could not create task';
+    showToast(payload.recurrence === 'none' ? 'Task created' : `Task created — repeats ${RECURRENCE_LABEL[payload.recurrence].toLowerCase()}`, 'success');
     await loadTasks();
-    return true;
+    return null;
+  }
+
+  // Reassigning, rescheduling or changing the approver from the detail
+  // sheet — including on a task that is already finished, which is where
+  // "do this one again, and let Peter do it this time" starts.
+  async function updateTask(task: ApiTask, patch: Record<string, unknown>): Promise<string | null> {
+    const res = await apiClient.patch<ApiTask>(`/api/tasks/${task.id}?tenantId=${tenantId}`, patch);
+    if (!res.success) return res.error ?? 'Could not update task';
+    await loadTasks();
+    setOpenTask((current) => (current && current.id === task.id ? res.data : current));
+    return null;
   }
 
   async function markDone(task: ApiTask) {
-    const res = await apiClient.patch<ApiTask & { approvalRequestId?: string }>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { status: 'DONE' });
+    const res = await apiClient.patch<ApiTask & { approvalRequestId?: string; nextOccurrenceDueAt?: string }>(`/api/tasks/${task.id}?tenantId=${tenantId}`, { status: 'DONE' });
     if (!res.success) { showToast(res.error ?? 'Could not update task', 'error'); return; }
-    showToast(res.data.approvalRequestId ? 'Submitted for owner approval' : 'Task marked as done', res.data.approvalRequestId ? 'info' : 'success');
+    if (res.data.approvalRequestId) {
+      const approver = approvers.find(a => a.userId === task.approverId);
+      showToast(approver ? `Sent to ${approver.name} for approval` : 'Submitted for approval', 'info');
+    } else {
+      showToast(res.data.nextOccurrenceDueAt
+        ? `Done — next one due ${fmtDueAt(res.data.nextOccurrenceDueAt)}`
+        : 'Task marked as done', 'success');
+    }
     await loadTasks();
   }
 
@@ -542,8 +935,37 @@ export function TasksScreen() {
           <div className="progress-track"><div className="progress-fill" style={{ width: `${completionPct}%` }} /></div>
         </div>
 
-        <SearchBar value={search} onChange={setSearch} placeholder="Search tasks, assignees…" />
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+          {([['list', 'List', List], ['calendar', 'Schedule', Calendar]] as const).map(([value, label, Icon]) => (
+            <button
+              key={value}
+              onClick={() => setView(value)}
+              style={{
+                flex: 1, padding: '8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                background: view === value ? 'rgba(74,222,128,0.12)' : 'var(--card)',
+                border: view === value ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+                color: view === value ? 'var(--primary-green)' : 'var(--text-muted)',
+              }}
+            >
+              <Icon size={13} /> {label}
+            </button>
+          ))}
+        </div>
 
+        {view === 'list' && <SearchBar value={search} onChange={setSearch} placeholder="Search tasks, assignees…" />}
+
+        {view === 'calendar' ? (
+          <TaskCalendar
+            tasks={tasks ?? []}
+            employees={employees}
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            onOpenTask={setOpenTask}
+            onAddOn={(isoDate) => { setAddDraft({ dueDate: isoDate }); setShowAdd(true); }}
+          />
+        ) : (
+        <>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
           <button onClick={() => setShowFilter(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', background: activeFilters > 0 ? 'rgba(74,222,128,0.12)' : 'var(--card)', border: activeFilters > 0 ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: activeFilters > 0 ? 'var(--primary-green)' : 'var(--text-muted)', flexShrink: 0 }}>
             <Filter size={13} /> Filters {activeFilters > 0 && `(${activeFilters})`}
@@ -566,12 +988,21 @@ export function TasksScreen() {
               <button onClick={resetFilters} style={{ marginTop: 12, padding: '8px 16px', borderRadius: 10, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Clear Filters</button>
             </div>
           ) : (
-            filtered.map(t => <TaskCard key={t.id} task={t} onOpen={setOpenTask} />)
+            filtered.map(t => <TaskCard key={t.id} task={t} employees={employees} onOpen={setOpenTask} />)
           )}
         </div>
+        </>
+        )}
       </div>
 
-      {showAdd && <AddTaskSheet employees={employees} farms={farms} activeFarmId={activeFarmId} onClose={() => setShowAdd(false)} onCreate={createTask} />}
+      {showAdd && (
+        <AddTaskSheet
+          employees={employees} farms={farms} activeFarmId={activeFarmId}
+          approvers={approvers} initial={addDraft}
+          onClose={() => { setShowAdd(false); setAddDraft(undefined); }}
+          onCreate={createTask}
+        />
+      )}
       {showFilter && (
         <FilterSheet
           filterStatus={filterStatus} setFilterStatus={setFilterStatus}
@@ -583,9 +1014,13 @@ export function TasksScreen() {
       {openTask && (
         <TaskDetailSheet
           task={openTask}
+          employees={employees}
+          approvers={approvers}
           onClose={() => setOpenTask(null)}
           onDone={markDone}
           onDelete={deleteTask}
+          onUpdate={updateTask}
+          onScheduleAgain={(draft) => { setOpenTask(null); setAddDraft(draft); setShowAdd(true); }}
         />
       )}
     </div>
