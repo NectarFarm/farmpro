@@ -115,3 +115,48 @@ export const purchases = pgTable('purchases', {
   index('idx_purchases_tenant_item').on(t.tenantId, t.itemId),
   index('idx_purchases_farm').on(t.farmId),
 ])
+
+// ── Stock actually used (feed-from-stock task) ─────────────────────────────
+// The missing side of the ledger. `inventoryLots` recorded stock coming IN
+// (a purchase sets qtyOnHand) and could be corrected by hand, but nothing
+// recorded stock going OUT: a worker typed the feed's name as free text into
+// a record's `data` blob, and the quantity on hand never moved. Two things
+// followed from that, and both were visible in the app:
+//   - "remaining quantity" was fiction. Stock only ever fell when someone
+//     remembered to adjust a lot manually.
+//   - GET /api/batches/[id]/cost-breakdown returned feed = 0, tracked:false,
+//     because there genuinely was no consumption data to cost.
+//
+// One row per (lot, batch) allocation, not per feeding event: a single
+// issue of 80kg can span two lots, and the cost differs per lot, so
+// collapsing them would lose the only figure that makes per-batch feed cost
+// real. `unitCostCents` is copied from the lot at the time it was taken —
+// the same snapshot reasoning payslips use, so re-pricing a later purchase
+// can't retroactively change what a past feeding cost.
+export const inventoryConsumption = pgTable('inventory_consumption', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  itemId: text('item_id').notNull().references(() => inventoryItems.id),
+  lotId: text('lot_id').notNull().references(() => inventoryLots.id),
+  // Which batch ate it. Plain logical reference, no DB FK — same convention
+  // as records.batchId in db/schemas/people.ts.
+  batchId: text('batch_id').notNull(),
+  // The submission this came from, so a record and the stock it moved can be
+  // traced to each other in both directions.
+  recordId: text('record_id'),
+  employeeId: text('employee_id'),
+  qty: integer('qty').notNull(),
+  unitCostCents: bigint('unit_cost_cents', { mode: 'number' }).notNull().default(0),
+  totalCostCents: bigint('total_cost_cents', { mode: 'number' }).notNull().default(0),
+  // Denormalised from the lot it was taken from: consumption is reported per
+  // farm and the lot's own farm is the only correct answer, but joining back
+  // through the lot on every report is a needless hop for a value that can
+  // never change after the fact.
+  farmId: text('farm_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_inventory_consumption_tenant').on(t.tenantId),
+  index('idx_inventory_consumption_batch').on(t.tenantId, t.batchId),
+  index('idx_inventory_consumption_item').on(t.tenantId, t.itemId),
+  index('idx_inventory_consumption_record').on(t.recordId),
+])

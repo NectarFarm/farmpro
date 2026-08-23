@@ -9,8 +9,9 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { approvalRequests, auditLog, tasks } from '@/db/schemas'
+import { approvalRequests, auditLog, records, tasks } from '@/db/schemas'
 import { spawnNextOccurrence } from '@/lib/tasks'
+import { applyCount, applyMovement } from '@/lib/batch-ledger'
 
 export type ApprovalDecision = 'approved' | 'rejected'
 
@@ -20,9 +21,16 @@ export class ApprovalError extends Error {
   }
 }
 
-// Task-completion resolution: approved -> DONE, rejected -> REJECTED. The
-// only entity type v1 wires up (see governance.ts decision note); a future
-// approval type would branch on `approval.type` here.
+// Task-completion resolution: approved -> DONE, rejected -> REJECTED.
+//
+// batch-ledger task: two more types branch below — 'mortality' and
+// 'physical_count'. Those exist because a tenant can mark those modules
+// approval-required for a role (role_permissions.approval_required), in
+// which case the record is filed immediately but the batch's headcount does
+// not move until someone signs it off. Approving is therefore not a status
+// flip: it is when the count actually changes, and it has to happen in THIS
+// transaction or an approved death could be recorded as approved while the
+// batch it came out of never lost a bird.
 const TASK_RESOLUTION: Record<ApprovalDecision, string> = {
   approved: 'DONE',
   rejected: 'REJECTED',
@@ -100,6 +108,48 @@ export async function decideApproval(
       }
     }
 
+    // ── Headcount approvals (batch-ledger task) ──────────────────────────
+    let ledgerNote: Record<string, unknown> = {}
+    if (approval.type === 'mortality' || approval.type === 'physical_count') {
+      const [record] = await tx.select().from(records).where(eq(records.id, approval.entityId)).limit(1)
+      if (!record) throw new ApprovalError('The record this approval refers to no longer exists', 404)
+
+      const data = (record.data ?? {}) as Record<string, unknown>
+      if (decision === 'approved') {
+        if (approval.type === 'mortality') {
+          const deaths = Math.trunc(Number(data.count ?? data.deaths ?? 0))
+          const applied = await applyMovement(tx, {
+            tenantId,
+            batchId: record.batchId,
+            type: 'mortality',
+            qtyDelta: -deaths,
+            reason: typeof data.cause === 'string' && data.cause ? String(data.cause) : 'Mortality approved',
+            allowClamp: true,
+            sourceType: 'record',
+            sourceId: record.id,
+            actor,
+          })
+          ledgerNote = { headcountAfter: applied.currentQty, applied: -deaths }
+        } else {
+          const counted = Math.trunc(Number(data.counted ?? data.physicalCount ?? data.count ?? 0))
+          const result = await applyCount(tx, {
+            tenantId, batchId: record.batchId, counted, sourceType: 'record', sourceId: record.id, actor,
+          })
+          ledgerNote = { headcountAfter: result.batch.currentQty, applied: result.delta }
+        }
+      }
+
+      // Either way the record stops saying "waiting": rejected means the
+      // count stands as it was, and a record still flagged pending would
+      // keep looking like something was about to happen.
+      const rest = { ...data }
+      delete rest.pendingApproval
+      await tx
+        .update(records)
+        .set({ data: { ...rest, approvalDecision: decision, decidedBy: actor } })
+        .where(eq(records.id, record.id))
+    }
+
     await tx.insert(auditLog).values({
       id: randomUUID(),
       tenantId,
@@ -116,6 +166,7 @@ export async function decideApproval(
         ownerOverride: gate.override,
         assignedApproverId: approval.assignedApproverId,
         nextOccurrenceId,
+        ...ledgerNote,
       },
     })
 

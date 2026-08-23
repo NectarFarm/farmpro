@@ -123,3 +123,27 @@ export const MODULES = {
   inventory: 'inventory', batches: 'batches', finance: 'finance', payroll: 'payroll',
   governance: 'governance', deleteRecord: 'delete-record',
 } as const
+
+// ── Does this role's submission need signing off? ──────────────────────────
+// `role_permissions.approvalRequired` has been configurable in the Governance
+// screen since it was built, and enforced nowhere — the same gap `access` had
+// before the role-permission-enforcement task closed it. This is the read
+// that makes it mean something: a worker's mortality entry can be set to wait
+// for approval before it changes the batch's headcount.
+//
+// Owner and super_admin bypass, for the same reason they bypass `access`:
+// an owner cannot meaningfully require their own approval, and a config row
+// that made them queue behind themselves would deadlock their own farm.
+export async function needsApproval(tenantId: string, role: string, module: string): Promise<boolean> {
+  if (role === 'owner' || role === 'super_admin') return false
+  const rows = await db
+    .select({ approvalRequired: rolePermissions.approvalRequired })
+    .from(rolePermissions)
+    .where(and(
+      eq(rolePermissions.tenantId, tenantId),
+      eq(rolePermissions.role, role),
+      eq(rolePermissions.module, module),
+    ))
+    .limit(1)
+  return rows[0]?.approvalRequired ?? false
+}

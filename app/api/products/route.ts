@@ -5,6 +5,8 @@ import { products, productUnits } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { unitIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 
+export const STOCK_EFFECTS = new Set(['batch_quantity', 'produce', 'none'])
+
 // ── GET/POST /api/products (product-unit-inheritance task) ─────────────────
 // The tenant-level product catalogue itself — create once, reuse everywhere
 // (see db/schemas/dashboard.ts for the full model writeup: products stay
@@ -72,6 +74,7 @@ export async function GET(req: Request) {
           type: products.type,
           name: products.name,
           saleUnits: products.saleUnits,
+          stockEffect: products.stockEffect,
           status: products.status,
           createdAt: products.createdAt,
         })
@@ -96,7 +99,12 @@ export async function GET(req: Request) {
 }
 
 // POST /api/products — create a catalogue product.
-// Body: { tenantId? (super_admin only), name, type, saleUnits? }
+// Body: { tenantId? (super_admin only), name, type, saleUnits?, stockEffect? }
+//
+// `stockEffect` is what tells a sale of this product what to reduce — the
+// batch's headcount, collected produce, or nothing (db/schemas/dashboard.ts).
+// It defaults to 'produce', the only option that cannot silently delete
+// livestock from a batch if it is left unset.
 export async function POST(req: Request) {
   const session = await getSessionUser()
   if (!session) return unauthorized()
@@ -127,6 +135,11 @@ export async function POST(req: Request) {
     else saleUnits = String(n)
   }
 
+  const stockEffect = typeof b.stockEffect === 'string' && b.stockEffect.trim() ? b.stockEffect.trim() : 'produce'
+  if (!STOCK_EFFECTS.has(stockEffect)) {
+    fields.stockEffect = `stockEffect must be one of: ${Array.from(STOCK_EFFECTS).join(', ')}`
+  }
+
   if (Object.keys(fields).length > 0) return badFields(fields)
 
   // No unique index on (tenantId, name) — same "free-text name, a rare
@@ -136,7 +149,7 @@ export async function POST(req: Request) {
   const id = crypto.randomUUID()
   const rows = await db
     .insert(products)
-    .values({ id, tenantId, name, type, saleUnits, status: 'ACTIVE' })
+    .values({ id, tenantId, name, type, saleUnits, stockEffect, status: 'ACTIVE' })
     .returning()
   return created(rows[0])
 }

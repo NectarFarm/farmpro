@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { products, productUnits, batchProducts, sales } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
+import { STOCK_EFFECTS } from '@/app/api/products/route'
 
 // ── PATCH/DELETE /api/products/[id] (product-unit-inheritance task) ───────
 // Session-derived tenant only, same as GET/POST /api/products — see that
@@ -44,9 +45,9 @@ function tenantIdOf(session: { role: string; tenantId: string | null } | null, b
   return session.tenantId ?? ''
 }
 
-// PATCH /api/products/[id] — edit name/type/saleUnits, or archive/restore
-// via `status`. Body: { tenantId? (super_admin only), name?, type?,
-// saleUnits?, status? }
+// PATCH /api/products/[id] — edit name/type/saleUnits/stockEffect, or
+// archive/restore via `status`. Body: { tenantId? (super_admin only), name?,
+// type?, saleUnits?, stockEffect?, status? }
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const session = await getSessionUser()
@@ -84,6 +85,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const status = typeof b.status === 'string' ? b.status.trim() : ''
     if (!VALID_PRODUCT_STATUSES.has(status)) fields.status = "status must be 'ACTIVE' or 'ARCHIVED'"
     else patch.status = status
+  }
+  // Changing what a sale of this product reduces (batch-ledger task). It only
+  // affects sales recorded from here on: past sales already did — or didn't —
+  // move a headcount, and re-deciding that retroactively would rewrite counts
+  // that people have since acted on.
+  if (b.stockEffect !== undefined) {
+    const stockEffect = typeof b.stockEffect === 'string' ? b.stockEffect.trim() : ''
+    if (!STOCK_EFFECTS.has(stockEffect)) {
+      fields.stockEffect = `stockEffect must be one of: ${Array.from(STOCK_EFFECTS).join(', ')}`
+    } else patch.stockEffect = stockEffect
   }
 
   if (Object.keys(fields).length > 0) return badFields(fields)

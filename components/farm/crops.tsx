@@ -3,9 +3,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { ENTERPRISE_REGISTRY } from './data';
 import { apiClient } from '@/lib/request';
-import { Plus, X, Check, Upload, Lock, Package, Archive, Edit2, PawPrint, Sprout, MapPin, HelpCircle, ClipboardList, Home } from './icons';
+import { Plus, X, Check, Upload, Package, Archive, Edit2, PawPrint, Sprout, MapPin, HelpCircle, ClipboardList, Home } from './icons';
 import { StatusTimeline } from './status-timeline';
-import { parseMoneyToCents, centsToMajor } from '@/lib/money';
+import { parseMoneyToCents, centsToMajor, majorToCents } from '@/lib/money';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
 // This screen used to render entirely from the batches mock array exported by
@@ -840,6 +840,181 @@ function BatchProductOverridesSheet({ tenantId, batchId, unitId, unitName, allPr
   );
 }
 
+/* ── Edit batch (batch-ledger task) ─────────────────────────────────────────
+ * PATCH /api/batches/[id] has always accepted every one of these fields; the
+ * screen simply never offered a way to change them, so a typo'd name or a
+ * wrong headcount was permanent as far as the app was concerned. "Move Unit"
+ * and "Advance Stage" existed as one-field shortcuts and everything else did
+ * not.
+ *
+ * Headcount is separated out and asks for a reason, because it is the one
+ * field here that isn't a correction to a label: it changes a number the
+ * whole app reports, and the ledger records who moved it and why
+ * (lib/batch-ledger.ts). Every other field is just an edit. */
+function EditBatchSheet({ batch, tenantId, onClose, onSaved }: {
+  batch: ApiBatch;
+  tenantId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(batch.name);
+  const [species, setSpecies] = useState(batch.species ?? '');
+  const [status, setStatus] = useState(batch.status ?? 'ACTIVE');
+  const [currentQty, setCurrentQty] = useState(String(batch.currentQty));
+  const [qtyReason, setQtyReason] = useState('');
+  const [acquisitionCost, setAcquisitionCost] = useState(String(centsToMajor(batch.acquisitionCostCents ?? 0)));
+  const [harvestDate, setHarvestDate] = useState(batch.harvestDate ? String(batch.harvestDate).slice(0, 10) : '');
+  const [endDate, setEndDate] = useState(batch.endDate ? String(batch.endDate).slice(0, 10) : '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const qtyChanged = Number(currentQty) !== batch.currentQty;
+
+  async function save() {
+    if (!name.trim()) { setError('A batch needs a name'); return; }
+    const qty = Math.trunc(Number(currentQty));
+    if (!Number.isFinite(qty) || qty < 0) { setError('Head count must be zero or more'); return; }
+    setSaving(true); setError('');
+    const res = await apiClient.patch(`/api/batches/${batch.id}?tenantId=${tenantId}`, {
+      name: name.trim(),
+      species: species.trim(),
+      status,
+      currentQty: qty,
+      reason: qtyReason.trim() || undefined,
+      acquisitionCostCents: majorToCents(Number(acquisitionCost) || 0),
+      harvestDate,
+      endDate,
+    });
+    setSaving(false);
+    if (!res.success) { setError(res.error || 'Could not save the batch'); return; }
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-end', zIndex: 120 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', maxHeight: '92%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Edit {batch.code}</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Name</label>
+        <input className="farm-input" value={name} onChange={(e) => setName(e.target.value)} style={{ marginBottom: 12 }} />
+
+        <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Species / variety</label>
+        <input className="farm-input" value={species} onChange={(e) => setSpecies(e.target.value)} placeholder="e.g. Kienyeji" style={{ marginBottom: 12 }} />
+
+        <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
+        <select className="farm-input" value={status} onChange={(e) => setStatus(e.target.value)} style={{ marginBottom: 12 }}>
+          {['ACTIVE', 'CLOSED', 'SOLD'].map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+
+        <div style={{ padding: 12, borderRadius: 12, border: '1px solid var(--border-subtle)', background: 'var(--card)', marginBottom: 12 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Head count</label>
+          <input className="farm-input" type="number" value={currentQty} onChange={(e) => setCurrentQty(e.target.value)} />
+          {qtyChanged && (
+            <>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', margin: '6px 0 6px', lineHeight: 1.5 }}>
+                Changing this by hand is recorded in the batch history with your name against it. If birds died or were sold, record that instead so the reason is kept.
+              </div>
+              <input className="farm-input" value={qtyReason} onChange={(e) => setQtyReason(e.target.value)} placeholder="Why is it changing? (optional)" />
+            </>
+          )}
+        </div>
+
+        <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Acquisition cost (KSh)</label>
+        <input className="farm-input" type="number" value={acquisitionCost} onChange={(e) => setAcquisitionCost(e.target.value)} style={{ marginBottom: 12 }} />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+          <div>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Harvest date</label>
+            <input className="farm-input" type="date" value={harvestDate} onChange={(e) => setHarvestDate(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>End date</label>
+            <input className="farm-input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </div>
+        </div>
+
+        {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={onClose}>Cancel</button>
+          <button className="btn-primary" style={{ flex: 2, justifyContent: 'center' }} disabled={saving} onClick={save}>
+            <Check size={14} /> {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Where the head count went (batch-ledger task) ──────────────────────────
+ * The batch card shows one number and, until now, nothing anywhere explained
+ * it. Deaths were filed as records that changed nothing; sales moved no
+ * count; a hand-edit left no trace at all. Every one of those writes a
+ * movement now, and this is where they can be read. */
+interface BatchMovement {
+  id: string;
+  type: string;
+  qtyDelta: number;
+  qtyAfter: number;
+  reason: string;
+  actor: string;
+  createdAt: string;
+}
+
+const MOVEMENT_LABEL: Record<string, string> = {
+  intake: 'Intake',
+  mortality: 'Deaths',
+  sale: 'Sold',
+  count_adjustment: 'Physical count',
+  manual_adjustment: 'Edited by hand',
+  transfer: 'Transfer',
+};
+
+function BatchLedger({ batchId, tenantId, refreshKey }: { batchId: string; tenantId: string; refreshKey: number }) {
+  const [rows, setRows] = useState<BatchMovement[] | null>(null);
+
+  useEffect(() => {
+    apiClient.get<BatchMovement[]>(`/api/batches/${batchId}/movements?tenantId=${tenantId}`).then((res) => {
+      if (res.success) setRows(res.data);
+      else setRows([]);
+    });
+  }, [batchId, tenantId, refreshKey]);
+
+  return (
+    <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+      <div className="section-eyebrow" style={{ marginBottom: 10 }}>Head count history</div>
+      {rows === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>}
+      {rows !== null && rows.length === 0 && (
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Nothing has changed this batch&apos;s count yet. Deaths, sales and counts recorded from now on appear here with who recorded them.
+        </div>
+      )}
+      {rows !== null && rows.map((m) => (
+        <div key={m.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div style={{
+            minWidth: 52, textAlign: 'right', fontWeight: 800, fontSize: 'var(--fs-sm)',
+            color: m.qtyDelta < 0 ? 'var(--status-critical)' : 'var(--status-ok)',
+          }}>{m.qtyDelta > 0 ? '+' : ''}{m.qtyDelta}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
+              {MOVEMENT_LABEL[m.type] ?? m.type}
+              <span style={{ fontWeight: 500, color: 'var(--text-dim)' }}> · left {m.qtyAfter}</span>
+            </div>
+            {m.reason && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{m.reason}</div>}
+            <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>
+              {new Date(m.createdAt).toLocaleString()}{m.actor ? ` · ${m.actor}` : ''}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function BatchDetailScreen() {
   const { goBack, params, navigate, farms, tenantId } = useNav();
   const batchId = params.id;
@@ -870,6 +1045,10 @@ export function BatchDetailScreen() {
   const [transferSaving, setTransferSaving] = useState(false);
   const [transferError, setTransferError] = useState('');
 
+  const [showEdit, setShowEdit] = useState(false);
+  // Bumped whenever something moves the head count, so the ledger below
+  // re-reads instead of showing a total that no longer matches the card.
+  const [ledgerKey, setLedgerKey] = useState(0);
   const [showAdvanceForm, setShowAdvanceForm] = useState(false);
   const [nextStage, setNextStage] = useState('');
   const [advanceSaving, setAdvanceSaving] = useState(false);
@@ -1004,6 +1183,12 @@ export function BatchDetailScreen() {
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Farm</div>
               <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)' }}>{farm?.name ?? '—'}</div>
+              {/* Editing a batch had no entry point anywhere — the API
+                 accepted every field, the screen offered none of them. */}
+              <button
+                onClick={() => setShowEdit(true)}
+                style={{ marginTop: 6, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >Edit batch</button>
             </div>
           </div>
 
@@ -1036,6 +1221,8 @@ export function BatchDetailScreen() {
             {batch.endDate && <span style={{ color: 'var(--text-muted)' }}>End: <span style={{ color: 'var(--accent-amber)', fontWeight: 600 }}>{fmtDate(batch.endDate)}</span></span>}
           </div>
         </div>
+
+        <BatchLedger batchId={batch.id} tenantId={tenantId} refreshKey={ledgerKey} />
 
         {/* Unit Transfer Section — real PATCH /api/batches/[id] { unitId }.
             There is no transfers/history table, so this moves the batch's
@@ -1208,6 +1395,15 @@ export function BatchDetailScreen() {
           )}
         </div>
 
+        {showEdit && (
+          <EditBatchSheet
+            batch={batch}
+            tenantId={tenantId}
+            onClose={() => setShowEdit(false)}
+            onSaved={() => { loadBatch(); setLedgerKey((k) => k + 1); }}
+          />
+        )}
+
         {/* Advance Stage inline form — real PATCH /api/batches/[id] { stage } */}
         {showAdvanceForm && (
           <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
@@ -1224,12 +1420,13 @@ export function BatchDetailScreen() {
 
         {/* Actions */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-          {/* "Record Sale"/"Record Harvest" (issue #232 task 6): no sales or
-              production/harvest-log table exists yet (Epic: Finance hasn't
-              landed) — disabled with a clear reason rather than a silent
-              no-op button. */}
-          <button className="btn-primary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)', opacity: 0.5, cursor: 'not-allowed' }} disabled title="Not available yet — sales/harvest tracking isn't built">
-            <Lock size={12} /> Record {cfg?.harvestUnit ? 'Sale' : 'Harvest'}
+          {/* This was disabled with "no sales table exists yet" — true when
+              it was written, not true since Epic: Finance landed one. It
+              opens Finance, which is where a sale is actually recorded; a
+              sale of a product marked as coming out of the batch also takes
+              it off this batch's head count (batch-ledger task). */}
+          <button className="btn-primary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => navigate('finance', { batch: batch.code })}>
+            Record Sale
           </button>
           <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => setShowAdvanceForm(f => !f)}>
             Advance Stage
@@ -1237,7 +1434,7 @@ export function BatchDetailScreen() {
           <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => navigate('tasks', { batch: batch.code })}>
             <ClipboardList size={13} aria-hidden="true" /> All Batch Tasks
           </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)', opacity: 0.5, cursor: 'not-allowed' }} disabled title="Not available yet">
+          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => setShowEdit(true)}>
             Edit Batch
           </button>
         </div>

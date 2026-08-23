@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { records, batches, employees } from '@/db/schemas'
+import { records, batches, employees, productionUnits, approvalRequests } from '@/db/schemas'
+import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
-import { canEdit, MODULES } from '@/lib/permissions'
+import { canEdit, needsApproval, MODULES } from '@/lib/permissions'
+import { applyMovement, applyCount, BatchLedgerError } from '@/lib/batch-ledger'
+import { consumeStock, InsufficientStockError, UnknownItemError, type ConsumeResult } from '@/lib/inventory-consume'
 
 // ── GET/POST /api/records (issue #247 task 2) ───────────────────────────────
 // Generic worker-submission log — feeding / mortality / physical_count today
@@ -81,7 +84,20 @@ export async function GET(req: Request) {
 }
 
 // POST /api/records — create a feeding/mortality/physical_count submission.
-// Body: { tenantId?, batchId, employeeId, type, data?, photoUrl? }
+// Body: { tenantId?, batchId | batchIds[], employeeId, type, data?, photoUrl? }
+//
+// ── Feeding draws on real stock (feed-from-stock task) ──────────────────────
+// A feeding line that names an `itemId` deducts that quantity from the
+// tenant's lots — oldest-expiring first — and writes an inventory_consumption
+// row per lot it drew from (lib/inventory-consume.ts). Before this, the feed
+// was free text in the `data` blob and stock never moved, so "remaining
+// quantity" only ever changed when someone adjusted a lot by hand.
+//
+// ── One issue, several batches ──────────────────────────────────────────────
+// The same bag feeds more than one batch, so `batchIds` records the round in
+// one call: one `records` row per batch (each holding that batch's own
+// share), all deductions in ONE transaction. A shortfall on the last batch
+// rolls back the whole round rather than leaving the first few looking fed.
 // `batchId` and `employeeId` must belong to the same tenant — checked here
 // (not just left to the FK) so a bad/foreign id gets a clean 400/404 instead
 // of a bare constraint-violation 500, same convention POST /api/batches uses
@@ -109,7 +125,11 @@ export async function POST(req: Request) {
   const employeeId = typeof b.employeeId === 'string' ? b.employeeId.trim() : ''
   const type = typeof b.type === 'string' ? b.type.trim() : ''
 
-  if (!batchId) return badRequest('batchId is required')
+  // Either form is enough: `batchId` for one batch, `batchIds` for a round
+  // that covered several. Requiring the singular even when the plural was
+  // sent is what the first draft of this got wrong.
+  const hasBatchIds = Array.isArray(b.batchIds) && b.batchIds.length > 0
+  if (!batchId && !hasBatchIds) return badRequest('batchId is required')
   if (!employeeId) return badRequest('employeeId is required')
   if (!RECORD_TYPES.has(type)) {
     return badRequest(`type must be one of: ${Array.from(RECORD_TYPES).join(', ')}`)
@@ -122,11 +142,23 @@ export async function POST(req: Request) {
     return forbidden(`Your role does not have edit access to ${RECORD_TYPE_MODULES[type]}`)
   }
 
+  // One feeding often covers several batches out of the same bag — see the
+  // multi-batch note above. `batchIds` is the multi form of `batchId`; both
+  // are validated identically and the single form stays the default so no
+  // existing caller changes shape.
+  const targetBatchIds = hasBatchIds
+    ? Array.from(new Set((b.batchIds as unknown[]).map((v) => (typeof v === 'string' ? v.trim() : '')).filter(Boolean)))
+    : [batchId]
+  if (targetBatchIds.length === 0) return badRequest('batchId is required')
+  if (targetBatchIds.length > 50) return badRequest('At most 50 batches can be recorded at once')
+
   const batchRows = await db
-    .select({ id: batches.id })
+    .select({ id: batches.id, farmId: productionUnits.farmId })
     .from(batches)
-    .where(and(eq(batches.id, batchId), eq(batches.tenantId, tenantId)))
-  if (batchRows.length === 0) return notFound('Batch not found for this tenant')
+    .innerJoin(productionUnits, eq(productionUnits.id, batches.unitId))
+    .where(and(inArray(batches.id, targetBatchIds), eq(batches.tenantId, tenantId)))
+  if (batchRows.length !== targetBatchIds.length) return notFound('Batch not found for this tenant')
+  const farmOfBatch = new Map(batchRows.map((r) => [r.id, r.farmId]))
 
   const employeeRows = await db
     .select({ id: employees.id })
@@ -137,19 +169,198 @@ export async function POST(req: Request) {
   const data = (b.data && typeof b.data === 'object' && !Array.isArray(b.data)) ? (b.data as Record<string, unknown>) : {}
   const photoUrl = typeof b.photoUrl === 'string' && b.photoUrl.trim() ? b.photoUrl.trim() : null
 
-  const id = crypto.randomUUID()
-  const rows = await db
-    .insert(records)
-    .values({
-      id,
-      tenantId,
-      batchId,
-      employeeId,
-      type,
-      data,
-      photoUrl,
-    })
-    .returning()
+  // ── What this record does to the batch's headcount ────────────────────────
+  // A mortality entry used to leave `batches.currentQty` untouched: the death
+  // was filed, the count carried on as before, and every figure derived from
+  // it — dashboard KPIs, reports, the batch card — drifted away from the
+  // birds actually in the house. A physical count was the same: it recorded
+  // what was counted and changed nothing.
+  //
+  // Whether it applies NOW or waits is the tenant's own decision, read from
+  // the approval_required column their Governance screen has always written
+  // and nothing has ever read (lib/permissions.ts#needsApproval). With it
+  // set, the record is filed and an approval raised; the headcount moves when
+  // someone approves it (lib/governance.ts), not before.
+  const deaths = type === 'mortality' ? Math.trunc(Number(data.count ?? data.deaths ?? 0)) : 0
+  if (type === 'mortality' && (!Number.isFinite(deaths) || deaths <= 0)) {
+    return badRequest('A mortality record needs how many died')
+  }
+  // `physicalCount` is what the worker form has always sent (see
+  // components/farm/worker.tsx's PhysicalCountForm); `counted` is the name
+  // the rest of this file uses. Both are accepted rather than renaming a
+  // field that existing clients post.
+  const counted = type === 'physical_count'
+    ? Math.trunc(Number(data.counted ?? data.physicalCount ?? data.count ?? NaN))
+    : NaN
+  const hasCount = type === 'physical_count' && Number.isFinite(counted)
+  if (type === 'physical_count' && !hasCount) {
+    return badRequest('A physical count needs the number you counted')
+  }
 
-  return created(rows[0])
+  const movesHeadcount = type === 'mortality' || hasCount
+  const deferred = movesHeadcount && await needsApproval(tenantId, session.role, RECORD_TYPE_MODULES[type])
+
+  // Which lines name real stock. A line with an `itemId` moves inventory; a
+  // line with only free text does not, which is how records written before
+  // this existed keep working rather than being rejected retroactively.
+  const stockLines = parseStockLines(data)
+  const badLine = stockLines.find((l) => !(l.qty > 0) || !Number.isFinite(l.qty))
+  if (badLine) return badRequest('Each feed line needs a quantity greater than zero')
+  if (type !== 'feeding' && stockLines.length > 0) {
+    return badRequest('Only a feeding record can draw from stock')
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const inserted: (typeof records.$inferSelect)[] = []
+      const consumed: ConsumeResult[] = []
+      const approvals: string[] = []
+
+      for (const targetId of targetBatchIds) {
+        const id = crypto.randomUUID()
+        const [row] = await tx
+          .insert(records)
+          .values({
+            id, tenantId, batchId: targetId, employeeId, type,
+            // The record carries its own pending flag, so a worker's history
+            // can say "waiting for approval" instead of looking applied.
+            data: deferred ? { ...dataFor(data, targetId), pendingApproval: true } : dataFor(data, targetId),
+            photoUrl,
+          })
+          .returning()
+        inserted.push(row)
+
+        if (movesHeadcount && deferred) {
+          const [approval] = await tx.insert(approvalRequests).values({
+            id: randomUUID(),
+            tenantId,
+            type: type === 'mortality' ? 'mortality' : 'physical_count',
+            title: type === 'mortality' ? `Mortality: ${deaths} head` : `Physical count: ${counted} head`,
+            requestedBy: session.id,
+            batchId: targetId,
+            entityId: id,
+            details: typeof data.cause === 'string' ? data.cause : '',
+            status: 'pending',
+            priority: 'medium',
+          }).returning()
+          approvals.push(approval.id)
+        } else if (movesHeadcount) {
+          if (type === 'mortality') {
+            await applyMovement(tx, {
+              tenantId, batchId: targetId, type: 'mortality', qtyDelta: -deaths,
+              reason: typeof data.cause === 'string' && data.cause ? String(data.cause) : 'Mortality recorded',
+              // A death report is never blocked by a headcount nobody
+              // entered — see lib/batch-ledger.ts#applyMovement.
+              allowClamp: true,
+              sourceType: 'record', sourceId: id, actor: session.email,
+            })
+          } else {
+            await applyCount(tx, {
+              tenantId, batchId: targetId, counted,
+              reason: typeof data.varianceReason === 'string' && data.varianceReason.trim()
+                ? String(data.varianceReason).trim()
+                : undefined,
+              sourceType: 'record', sourceId: id, actor: session.email,
+            })
+          }
+        }
+
+        for (const line of stockLines) {
+          const qty = qtyForBatch(line, targetId)
+          if (qty <= 0) continue
+          consumed.push(await consumeStock(tx, {
+            tenantId,
+            itemId: line.itemId,
+            qty,
+            batchId: targetId,
+            farmId: farmOfBatch.get(targetId) ?? null,
+            recordId: id,
+            employeeId,
+          }))
+        }
+      }
+
+      return { inserted, consumed, approvals }
+    })
+
+    // The single-batch response keeps its original shape — one record object,
+    // with the stock it moved attached when there was any.
+    if (targetBatchIds.length === 1) {
+      const extras = {
+        ...(result.consumed.length > 0 ? { consumed: result.consumed } : {}),
+        ...(result.approvals.length > 0 ? { approvalRequestId: result.approvals[0], pendingApproval: true } : {}),
+      }
+      return created(Object.keys(extras).length > 0 ? { ...result.inserted[0], ...extras } : result.inserted[0])
+    }
+    return created({ records: result.inserted, consumed: result.consumed, approvalRequestIds: result.approvals })
+  } catch (err) {
+    // A shortfall rolls back every record in the submission, not just the
+    // line that ran out: half a feeding round saved is worse than none,
+    // because the batches that did get recorded look complete.
+    if (err instanceof InsufficientStockError) return badRequest(err.message)
+    if (err instanceof UnknownItemError) return badRequest(err.message)
+    if (err instanceof BatchLedgerError) {
+      return NextResponse.json({ success: false, error: err.message }, { status: err.status })
+    }
+    throw err
+  }
+}
+
+// ── Reading the feed lines out of the record payload ────────────────────────
+// `records.data` is a free-form jsonb blob, and the feeding form has always
+// written `feedItems: [{ item, qtyKg }]` into it. The stock-backed form
+// writes `{ itemId, qty }` — and, when one issue is split across batches,
+// `perBatch: { <batchId>: qty }` so 80kg can go 50/30 rather than 80 to each.
+interface StockLine {
+  itemId: string
+  qty: number
+  perBatch: Record<string, number> | null
+}
+
+function parseStockLines(data: Record<string, unknown>): StockLine[] {
+  const raw = data.feedItems
+  if (!Array.isArray(raw)) return []
+  const lines: StockLine[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const line = entry as Record<string, unknown>
+    const itemId = typeof line.itemId === 'string' ? line.itemId.trim() : ''
+    if (!itemId) continue // free-text line: recorded, but moves no stock
+    const qty = Number(line.qty ?? line.qtyKg)
+    const perBatch = line.perBatch && typeof line.perBatch === 'object' && !Array.isArray(line.perBatch)
+      ? Object.fromEntries(Object.entries(line.perBatch as Record<string, unknown>).map(([k, v]) => [k, Number(v)]))
+      : null
+    lines.push({ itemId, qty, perBatch })
+  }
+  return lines
+}
+
+function qtyForBatch(line: StockLine, batchId: string): number {
+  if (!line.perBatch) return line.qty
+  const specific = line.perBatch[batchId]
+  return Number.isFinite(specific) ? specific : 0
+}
+
+// Each batch's own record stores the quantity that batch actually got, not
+// the whole issue — otherwise every batch in a split feeding would read as
+// having eaten the full amount.
+function dataFor(data: Record<string, unknown>, batchId: string): Record<string, unknown> {
+  const raw = data.feedItems
+  if (!Array.isArray(raw)) return data
+  const feedItems = raw
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return entry
+      const line = entry as Record<string, unknown>
+      const perBatch = line.perBatch as Record<string, unknown> | undefined
+      if (!perBatch || typeof perBatch !== 'object') return line
+      const rest = { ...line }
+      delete rest.perBatch
+      return { ...rest, qty: Number(perBatch[batchId] ?? 0) }
+    })
+    .filter((entry) => {
+      if (!entry || typeof entry !== 'object') return true
+      const qty = Number((entry as Record<string, unknown>).qty ?? (entry as Record<string, unknown>).qtyKg)
+      return !Number.isFinite(qty) || qty > 0
+    })
+  return { ...data, feedItems }
 }

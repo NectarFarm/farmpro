@@ -125,3 +125,44 @@ export const batches = pgTable('batches', {
   // shape as idx_farms_tenant_code.
   uniqueIndex('idx_batches_tenant_code').on(t.tenantId, t.code),
 ])
+
+// ── Why a batch's count changed (batch-ledger task) ────────────────────────
+// `batches.currentQty` was a number anyone could overwrite. Nothing recorded
+// why it moved, and in practice it mostly didn't: a worker filed a mortality
+// record with a count in its `data` blob and the batch's headcount sat
+// unchanged, so the figure the whole app reports — dashboard KPIs, reports,
+// the batch card — drifted away from the birds actually in the house.
+//
+// Every change now writes a row here and updates the cached total in the
+// same transaction. The cached column stays because every list screen reads
+// it and summing a ledger per batch per render is the wrong trade; this
+// table is what makes it explicable and auditable rather than a bare number.
+//
+// `qtyDelta` is signed: negative for a death or a sale, positive for an
+// intake. A physical count writes the DIFFERENCE it found, not the new
+// total — the point of counting is the variance, and storing the total would
+// hide it. `reason` is free text from the person; `sourceType`/`sourceId`
+// point back at the record, sale or approval that caused it, so the ledger
+// and the thing that produced it can each be found from the other.
+export const batchMovements = pgTable('batch_movements', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  batchId: text('batch_id').notNull(),
+  // intake | mortality | sale | count_adjustment | manual_adjustment | transfer
+  type: text('type').notNull(),
+  qtyDelta: integer('qty_delta').notNull(),
+  // The count after this movement was applied, so the ledger can be read as
+  // a running balance without re-deriving it from the whole history.
+  qtyAfter: integer('qty_after').notNull(),
+  reason: text('reason').notNull().default(''),
+  sourceType: text('source_type'),
+  sourceId: text('source_id'),
+  // The signed-in user, or the employee for a worker submission — whoever
+  // the app can actually name.
+  actor: text('actor').notNull().default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_batch_movements_tenant').on(t.tenantId),
+  index('idx_batch_movements_batch').on(t.tenantId, t.batchId),
+  index('idx_batch_movements_source').on(t.sourceType, t.sourceId),
+])

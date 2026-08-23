@@ -12,6 +12,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
 import { db } from '@/db'
 import { accounts, journalEntries, journalLines, sales, purchases } from '@/db/schemas'
+import { applyMovement } from '@/lib/batch-ledger'
 
 // Minimal transaction type covering what the posting helpers below need —
 // lets them run either inside `db.transaction(...)` (recordSale) or inside an
@@ -200,6 +201,11 @@ export async function postPayrollJournal(
 export async function recordSale(input: {
   tenantId: string
   batchId?: string | null
+  /** How many units were sold — required for a sale to move any stock. */
+  qty?: number | null
+  /** From products.stockEffect; decides what, if anything, the sale reduces. */
+  stockEffect?: string | null
+  actor?: string
   // product-unit-inheritance task: optional link to the products catalogue.
   // `item` stays required and independent of this — see db/schemas/
   // finance.ts's comment on sales.productId for why both fields exist.
@@ -219,6 +225,7 @@ export async function recordSale(input: {
         batchId: input.batchId ?? null,
         productId: input.productId ?? null,
         item: input.item,
+        qty: input.qty ?? null,
         amountCents: input.amountCents,
         method: input.method ?? '',
         status: input.status ?? 'paid',
@@ -227,6 +234,25 @@ export async function recordSale(input: {
       .returning()
 
     await postSaleJournal(tx, sale)
+
+    // ── Selling livestock takes it off the batch (batch-ledger task) ───────
+    // Only when the product says it should. A sale of eggs leaves the hens
+    // where they are; a sale of twenty birds must not. The product's
+    // stockEffect is what distinguishes them, and without a quantity there
+    // is nothing to subtract — so both have to be present before the
+    // headcount moves, in this same transaction as the sale itself.
+    if (input.stockEffect === 'batch_quantity' && input.batchId && input.qty && input.qty > 0) {
+      await applyMovement(tx, {
+        tenantId: input.tenantId,
+        batchId: input.batchId,
+        type: 'sale',
+        qtyDelta: -Math.trunc(input.qty),
+        reason: `Sold: ${input.item}`,
+        sourceType: 'sale',
+        sourceId: sale.id,
+        actor: input.actor ?? '',
+      })
+    }
 
     return sale
   })
