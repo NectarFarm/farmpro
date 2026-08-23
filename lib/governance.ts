@@ -12,6 +12,7 @@ import { db } from '@/db'
 import { approvalRequests, auditLog, records, tasks } from '@/db/schemas'
 import { spawnNextOccurrence } from '@/lib/tasks'
 import { applyCount, applyMovement } from '@/lib/batch-ledger'
+import { createAndEmailNotification } from '@/lib/notification-email'
 
 export type ApprovalDecision = 'approved' | 'rejected'
 
@@ -58,6 +59,55 @@ export function approverCanDecide(
   return { allowed: false, override: false }
 }
 
+// ── Approval-raised notification (notifications-wiring task) ───────────────
+// Shared by both places an approval_requests row gets inserted —
+// PATCH /api/tasks/[id] (task_completion) and POST /api/records (mortality /
+// physical_count) — so they can't drift on who gets told or how the source
+// id is keyed. Call this AFTER the insert has actually committed (in
+// particular: after the records route's transaction resolves, not from
+// inside it) for the same reason `decideApproval` below notifies after its
+// own transaction — a notification/email for a row that then gets rolled
+// back would be a lie.
+//
+// Targeting: a named `assignedApproverId` means the request belongs to that
+// person specifically, so only they are told. Left null, it broadcasts to
+// 'owner' and 'manager' — the two roles that pass `canEdit(..., MODULES.
+// governance)` by default (lib/permissions.ts) and so can actually act on it
+// without a tenant having customised the matrix; picking just one of the two
+// would arbitrarily leave the other blind to work sitting in their own
+// queue. The two role rows use suffixed source ids (`:owner`/`:manager`) —
+// without the suffix both would resolve to the exact same
+// (tenantId, sourceType, sourceId), and the unique index would let only the
+// first one through.
+export async function notifyApprovalRaised(approval: {
+  id: string
+  tenantId: string
+  title: string
+  assignedApproverId: string | null
+}): Promise<void> {
+  if (approval.assignedApproverId) {
+    await createAndEmailNotification({
+      tenantId: approval.tenantId,
+      sourceType: 'approval',
+      sourceId: approval.id,
+      title: `Approval needed: ${approval.title}`,
+      message: approval.title,
+      userId: approval.assignedApproverId,
+    })
+    return
+  }
+  for (const role of ['owner', 'manager']) {
+    await createAndEmailNotification({
+      tenantId: approval.tenantId,
+      sourceType: 'approval',
+      sourceId: `${approval.id}:${role}`,
+      title: `Approval needed: ${approval.title}`,
+      message: approval.title,
+      role,
+    })
+  }
+}
+
 export async function decideApproval(
   id: string,
   tenantId: string,
@@ -65,7 +115,7 @@ export async function decideApproval(
   decision: ApprovalDecision,
   actorRole?: string
 ) {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const rows = await tx
       .select()
       .from(approvalRequests)
@@ -172,4 +222,24 @@ export async function decideApproval(
 
     return { approval: updatedApproval, task: resolvedTask, nextOccurrenceId }
   })
+
+  // Notify the requester AFTER the transaction has committed, not from
+  // inside it: raising the notification/email in there and then having a
+  // later statement in the same transaction fail would leave a real email
+  // already sent for a decision that never actually took effect. `:decided`
+  // keys this event's sourceId apart from the approval-RAISED notification
+  // (app/api/tasks/[id]/route.ts, app/api/records/route.ts), which is keyed
+  // to the same approval id with no suffix — without the suffix the two
+  // events would collide on idx_notifications_source and only one of them
+  // would ever be created.
+  await createAndEmailNotification({
+    tenantId,
+    sourceType: 'approval',
+    sourceId: `${id}:decided`,
+    title: `Request ${decision}: ${result.approval.title}`,
+    message: result.approval.title,
+    userId: result.approval.requestedBy,
+  })
+
+  return result
 }
