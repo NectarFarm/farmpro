@@ -17,7 +17,7 @@ import { apiClient } from '@/lib/request';
 import {
   ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff,
   Package, CloudSun, Users, Shield, FileText, Bot, Palette,
-  Moon, Contrast, Sun, Sunrise, Lightbulb,
+  Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle,
   type LucideIcon,
 } from './icons';
 import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, type DateFormat } from '@/lib/datetime';
@@ -357,8 +357,16 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         // then never again — which is exactly when it is least useful,
         // because nothing has been set up yet and none of it means anything.
         // This is how you get it back after you have some data to look at.
-        { label: 'Show me around', desc: 'Replay the guided walkthrough of the app', action: () => requestTour() },
-        { label: 'About IFMS', desc: `Version ${process.env.NEXT_PUBLIC_APP_VERSION ?? '—'}` },
+        // It closes Settings first: the tour points at the navigation, and
+        // reading "open Workers" while the Settings list is still covering
+        // the screen is the kind of thing that makes a walkthrough feel
+        // broken.
+        { label: 'Show me around', icon: HelpCircle, desc: 'Replay the guided walkthrough of the app', action: () => { navigate('dashboard'); requestTour(); } },
+        // This row has always been inert — it described the About screen and
+        // never opened it, which made it read as a dead label rather than a
+        // link. AboutScreen has existed and been routed the whole time
+        // (app/page.tsx's 'about' case); nothing was pointing at it.
+        { label: 'About IFMS', icon: Info, desc: `Version ${process.env.NEXT_PUBLIC_APP_VERSION ?? '—'}`, action: () => navigate('about') },
       ],
     },
   ];
