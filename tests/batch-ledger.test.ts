@@ -28,7 +28,7 @@ import { db } from '@/db'
 import {
   tenants, users, sessions, farms, productionUnits, batches, employees, records,
   batchMovements, approvalRequests, auditLog, products, sales, rolePermissions,
-  journalEntries, journalLines,
+  productCollections, journalEntries, journalLines,
 } from '@/db/schemas'
 import { createSession, hashSecret } from '@/lib/auth'
 
@@ -88,6 +88,7 @@ run('batch head count is a ledger', () => {
     await db.delete(records).where(eq(records.tenantId, tenantId))
     await db.delete(approvalRequests).where(eq(approvalRequests.tenantId, tenantId))
     await db.delete(sales).where(eq(sales.tenantId, tenantId))
+    await db.delete(productCollections).where(eq(productCollections.tenantId, tenantId))
     await db.delete(batches).where(eq(batches.id, batchId))
     await db.insert(batches).values({
       id: batchId, tenantId, unitId, code: 'BRO-L', name: 'Broilers', enterprise: 'broiler',
@@ -105,6 +106,7 @@ run('batch head count is a ledger', () => {
       await db.delete(journalEntries).where(eq(journalEntries.tenantId, tenantId))
     }
     await db.delete(sales).where(eq(sales.tenantId, tenantId))
+    await db.delete(productCollections).where(eq(productCollections.tenantId, tenantId))
     await db.delete(auditLog).where(eq(auditLog.tenantId, tenantId))
     await db.delete(approvalRequests).where(eq(approvalRequests.tenantId, tenantId))
     await db.delete(batchMovements).where(eq(batchMovements.tenantId, tenantId))
@@ -232,7 +234,12 @@ run('batch head count is a ledger', () => {
     expect(birds.status).toBe(201)
     expect(await currentQty()).toBe(450)
 
+    // Eggs have to exist before they can be sold — produce is sold out of
+    // what was collected (worker-routines task), so collect some first.
     mockCookie = ownerSession
+    await recordsPOST(jsonRequest('http://localhost/api/records', 'POST', {
+      tenantId, batchId, employeeId, type: 'production', data: { items: [{ productId: eggProductId, qty: 30 }] },
+    }))
     const eggs = await readJson(await salesPOST(jsonRequest('http://localhost/api/data/sales', 'POST', {
       tenantId, batchId, productId: eggProductId, qty: 30, amountCents: 900000,
     })))

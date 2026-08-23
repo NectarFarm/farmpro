@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { notifications, notificationReads, tasks } from '@/db/schemas'
+import { notifications, notificationReads, tasks, employees } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { PLATFORM_TENANT_SENTINEL } from '@/lib/audit'
-import { and, desc, eq, isNull, lt, notInArray, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, notInArray, or } from 'drizzle-orm'
 import { startOfUtcDay } from '@/app/api/tasks/route'
 import { notifyRecipientsByEmail } from '@/lib/notification-email'
 
@@ -59,16 +59,17 @@ const unauthorized = () => NextResponse.json({ success: false, error: 'Unauthori
 export const DONE_STATUSES = ['DONE', 'CANCELLED']
 
 // One row per notification, targeting decision documented at the call site
-// in the producer that creates it. Task due/overdue notifications stay a
-// genuine tenant-wide broadcast (userId and role both left null): `tasks` in
-// this tree has no assignee column (the assignee FK from issue #335 landed
-// in a different copy of this app, not here), so per-assignee targeting
-// isn't possible, and there is no single role that legitimately covers
-// "everyone who should know a task is overdue" — an owner tracks it, a
-// manager acts on it, and a worker may be the one doing it. Restricting to
-// any one role would arbitrarily exclude a real stakeholder with no
-// PII/privacy reason to; unlike the password-reset notification, a task
-// title carries nothing sensitive, so broadcasting stays the honest choice.
+// in the producer that creates it. Task due/overdue notifications target the
+// task's own assignee when it has one AND that employee has a linked login
+// (tasks.assigneeId -> employees.userId): this used to be an unconditional
+// tenant-wide broadcast because "tasks has no assignee column" — the
+// tasks-scheduling task since added `assigneeId`, so that's no longer true,
+// and the honest default is now "tell the person actually on the hook", not
+// everyone. A task with no assignee, or one whose employee has no login yet,
+// still broadcasts — there is no single role that legitimately covers
+// "everyone who should know an UNASSIGNED task is overdue" (an owner tracks
+// it, a manager acts on it, a worker may end up doing it), and a task title
+// carries nothing sensitive the way a password-reset notification does.
 export async function syncTaskNotifications(tenantId: string): Promise<void> {
   const endOfToday = new Date(startOfUtcDay(new Date()).getTime() + 24 * 60 * 60 * 1000)
 
@@ -86,6 +87,23 @@ export async function syncTaskNotifications(tenantId: string): Promise<void> {
     )
   if (dueRows.length === 0) return
 
+  // One batched lookup for every due task's assignee rather than one query
+  // per task — this sync runs on every dashboard GET, so an N+1 here would
+  // mean N+1 on every page load.
+  const assigneeIds = Array.from(new Set(dueRows.map((t) => t.assigneeId).filter((v): v is string => !!v)))
+  const userIdByEmployeeId = new Map<string, string | null>()
+  if (assigneeIds.length > 0) {
+    const employeeRows = await db
+      .select({ id: employees.id, userId: employees.userId })
+      .from(employees)
+      // Tenant-scoped as well as id-scoped. The ids come from this tenant's
+      // own tasks, so today it cannot match anything foreign — but that is a
+      // property of the write path, not of this query, and an unscoped read
+      // is one bad assigneeId away from mailing another farm's worker.
+      .where(and(eq(employees.tenantId, tenantId), inArray(employees.id, assigneeIds)))
+    for (const e of employeeRows) userIdByEmployeeId.set(e.id, e.userId)
+  }
+
   // .returning() on an ON CONFLICT DO NOTHING insert gives back ONLY the
   // rows actually inserted (Postgres never returns a skipped conflict) —
   // that is what makes emailing exactly these rows safe from a mail-storm:
@@ -97,18 +115,27 @@ export async function syncTaskNotifications(tenantId: string): Promise<void> {
   const insertedRows = await db
     .insert(notifications)
     .values(
-      dueRows.map((t) => ({
-        id: crypto.randomUUID(),
-        tenantId,
-        sourceType: 'task',
-        sourceId: t.id,
-        title: (t.dueAt as Date) < startOfUtcDay(new Date()) ? `Task overdue: ${t.title}` : `Task due today: ${t.title}`,
-        message: '',
-        read: false,
-        // Broadcast — see the function-level comment above for why.
-        userId: null,
-        role: null,
-      }))
+      dueRows.map((t) => {
+        // Null when unassigned, when the assignee lookup came up empty
+        // (shouldn't happen — assigneeId is only ever set to a real
+        // employees.id — but a stale/deleted row must fail safe to
+        // broadcast, not to silently notifying nobody), or when that
+        // employee has no linked login.
+        const targetUserId = t.assigneeId ? userIdByEmployeeId.get(t.assigneeId) ?? null : null
+        return {
+          id: crypto.randomUUID(),
+          tenantId,
+          sourceType: 'task',
+          sourceId: t.id,
+          title: (t.dueAt as Date) < startOfUtcDay(new Date()) ? `Task overdue: ${t.title}` : `Task due today: ${t.title}`,
+          message: '',
+          read: false,
+          // Targeted to the assignee's login when there is one; broadcast
+          // (both null) otherwise — see the function-level comment above.
+          userId: targetUserId,
+          role: null,
+        }
+      })
     )
     .onConflictDoNothing()
     .returning({ id: notifications.id })

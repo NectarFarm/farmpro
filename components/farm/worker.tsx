@@ -69,17 +69,17 @@ const RECORD_TYPE_LABEL: Record<string, { label: string; icon: LucideIcon }> = {
   physical_count: { label: 'Physical Count', icon: Hash },
 };
 
-// The backend only supports these three record types today (db/schemas/people.ts).
-// Other tile ideas from the old mock (morning round, collect products, health &
-// vaccine, weight sample, closing stock) have no backend yet — shown as an
-// honest "not available yet" group instead of silently disappearing or being
-// wired to fabricated data.
-const UNAVAILABLE_RECORD_TYPES = [
-  { label: 'Morning Round', icon: Sunrise },
-  { label: 'Collect Products', icon: Egg },
-  { label: 'Health & Vaccine', icon: Syringe },
-  { label: 'Weight Sample', icon: Scale },
-  { label: 'Closing Stock', icon: Package },
+// These five were listed as "Coming Soon" because the backend accepted three
+// record types. It accepts all of them now (worker-routines task), so they are
+// real tiles — and the greyed-out group is gone rather than kept as an empty
+// shell. "Morning Round" is not in this list because it is not one fixed
+// thing: rounds are defined by the owner (Settings › Daily routines) and each
+// one gets its own tile on the record screen.
+const EXTRA_RECORD_TYPES = [
+  { type: 'production', label: 'Collect', icon: Egg },
+  { type: 'health', label: 'Health', icon: Syringe },
+  { type: 'weight', label: 'Weight', icon: Scale },
+  { type: 'stock_count', label: 'Closing Stock', icon: Package },
 ];
 
 /* Shared fetch of the logged-in worker's own employee row + their assigned
@@ -309,17 +309,18 @@ export function WorkerHomeScreen() {
           </button>
         ))}
       </div>
+      {/* Was a row of greyed-out "Not available yet" squares. They all work
+         now, so they are ordinary quick-record buttons like the ones above. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 20 }}>
-        {UNAVAILABLE_RECORD_TYPES.map((tile) => (
-          <div key={tile.label} style={{
-            padding: '12px 4px', borderRadius: 14, background: 'var(--card)', opacity: 0.5,
-            border: '1px dashed var(--border-subtle)',
+        {EXTRA_RECORD_TYPES.map((tile) => (
+          <button key={tile.type} onClick={() => navigate('worker-record', { type: tile.type })} style={{
+            padding: '12px 4px', borderRadius: 14, background: 'var(--card)',
+            border: '1px solid var(--border-subtle)', cursor: 'pointer',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
           }}>
-            <tile.icon size={26} color="var(--text-dim)" aria-hidden="true" />
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textAlign: 'center', lineHeight: 1.3 }}>{tile.label}</span>
-            <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>Not available yet</span>
-          </div>
+            <tile.icon size={26} color="var(--text-muted)" aria-hidden="true" />
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.3 }}>{tile.label}</span>
+          </button>
         ))}
       </div>
     </div>
@@ -338,12 +339,24 @@ export function WorkerHomeScreen() {
 // shows the chooser — that's its one legitimate, unambiguous entry point.
 const RECORD_TYPE_TO_FORM: Record<string, string> = {
   feeding: 'feeding', mortality: 'mortality', physical_count: 'count', count: 'count',
+  production: 'collect', collect: 'collect', health: 'health', weight: 'weight',
+  stock_count: 'stock', stock: 'stock',
 };
 
 export function WorkerRecordScreen() {
-  const { params } = useNav();
+  const { params, tenantId } = useNav();
   const ctx = useWorkerContext();
   const [activeForm, setActiveForm] = useState<null | string>(() => RECORD_TYPE_TO_FORM[params.type] ?? null);
+  // The owner's rounds. Fetched here rather than baked in, because what a
+  // round consists of is a property of the farm — see db/schemas/people.ts.
+  const [routines, setRoutines] = useState<Routine[] | null>(null);
+  const [activeRoutine, setActiveRoutine] = useState<Routine | null>(null);
+
+  useEffect(() => {
+    apiClient.get<Routine[]>(`/api/routines?tenantId=${tenantId}`).then((res) => {
+      setRoutines(res.success ? res.data.filter((r) => r.active) : []);
+    });
+  }, [tenantId]);
 
   if (!ctx.employee) {
     return (
@@ -357,17 +370,31 @@ export function WorkerRecordScreen() {
     );
   }
 
+  if (activeRoutine) return <RoutineRunner ctx={ctx} routine={activeRoutine} onBack={() => setActiveRoutine(null)} />;
   if (activeForm === 'feeding') return <FeedingForm ctx={ctx} onBack={() => setActiveForm(null)} />;
   if (activeForm === 'mortality') return <MortalityForm ctx={ctx} onBack={() => setActiveForm(null)} />;
   if (activeForm === 'count') return <PhysicalCountForm ctx={ctx} onBack={() => setActiveForm(null)} />;
+  if (activeForm === 'collect') return <CollectProductsForm ctx={ctx} onBack={() => setActiveForm(null)} />;
+  if (activeForm === 'health') return <HealthForm ctx={ctx} onBack={() => setActiveForm(null)} />;
+  if (activeForm === 'weight') return <WeightForm ctx={ctx} onBack={() => setActiveForm(null)} />;
+  if (activeForm === 'stock') return <StockCountForm ctx={ctx} onBack={() => setActiveForm(null)} />;
 
   const GROUPS = [
     {
-      label: 'Real record types',
+      label: 'Daily work',
       tiles: [
-        { type: 'feeding', label: 'Feeding', icon: Wheat, desc: 'Log feed per batch' },
+        { type: 'feeding', label: 'Feeding', icon: Wheat, desc: 'Feed from the store' },
+        { type: 'collect', label: 'Collect Products', icon: Egg, desc: 'Eggs, milk, whatever it yields' },
         { type: 'mortality', label: 'Mortality', icon: AlertTriangle, desc: 'Record deaths' },
-        { type: 'count', label: 'Physical Count', icon: Hash, desc: 'Vs system count' },
+      ],
+    },
+    {
+      label: 'Checks',
+      tiles: [
+        { type: 'health', label: 'Health & Vaccine', icon: Syringe, desc: 'Treatments given' },
+        { type: 'weight', label: 'Weight Sample', icon: Scale, desc: 'Sample weights, averaged' },
+        { type: 'count', label: 'Physical Count', icon: Hash, desc: 'Count against the system' },
+        { type: 'stock', label: 'Closing Stock', icon: Package, desc: 'What is left in the store' },
       ],
     },
   ];
@@ -401,21 +428,32 @@ export function WorkerRecordScreen() {
         </div>
       ))}
 
-      <div style={{ marginBottom: 16 }}>
-        <div className="section-eyebrow" style={{ marginBottom: 8 }}>Coming Soon</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {UNAVAILABLE_RECORD_TYPES.map((tile) => (
-            <div key={tile.label} className="farm-card" style={{ padding: 14, opacity: 0.5, display: 'flex', gap: 12, alignItems: 'center', border: '1px dashed var(--border-subtle)' }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface)', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><tile.icon size={22} aria-hidden="true" /></div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-dim)' }}>{tile.label}</div>
-                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>Not available yet</div>
-              </div>
-              <Lock size={14} color="var(--text-dim)" />
-            </div>
-          ))}
+      {/* The owner's rounds, each as its own tile. Nothing is shown when none
+         are set up — an empty "Rounds" heading over nothing would read as
+         something failing to load. */}
+      {routines !== null && routines.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Rounds</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {routines.map((routine) => (
+              <button key={routine.id} onClick={() => setActiveRoutine(routine)}
+                className="farm-card" style={{ padding: 14, textAlign: 'left', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'center' }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface)', color: 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Sunrise size={22} aria-hidden="true" />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{routine.name}</div>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
+                    {routine.steps.length} step{routine.steps.length === 1 ? '' : 's'}
+                    {routine.timeOfDay !== 'any' ? ` · ${routine.timeOfDay}` : ''}
+                  </div>
+                </div>
+                <ChevronRight size={16} color="var(--text-dim)" />
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -761,6 +799,601 @@ function MultiBatchPicker({ batches, selected, onToggle }: {
         );
       })}
     </div>
+  );
+}
+
+/* ── Doing a round (worker-routines task) ───────────────────────────────────
+ * "Morning Round" was a greyed-out tile because nothing said what a morning
+ * round is. It differs per farm — one farm's is feed, water check, egg
+ * collection and a mortality sweep; another's is milking and a temperature
+ * reading — so the owner defines it (Settings › Daily routines) and this
+ * walks the worker through whatever they defined.
+ *
+ * Each step files the SAME record its standalone form would file, so a
+ * feeding done inside the round is a feeding record like any other and shows
+ * up everywhere feedings show up. The round itself is recorded separately
+ * (routine_runs), because a round where nothing died and nothing was
+ * collected produces no records at all — and "no records" must not be
+ * indistinguishable from "nobody came".
+ *
+ * Steps are submitted at the END rather than one at a time. A worker walking
+ * a house with intermittent signal should not lose step three because the
+ * request for step two timed out; and a round half-filed reads as a round
+ * half-done to everyone who looks at it later.
+ */
+export interface RoutineStep {
+  id: string;
+  kind: string;
+  label: string;
+  required: boolean;
+}
+
+export interface Routine {
+  id: string;
+  name: string;
+  timeOfDay: string;
+  active: boolean;
+  steps: RoutineStep[];
+}
+
+// What each step kind asks for, and what it files. `check` files a record
+// too: "the worker confirmed the water lines were clear" is exactly the sort
+// of thing an owner wants to be able to look up after a bad week.
+const STEP_RECORD_TYPE: Record<string, string> = {
+  feeding: 'feeding',
+  mortality: 'mortality',
+  physical_count: 'physical_count',
+  production: 'production',
+  health: 'health',
+  weight: 'weight',
+  check: 'check',
+};
+
+function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Routine; onBack: () => void }) {
+  const { showToast } = useToast();
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [values, setValues] = useState<Record<string, Record<string, string>>>({});
+  const [skipped, setSkipped] = useState<Record<string, boolean>>({});
+  const [stock, setStock] = useState<AvailableItem[] | null>(null);
+  const [productList, setProductList] = useState<{ id: string; name: string }[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  // Both lookups are per-batch: stock is held per farm, and the product list
+  // is the batch's own resolved list rather than the whole catalogue.
+  useEffect(() => {
+    if (!batchId) return;
+    apiClient.get<AvailableItem[]>(`/api/inventory/available?tenantId=${ctx.tenantId}&batchId=${batchId}`).then((res) => {
+      setStock(res.success ? res.data : []);
+    });
+    apiClient.get<{ productId: string; name: string }[]>(`/api/batches/${batchId}/products?tenantId=${ctx.tenantId}`).then((res) => {
+      if (res.success) setProductList(res.data.map((p) => ({ id: p.productId, name: p.name })));
+    });
+  }, [batchId, ctx.tenantId]);
+
+  function setField(stepId: string, field: string, value: string) {
+    setValues((v) => ({ ...v, [stepId]: { ...(v[stepId] ?? {}), [field]: value } }));
+  }
+  const field = (stepId: string, name: string) => values[stepId]?.[name] ?? '';
+
+  // A step counts as answered when it has the one number or note that makes
+  // it worth filing. An empty optional step is simply not submitted.
+  function isAnswered(step: RoutineStep): boolean {
+    const v = values[step.id] ?? {};
+    switch (step.kind) {
+      case 'feeding': return !!v.itemId && Number(v.qty) > 0;
+      case 'mortality': return Number(v.count) > 0;
+      case 'physical_count': return v.counted !== undefined && v.counted !== '' && Number.isFinite(Number(v.counted));
+      case 'production': return Object.entries(v).some(([k, n]) => k.startsWith('p:') && Number(n) > 0);
+      case 'health': return !!v.treatment?.trim();
+      case 'weight': return Number(v.weight) > 0;
+      case 'check': return v.done === 'yes' || v.done === 'no';
+      default: return false;
+    }
+  }
+
+  function payloadFor(step: RoutineStep): Record<string, unknown> | null {
+    const v = values[step.id] ?? {};
+    switch (step.kind) {
+      case 'feeding': return { feedItems: [{ itemId: v.itemId, qty: Math.trunc(Number(v.qty)) }] };
+      case 'mortality': return { count: Math.trunc(Number(v.count)), cause: v.cause?.trim() || 'Recorded on round' };
+      case 'physical_count': return { physicalCount: Math.trunc(Number(v.counted)), varianceReason: v.reason?.trim() || `Counted on ${routine.name}` };
+      case 'production': return {
+        items: Object.entries(v)
+          .filter(([k, n]) => k.startsWith('p:') && Number(n) > 0)
+          .map(([k, n]) => ({ productId: k.slice(2), qty: Math.trunc(Number(n)) })),
+      };
+      case 'health': return { treatment: v.treatment?.trim(), notes: v.notes?.trim() ?? '' };
+      case 'weight': return { samples: [Number(v.weight)], averageKg: Number(v.weight), sampleSize: 1 };
+      case 'check': return { step: step.label, ok: v.done === 'yes', note: v.note?.trim() ?? '' };
+      default: return null;
+    }
+  }
+
+  const missingRequired = routine.steps.filter((s) => s.required && !skipped[s.id] && !isAnswered(s));
+
+  async function submit() {
+    if (!ctx.employee || !batchId) return;
+    setSubmitting(true); setError('');
+
+    const completed: Record<string, unknown> = {};
+    const failures: string[] = [];
+
+    for (const step of routine.steps) {
+      if (skipped[step.id] || !isAnswered(step)) continue;
+      const data = payloadFor(step);
+      if (!data) continue;
+      const res = await apiClient.post('/api/records', {
+        tenantId: ctx.tenantId, batchId, employeeId: ctx.employee.id,
+        type: STEP_RECORD_TYPE[step.kind], data,
+      });
+      if (res.success) completed[step.id] = { kind: step.kind, label: step.label };
+      // A step that a rule refuses — a feeding with not enough stock, a
+      // mortality needing approval it cannot get — is named rather than
+      // swallowed, and the rest of the round is still filed.
+      else failures.push(`${step.label}: ${res.error ?? 'failed'}`);
+    }
+
+    const runRes = await apiClient.post('/api/routine-runs', {
+      tenantId: ctx.tenantId, routineId: routine.id, batchId, employeeId: ctx.employee.id,
+      completedSteps: completed,
+      skippedCount: routine.steps.filter((s) => skipped[s.id] || !isAnswered(s)).length,
+    });
+    setSubmitting(false);
+
+    if (failures.length > 0) {
+      setError(`Saved what went through. These did not: ${failures.join('; ')}`);
+      return;
+    }
+    if (!runRes.success) { setError(runRes.error || 'Steps were saved, but the round was not marked done.'); return; }
+    showToast(`${routine.name} done.`, 'success');
+    onBack();
+  }
+
+  return (
+    <div className="screen-content">
+      <div style={{ padding: '0 20px' }}>
+        <TopNav title={routine.name} showBack />
+      </div>
+      <div className="px-screen" style={{ paddingTop: 16, paddingBottom: 90 }}>
+        {!batchId ? (
+          <>
+            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, marginBottom: 12 }}>Which batch is this round for?</div>
+            <BatchPicker batches={ctx.batches} onPick={setBatchId} />
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>
+              {ctx.batches?.find((b) => b.id === batchId)?.code}
+              <button onClick={() => setBatchId(null)} style={{ marginLeft: 8, fontSize: 'var(--fs-2xs)', background: 'none', border: 'none', color: 'var(--primary-green)', cursor: 'pointer', fontWeight: 700 }}>change</button>
+            </div>
+
+            {routine.steps.length === 0 && (
+              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                Nobody has said what this round involves yet. Ask your manager to add the steps.
+              </div>
+            )}
+
+            {routine.steps.map((step, i) => {
+              const done = isAnswered(step);
+              const isSkipped = !!skipped[step.id];
+              return (
+                <div key={step.id} className="farm-card" style={{
+                  padding: 14, marginBottom: 10, opacity: isSkipped ? 0.55 : 1,
+                  borderLeft: `3px solid ${done ? 'var(--primary-green)' : step.required ? 'var(--status-warning)' : 'var(--border-subtle)'}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isSkipped ? 0 : 10 }}>
+                    <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)' }}>{i + 1}</span>
+                    <span style={{ flex: 1, fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{step.label}</span>
+                    {done && <Check size={14} color="var(--primary-green)" />}
+                    {!step.required && (
+                      <button
+                        onClick={() => setSkipped((sk) => ({ ...sk, [step.id]: !sk[step.id] }))}
+                        style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}
+                      >{isSkipped ? 'undo' : 'skip'}</button>
+                    )}
+                  </div>
+
+                  {!isSkipped && step.kind === 'feeding' && (
+                    <>
+                      <select className="farm-input" value={field(step.id, 'itemId')} onChange={(e) => setField(step.id, 'itemId', e.target.value)} style={{ marginBottom: 8 }}>
+                        <option value="">Choose feed from the store…</option>
+                        {(stock ?? []).map((s) => (
+                          <option key={s.id} value={s.id} disabled={s.qtyOnHand <= 0}>
+                            {s.name} — {s.qtyOnHand} {s.unit} left
+                          </option>
+                        ))}
+                      </select>
+                      <input className="farm-input" type="number" inputMode="decimal" min="0" placeholder="How much" value={field(step.id, 'qty')} onChange={(e) => setField(step.id, 'qty', e.target.value)} />
+                    </>
+                  )}
+
+                  {!isSkipped && step.kind === 'mortality' && (
+                    <>
+                      <input className="farm-input" type="number" inputMode="numeric" min="0" placeholder="How many died (0 if none)" value={field(step.id, 'count')} onChange={(e) => setField(step.id, 'count', e.target.value)} style={{ marginBottom: 8 }} />
+                      <input className="farm-input" placeholder="Cause, if known" value={field(step.id, 'cause')} onChange={(e) => setField(step.id, 'cause', e.target.value)} />
+                    </>
+                  )}
+
+                  {!isSkipped && step.kind === 'physical_count' && (
+                    <input className="farm-input" type="number" inputMode="numeric" min="0" placeholder="How many did you count" value={field(step.id, 'counted')} onChange={(e) => setField(step.id, 'counted', e.target.value)} />
+                  )}
+
+                  {!isSkipped && step.kind === 'production' && (
+                    productList.length === 0
+                      ? <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>This batch has no products set up yet.</div>
+                      : productList.map((p) => (
+                        <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                          <span style={{ flex: 1, fontSize: 'var(--fs-sm)' }}>{p.name}</span>
+                          <input className="farm-input" type="number" inputMode="numeric" min="0" placeholder="0" style={{ width: 100 }}
+                            value={field(step.id, `p:${p.id}`)} onChange={(e) => setField(step.id, `p:${p.id}`, e.target.value)} />
+                        </div>
+                      ))
+                  )}
+
+                  {!isSkipped && step.kind === 'health' && (
+                    <>
+                      <input className="farm-input" placeholder="What was given" value={field(step.id, 'treatment')} onChange={(e) => setField(step.id, 'treatment', e.target.value)} style={{ marginBottom: 8 }} />
+                      <input className="farm-input" placeholder="Notes" value={field(step.id, 'notes')} onChange={(e) => setField(step.id, 'notes', e.target.value)} />
+                    </>
+                  )}
+
+                  {!isSkipped && step.kind === 'weight' && (
+                    <input className="farm-input" type="number" inputMode="decimal" step="0.01" min="0" placeholder="Weight in kg" value={field(step.id, 'weight')} onChange={(e) => setField(step.id, 'weight', e.target.value)} />
+                  )}
+
+                  {!isSkipped && step.kind === 'check' && (
+                    <>
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                        {[['yes', 'All good'], ['no', 'Problem']].map(([value, label]) => (
+                          <button key={value} onClick={() => setField(step.id, 'done', value)}
+                            style={{
+                              flex: 1, padding: '10px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer',
+                              background: field(step.id, 'done') === value ? (value === 'yes' ? 'rgba(74,222,128,0.15)' : 'rgba(248,113,113,0.12)') : 'var(--card)',
+                              border: field(step.id, 'done') === value ? `1px solid ${value === 'yes' ? 'var(--primary-green)' : 'var(--status-critical)'}` : '1px solid var(--border-subtle)',
+                              color: field(step.id, 'done') === value ? (value === 'yes' ? 'var(--primary-green)' : 'var(--status-critical)') : 'var(--text-muted)',
+                            }}>{label}</button>
+                        ))}
+                      </div>
+                      {field(step.id, 'done') === 'no' && (
+                        <input className="farm-input" placeholder="What is wrong?" value={field(step.id, 'note')} onChange={(e) => setField(step.id, 'note', e.target.value)} />
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+
+            {missingRequired.length > 0 && (
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-warning)', marginBottom: 10, lineHeight: 1.5 }}>
+                Still to do: {missingRequired.map((s) => s.label).join(', ')}
+              </div>
+            )}
+            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10, lineHeight: 1.5 }}>{error}</div>}
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={onBack}>Cancel</button>
+              <button
+                className="btn-primary" disabled={submitting || missingRequired.length > 0 || routine.steps.length === 0}
+                style={{ flex: 2, justifyContent: 'center', borderRadius: 12, opacity: submitting || missingRequired.length > 0 ? 0.6 : 1 }}
+                onClick={submit}
+              >
+                <Check size={14} /> {submitting ? 'Saving…' : `Finish ${routine.name}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── The rest of the worker's record types (worker-routines task) ───────────
+ * These five were "Coming Soon" tiles: honest when written, because the
+ * backend accepted three record types — and then the reason the work went
+ * unrecorded. POST /api/records takes all of them now, each mapped to the
+ * permission module that already governs it.
+ *
+ * They share a deliberately plain shape: pick a batch, fill in the numbers,
+ * save. No wizard steps unless the form genuinely has stages (feeding does,
+ * because stock has to be fetched for the chosen batch first). A worker
+ * standing in a poultry house with one hand free is the design constraint.
+ */
+function SimpleFormShell({ title, batches, batchId, setBatchId, children, onBack, onSubmit, submitting, error, canSubmit }: {
+  title: string;
+  batches: ApiBatch[] | null;
+  batchId: string | null;
+  setBatchId: (id: string) => void;
+  children: React.ReactNode;
+  onBack: () => void;
+  onSubmit: () => void;
+  submitting: boolean;
+  error: string;
+  canSubmit: boolean;
+}) {
+  return (
+    <div className="screen-content">
+      <div style={{ padding: '0 20px' }}>
+        <TopNav title={title} showBack />
+      </div>
+      <div className="px-screen" style={{ paddingTop: 16, paddingBottom: 90 }}>
+        {!batchId ? (
+          <>
+            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, marginBottom: 12 }}>Which batch?</div>
+            <BatchPicker batches={batches} onPick={setBatchId} />
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 12 }}>
+              {batches?.find((b) => b.id === batchId)?.code}
+              <button onClick={() => setBatchId('')} style={{ marginLeft: 8, fontSize: 'var(--fs-2xs)', background: 'none', border: 'none', color: 'var(--primary-green)', cursor: 'pointer', fontWeight: 700 }}>change</button>
+            </div>
+            {children}
+            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', margin: '10px 0' }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={onBack}>Cancel</button>
+              <button className="btn-primary" disabled={submitting || !canSubmit} style={{ flex: 2, justifyContent: 'center', borderRadius: 12, opacity: submitting || !canSubmit ? 0.6 : 1 }} onClick={onSubmit}>
+                <Check size={14} /> {submitting ? 'Saving…' : 'Save Record'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* Collect Products — eggs, milk, honey. The product list is the batch's own
+ * resolved list (GET /api/batches/[id]/products), which is what the batch
+ * inherits from its unit plus its own overrides, so a layer batch offers
+ * trays and a dairy batch offers litres without the worker choosing from the
+ * whole farm's catalogue. */
+function CollectProductsForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
+  const { showToast } = useToast();
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [productList, setProductList] = useState<{ id: string; name: string }[] | null>(null);
+  const [qty, setQty] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!batchId) return;
+    setProductList(null);
+    apiClient.get<{ productId: string; name: string }[]>(`/api/batches/${batchId}/products?tenantId=${ctx.tenantId}`).then((res) => {
+      if (res.success) setProductList(res.data.map((p) => ({ id: p.productId, name: p.name })));
+      else setProductList([]);
+    });
+  }, [batchId, ctx.tenantId]);
+
+  const entered = Object.entries(qty).filter(([, v]) => Number(v) > 0);
+
+  async function submit() {
+    if (!ctx.employee || !batchId) return;
+    setSubmitting(true); setError('');
+    const res = await apiClient.post('/api/records', {
+      tenantId: ctx.tenantId, batchId, employeeId: ctx.employee.id, type: 'production',
+      data: { items: entered.map(([productId, v]) => ({ productId, qty: Math.trunc(Number(v)) })) },
+    });
+    setSubmitting(false);
+    if (!res.success) { setError(res.error || 'Could not save the collection.'); return; }
+    showToast('Collection recorded.', 'success');
+    onBack();
+  }
+
+  return (
+    <SimpleFormShell
+      title="Collect Products" batches={ctx.batches} batchId={batchId} setBatchId={(id) => setBatchId(id || null)}
+      onBack={onBack} onSubmit={submit} submitting={submitting} error={error} canSubmit={entered.length > 0}
+    >
+      {productList === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading this batch&apos;s products…</div>}
+      {productList !== null && productList.length === 0 && (
+        <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          This batch has no products set up. Ask your manager to add what it produces — eggs, milk, whatever it is — on the batch.
+        </div>
+      )}
+      {(productList ?? []).map((p) => (
+        <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <span style={{ flex: 1, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{p.name}</span>
+          <input
+            className="farm-input" type="number" inputMode="numeric" min="0" placeholder="0"
+            value={qty[p.id] ?? ''} onChange={(e) => setQty((q) => ({ ...q, [p.id]: e.target.value }))}
+            style={{ width: 110 }}
+          />
+        </div>
+      ))}
+    </SimpleFormShell>
+  );
+}
+
+/* Health & Vaccine. Free text on purpose: a treatment is "what did you give,
+ * to how many, and why", and a fixed drug list would be wrong for every farm
+ * that keeps something not on it. */
+function HealthForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
+  const { showToast } = useToast();
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [treatment, setTreatment] = useState('');
+  const [affected, setAffected] = useState('');
+  const [dose, setDose] = useState('');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit() {
+    if (!ctx.employee || !batchId) return;
+    setSubmitting(true); setError('');
+    const res = await apiClient.post('/api/records', {
+      tenantId: ctx.tenantId, batchId, employeeId: ctx.employee.id, type: 'health',
+      data: {
+        treatment: treatment.trim(),
+        affected: affected ? Math.trunc(Number(affected)) : null,
+        dose: dose.trim(),
+        notes: notes.trim(),
+      },
+    });
+    setSubmitting(false);
+    if (!res.success) { setError(res.error || 'Could not save the record.'); return; }
+    showToast('Health record saved.', 'success');
+    onBack();
+  }
+
+  return (
+    <SimpleFormShell
+      title="Health & Vaccine" batches={ctx.batches} batchId={batchId} setBatchId={(id) => setBatchId(id || null)}
+      onBack={onBack} onSubmit={submit} submitting={submitting} error={error} canSubmit={treatment.trim().length > 0}
+    >
+      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>What was given *</label>
+      <input className="farm-input" value={treatment} onChange={(e) => setTreatment(e.target.value)} placeholder="e.g. Newcastle vaccine, antibiotics" style={{ marginBottom: 10 }} />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <div>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>How many treated</label>
+          <input className="farm-input" type="number" inputMode="numeric" value={affected} onChange={(e) => setAffected(e.target.value)} placeholder="e.g. 200" />
+        </div>
+        <div>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Dose</label>
+          <input className="farm-input" value={dose} onChange={(e) => setDose(e.target.value)} placeholder="e.g. 1ml each" />
+        </div>
+      </div>
+
+      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes</label>
+      <textarea className="farm-input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Symptoms, who advised it, withdrawal period…" style={{ resize: 'none' }} />
+    </SimpleFormShell>
+  );
+}
+
+/* Weight sampling. Several weights rather than one, because a sample of one
+ * bird is not a sample — the average is computed here and stored alongside
+ * the raw figures so nobody has to trust the arithmetic later. */
+function WeightForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
+  const { showToast } = useToast();
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [weights, setWeights] = useState<string[]>(['', '', '']);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const numbers = weights.map((w) => Number(w)).filter((n) => Number.isFinite(n) && n > 0);
+  const average = numbers.length > 0 ? numbers.reduce((a, b) => a + b, 0) / numbers.length : 0;
+
+  async function submit() {
+    if (!ctx.employee || !batchId) return;
+    setSubmitting(true); setError('');
+    const res = await apiClient.post('/api/records', {
+      tenantId: ctx.tenantId, batchId, employeeId: ctx.employee.id, type: 'weight',
+      data: { samples: numbers, averageKg: Number(average.toFixed(3)), sampleSize: numbers.length },
+    });
+    setSubmitting(false);
+    if (!res.success) { setError(res.error || 'Could not save the record.'); return; }
+    showToast(`Weight sample saved — average ${average.toFixed(2)} kg.`, 'success');
+    onBack();
+  }
+
+  return (
+    <SimpleFormShell
+      title="Weight Sample" batches={ctx.batches} batchId={batchId} setBatchId={(id) => setBatchId(id || null)}
+      onBack={onBack} onSubmit={submit} submitting={submitting} error={error} canSubmit={numbers.length > 0}
+    >
+      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+        Weigh a few and enter each one. The average is worked out for you.
+      </div>
+      {weights.map((w, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <span style={{ width: 70, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Sample {i + 1}</span>
+          <input
+            className="farm-input" type="number" inputMode="decimal" step="0.01" min="0" placeholder="kg"
+            value={w} onChange={(e) => setWeights((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
+          />
+        </div>
+      ))}
+      <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginTop: 4 }} onClick={() => setWeights((prev) => [...prev, ''])}>
+        <Plus size={13} /> Another sample
+      </button>
+      {numbers.length > 0 && (
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)', fontSize: 'var(--fs-base)', fontWeight: 700 }}>
+          Average: {average.toFixed(2)} kg <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>from {numbers.length} sample{numbers.length === 1 ? '' : 's'}</span>
+        </div>
+      )}
+    </SimpleFormShell>
+  );
+}
+
+/* Closing stock. Counts what is physically left of each store item and
+ * records the variance against what the system believes.
+ *
+ * It deliberately does NOT adjust the lots. Correcting stock is an audited,
+ * reason-required action an owner takes through PATCH
+ * /api/inventory/lots/[id]; letting a closing count silently rewrite
+ * quantities would move that correction to the one place nobody reviews. */
+function StockCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
+  const { showToast } = useToast();
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [stock, setStock] = useState<AvailableItem[] | null>(null);
+  const [counted, setCounted] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!batchId) return;
+    setStock(null);
+    apiClient.get<AvailableItem[]>(`/api/inventory/available?tenantId=${ctx.tenantId}&batchId=${batchId}`).then((res) => {
+      setStock(res.success ? res.data : []);
+    });
+  }, [batchId, ctx.tenantId]);
+
+  const lines = Object.entries(counted)
+    .filter(([, v]) => v !== '' && Number.isFinite(Number(v)))
+    .map(([itemId, v]) => {
+      const item = (stock ?? []).find((s) => s.id === itemId);
+      const count = Math.trunc(Number(v));
+      return { itemId, name: item?.name ?? itemId, unit: item?.unit ?? '', counted: count, systemQty: item?.qtyOnHand ?? 0, variance: count - (item?.qtyOnHand ?? 0) };
+    });
+  const discrepancies = lines.filter((l) => l.variance !== 0);
+
+  async function submit() {
+    if (!ctx.employee || !batchId) return;
+    setSubmitting(true); setError('');
+    const res = await apiClient.post('/api/records', {
+      tenantId: ctx.tenantId, batchId, employeeId: ctx.employee.id, type: 'stock_count',
+      data: { items: lines },
+    });
+    setSubmitting(false);
+    if (!res.success) { setError(res.error || 'Could not save the count.'); return; }
+    showToast(discrepancies.length > 0
+      ? `Count saved — ${discrepancies.length} item${discrepancies.length === 1 ? '' : 's'} do not match the system.`
+      : 'Count saved — everything matches.', discrepancies.length > 0 ? 'info' : 'success');
+    onBack();
+  }
+
+  return (
+    <SimpleFormShell
+      title="Closing Stock" batches={ctx.batches} batchId={batchId} setBatchId={(id) => setBatchId(id || null)}
+      onBack={onBack} onSubmit={submit} submitting={submitting} error={error} canSubmit={lines.length > 0}
+    >
+      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+        Count what is actually left in the store. Leave anything you did not count blank.
+      </div>
+      {stock === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading the store…</div>}
+      {(stock ?? []).map((item) => {
+        const value = counted[item.id] ?? '';
+        const variance = value === '' ? null : Math.trunc(Number(value)) - item.qtyOnHand;
+        return (
+          <div key={item.id} style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ flex: 1, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{item.name}</span>
+              <input
+                className="farm-input" type="number" inputMode="numeric" min="0" placeholder={`${item.qtyOnHand} ${item.unit}`}
+                value={value} onChange={(e) => setCounted((c) => ({ ...c, [item.id]: e.target.value }))}
+                style={{ width: 120 }}
+              />
+            </div>
+            {variance !== null && variance !== 0 && (
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', marginTop: 3 }}>
+                {variance > 0 ? `${variance} ${item.unit} more` : `${Math.abs(variance)} ${item.unit} less`} than the system says ({item.qtyOnHand} {item.unit})
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </SimpleFormShell>
   );
 }
 
