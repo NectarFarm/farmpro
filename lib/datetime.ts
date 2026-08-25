@@ -24,21 +24,33 @@ export const DEFAULT_DATE_FORMAT: DateFormat = 'DD/MM/YYYY'
 // Validated against the runtime's real IANA database (Node 20+, and every
 // modern browser) rather than a hand-maintained list this file would own —
 // that list would either be incomplete or drift from what Intl itself
-// accepts. Falls back to `false` (never throws) if the runtime lacks the API
-// at all, so an old/unusual JS engine fails a PATCH's validation instead of
-// crashing it.
+// accepts. Never throws: an old/unusual JS engine fails a PATCH's validation
+// instead of crashing it.
+//
+// ── Why `supportedValuesOf` alone was not enough ───────────────────────────
+// It deliberately omits the UTC and `Etc/*` aliases — this Node returns 418
+// zones and `UTC` is not one of them, even though `UTC` is a perfectly valid
+// IANA zone name that `Intl.DateTimeFormat` accepts and `formatInZone` below
+// renders correctly. The Settings screen offers "UTC" in its timezone picker,
+// so every attempt to select it was rejected with a 400 and the setting could
+// never be saved — a menu option that was unreachable by construction.
+//
+// Constructing a DateTimeFormat is the test that actually matters: it accepts
+// what the app can render (including UTC and Etc/GMT) and throws on anything
+// bogus ('Not/AZone', 'nonsense', ''), which is the real question being asked.
+// The list is still consulted first because it is the cheaper check and covers
+// the overwhelming majority of values.
 export function isValidTimezone(tz: string): boolean {
-  if (typeof Intl.supportedValuesOf !== 'function') {
-    // Best-effort fallback: a construction failure is still a reliable
-    // signal that the zone name is bogus, even without the full list.
-    try {
-      Intl.DateTimeFormat(undefined, { timeZone: tz })
-      return true
-    } catch {
-      return false
-    }
+  if (!tz) return false
+  if (typeof Intl.supportedValuesOf === 'function' && Intl.supportedValuesOf('timeZone').includes(tz)) {
+    return true
   }
-  return Intl.supportedValuesOf('timeZone').includes(tz)
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
 }
 
 function pad2(n: number): string {

@@ -118,6 +118,19 @@ export async function computeVariance(tenantId: string, now: Date = new Date()):
 // catalog row; a genuinely new item is created only when no case-insensitive
 // match exists for this tenant. Wrapped in a transaction so a purchase can
 // never produce a lot/purchase row without its item, or vice versa.
+//
+// Returns `{ problem }` for a refusal the CALLER has to turn into a 400 — a
+// unit that contradicts the item it is going into. Thrown exceptions stay for
+// genuine faults; a mismatched unit is ordinary bad input, and modelling it as
+// a return value keeps the route's error envelope in the route.
+export type RecordPurchaseResult =
+  | { problem: string }
+  | {
+      item: typeof inventoryItems.$inferSelect
+      lot: typeof inventoryLots.$inferSelect
+      purchase: typeof purchases.$inferSelect
+    }
+
 export async function recordPurchase(input: {
   tenantId: string
   supplier: string
@@ -139,13 +152,29 @@ export async function recordPurchase(input: {
   // for why they're never independent facts. `null`/omitted keeps both
   // unscoped (tenant-wide), same as before this task existed.
   farmId?: string | null
-}) {
-  return db.transaction(async (tx) => {
+}): Promise<RecordPurchaseResult> {
+  return db.transaction(async (tx): Promise<RecordPurchaseResult> => {
     const existing = await tx
       .select()
       .from(inventoryItems)
       .where(and(eq(inventoryItems.tenantId, input.tenantId), sql`lower(${inventoryItems.name}) = lower(${input.itemName})`))
     let item = existing[0]
+    // ── The unit has to match the item it is going into ────────────────────
+    // `unit` is a hard requirement in both purchase sheets and on the route,
+    // and it was then thrown away whenever the item already existed: only the
+    // `if (!item)` insert below ever read it. So a purchase of 20 typed as
+    // "bag" against an item recorded in "kg" stored qtyOnHand 20 and the UI
+    // rendered "20kg". Twenty bags silently became twenty kilos, and nothing
+    // in the system could tell afterwards which one was meant.
+    //
+    // Refused rather than silently converted — there is no conversion table
+    // here, and inventing one would be worse than asking.
+    if (item && item.unit && input.unit && item.unit.toLowerCase() !== input.unit.toLowerCase()) {
+      return {
+        problem: `${item.name} is recorded in ${item.unit}, not ${input.unit}.`
+          + ` Record this purchase in ${item.unit}, or use a different item name.`,
+      }
+    }
     if (!item) {
       const [inserted] = await tx
         .insert(inventoryItems)
@@ -163,6 +192,11 @@ export async function recordPurchase(input: {
 
     const receivedDate = input.receivedDate ?? new Date()
     const lotNo = input.lotNo || `LOT-${receivedDate.toISOString().slice(0, 10)}-${randomUUID().slice(0, 8).toUpperCase()}`
+    // The caller no longer gets to override this — POST /api/purchases now
+    // computes it as quantity x unitCostCents and passes that in. Kept as a
+    // parameter (rather than recomputed here) so the route stays the one place
+    // that decides, and any future caller has to make the same decision
+    // explicitly instead of inheriting a silent default.
     const totalCostCents = input.totalCostCents ?? input.quantity * input.unitCostCents
 
     const [lot] = await tx
