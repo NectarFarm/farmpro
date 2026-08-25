@@ -42,6 +42,18 @@ interface ApiBatch {
   createdAt: string | null;
 }
 
+/* One configured stage, as GET /api/stages returns it (farm-configuration
+ * task). `typicalDays` is nullable on purpose — migration 0036 backfills stage
+ * NAMES from what a farm's batches already use, and the duration for those is
+ * genuinely unknown, so the UI says "not set" instead of inventing one. */
+interface ApiStage {
+  id: string;
+  enterprise: string;
+  name: string;
+  sortOrder: number;
+  typicalDays: number | null;
+}
+
 /* A production unit row exactly as GET/POST /api/units returns it. */
 interface ApiUnit {
   id: string;
@@ -1140,6 +1152,13 @@ export function BatchDetailScreen() {
   const [showAdvanceForm, setShowAdvanceForm] = useState(false);
   const [nextStage, setNextStage] = useState('');
   const [advanceSaving, setAdvanceSaving] = useState(false);
+  const [advanceError, setAdvanceError] = useState('');
+  // The farm's configured stages for THIS batch's enterprise. Free text here
+  // is what made "Finisher", "finisher" and "Finishr" three different stages
+  // on one farm — see db/schemas/stages.ts. Null while loading; empty array
+  // means this farm has not configured any for this enterprise yet, which is
+  // a real state the form has to handle rather than render an empty select.
+  const [stageOptions, setStageOptions] = useState<ApiStage[] | null>(null);
 
   const loadBatch = useCallback(async () => {
     // Deep links only carry a `code` (e.g. a bookmark) — resolve it to an id
@@ -1161,6 +1180,34 @@ export function BatchDetailScreen() {
   }, [batchId, batchCode, tenantId]);
 
   useEffect(() => { loadBatch(); }, [loadBatch]);
+
+  // The stage list is per (tenant, enterprise), so it can only be narrowed
+  // once the batch's own enterprise is known.
+  useEffect(() => {
+    if (!batch?.enterprise) return;
+    apiClient.get<{ stages: ApiStage[] }>('/api/stages').then((res) => {
+      if (!res.success) { setStageOptions([]); return; }
+      setStageOptions(
+        res.data.stages
+          .filter((s) => s.enterprise === batch.enterprise.trim().toLowerCase())
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+      );
+    });
+  }, [batch?.enterprise]);
+
+  // What "advance" means: the stage after the current one, in configured
+  // order. Pre-selecting it is the difference between a dropdown and a
+  // decision the farmer has to make every time.
+  const currentStageIndex = (stageOptions ?? []).findIndex(
+    (s) => s.name.trim().toLowerCase() === (batch?.stage ?? '').trim().toLowerCase()
+  );
+  const suggestedStage = (stageOptions ?? [])[currentStageIndex + 1] ?? null;
+
+  useEffect(() => {
+    // Default the picker when the form opens, without stomping a choice the
+    // farmer has already made in it.
+    if (showAdvanceForm && !nextStage && suggestedStage) setNextStage(suggestedStage.name);
+  }, [showAdvanceForm, suggestedStage, nextStage]);
 
   useEffect(() => {
     apiClient.get<ApiUnit[]>(`/api/units?tenantId=${tenantId}`).then(res => {
@@ -1237,12 +1284,18 @@ export function BatchDetailScreen() {
   async function saveAdvance() {
     if (!nextStage.trim()) return;
     setAdvanceSaving(true);
+    setAdvanceError('');
     const res = await apiClient.patch(`/api/batches/${batch!.id}?tenantId=${tenantId}`, { stage: nextStage.trim() });
     setAdvanceSaving(false);
     if (res.success) {
       setShowAdvanceForm(false);
       setNextStage('');
       loadBatch();
+    } else {
+      // The route validates the stage against the farm's configured list and
+      // its refusal names the stages that do exist, so it is worth showing
+      // rather than swallowing — this used to fail silently.
+      setAdvanceError(res.error || 'Could not change the stage.');
     }
   }
 
@@ -1496,9 +1549,47 @@ export function BatchDetailScreen() {
         {showAdvanceForm && (
           <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
             <div className="section-eyebrow" style={{ marginBottom: 8 }}>Advance Stage</div>
-            <input className="farm-input" style={{ fontSize: 'var(--fs-sm)', marginBottom: 10 }} placeholder="e.g. Grower, Finisher, Peak Lay…" value={nextStage} onChange={e => setNextStage(e.target.value)} />
+            {/* Was a free-text input placeholdered "e.g. Grower, Finisher,
+                Peak Lay…", which is how one farm ended up with three
+                spellings of the same stage. Now the farm's own configured
+                list for this batch's enterprise, defaulting to the next one
+                in order. PATCH /api/batches/[id] validates it server-side —
+                this select is the courtesy, the route is the authority. */}
+            {stageOptions === null && (
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', marginBottom: 10 }}>Loading stages…</div>
+            )}
+            {stageOptions !== null && stageOptions.length === 0 && (
+              <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+                No stages are set up for {batch.enterprise} yet. An owner can define them — with how long each one lasts — in Settings › Farm Configuration.
+              </div>
+            )}
+            {stageOptions !== null && stageOptions.length > 0 && (
+              <>
+                <select className="farm-input" style={{ fontSize: 'var(--fs-sm)', marginBottom: 8 }} value={nextStage} onChange={e => setNextStage(e.target.value)}>
+                  <option value="">Choose the stage…</option>
+                  {stageOptions.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name}
+                      {s.name.trim().toLowerCase() === (batch.stage ?? '').trim().toLowerCase() ? ' (current)' : ''}
+                      {s.typicalDays ? ` · ~${s.typicalDays} days` : ''}
+                    </option>
+                  ))}
+                </select>
+                {suggestedStage && nextStage === suggestedStage.name && (
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 10 }}>
+                    Next after {batch.stage || 'the start'}
+                    {suggestedStage.typicalDays
+                      ? ` · usually lasts about ${suggestedStage.typicalDays} days`
+                      : ' · stage life not set'}
+                  </div>
+                )}
+              </>
+            )}
+            {advanceError && (
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10, lineHeight: 1.5 }}>{advanceError}</div>
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setShowAdvanceForm(false)} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 10 }}>Cancel</button>
+              <button onClick={() => { setShowAdvanceForm(false); setAdvanceError(''); }} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 10 }}>Cancel</button>
               <button onClick={saveAdvance} className="btn-primary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 10 }} disabled={!nextStage.trim() || advanceSaving}>
                 {advanceSaving ? 'Saving…' : 'Save Stage'}
               </button>

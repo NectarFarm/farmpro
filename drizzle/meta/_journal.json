@@ -253,6 +253,13 @@
       "when": 1787543187476,
       "tag": "0035_enterprise_scoping",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1787629587476,
+      "tag": "0036_batch_stages",
+      "breakpoints": true
     }
   ]
 }
