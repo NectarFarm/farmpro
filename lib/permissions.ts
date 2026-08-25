@@ -124,18 +124,77 @@ export const MODULES = {
   governance: 'governance', deleteRecord: 'delete-record',
 } as const
 
+// ── Code-defined approval defaults, overridden by a DB row ─────────────────
+// The asymmetry this fixes: `getRoleAccess` above has a code default
+// (DEFAULT_MATRIX), and `needsApproval` below had none — it ended
+// `?? false`. `role_permissions` rows are only ever written when a tenant's
+// owner explicitly saves the Governance grid (PUT /api/role-permissions is
+// the sole writer; lib/tenant-provisioning.ts does NOT seed the table), so
+// every freshly provisioned farm has an empty matrix. The result: a worker
+// picked up `mortality: 'edit'` from DEFAULT_MATRIX and their death report
+// went straight onto the owner's headcount, unreviewed, on day one. The
+// approval machinery in POST /api/records was built and correct; nothing
+// ever told it to switch on.
+//
+// The safe default for someone else's headcount is "ask first". A tenant
+// that wants the old immediate behaviour unticks the box and gets a DB row
+// saying so — the same "a configured row always wins in EITHER direction"
+// contract getRoleAccess documents, including the row that turns this OFF.
+//
+// ── Why this grid lists only mortality and physical-count ──────────────────
+// `needsApproval` has exactly one call site: POST /api/records, which reads
+// it as `movesHeadcount && await needsApproval(...)`. `movesHeadcount` is
+// true only for a `mortality` record or a `physical_count` that carried a
+// number. So a `true` here on any other module would be enforced by
+// nothing — decorative config of exactly the kind that made
+// `approvalRequired` meaningless in the first place, and this file's history
+// is a record of that mistake. The modules deliberately NOT listed:
+//   - health, harvest: no record type defers on them. `harvest` has no
+//     RECORD_TYPES entry at all, and a health record moves neither headcount
+//     nor stock (POST /api/records refuses stock lines on a non-feeding
+//     type), so there is nothing for an approval to hold back. Wiring them
+//     up is a real feature, not a default.
+//   - finance, payroll: worker/vet cannot write them at all under
+//     DEFAULT_MATRIX ('hidden'), and the finance write paths never consult
+//     this helper — lib/finance.ts calls applyMovement directly.
+//   - manager: left absent, i.e. false, ON PURPOSE. A manager already
+//     passes the governance module and so decides these approvals; making
+//     them queue behind themselves would add friction with no reviewer
+//     above them, and silently slowing down every manager's day-to-day
+//     recording is a regression, not a hardening.
+//
+// vet is included alongside worker: a vet's mortality report moves the
+// owner's headcount by exactly the same mechanism, and a vet is typically an
+// outside contractor, so "the owner sees it before it lands" applies at
+// least as strongly.
+const DEFAULT_APPROVAL: Record<string, Partial<Record<string, boolean>>> = {
+  worker: { mortality: true, 'physical-count': true },
+  vet: { mortality: true, 'physical-count': true },
+}
+
+/**
+ * The code default for (role, module), before any DB row is consulted.
+ * Exported so it can be tested without a database — `needsApproval` itself
+ * needs one, and the whole point of this map is what happens when the table
+ * is EMPTY, which is the state a fresh tenant is in.
+ */
+export function defaultApprovalFor(role: string, module: string): boolean {
+  if (BYPASS_ROLES.has(role)) return false
+  return DEFAULT_APPROVAL[role]?.[module] ?? false
+}
+
 // ── Does this role's submission need signing off? ──────────────────────────
 // `role_permissions.approvalRequired` has been configurable in the Governance
 // screen since it was built, and enforced nowhere — the same gap `access` had
 // before the role-permission-enforcement task closed it. This is the read
-// that makes it mean something: a worker's mortality entry can be set to wait
-// for approval before it changes the batch's headcount.
+// that makes it mean something: a worker's mortality entry waits for approval
+// before it changes the batch's headcount.
 //
 // Owner and super_admin bypass, for the same reason they bypass `access`:
 // an owner cannot meaningfully require their own approval, and a config row
 // that made them queue behind themselves would deadlock their own farm.
 export async function needsApproval(tenantId: string, role: string, module: string): Promise<boolean> {
-  if (role === 'owner' || role === 'super_admin') return false
+  if (BYPASS_ROLES.has(role)) return false
   const rows = await db
     .select({ approvalRequired: rolePermissions.approvalRequired })
     .from(rolePermissions)
@@ -145,5 +204,12 @@ export async function needsApproval(tenantId: string, role: string, module: stri
       eq(rolePermissions.module, module),
     ))
     .limit(1)
-  return rows[0]?.approvalRequired ?? false
+  // A configured row wins in either direction — including the one that turns
+  // an approval requirement OFF. PUT /api/role-permissions writes a row for
+  // every module the saved grid mentions, so an owner who unticks the box
+  // does produce a row with `false`, and it is respected here rather than
+  // being overridden back to true by the default below.
+  if (rows.length > 0) return rows[0].approvalRequired
+
+  return defaultApprovalFor(role, module)
 }
