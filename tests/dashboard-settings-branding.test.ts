@@ -28,7 +28,18 @@ describe('components/farm/dashboard.tsx — tenant branding applied (issue #310)
     expect(source).toMatch(/\{settings\?\.logoEmoji \?\? "🌾"\}/)
   })
 
-  it('applies the tenant accentColor to the primary KPI grid\'s lead tile', () => {
-    expect(source).toMatch(/color: settings\?\.accentColor \?\? "var\(--primary-green\)"/)
+  it('derives the accent from tenant settings with the app green as fallback', () => {
+    // Was pinned to the exact inline expression on one KPI tile. The dashboard
+    // rebuild resolves it once into an `accent` const reused by the hero
+    // metric, the trend chart and the section links — so assert the invariant
+    // (settings-derived, green fallback) rather than where it happens to be
+    // spelled, which is what made this test fail on a pure refactor.
+    expect(source).toMatch(/const accent = settings\?\.accentColor \?\? "var\(--primary-green\)"/)
+  })
+
+  it('feeds that accent to the headline figure and the revenue trend chart', () => {
+    // The two places a tenant would actually notice their brand colour.
+    expect(source).toMatch(/<HeroMetric[\s\S]{0,400}?accent=\{accent\}/)
+    expect(source).toMatch(/<RevenueTrendChart[^>]*color=\{accent\}/)
   })
 })
