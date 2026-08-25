@@ -14,6 +14,9 @@ import {
   splitNotes, displayStatus, STATUS_LABEL, statusChipClass,
   type ApiTask,
 } from './tasks';
+import {
+  OTHER_OPTION, MORTALITY_CAUSES, HEALTH_TREATMENTS, DOSE_UNITS, formatDose,
+} from '@/lib/record-vocabulary';
 
 // ── Real API shapes (issue #248) ────────────────────────────────────────────
 // Wired to GET /api/employees/me and GET/POST /api/records (issue #247).
@@ -146,6 +149,64 @@ const RECORD_STATE_CHIP: Record<'pending' | 'rejected' | 'applied', { label: str
   rejected: { label: 'REJECTED', cls: 'chip chip-critical' },
   applied: { label: 'SAVED', cls: 'chip chip-ok' },
 };
+
+/* ── Pick from a list, or say something the list lacks ──────────────────────
+ * These fields were free-text inputs writing straight into the jsonb `data`
+ * blob, so "Newcastle vaccine", "newcastle" and "Newcastl" all became distinct
+ * values and any report grouping by them fragmented into near-duplicates.
+ *
+ * The escape hatch is not optional. A farm will always have a cause or a drug
+ * the curated list lacks, and a worker who cannot record what actually
+ * happened either records something false or records nothing — both worse than
+ * a typo. Choosing "Other" reveals the text input and the typed value is what
+ * gets stored, so the dropdown removes the typo for the common case without
+ * removing the ability to say something new.
+ *
+ * `value` is the stored value, not the select's own state: a record loaded with
+ * a cause that is not in the list has to render as "Other" with the text
+ * showing, or editing it would silently rewrite it.
+ */
+function PickOrType({ options, value, onChange, placeholder, otherPlaceholder, style }: {
+  options: readonly string[];
+  value: string;
+  onChange: (next: string) => void;
+  placeholder: string;
+  otherPlaceholder: string;
+  style?: React.CSSProperties;
+}) {
+  // "Is this value one of the options" is the only state worth deriving; an
+  // explicit `isOther` flag alongside `value` would let the two disagree.
+  const listed = value !== '' && options.includes(value);
+  const [showOther, setShowOther] = useState(value !== '' && !listed);
+
+  return (
+    <div style={style}>
+      <select
+        className="farm-input"
+        value={showOther ? OTHER_OPTION : value}
+        onChange={(e) => {
+          if (e.target.value === OTHER_OPTION) { setShowOther(true); onChange(''); return; }
+          setShowOther(false);
+          onChange(e.target.value);
+        }}
+        style={{ marginBottom: showOther ? 8 : 0 }}
+      >
+        <option value="">{placeholder}</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+        <option value={OTHER_OPTION}>{OTHER_OPTION}…</option>
+      </select>
+      {showOther && (
+        <input
+          className="farm-input"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={otherPlaceholder}
+          autoFocus
+        />
+      )}
+    </div>
+  );
+}
 
 // POST /api/records echoes `pendingApproval` on the created row when it raised
 // an approval instead of applying the movement. The confirmation the worker
@@ -1055,7 +1116,13 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
                   {!isSkipped && step.kind === 'mortality' && (
                     <>
                       <input className="farm-input" type="number" inputMode="numeric" min="0" placeholder="How many died (0 if none)" value={field(step.id, 'count')} onChange={(e) => setField(step.id, 'count', e.target.value)} style={{ marginBottom: 8 }} />
-                      <input className="farm-input" placeholder="Cause, if known" value={field(step.id, 'cause')} onChange={(e) => setField(step.id, 'cause', e.target.value)} />
+                      <PickOrType
+                        options={MORTALITY_CAUSES}
+                        value={field(step.id, 'cause')}
+                        onChange={(v) => setField(step.id, 'cause', v)}
+                        placeholder="Cause, if known"
+                        otherPlaceholder="Describe the cause"
+                      />
                     </>
                   )}
 
@@ -1077,7 +1144,14 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
 
                   {!isSkipped && step.kind === 'health' && (
                     <>
-                      <input className="farm-input" placeholder="What was given" value={field(step.id, 'treatment')} onChange={(e) => setField(step.id, 'treatment', e.target.value)} style={{ marginBottom: 8 }} />
+                      <PickOrType
+                        options={HEALTH_TREATMENTS}
+                        value={field(step.id, 'treatment')}
+                        onChange={(v) => setField(step.id, 'treatment', v)}
+                        placeholder="What was given"
+                        otherPlaceholder="Name the treatment"
+                        style={{ marginBottom: 8 }}
+                      />
                       <input className="farm-input" placeholder="Notes" value={field(step.id, 'notes')} onChange={(e) => setField(step.id, 'notes', e.target.value)} />
                     </>
                   )}
@@ -1257,7 +1331,14 @@ function HealthForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
   const [batchId, setBatchId] = useState<string | null>(null);
   const [treatment, setTreatment] = useState('');
   const [affected, setAffected] = useState('');
-  const [dose, setDose] = useState('');
+  // Dose was one free-text box captioned "e.g. 1ml each", which produced
+  // "1ml", "1 ml", "1ml each" and "one ml" for the same dose. Split into an
+  // amount and a unit so the figure is a number; `formatDose` joins them back
+  // into the single `data.dose` string the payload has always carried, so
+  // records written before this read identically.
+  const [doseAmount, setDoseAmount] = useState('');
+  const [doseUnit, setDoseUnit] = useState<string>(DOSE_UNITS[0]);
+  const [dosePer, setDosePer] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -1270,7 +1351,11 @@ function HealthForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
       data: {
         treatment: treatment.trim(),
         affected: affected ? Math.trunc(Number(affected)) : null,
-        dose: dose.trim(),
+        dose: formatDose(doseAmount, doseUnit, dosePer),
+        // The parts are stored alongside the joined string so a later report
+        // can sum doses without re-parsing prose.
+        doseAmount: doseAmount.trim() ? Number(doseAmount) : null,
+        doseUnit: doseAmount.trim() ? doseUnit : null,
         notes: notes.trim(),
       },
     });
@@ -1286,18 +1371,42 @@ function HealthForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
       onBack={onBack} onSubmit={submit} submitting={submitting} error={error} canSubmit={treatment.trim().length > 0}
     >
       <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>What was given *</label>
-      <input className="farm-input" value={treatment} onChange={(e) => setTreatment(e.target.value)} placeholder="e.g. Newcastle vaccine, antibiotics" style={{ marginBottom: 10 }} />
+      <PickOrType
+        options={HEALTH_TREATMENTS}
+        value={treatment}
+        onChange={setTreatment}
+        placeholder="Choose a vaccine or treatment…"
+        otherPlaceholder="Name the treatment"
+        style={{ marginBottom: 10 }}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
         <div>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>How many treated</label>
-          <input className="farm-input" type="number" inputMode="numeric" value={affected} onChange={(e) => setAffected(e.target.value)} placeholder="e.g. 200" />
+          <input className="farm-input" type="number" inputMode="numeric" min="0" value={affected} onChange={(e) => setAffected(e.target.value)} placeholder="e.g. 200" />
         </div>
         <div>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Dose</label>
-          <input className="farm-input" value={dose} onChange={(e) => setDose(e.target.value)} placeholder="e.g. 1ml each" />
+          {/* Amount and unit, not prose. 360px is the target width, so these
+              two sit side by side inside the half-width column. */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              className="farm-input" type="number" inputMode="decimal" min="0" step="0.01"
+              value={doseAmount} onChange={(e) => setDoseAmount(e.target.value)}
+              placeholder="1" style={{ flex: 1, minWidth: 0 }}
+            />
+            <select
+              className="farm-input" value={doseUnit} onChange={(e) => setDoseUnit(e.target.value)}
+              style={{ flex: 1, minWidth: 0 }}
+            >
+              {DOSE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
         </div>
       </div>
+
+      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Per (optional)</label>
+      <input className="farm-input" value={dosePer} onChange={(e) => setDosePer(e.target.value)} placeholder="e.g. each bird, litre of water" style={{ marginBottom: 10 }} />
 
       <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes</label>
       <textarea className="farm-input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Symptoms, who advised it, withdrawal period…" style={{ resize: 'none' }} />
@@ -1446,7 +1555,8 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
   const [step, setStep] = useState(1);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [count, setCount] = useState(0);
-  const [cause, setCause] = useState('Unknown');
+  const [cause, setCause] = useState<string>('Unknown');
+  const [causeIsOther, setCauseIsOther] = useState(false);
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -1521,11 +1631,31 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
               {needsPhoto && <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', background: 'rgba(248,113,113,0.08)', borderRadius: 10, border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', fontWeight: 600, marginBottom: 10 }}><AlertTriangle size={12} aria-hidden="true" /> Photo required for {threshold}+ deaths (your farm&apos;s threshold)</div>}
             </div>
             <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>Cause of death:</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-              {['Sudden death','Disease','Injury','Heat stress','Respiratory','Unknown'].map((c) => (
-                <button key={c} onClick={() => setCause(c)} style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, background: c === cause ? 'rgba(248,113,113,0.12)' : 'var(--card)', border: c === cause ? '1px solid rgba(248,113,113,0.3)' : '1px solid var(--border-subtle)', color: c === cause ? 'var(--status-critical)' : 'var(--text-muted)', cursor: 'pointer' }}>{c}</button>
-              ))}
+            {/* Sourced from the shared list rather than a fourth inline copy —
+                components/farm/vet.tsx had its own, this screen had its own,
+                and a vet and a worker reporting the same death produced
+                different strings, so the mortality report counted them
+                separately. The tap-grid stays: it is faster than a select on a
+                phone and this is the screen workers use most. "Other" is the
+                escape hatch, and it reveals a text field. */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: causeIsOther ? 8 : 14 }}>
+              {MORTALITY_CAUSES.map((c) => {
+                const active = c === cause && !causeIsOther;
+                return (
+                  <button key={c} onClick={() => { setCauseIsOther(false); setCause(c); }} style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, background: active ? 'rgba(248,113,113,0.12)' : 'var(--card)', border: active ? '1px solid rgba(248,113,113,0.3)' : '1px solid var(--border-subtle)', color: active ? 'var(--status-critical)' : 'var(--text-muted)', cursor: 'pointer' }}>{c}</button>
+                );
+              })}
+              <button
+                onClick={() => { setCauseIsOther(true); setCause(''); }}
+                style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, background: causeIsOther ? 'rgba(248,113,113,0.12)' : 'var(--card)', border: causeIsOther ? '1px solid rgba(248,113,113,0.3)' : '1px solid var(--border-subtle)', color: causeIsOther ? 'var(--status-critical)' : 'var(--text-muted)', cursor: 'pointer' }}
+              >{OTHER_OPTION}…</button>
             </div>
+            {causeIsOther && (
+              <input
+                className="farm-input" value={cause} onChange={(e) => setCause(e.target.value)}
+                placeholder="Describe the cause" autoFocus style={{ marginBottom: 14 }}
+              />
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={() => setStep(1)}>Back</button>
               <button className="btn-primary" style={{ flex: 2, justifyContent: 'center', borderRadius: 12 }} onClick={() => setStep(needsPhoto ? 3 : 4)}>Next</button>

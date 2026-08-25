@@ -4,6 +4,7 @@ import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import { Heart, ChevronDown, ChevronUp, Plus, X, AlertTriangle, Check } from './icons';
+import { MORTALITY_CAUSES } from '@/lib/record-vocabulary';
 
 // ── Vet herd-health screen (vet/auditor screens task) ───────────────────────
 // The vet role was previously funneled straight to RoleNoticeScreen — this
@@ -55,7 +56,12 @@ interface ApiRecord {
   createdAt: string | null;
 }
 
-const CAUSES = ['Sudden death', 'Disease', 'Injury', 'Heat stress', 'Respiratory', 'Unknown'];
+// Was an inline list here, and a second inline list in
+// components/farm/worker.tsx's MortalityForm. A vet and a worker reporting the
+// same death therefore produced different strings for it, and the mortality
+// report grouped them separately. One shared list — see
+// lib/record-vocabulary.ts for why it is a constant and not a table.
+const CAUSES = MORTALITY_CAUSES;
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
