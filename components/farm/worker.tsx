@@ -122,6 +122,44 @@ function timeOf(iso: string | null) {
   if (!iso) return '—';
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
+
+// ── Has this submission actually taken effect? ──────────────────────────────
+// A record that moves the batch's headcount can be filed and NOT applied: when
+// the tenant's matrix marks the module approval-required for the submitter's
+// role, POST /api/records writes the row with `data.pendingApproval` and
+// raises an approval instead of moving the count (app/api/records/route.ts).
+// Deciding it clears that flag and stamps `data.approvalDecision`
+// (lib/governance.ts).
+//
+// Both worker history lists used to show an unconditional "SAVED" chip. For a
+// deferred mortality that was simply untrue — the worker walks away believing
+// the count came down, and it did not. The three states are distinct and the
+// worker needs to be able to tell them apart, so they are rendered apart.
+function recordApprovalState(data: Record<string, unknown>): 'pending' | 'rejected' | 'applied' {
+  if (data.pendingApproval === true) return 'pending';
+  if (data.approvalDecision === 'rejected') return 'rejected';
+  return 'applied';
+}
+
+const RECORD_STATE_CHIP: Record<'pending' | 'rejected' | 'applied', { label: string; cls: string }> = {
+  pending: { label: 'WAITING', cls: 'chip chip-warning' },
+  rejected: { label: 'REJECTED', cls: 'chip chip-critical' },
+  applied: { label: 'SAVED', cls: 'chip chip-ok' },
+};
+
+// POST /api/records echoes `pendingApproval` on the created row when it raised
+// an approval instead of applying the movement. The confirmation the worker
+// gets has to match what actually happened: "saved" for a record that moved
+// the count, and something that does not promise it moved for one that is
+// sitting in the owner's queue. Telling them "saved" either way is how a
+// worker ends up reporting the same deaths twice.
+interface RecordPostResult { pendingApproval?: boolean }
+
+function submissionToast(res: RecordPostResult | undefined, savedMessage: string): [string, 'success' | 'info'] {
+  return res?.pendingApproval
+    ? ['Sent for approval — the count changes once it is approved.', 'info']
+    : [savedMessage, 'success'];
+}
 function isToday(iso: string | null) {
   if (!iso) return false;
   const d = new Date(iso);
@@ -285,9 +323,15 @@ export function WorkerHomeScreen() {
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)}</span>
                 <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-ok)' }}>{timeOf(r.createdAt)}</span>
+                {recordApprovalState(r.data) === 'pending' && (
+                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-warning)' }}>Waiting for approval</span>
+                )}
+                {recordApprovalState(r.data) === 'rejected' && (
+                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>Not approved</span>
+                )}
               </div>
             </div>
           </div>
@@ -1423,7 +1467,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
     if (!ctx.employee || !batchId) return;
     if (needsPhoto && !photoDataUrl) { setError('A photo is required for this many deaths.'); return; }
     setSubmitting(true); setError('');
-    const res = await apiClient.post('/api/records', {
+    const res = await apiClient.post<RecordPostResult>('/api/records', {
       tenantId: ctx.tenantId,
       batchId,
       employeeId: ctx.employee.id,
@@ -1433,7 +1477,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
     });
     setSubmitting(false);
     if (!res.success) { setError(res.error || 'Failed to save record.'); return; }
-    showToast('Mortality record saved.', 'success');
+    showToast(...submissionToast(res.data, 'Mortality record saved.'));
     onBack();
   }
 
@@ -1549,7 +1593,7 @@ function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void
   async function handleSubmit() {
     if (!ctx.employee || !batchId || count === null || !batch) return;
     setSubmitting(true); setError('');
-    const res = await apiClient.post('/api/records', {
+    const res = await apiClient.post<RecordPostResult>('/api/records', {
       tenantId: ctx.tenantId,
       batchId,
       employeeId: ctx.employee.id,
@@ -1558,7 +1602,7 @@ function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void
     });
     setSubmitting(false);
     if (!res.success) { setError(res.error || 'Failed to save record.'); return; }
-    showToast('Physical count saved.', 'success');
+    showToast(...submissionToast(res.data, 'Physical count saved.'));
     onBack();
   }
 
@@ -1751,7 +1795,10 @@ export function WorkerProfileScreen() {
               <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</div>
               <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)} · {timeOf(r.createdAt)}</div>
             </div>
-            <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)' }}>SAVED</span>
+            {(() => {
+              const chip = RECORD_STATE_CHIP[recordApprovalState(r.data)];
+              return <span className={chip.cls} style={{ fontSize: 'var(--fs-2xs)' }}>{chip.label}</span>;
+            })()}
           </div>
         ))}
       </div>
