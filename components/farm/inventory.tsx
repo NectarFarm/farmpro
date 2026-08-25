@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
+import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, RefreshCw, Download, Lock, Wheat, Syringe, Beaker, Sprout, Receipt, AlertTriangle, type LucideIcon } from './icons';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
@@ -136,11 +137,27 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
       return;
     }
     if (!Number.isFinite(qty) || qty <= 0) { setError('Quantity must be a positive number.'); return; }
+    // Quantities are stored in an `integer` column, so a fraction cannot be
+    // kept. This used to be truncated silently by `Math.trunc(qty)` below —
+    // "0.5 bags" became a zero-quantity, zero-cost purchase and the money paid
+    // was erased. The server refuses it now; say so before the round trip.
+    if (!Number.isInteger(qty)) {
+      setError(`Quantity must be a whole number of ${unit.trim() || 'units'}.`);
+      return;
+    }
     if (unitCostCents === null || unitCostCents < 0) { setError('Cost per unit must be a non-negative number.'); return; }
     if (!farmId) { setError('Select which farm this stock is for.'); return; }
 
     const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
     if (amountPaid && amountPaidCents === null) { setError('Amount paid must be a number.'); return; }
+    if (amountPaidCents !== null && amountPaidCents < 0) { setError('Amount paid cannot be negative.'); return; }
+    // Paying more than the bill left the purchase row claiming it was PAID
+    // while the journal only credited Cash the total — the difference simply
+    // vanished from the ledger. Refused on both sides now.
+    if (amountPaidCents !== null && amountPaidCents > qty * unitCostCents) {
+      setError('Amount paid is more than the purchase total.');
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -151,7 +168,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
       category: category.trim() || undefined,
       unit: unit.trim(),
       lowStockThreshold: lowStockThreshold ? Math.trunc(Number(lowStockThreshold)) : undefined,
-      quantity: Math.trunc(qty),
+      quantity: qty,
       unitCostCents,
       paymentMethod: paymentMethod.trim() || undefined,
       amountPaidCents: amountPaidCents ?? undefined,
@@ -328,6 +345,9 @@ export function InventoryScreen() {
   const [showImport, setShowImport] = useState(false);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
   const [importing, setImporting] = useState(false);
+  // What the last CSV import refused, and why. Held on the screen rather than
+  // inside the import sheet because the sheet closes when the import starts.
+  const [importReport, setImportReport] = useState('');
 
   const [items, setItems] = useState<ApiInventoryItem[] | null>(null);
   const [purchases, setPurchases] = useState<ApiPurchase[] | null>(null);
@@ -375,20 +395,47 @@ export function InventoryScreen() {
   // real POST /api/purchases calls, not a silent no-op (issue #236 task 7).
   async function handleImportRows(rows: Record<string, string>[]) {
     setImporting(true);
-    for (const row of rows) {
+    // Rows this import refused, reported back instead of swallowed. A silent
+    // `continue` is how a CSV of 200 items imports 140 and nobody notices.
+    const skipped: string[] = [];
+    let imported = 0;
+    for (const [i, row] of rows.entries()) {
+      const line = i + 2; // +1 for zero-index, +1 for the header row
       const itemName = row.name?.trim();
       const unit = row.unit?.trim();
       const qty = Number(row.qty);
-      if (!itemName || !unit || !Number.isFinite(qty) || qty <= 0) continue;
+      if (!itemName || !unit || !Number.isFinite(qty) || qty <= 0) {
+        skipped.push(`line ${line}: needs a name, a unit and a quantity above zero`);
+        continue;
+      }
+      // A non-integer quantity used to be truncated silently — 12.5 kg became
+      // 12 — and the server now refuses it outright, so say so here rather
+      // than sending a request that will 400.
+      if (!Number.isInteger(qty)) {
+        skipped.push(`line ${line}: quantity ${row.qty} is not a whole number`);
+        continue;
+      }
       const costPerUnitCents = parseMoneyToCents(row.costPerUnit);
-      await apiClient.post('/api/purchases', {
+      // ── An unparseable cost is refused, not turned into zero ─────────────
+      // This used to be `costPerUnitCents !== null && > 0 ? ... : 0`, which
+      // converted parseMoneyToCents's deliberate refusal (it returns null
+      // rather than a wrong number for "KSh 1200", "1e5", "12.34.56") into a
+      // cost of ZERO. A whole CSV could import at zero valuation, taking
+      // avgUnitCostCents and every downstream expense figure with it, and no
+      // error was ever shown. The quantity check on the line above already
+      // skipped a bad qty — the cost silently did not.
+      if (costPerUnitCents === null || costPerUnitCents < 0) {
+        skipped.push(`line ${line}: cost "${row.costPerUnit ?? ''}" is not an amount we can read`);
+        continue;
+      }
+      const res = await apiClient.post('/api/purchases', {
         tenantId,
         supplier: 'CSV Import',
         itemName,
         category: row.category || undefined,
         unit,
-        quantity: Math.trunc(qty),
-        unitCostCents: costPerUnitCents !== null && costPerUnitCents > 0 ? costPerUnitCents : 0,
+        quantity: qty,
+        unitCostCents: costPerUnitCents,
         lowStockThreshold: row.reorder ? Math.trunc(Number(row.reorder)) : undefined,
         lotNo: row.lotNumber || undefined,
         expiryDate: row.expiryDate || undefined,
@@ -398,15 +445,22 @@ export function InventoryScreen() {
         // rather than guess.
         farmId: activeFarmId !== 'ALL' ? activeFarmId : undefined,
       });
+      // The server is the authority, so its refusal is reported too — a unit
+      // that contradicts an existing item lands here.
+      if (res.success) imported += 1;
+      else skipped.push(`line ${line}: ${res.error ?? 'refused'}`);
     }
     setImporting(false);
+    setImportReport(skipped.length > 0
+      ? `Imported ${imported} of ${rows.length}. Not imported — ${skipped.join('; ')}`
+      : '');
     loadAll();
   }
 
   function exportStockCSV() {
     const headers = ['id', 'name', 'category', 'unit', 'qtyOnHand', 'lowStockThreshold', 'avgCostCents', 'status'];
     const rows = (items ?? []).map(i => [i.id, i.name, i.category, i.unit, i.qtyOnHand, i.lowStockThreshold, avgUnitCostCents(i), i.status]);
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+    const csv = toCsv(headers, rows);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     a.download = 'inventory.csv';
@@ -590,6 +644,27 @@ export function InventoryScreen() {
       {importing && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           <div style={{ background: 'var(--surface)', borderRadius: 12, padding: '14px 20px', fontSize: 'var(--fs-sm)', color: 'var(--text-primary)' }}>Importing…</div>
+        </div>
+      )}
+      {/* An import that refused rows says which and why. Silently importing
+          140 of 200 rows is the failure mode this replaces. */}
+      {importReport && (
+        <div
+          style={{
+            position: 'fixed', left: 12, right: 12, bottom: 84, zIndex: 210,
+            background: 'var(--surface)', border: '1px solid rgba(251,191,36,0.35)',
+            borderRadius: 12, padding: '12px 14px', fontSize: 'var(--fs-xs)',
+            color: 'var(--text-secondary)', lineHeight: 1.5,
+            maxHeight: '40vh', overflowY: 'auto',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <span style={{ flex: 1 }}>{importReport}</span>
+            <button
+              onClick={() => setImportReport('')}
+              style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontWeight: 700, cursor: 'pointer', fontSize: 'var(--fs-xs)', flexShrink: 0 }}
+            >Dismiss</button>
+          </div>
         </div>
       )}
       {showRecordPurchase && (

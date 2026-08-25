@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
+import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, Download, ChevronRight, Receipt } from './icons';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
@@ -171,32 +172,90 @@ function fmtDate(d?: string | null): string {
 const catChipClass = (cat: string) =>
   cat === 'Feed' ? 'chip-ok' : ['Vet', 'Vaccine', 'Medicine'].includes(cat) ? 'chip-purple' : 'chip-info';
 
-/* ── Record Sale sheet — real POST /api/data/sales ── */
+/* ── Record Sale sheet — real POST /api/data/sales ──
+ *
+ * ── Why this sheet now picks a product instead of typing one ──
+ * "Item" was a free-text box captioned "e.g. Tray eggs (30) × 120", and the
+ * POST body carried only that string — never `productId`, never `qty`. This
+ * sheet is the ONLY writer to POST /api/data/sales, and that route decrements
+ * batch headcount or collected produce only when it can resolve a product with
+ * a `stockEffect` (lib/finance.ts). So every sale recorded here left stock
+ * untouched forever: "sold 200 birds" never came off the batch, and the
+ * route's own batch_quantity guard and ProduceShortfallError were dead code in
+ * practice.
+ *
+ * The catalogue that fixes it already exists — `products.stockEffect`, and
+ * GET /api/products — and components/farm/worker.tsx already builds a picker
+ * from it. Free text stays reachable as the explicit "not in the catalogue"
+ * option, because an ad-hoc sale (a service, a one-off) is real and the route
+ * still accepts `item` alone.
+ */
+const SALE_METHODS = ['M-Pesa', 'Cash', 'Bank transfer', 'Cheque', 'Credit'];
+
+interface ApiProductLite {
+  id: string;
+  name: string;
+  stockEffect: string;
+}
+
 function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
   tenantId: string;
   batches: ApiBatchLite[];
   onCreated: () => void;
   onClose: () => void;
 }) {
+  const [products, setProducts] = useState<ApiProductLite[] | null>(null);
+  const [productId, setProductId] = useState('');
   const [item, setItem] = useState('');
+  const [qty, setQty] = useState('');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('');
+  const [methodIsOther, setMethodIsOther] = useState(false);
   const [status, setStatus] = useState<'paid' | 'pending'>('paid');
   const [batchId, setBatchId] = useState('');
   const [soldAt, setSoldAt] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    apiClient.get<ApiProductLite[]>('/api/products').then((res) => {
+      setProducts(res.success ? res.data : []);
+    });
+  }, []);
+
+  const product = (products ?? []).find((p) => p.id === productId) ?? null;
+  // A product that comes out of the batch needs a count, or the sale records
+  // revenue against a headcount that never moved. The route refuses this case
+  // too — this is the courtesy copy so the user finds out before submitting.
+  const needsQty = !!product && product.stockEffect === 'batch_quantity' && !!batchId;
+  // Today, as a yyyy-mm-dd `max` for the date input. A future-dated sale drops
+  // out of every P&L period while staying in the trial balance.
+  const todayIso = new Date().toISOString().slice(0, 10);
+
   async function save() {
     const amountCents = parseMoneyToCents(amount);
-    if (!item.trim()) { setError('Item is required.'); return; }
+    const label = productId ? (product?.name ?? '') : item.trim();
+    if (!label) { setError('Choose a product, or name what was sold.'); return; }
     if (amountCents === null || amountCents <= 0) { setError('Amount must be a positive number.'); return; }
+
+    const qtyNum = qty.trim() === '' ? null : Number(qty);
+    if (qtyNum !== null && (!Number.isFinite(qtyNum) || qtyNum <= 0 || !Number.isInteger(qtyNum))) {
+      setError('Quantity must be a whole number greater than zero.');
+      return;
+    }
+    if (needsQty && qtyNum === null) {
+      setError(`${product?.name} comes out of the batch when sold — enter how many.`);
+      return;
+    }
+    if (soldAt && soldAt > todayIso) { setError('A sale cannot be dated in the future.'); return; }
 
     setSaving(true);
     setError('');
     const res = await apiClient.post('/api/data/sales', {
       tenantId,
-      item: item.trim(),
+      productId: productId || undefined,
+      item: label,
+      qty: qtyNum ?? undefined,
       amountCents,
       method: method.trim() || undefined,
       status,
@@ -221,17 +280,41 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
-          <input className="farm-input" placeholder="e.g. Tray eggs (30) × 120" value={item} onChange={e => setItem(e.target.value)} />
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>What was sold *</label>
+          <select
+            className="farm-input"
+            value={productId}
+            onChange={e => { setProductId(e.target.value); if (e.target.value) setItem(''); }}
+            style={{ marginBottom: productId ? 0 : 8 }}
+          >
+            <option value="">{products === null ? 'Loading products…' : 'Not in the catalogue — type it below'}</option>
+            {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {/* The escape hatch, and the only path that leaves stock untouched.
+              Kept because an ad-hoc sale — a service, a one-off — is real. */}
+          {!productId && (
+            <input className="farm-input" placeholder="e.g. Tray eggs (30) × 120" value={item} onChange={e => setItem(e.target.value)} />
+          )}
+          {products !== null && products.length === 0 && (
+            <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
+              No products in the catalogue yet, so this sale cannot move stock. Add products to have sales draw down birds or produce.
+            </div>
+          )}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount (KSh) *</label>
-            <input className="farm-input" type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
+            <input className="farm-input" type="number" min="0" step="0.01" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Method</label>
-            <input className="farm-input" placeholder="e.g. Mpesa" value={method} onChange={e => setMethod(e.target.value)} />
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
+              How many{needsQty ? ' *' : ''}
+            </label>
+            <input
+              className="farm-input" type="number" inputMode="numeric" min="1" step="1"
+              placeholder={needsQty ? 'Required' : 'Optional'}
+              value={qty} onChange={e => setQty(e.target.value)}
+            />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -244,8 +327,35 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sold on</label>
-            <input className="farm-input" type="date" value={soldAt} onChange={e => setSoldAt(e.target.value)} />
+            {/* Capped at today: a future-dated sale drops out of every P&L
+                period while staying in the trial balance, and the two can then
+                never be reconciled. */}
+            <input className="farm-input" type="date" max={todayIso} value={soldAt} onChange={e => setSoldAt(e.target.value)} />
           </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Method</label>
+          {/* Was free text ("e.g. Mpesa"), which produced Mpesa / M-Pesa /
+              mpesa / MPESA as four payment methods in every report that
+              groups by it. No table exists for these, so it is a curated
+              list with a free-text escape — same pattern as
+              lib/record-vocabulary.ts. */}
+          <select
+            className="farm-input"
+            value={methodIsOther ? '__other' : method}
+            onChange={e => {
+              if (e.target.value === '__other') { setMethodIsOther(true); setMethod(''); return; }
+              setMethodIsOther(false);
+              setMethod(e.target.value);
+            }}
+          >
+            <option value="">Not recorded</option>
+            {SALE_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+            <option value="__other">Other…</option>
+          </select>
+          {methodIsOther && (
+            <input className="farm-input" value={method} onChange={e => setMethod(e.target.value)} placeholder="Name the method" style={{ marginTop: 8 }} autoFocus />
+          )}
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
@@ -306,11 +416,22 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
       return;
     }
     if (!Number.isFinite(qty) || qty <= 0) { setError('Quantity must be a positive number.'); return; }
+    // Same rule as the inventory sheet and the server: an `integer` column
+    // cannot hold a fraction, and truncating it silently erased the money.
+    if (!Number.isInteger(qty)) {
+      setError(`Quantity must be a whole number of ${unit.trim() || 'units'}.`);
+      return;
+    }
     if (unitCostCents === null || unitCostCents < 0) { setError('Cost per unit must be a non-negative number.'); return; }
     if (!farmId) { setError('Select which farm this stock is for.'); return; }
 
     const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
     if (amountPaid && amountPaidCents === null) { setError('Amount paid must be a number.'); return; }
+    if (amountPaidCents !== null && amountPaidCents < 0) { setError('Amount paid cannot be negative.'); return; }
+    if (amountPaidCents !== null && amountPaidCents > qty * unitCostCents) {
+      setError('Amount paid is more than the purchase total.');
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -320,7 +441,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
       itemName: itemName.trim(),
       category: category.trim() || undefined,
       unit: unit.trim(),
-      quantity: Math.trunc(qty),
+      quantity: qty,
       unitCostCents,
       paymentMethod: paymentMethod.trim() || undefined,
       amountPaidCents: amountPaidCents ?? undefined,
@@ -823,7 +944,7 @@ export function FinanceScreen() {
   function exportGLCsv() {
     const headers = ['code', 'account', 'type', 'normalBalance', 'debit', 'credit', 'balance'];
     const rows = glRows.map((g) => [g.code, g.name, g.class, g.normalBalance, g.debit, g.credit, g.balance]);
-    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
+    const csv = toCsv(headers, rows);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     a.download = 'gl-trial-balance.csv';
