@@ -9,14 +9,15 @@ import { isValidEmail, isValidPhone, normalizeEmail, normalizePhone, toStoredPho
 import { notifyRecipientsByEmail } from '@/lib/notification-email'
 
 // ── POST /api/auth/forgot-password (admin user-management feature) ────────
-// Public, no session. There is no email/SMS infrastructure anywhere in this
-// codebase (checked package.json + grepped the repo — no nodemailer / resend
-// / sendgrid / smtp), so a self-service reset email is not something this
-// route can ever send. Instead: prove you know BOTH the account's email AND
-// its registered phone, and an admin is notified to act on your behalf
-// (POST /api/admin/users/[id]/reset-password) and relay the result out of
-// band — exactly the flow auth.tsx's LoginScreen already tells users to
-// expect ("Contact your farm administrator to reset your password").
+// Public, no session. Password resets are ADMIN-MEDIATED by design: prove you
+// know BOTH the account's email AND its registered phone, and an admin is
+// notified to act on your behalf (POST /api/admin/users/[id]/reset-password)
+// and relay the result out of band. The requester does NOT get emailed a
+// reset link directly — not because email is impossible (lib/email.ts sends
+// via the Brevo API, and this very route emails the admins below), but so a
+// compromised email+phone pair alone cannot take over an account without a
+// human in the loop. components/farm/auth.tsx's ForgotPasswordScreen (#376
+// Gap 2) is the UI for this flow.
 //
 // Body: { email, phone }.
 //

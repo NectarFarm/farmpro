@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNav, TopNav } from './navigation';
+import { useNav, TopNav, requestLogout } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import {
@@ -1756,18 +1756,16 @@ export function WorkerProfileScreen() {
         ))}
       </div>
 
-      {/* Settings (static prefs — not backed by an entity yet) */}
-      <div className="section-eyebrow" style={{ marginBottom: 8 }}>Settings</div>
-      <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 16 }}>
-        {[['Language', 'English (EN)'],['High Contrast Mode', 'Off'],['Sync on WiFi only', 'On']].map(([k, v], i, arr) => (
-          <div key={k as string} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-            <span style={{ fontSize: 'var(--fs-base)', color: 'var(--text-secondary)' }}>{k as string}</span>
-            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--primary-green)' }}>{v as string}</span>
-          </div>
-        ))}
-      </div>
+      {/* (#376 Gap 5: the hardcoded "Settings" block that lived here —
+          Language / High Contrast / Sync-on-WiFi rows styled as active
+          settings — was deleted outright. Nothing backed them; showing a
+          worker "Sync on WiFi only: On" implied a sync engine that does not
+          exist. Real per-user preferences get this slot back when they land.) */}
 
-      <button style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer', marginBottom: 20 }}>
+      {/* Issue #322: this button had no onClick — dead control on the screen
+          workers see most. Routes through the same app-wide logout the
+          TopNav button uses. */}
+      <button onClick={() => requestLogout()} style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer', marginBottom: 20 }}>
         Sign Out
       </button>
     </div>

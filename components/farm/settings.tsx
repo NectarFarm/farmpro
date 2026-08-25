@@ -245,8 +245,9 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
 
-  const notifications = settings?.notificationsEnabled ?? true;
-  const offline = settings?.offlineModeEnabled ?? true;
+  // (#376 Gap 5: `notifications`/`offline` local reads were removed with the
+  // dead toggles they fed — the flags still exist in tenant_settings and the
+  // PATCH contract, but no control on this screen flips them today.)
   const soundAlerts = settings?.soundAlertsEnabled ?? false;
   const currencySymbol = settings?.currencySymbol ?? 'KSh';
   const weightUnit = settings?.weightUnit ?? 'kg';
@@ -288,6 +289,10 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   type SettingsRow = {
     label: string; desc?: string; action?: () => void; badge?: string; icon?: LucideIcon;
     toggle?: boolean; value?: boolean; onToggle?: () => void;
+    // #376 Gap 5: renders the control visibly disabled with a "Coming soon"
+    // chip instead of letting a toggle that persists-but-does-nothing imply
+    // working infrastructure (no push service / no sync engine exists yet).
+    comingSoon?: boolean;
     select?: { value: string; options: { value: string; label: string }[]; onChange: (v: string) => void };
   };
 
@@ -347,7 +352,11 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     {
       label: 'Notifications',
       items: [
-        { label: 'Push Notifications', desc: 'Alerts, approvals, task reminders', toggle: true, value: notifications, onToggle: () => toggleSetting('notificationsEnabled') },
+        // #376 Gap 5: there is no push service anywhere in this codebase
+        // (notifications are in-app only via GET /api/notifications), so this
+        // toggle used to persist a flag nothing consumes. Disabled + labelled
+        // rather than silently inert.
+        { label: 'Push Notifications', desc: 'Alerts arrive in-app today — push delivery is coming soon', toggle: true, value: false, comingSoon: true },
         { label: 'Sound Alerts', desc: 'Audible alerts for critical events', toggle: true, value: soundAlerts, onToggle: () => toggleSetting('soundAlertsEnabled') },
         { label: 'Notification Settings', desc: 'Per-type controls, SMS, quiet hours', action: () => navigate('notification-settings') },
       ],
@@ -355,7 +364,11 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     {
       label: 'Offline & Sync',
       items: [
-        { label: 'Offline Mode', desc: 'Cache data for use without internet', toggle: true, value: offline, onToggle: () => toggleSetting('offlineModeEnabled') },
+        // #376 Gap 5: no service worker / cache / write queue exists — a
+        // worker who relied on this during a dropout would lose every
+        // submission. Same treatment as Push Notifications; the adjacent
+        // 'Sync Now' row was removed for exactly this reason earlier.
+        { label: 'Offline Mode', desc: 'Recording needs internet today — offline caching is coming soon', toggle: true, value: false, comingSoon: true },
         // 'Sync Now' used to sit here (action: () => {}) — there is no
         // offline cache/sync engine anywhere in this codebase for it to
         // trigger (no service worker, no IndexedDB queue), so it did
@@ -537,6 +550,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                     {item.desc && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
                   </div>
                   {item.badge && <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{item.badge}</span>}
+                  {item.comingSoon && <span className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>Coming soon</span>}
                   {item.select ? (
                     <select
                       value={item.select.value}
@@ -548,8 +562,11 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                       {item.select.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                     </select>
                   ) : item.toggle ? (
-                    <button onClick={(e) => { e.stopPropagation(); item.onToggle?.(); }}
-                      style={{ width: 44, height: 24, borderRadius: 100, border: 'none', cursor: 'pointer',
+                    <button aria-disabled={item.comingSoon}
+                      onClick={(e) => { e.stopPropagation(); if (!item.comingSoon) item.onToggle?.(); }}
+                      style={{ width: 44, height: 24, borderRadius: 100, border: 'none',
+                        cursor: item.comingSoon ? 'not-allowed' : 'pointer',
+                        opacity: item.comingSoon ? 0.45 : 1,
                         background: item.value ? 'var(--primary-green)' : 'rgba(255,255,255,0.1)',
                         position: 'relative', padding: 0, flexShrink: 0 }}>
                       <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff',

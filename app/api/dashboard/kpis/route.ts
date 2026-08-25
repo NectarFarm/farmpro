@@ -139,8 +139,10 @@ import { requireTenantSession } from '@/lib/api-auth'
 //      is no honest way to "bucket" a single acquisition cost into whichever
 //      calendar period the period toggle currently selects. Bucketing it by
 //      period would silently misrepresent an old batch's cost as belonging to
-//      this month. computeBatchPlReport documents the identical caveat
-//      (`costCaveat`: "not filtered by the report date range").
+//      this month. computeBatchPlReport documents the identical caveat — as of
+//      #376 Gap 7 it rides in that report's `notes` prose ("acquisition cost is
+//      a point-in-time fact about each batch and is deliberately NOT
+//      period-filtered"), not the old `meta.costCaveat` string.
 //   2. Because of (1), this is a "revenue vs. tracked acquisition cost"
 //      approximation, not a full accounting margin — it does NOT subtract
 //      feed/labour/overhead (none of that has a data source yet, same honesty

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { tenantSettings, type ModuleSetting } from '@/db/schemas'
+import { tenantSettings, tenants, type ModuleSetting } from '@/db/schemas'
 import { requireTenantSession } from '@/lib/api-auth'
 import { MAX_SESSION_TIMEOUT_MINUTES, MIN_SESSION_TIMEOUT_MINUTES } from '@/lib/auth'
 import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, isValidTimezone, type DateFormat } from '@/lib/datetime'
@@ -25,6 +25,15 @@ import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, isValidTimezone, t
 // No row exists for a tenant until the first PATCH — GET returns the schema's
 // documented defaults in that case (never a 404), and PATCH upserts.
 //
+// GET also carries `orgName` (tenants.name, read-only here — renaming an
+// account is an admin operation, not a settings one). It is the only
+// tenant-level display name reachable by a client: the nav context carries
+// farms, and GET /api/auth/session carries the user, so before this a screen
+// needing "who issued this" had nothing but `farms[0].name` to reach for —
+// which is simply the wrong farm whenever the active farm is not the first,
+// and meaningless when the scope is all farms (components/farm/reports.tsx's
+// export masthead, #376 Gap 7 review defect 3).
+//
 // Tenant resolution goes through lib/api-auth.ts's requireTenantSession, same
 // as every other route since fix/authenticate-all-apis: the session's own
 // tenantId always wins, and a ?tenantId= query param is only consulted for a
@@ -46,6 +55,7 @@ const DATE_FORMAT_SET = new Set<DateFormat>(DATE_FORMATS)
 function defaultsFor(tenantId: string) {
   return {
     tenantId,
+    orgName: '',
     theme: 'dark-farm',
     fontSize: 'normal',
     notificationsEnabled: true,
@@ -74,8 +84,12 @@ export async function GET(req: Request) {
   if ('error' in result) return result.error
   const { tenantId } = result
 
-  const rows = await db.select().from(tenantSettings).where(eq(tenantSettings.tenantId, tenantId)).limit(1)
-  return ok(rows[0] ?? defaultsFor(tenantId))
+  const [rows, tenantRows] = await Promise.all([
+    db.select().from(tenantSettings).where(eq(tenantSettings.tenantId, tenantId)).limit(1),
+    db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId)).limit(1),
+  ])
+  const orgName = tenantRows[0]?.name ?? ''
+  return ok({ ...(rows[0] ?? defaultsFor(tenantId)), orgName })
 }
 
 export async function PATCH(req: Request) {
