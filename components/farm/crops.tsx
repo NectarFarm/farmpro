@@ -124,10 +124,56 @@ function toViewBatch(b: ApiBatch, units: ApiUnit[], farms: { id: string; code: s
   };
 }
 
-/* ── Enterprise selector sheet ── */
+/* ── Enterprise selector sheet ────────────────────────────────────────────
+ * Scoped to what this farm was actually approved for. A farmer who selected
+ * "Broilers" on step 3 of sign-up used to be shown the entire registry here —
+ * dairy, goats, fish, every crop — and POST /api/batches would create any of
+ * them. Their selection changed nothing.
+ *
+ * The list is now GET /api/tenant-enterprises, and the server refuses an
+ * enterprise outside that set (lib/enterprises.ts). This filter is the
+ * courtesy; the route is the enforcement. Widening the set goes through an
+ * admin, so the sheet offers a request rather than a silent dead end.
+ *
+ * `unrestricted` (no rows for this tenant — see lib/enterprises.ts's empty-set
+ * rule, which is how pre-existing accounts stay working) shows everything,
+ * matching what the server will actually accept. */
 function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string) => void; onClose: () => void }) {
-  const livestock = ENTERPRISE_REGISTRY.filter(e => e.type === 'livestock');
-  const crops = ENTERPRISE_REGISTRY.filter(e => e.type === 'crop');
+  const [scope, setScope] = useState<{ allowed: Set<string>; unrestricted: boolean } | null>(null);
+  const [requesting, setRequesting] = useState('');
+  const [requested, setRequested] = useState<string[]>([]);
+  const [requestError, setRequestError] = useState('');
+
+  useEffect(() => {
+    apiClient.get<{ enterprises: { enterprise: string }[]; unrestricted: boolean }>('/api/tenant-enterprises')
+      .then(res => {
+        if (res.success) setScope({ allowed: new Set(res.data.enterprises.map(e => e.enterprise)), unrestricted: res.data.unrestricted });
+        // A failed fetch must not strand the farmer with an empty sheet: fall
+        // back to showing everything and let the server be the authority.
+        else setScope({ allowed: new Set(), unrestricted: true });
+      });
+  }, []);
+
+  function requestEnterprise(subtype: string) {
+    setRequesting(subtype);
+    setRequestError('');
+    apiClient.post<{ id: string }>('/api/tenant-enterprises', { enterprise: subtype }).then(res => {
+      setRequesting('');
+      if (res.success) setRequested(r => [...r, subtype]);
+      else setRequestError(res.error || 'Could not send the request.');
+    });
+  }
+
+  const inScope = (subtype: string) => !scope || scope.unrestricted || scope.allowed.has(subtype);
+  const visible = ENTERPRISE_REGISTRY.filter(e => inScope(e.subtype));
+  const livestock = visible.filter(e => e.type === 'livestock');
+  const crops = visible.filter(e => e.type === 'crop');
+  // What they didn't sign up for, offered as a request instead of hidden
+  // entirely — a farmer who genuinely adds layers in March needs to see that
+  // the path exists.
+  const requestable = scope && !scope.unrestricted
+    ? ENTERPRISE_REGISTRY.filter(e => !scope.allowed.has(e.subtype))
+    : [];
   return (
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '75%' }} onClick={e => e.stopPropagation()}>
@@ -160,6 +206,48 @@ function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string)
               </button>
             ))}
           </div>
+
+          {scope && livestock.length === 0 && crops.length === 0 && (
+            <div style={{ padding: '12px 14px', background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 12, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Your farm has no enterprises set up yet. Request one below and an administrator can add it.
+            </div>
+          )}
+
+          {requestable.length > 0 && (
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
+              <div className="section-eyebrow" style={{ marginBottom: 4 }}>Not set up for your farm</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 9 }}>
+                These weren&apos;t part of your application. Ask and an administrator can add one to your account.
+              </div>
+              {requestError && (
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{requestError}</div>
+              )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {requestable.map(e => {
+                  const sent = requested.includes(e.subtype);
+                  return (
+                    <button
+                      key={e.subtype}
+                      onClick={() => !sent && requestEnterprise(e.subtype)}
+                      disabled={sent || requesting === e.subtype}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 100,
+                        background: sent ? 'rgba(74,222,128,0.1)' : 'var(--card)',
+                        border: sent ? '1px solid rgba(74,222,128,0.3)' : '1px solid var(--border-subtle)',
+                        cursor: sent ? 'default' : 'pointer',
+                        opacity: requesting === e.subtype ? 0.6 : 1,
+                      }}
+                    >
+                      <e.icon size={13} color={sent ? 'var(--primary-green)' : 'var(--text-muted)'} aria-hidden="true" />
+                      <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 600, color: sent ? 'var(--primary-green)' : 'var(--text-secondary)' }}>
+                        {sent ? `${e.label} — requested` : e.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

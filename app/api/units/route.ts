@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { enterpriseRefusalReason } from '@/lib/enterprises'
 import { db } from '@/db'
 import { productionUnits, farms } from '@/db/schemas'
 import { and, asc, eq, like } from 'drizzle-orm'
@@ -97,6 +98,15 @@ export async function POST(req: Request) {
 
   const id = crypto.randomUUID()
   const requestedCode = typeof b.code === 'string' ? b.code.trim() : ''
+  // Only checked when an enterprise is actually supplied — this field is
+  // optional here (it exists to pick the code prefix), and an empty value is
+  // waved through by enterpriseRefusalReason. A tenant shouldn't be able to
+  // stand up a "Dairy Shed" for an enterprise it was never approved for.
+  const enterpriseRefusal = await enterpriseRefusalReason(tenantId, enterprise)
+  if (enterpriseRefusal) {
+    return NextResponse.json({ success: false, error: enterpriseRefusal, fields: { enterprise: enterpriseRefusal } }, { status: 403 })
+  }
+
   const prefix = unitPrefixFor(enterprise || type)
 
   // Same friendly-code-then-DB-guard strategy as POST /api/batches: the SELECT

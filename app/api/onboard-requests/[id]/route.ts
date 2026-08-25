@@ -113,6 +113,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         location: existing.location,
         latitude: provisionLatitude,
         longitude: provisionLongitude,
+        // The applicant's own step-3 selection, finally applied. Before this
+        // it was stored on the request and dropped here, so every approved
+        // account came out unscoped (see lib/tenant-provisioning.ts).
+        enterprises: existing.enterprises,
       })
       const [updated] = await db
         .update(onboardRequests)

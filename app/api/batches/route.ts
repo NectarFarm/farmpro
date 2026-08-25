@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { enterpriseRefusalReason } from '@/lib/enterprises'
 import { db } from '@/db'
 import { batches, productionUnits, farms } from '@/db/schemas'
 import { and, asc, eq, inArray, like } from 'drizzle-orm'
@@ -100,6 +101,16 @@ export async function POST(req: Request) {
   if (!unitId) return badRequest('unitId is required')
   if (!name) return badRequest('name is required')
   if (!enterprise) return badRequest('enterprise is required')
+
+  // Enterprise scoping: a tenant may only open batches in the enterprises it
+  // was approved for. Hiding other enterprises in the picker is not
+  // enforcement — this is (see lib/enterprises.ts). A refusal rather than a
+  // silent coercion, because the batch code prefix, the forms the worker is
+  // shown and every report bucket all derive from this field.
+  const enterpriseRefusal = await enterpriseRefusalReason(tenantId, enterprise)
+  if (enterpriseRefusal) {
+    return NextResponse.json({ success: false, error: enterpriseRefusal, fields: { enterprise: enterpriseRefusal } }, { status: 403 })
+  }
 
   const unitRows = await db
     .select()
