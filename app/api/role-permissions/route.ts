@@ -5,6 +5,7 @@ import { rolePermissions } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { eq } from 'drizzle-orm'
 import { requireTenantSession } from '@/lib/api-auth'
+import { writeAuditLog } from '@/lib/audit'
 
 // ── GET/PUT /api/role-permissions (issue #243 task 4) ───────────────────────
 // The real backend for the UI's `OWNER_ROLES[].permissions` / `.approvalRequired`
@@ -26,9 +27,16 @@ import { requireTenantSession } from '@/lib/api-auth'
 // the next" (this issue's acceptance criterion) can't observe a half-applied
 // matrix from a partial upsert failure.
 //
-// Retrofitting every other API route to *enforce* this matrix before
-// responding is explicitly out of scope for this issue (flagged in the PR) —
-// this is only the config store + CRUD for it.
+// This route is no longer "just a config store": the matrix it writes IS
+// enforced on write paths now (lib/permissions.ts's getRoleAccess/canEdit,
+// read by POST /api/records, PATCH /api/tasks/[id], the approval routes and
+// others), and `approvalRequired` decides whether a worker's mortality report
+// waits for sign-off before it moves a batch's headcount
+// (lib/permissions.ts#needsApproval). The comment that used to sit here said
+// enforcement was out of scope — true when it was written, false since the
+// role-permission-enforcement task, and worth correcting because it is the
+// reason a PUT here is now one of the most consequential writes in the app.
+// Hence the audit row below.
 
 type Access = 'hidden' | 'view' | 'edit'
 const VALID_ACCESS = new Set<Access>(['hidden', 'view', 'edit'])
@@ -109,6 +117,17 @@ export async function PUT(req: Request) {
 
   const tenantId = session.tenantId
   await db.transaction(async (tx) => {
+    // Read the matrix as it stands BEFORE the delete, so the audit row can say
+    // what actually changed rather than just "somebody saved the grid". A
+    // whole-matrix replace makes the new state alone useless for review: an
+    // owner quietly granting `finance: edit` to workers looks identical to a
+    // no-op save unless the previous value is recorded next to it.
+    const before = await tx
+      .select()
+      .from(rolePermissions)
+      .where(eq(rolePermissions.tenantId, tenantId))
+    const beforeByKey = new Map(before.map((r) => [`${r.role}:${r.module}`, r]))
+
     await tx.delete(rolePermissions).where(eq(rolePermissions.tenantId, tenantId))
 
     const inserts: (typeof rolePermissions.$inferInsert)[] = []
@@ -126,6 +145,50 @@ export async function PUT(req: Request) {
       }
     }
     if (inserts.length > 0) await tx.insert(rolePermissions).values(inserts)
+
+    // A (role, module) whose access or approval flag moved. Rows that are gone
+    // entirely are reported too — deleting a row does not mean "no rule", it
+    // means the code default in lib/permissions.ts takes over, which can be a
+    // real change in either direction.
+    const changes: Record<string, unknown>[] = []
+    for (const row of inserts) {
+      const prev = beforeByKey.get(`${row.role}:${row.module}`)
+      if (prev && prev.access === row.access && prev.approvalRequired === row.approvalRequired) continue
+      changes.push({
+        role: row.role,
+        module: row.module,
+        accessFrom: prev?.access ?? null,
+        accessTo: row.access,
+        approvalFrom: prev?.approvalRequired ?? null,
+        approvalTo: row.approvalRequired,
+      })
+    }
+    const kept = new Set(inserts.map((r) => `${r.role}:${r.module}`))
+    for (const prev of before) {
+      if (kept.has(`${prev.role}:${prev.module}`)) continue
+      changes.push({
+        role: prev.role,
+        module: prev.module,
+        accessFrom: prev.access,
+        accessTo: null,
+        approvalFrom: prev.approvalRequired,
+        approvalTo: null,
+      })
+    }
+
+    // No-op saves write nothing, matching PATCH /api/farms/[id] and PATCH
+    // /api/employees/[id] — a grid re-saved unchanged should not bury the
+    // saves that did move a permission.
+    if (changes.length > 0) {
+      await writeAuditLog({
+        tenantId,
+        actor: session.id,
+        action: 'role_permissions.updated',
+        entity: 'role_permissions',
+        entityId: tenantId,
+        meta: { changes },
+      }, tx)
+    }
   })
 
   return ok(parsed)
