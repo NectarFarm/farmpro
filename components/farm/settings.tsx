@@ -29,13 +29,18 @@ export type FontSize = 'small' | 'normal' | 'large' | 'xlarge';
 interface ThemeCtxShape {
   theme: ThemeMode;
   fontSize: FontSize;
-  setTheme: (t: ThemeMode) => void;
-  setFontSize: (s: FontSize) => void;
+  // Resolve to the write's outcome so the CALLER can report a refusal. These
+  // used to be fire-and-forget `void` with a `console.error` on failure —
+  // see the note on setTheme below for why that was a lie to every manager.
+  setTheme: (t: ThemeMode) => Promise<SaveOutcome>;
+  setFontSize: (s: FontSize) => Promise<SaveOutcome>;
 }
+
+type SaveOutcome = { ok: true } | { ok: false; error: string };
 
 const ThemeCtx = createContext<ThemeCtxShape>({
   theme: 'light-farm', fontSize: 'normal',
-  setTheme: () => {}, setFontSize: () => {},
+  setTheme: async () => ({ ok: true }), setFontSize: async () => ({ ok: true }),
 });
 
 /* ── Regional Context (settings-reorg) ──
@@ -104,26 +109,43 @@ export function ThemeProvider({ children, tenantId }: { children: React.ReactNod
     return () => { cancelled = true; };
   }, [tenantId]);
 
-  // User-triggered changes: apply immediately (optimistic, for snappiness),
-  // persist to the tenant settings store in the background. A failed PATCH
-  // is logged but doesn't roll back the visual change — theme/font size are
-  // low-stakes enough that "looks right now, retry the write next change" beats
-  // snapping the UI back under the user.
-  const setTheme = useCallback((t: ThemeMode) => {
+  // ── Optimistic, then honest about a refusal ──────────────────────────────
+  // These used to apply the change locally and, on a failed PATCH, do nothing
+  // but `console.error`. The reasoning recorded here was that appearance is
+  // low-stakes enough to leave the visual change in place and retry later.
+  // That was wrong for one specific and common case: PATCH /api/settings is
+  // owner/super_admin-only, and a MANAGER has this screen. So a manager
+  // picked a theme, watched it apply, got no feedback at all, and found it
+  // reverted on their next refresh — with nothing anywhere telling them the
+  // farm's appearance is not theirs to set. There is no "retry next change"
+  // for a permission error; it will fail every time.
+  //
+  // Now: apply optimistically (still snappy), roll back and report on
+  // refusal — the same optimistic/rollback/toast shape toggleSetting and
+  // updateSetting below already use. The toast itself is raised by the
+  // caller, because ThemeProvider sits above the toast provider.
+  //
+  // A tenant-less session (super_admin) has nowhere to persist this, so the
+  // change stays local and says so rather than reporting a phantom success.
+  const setTheme = useCallback(async (t: ThemeMode): Promise<SaveOutcome> => {
+    const previous = theme;
     setThemeState(t);
-    if (!tenantId) return;
-    apiClient.patch(`/api/settings?tenantId=${tenantId}`, { theme: t }).then((res) => {
-      if (!res.success) console.error('Failed to persist theme:', res.error);
-    });
-  }, [tenantId]);
+    if (!tenantId) return { ok: false, error: 'Appearance is saved per farm, and this account has no farm of its own.' };
+    const res = await apiClient.patch(`/api/settings?tenantId=${tenantId}`, { theme: t });
+    if (res.success) return { ok: true };
+    setThemeState(previous);
+    return { ok: false, error: res.error || 'Only the farm owner can change the appearance.' };
+  }, [tenantId, theme]);
 
-  const setFontSize = useCallback((s: FontSize) => {
+  const setFontSize = useCallback(async (s: FontSize): Promise<SaveOutcome> => {
+    const previous = fontSize;
     setFontSizeState(s);
-    if (!tenantId) return;
-    apiClient.patch(`/api/settings?tenantId=${tenantId}`, { fontSize: s }).then((res) => {
-      if (!res.success) console.error('Failed to persist font size:', res.error);
-    });
-  }, [tenantId]);
+    if (!tenantId) return { ok: false, error: 'Text size is saved per farm, and this account has no farm of its own.' };
+    const res = await apiClient.patch(`/api/settings?tenantId=${tenantId}`, { fontSize: s });
+    if (res.success) return { ok: true };
+    setFontSizeState(previous);
+    return { ok: false, error: res.error || 'Only the farm owner can change the text size.' };
+  }, [tenantId, fontSize]);
 
   return (
     <ThemeCtx.Provider value={{ theme, fontSize, setTheme, setFontSize }}>
@@ -286,6 +308,15 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     });
   }
 
+  // PATCH /api/settings is owner/super_admin-only (app/api/settings/route.ts),
+  // and GET is open to any tenant session — which is why a manager can SEE
+  // every value here and change none of them. Passed as `readOnly` to the
+  // rows that write through that PATCH so the control says so up front,
+  // instead of accepting a change and reverting it a moment later.
+  const ownerOnlyNote = role === 'owner' || role === 'super_admin'
+    ? undefined
+    : 'Only the farm owner can change this';
+
   type SettingsRow = {
     label: string; desc?: string; action?: () => void; badge?: string; icon?: LucideIcon;
     toggle?: boolean; value?: boolean; onToggle?: () => void;
@@ -294,6 +325,12 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     // working infrastructure (no push service / no sync engine exists yet).
     comingSoon?: boolean;
     select?: { value: string; options: { value: string; label: string }[]; onChange: (v: string) => void };
+    // PATCH /api/settings is owner/super_admin-only, but a MANAGER also has
+    // this screen. Rather than offer a control the API will always refuse and
+    // report the refusal after the fact, the control renders read-only with
+    // the reason attached. The API is still the authority — this only stops
+    // the UI from inviting an action it knows cannot succeed.
+    readOnly?: string;
   };
 
   // Destinations the desktop sidebar (components/farm/navigation.tsx's
@@ -343,10 +380,18 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
       // owner/super_admin-gated PATCH the rest of this screen already uses.
       label: 'Regional & Units',
       items: [
-        { label: 'Currency', desc: 'Used wherever an amount is displayed', select: { value: currencySymbol, options: CURRENCY_OPTIONS.map((c) => ({ value: c, label: c })), onChange: (v) => updateSetting('currencySymbol', v) } },
-        { label: 'Weight unit', desc: 'Used wherever a weight is displayed', select: { value: weightUnit, options: WEIGHT_UNIT_OPTIONS.map((u) => ({ value: u, label: u })), onChange: (v) => updateSetting('weightUnit', v) } },
-        { label: 'Timezone', desc: 'Used to render every timestamp in the app', select: { value: timezone, options: TIMEZONE_OPTIONS, onChange: (v) => updateSetting('timezone', v) } },
-        { label: 'Date format', desc: 'Day/month order for displayed dates', select: { value: dateFormat, options: DATE_FORMAT_OPTIONS, onChange: (v) => updateSetting('dateFormat', v as DateFormat) } },
+        // These two descriptions used to read "Used wherever an amount/weight
+        // is displayed", which was not true. The tenant's currencySymbol is
+        // read by report exports only (lib/reports.ts, components/farm/
+        // reports.tsx); every in-app amount goes through formatMoney's
+        // hardcoded 'KSh' default because no call site passes the tenant
+        // symbol. weightUnit is the same story — the worker screens label kg
+        // directly. Threading both through every call site is real work;
+        // claiming it is already done is the part that had to stop.
+        { label: 'Currency', desc: 'Used in reports and exports', readOnly: ownerOnlyNote, select: { value: currencySymbol, options: CURRENCY_OPTIONS.map((c) => ({ value: c, label: c })), onChange: (v) => updateSetting('currencySymbol', v) } },
+        { label: 'Weight unit', desc: 'Used in reports and exports', readOnly: ownerOnlyNote, select: { value: weightUnit, options: WEIGHT_UNIT_OPTIONS.map((u) => ({ value: u, label: u })), onChange: (v) => updateSetting('weightUnit', v) } },
+        { label: 'Timezone', desc: 'Used to render every timestamp in the app', readOnly: ownerOnlyNote, select: { value: timezone, options: TIMEZONE_OPTIONS, onChange: (v) => updateSetting('timezone', v) } },
+        { label: 'Date format', desc: 'Day/month order for displayed dates', readOnly: ownerOnlyNote, select: { value: dateFormat, options: DATE_FORMAT_OPTIONS, onChange: (v) => updateSetting('dateFormat', v as DateFormat) } },
       ],
     },
     {
@@ -357,7 +402,18 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         // toggle used to persist a flag nothing consumes. Disabled + labelled
         // rather than silently inert.
         { label: 'Push Notifications', desc: 'Alerts arrive in-app today — push delivery is coming soon', toggle: true, value: false, comingSoon: true },
-        { label: 'Sound Alerts', desc: 'Audible alerts for critical events', toggle: true, value: soundAlerts, onToggle: () => toggleSetting('soundAlertsEnabled') },
+        // Same situation as Push, and it was the one presented as working:
+        // the flag persists to tenant_settings.sound_alerts_enabled and
+        // NOTHING reads it. There is no `new Audio`, no `.play()`, no
+        // AudioContext and no navigator.vibrate anywhere in app/, components/
+        // or lib/ — so a farm that switched this on got silence and no way to
+        // tell whether the app or their phone was at fault. Disabled and
+        // labelled, exactly like Push Notifications and Offline Mode.
+        //
+        // The stored column is left alone rather than reset: a tenant who
+        // already turned this on has recorded a real preference, and it should
+        // take effect the day playback lands instead of being wiped now.
+        { label: 'Sound Alerts', desc: `Alerts are silent today — audible alerts are coming soon${soundAlerts ? ' (your preference is saved)' : ''}`, toggle: true, value: false, comingSoon: true },
         { label: 'Notification Settings', desc: 'Per-type controls, SMS, quiet hours', action: () => navigate('notification-settings') },
       ],
     },
@@ -384,7 +440,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         // Farm offices share devices — this bounds how long a session
         // issued to this tenant stays valid (enforced in
         // app/api/auth/login/route.ts at sign-in time, not just stored).
-        { label: 'Session timeout', desc: 'How long a shared device stays signed in', select: { value: sessionTimeoutMinutes === null ? 'default' : String(sessionTimeoutMinutes), options: SESSION_TIMEOUT_OPTIONS, onChange: (v) => updateSetting('sessionTimeoutMinutes', v === 'default' ? null : Number(v)) } },
+        { label: 'Session timeout', desc: 'How long a shared device stays signed in', readOnly: ownerOnlyNote, select: { value: sessionTimeoutMinutes === null ? 'default' : String(sessionTimeoutMinutes), options: SESSION_TIMEOUT_OPTIONS, onChange: (v) => updateSetting('sessionTimeoutMinutes', v === 'default' ? null : Number(v)) } },
       ],
     },
     {
@@ -489,7 +545,10 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
             <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10 }}>Colour Theme</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {THEME_OPTIONS.map(t => (
-                <button key={t.id} onClick={() => setTheme(t.id)}
+                <button key={t.id} onClick={async () => {
+                    const r = await setTheme(t.id);
+                    if (!r.ok) showToast(r.error, 'error');
+                  }}
                   style={{ padding: '10px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
                     background: theme === t.id ? 'rgba(74,222,128,0.12)' : 'var(--surface)',
                     border: theme === t.id ? '2px solid var(--primary-green)' : '1px solid var(--border-subtle)' }}>
@@ -512,7 +571,10 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
               <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>Aa</span>
               <div style={{ flex: 1, display: 'flex', gap: 6 }}>
                 {FONT_OPTIONS.map(f => (
-                  <button key={f.id} onClick={() => setFontSize(f.id)}
+                  <button key={f.id} onClick={async () => {
+                      const r = await setFontSize(f.id);
+                      if (!r.ok) showToast(r.error, 'error');
+                    }}
                     style={{ flex: 1, padding: '10px 4px', borderRadius: 10, cursor: 'pointer', border: 'none',
                       background: fontSize === f.id ? 'rgba(74,222,128,0.15)' : 'var(--surface)',
                       outline: fontSize === f.id ? '2px solid var(--primary-green)' : '2px solid transparent' }}>
@@ -554,10 +616,12 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                   {item.select ? (
                     <select
                       value={item.select.value}
+                      disabled={!!item.readOnly}
+                      title={item.readOnly}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => item.select?.onChange(e.target.value)}
                       className="farm-input"
-                      style={{ width: 'auto', maxWidth: 170, padding: '6px 8px', fontSize: 'var(--fs-sm)', flexShrink: 0 }}
+                      style={{ width: 'auto', maxWidth: 170, padding: '6px 8px', fontSize: 'var(--fs-sm)', flexShrink: 0, opacity: item.readOnly ? 0.55 : 1, cursor: item.readOnly ? 'not-allowed' : undefined }}
                     >
                       {item.select.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                     </select>
