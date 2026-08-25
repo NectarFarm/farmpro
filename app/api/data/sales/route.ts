@@ -8,6 +8,7 @@ import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { BatchLedgerError } from '@/lib/batch-ledger'
 import { ProduceShortfallError } from '@/lib/produce'
+import { isInvalid, requireCents, requireCount, requireEventDate } from '@/lib/validate-input'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -87,7 +88,6 @@ export async function POST(req: Request) {
   }
 
   let item = typeof b.item === 'string' ? b.item.trim() : ''
-  const amountCents = Number(b.amountCents)
   const status = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : 'paid'
   const batchId = typeof b.batchId === 'string' && b.batchId.trim() ? b.batchId.trim() : null
   const productId = typeof b.productId === 'string' && b.productId.trim() ? b.productId.trim() : null
@@ -101,7 +101,12 @@ export async function POST(req: Request) {
   }
 
   if (!item) return badRequest('item is required')
-  if (!Number.isFinite(amountCents) || amountCents <= 0) return badRequest('amountCents must be a positive number')
+  // Bounded as well as positive: `amountCents` lands in a bigint column with
+  // no ceiling, and revenue past 2^53 stops being exact before it reaches the
+  // journal (see lib/validate-input.ts's MAX_MONEY_CENTS).
+  const amountCents = requireCents(b.amountCents, 'amountCents')
+  if (isInvalid(amountCents)) return badRequest(amountCents.problem)
+  if (amountCents <= 0) return badRequest('amountCents must be a positive number')
   if (!VALID_STATUSES.has(status)) return badRequest("status must be 'paid' or 'pending'")
 
   if (batchId) {
@@ -110,14 +115,32 @@ export async function POST(req: Request) {
   }
 
   const method = typeof b.method === 'string' ? b.method.trim() : ''
-  const soldAt = typeof b.soldAt === 'string' && b.soldAt ? new Date(b.soldAt) : undefined
+
+  // A sale dated in the future drops out of every P&L period (lib/reports.ts
+  // filters revenue on this column) while remaining in the trial balance, so
+  // the two disagree with nothing to explain why. An unparseable date used to
+  // reach the driver as an Invalid Date.
+  let soldAt: Date | undefined
+  if (b.soldAt !== undefined && b.soldAt !== null && b.soldAt !== '') {
+    const parsed = requireEventDate(b.soldAt, 'soldAt')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    soldAt = parsed
+  }
 
   // How many were sold. Optional, because a sale can legitimately be an
   // amount with no unit count behind it (a bulk lot, a service) — but a sale
   // that is going to reduce a batch's headcount cannot be, so that case is
   // refused rather than silently recorded as a sale of zero birds.
-  const qty = b.qty !== undefined && b.qty !== null && b.qty !== '' ? Math.trunc(Number(b.qty)) : null
-  if (qty !== null && (!Number.isFinite(qty) || qty <= 0)) return badRequest('qty must be a positive whole number')
+  //
+  // A fraction is refused rather than truncated: `Math.trunc(Number(b.qty))`
+  // turned 0.5 into 0, which then failed the `qty <= 0` check with a message
+  // about a positive whole number that the caller had, in a sense, supplied.
+  let qty: number | null = null
+  if (b.qty !== undefined && b.qty !== null && b.qty !== '') {
+    const parsed = requireCount(b.qty, 'qty')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    qty = parsed
+  }
   if (product?.stockEffect === 'batch_quantity' && batchId && qty === null) {
     return badRequest(`${product.name} comes out of the batch when sold — enter how many were sold`)
   }
@@ -131,7 +154,7 @@ export async function POST(req: Request) {
       qty,
       stockEffect: product?.stockEffect ?? null,
       actor: session.email,
-      amountCents: Math.trunc(amountCents),
+      amountCents,
       method,
       status,
       soldAt,

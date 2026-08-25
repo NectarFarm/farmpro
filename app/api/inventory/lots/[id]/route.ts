@@ -5,6 +5,7 @@ import { inventoryLots, auditLog } from '@/db/schemas'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { isInvalid, requireNonNegativeCount } from '@/lib/validate-input'
 
 // ── PATCH /api/inventory/lots/[id] (issue #235 task 5) ──────────────────────
 // Reason-required quantity adjustment. Every adjustment writes a real
@@ -48,10 +49,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const reason = typeof b.reason === 'string' ? b.reason.trim() : ''
   if (!reason) return badRequest('reason is required')
 
-  if (b.qtyOnHand === undefined || !Number.isFinite(Number(b.qtyOnHand))) {
-    return badRequest('qtyOnHand is required and must be a number')
-  }
-  const newQty = Math.max(0, Math.trunc(Number(b.qtyOnHand)))
+  // ── This guard used to let a lot's whole stock be wiped by accident ──────
+  // `Number.isFinite(Number(x))` is not a number check: `Number(null)`,
+  // `Number('')`, `Number([])` and `Number(false)` are all 0, all finite, and
+  // all passed. So `{ qtyOnHand: null }` — or a JS client sending an empty
+  // field — set the lot to 0 and the audit row recorded `after: 0` as though
+  // somebody had meant it. `Math.max(0, ...)` compounded it by rewriting a
+  // negative into 0 instead of refusing, and there was no ceiling at all, so a
+  // large value overflowed the `integer` column into a 500.
+  //
+  // Zero is still a legitimate value here — a recount can genuinely find
+  // nothing left — so this is requireNonNegativeCount, not requireCount. What
+  // changed is that zero now has to be asked for.
+  const parsedQty = requireNonNegativeCount(b.qtyOnHand, 'qtyOnHand')
+  if (isInvalid(parsedQty)) return badRequest(parsedQty.problem)
+  const newQty = parsedQty
 
   const actor = session.id
 
