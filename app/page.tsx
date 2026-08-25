@@ -32,7 +32,7 @@ import { AdminUsersScreen, ImpersonationBanner, type ImpersonationInfo } from '@
 import { UICustomiseScreen } from '@/components/farm/ui-customise';
 import { AuditorReportsScreen } from '@/components/farm/auditor';
 import { VetHerdScreen } from '@/components/farm/vet';
-import { LoginScreen, RegisterScreen } from '@/components/farm/auth';
+import { LoginScreen, RegisterScreen, ForgotPasswordScreen } from '@/components/farm/auth';
 import { apiClient } from '@/lib/request';
 
 /* ── App-level logout context so any screen can trigger logout ── */
@@ -86,7 +86,7 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'admin-settings':    return <AdminSettingsScreen />;
       case 'admin-onboarding':  return <AdminOnboardingScreen />;
       case 'admin-users':       return <AdminUsersScreen />;
-      case 'ai-chat':           return <AIChatScreen />;
+      case 'ai-chat':           return <AIChatScreen userName={userName} />;
       case 'ui-customise':      return <UICustomiseScreen />;
       case 'auditor-reports':   return <AuditorReportsScreen />;
       case 'vet-herd':          return <VetHerdScreen />;
@@ -110,7 +110,7 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
   );
 }
 
-type AuthState = 'booting' | 'login' | 'register' | 'app';
+type AuthState = 'booting' | 'login' | 'register' | 'forgot' | 'app';
 
 /* The backend's real role set (issue #220 session bootstrap). Unknown roles are
  * treated as unauthenticated — the shell only admits known roles. */
@@ -223,7 +223,16 @@ export default function Home() {
                       <LoginScreen
                         onLogin={handleLogin}
                         onRegister={() => setAuthState('register')}
+                        onForgotPassword={() => setAuthState('forgot')}
                       />
+                    </div>
+                  </div>
+                )}
+
+                {authState === 'forgot' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                      <ForgotPasswordScreen onBack={() => setAuthState('login')} />
                     </div>
                   </div>
                 )}
