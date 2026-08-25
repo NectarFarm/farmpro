@@ -16,6 +16,7 @@ export type ScreenId =
   | 'process-config'
   | 'notification-settings'
   | 'ui-customise' | 'security-settings' | 'role-notice' | 'routines'
+  | 'farm-config'
   | 'auditor-reports' | 'vet-herd' | 'about' | 'getting-started';
 
 /* ── Session role contract (issue #219) ──

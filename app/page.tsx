@@ -13,6 +13,7 @@ import { GovernanceScreen } from '@/components/farm/governance';
 import { ReportsScreen } from '@/components/farm/reports';
 import { SettingsScreen, SecuritySettingsScreen } from '@/components/farm/settings';
 import { RoutinesScreen } from '@/components/farm/routines';
+import { FarmConfigScreen } from '@/components/farm/farm-config';
 import { AboutScreen } from '@/components/farm/about';
 import { GettingStartedScreen } from '@/components/farm/getting-started';
 import { ThemeProvider } from '@/components/farm/settings';
@@ -73,6 +74,7 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'settings':          return <SettingsScreen onLogout={onLogout} />;
       case 'security-settings': return <SecuritySettingsScreen />;
       case 'routines':          return <RoutinesScreen />;
+      case 'farm-config':       return <FarmConfigScreen />;
       case 'about':             return <AboutScreen />;
       case 'getting-started':   return <GettingStartedScreen />;
       case 'notifications':     return <NotificationsScreen />;
