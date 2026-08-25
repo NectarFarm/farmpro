@@ -2,13 +2,21 @@
 // auth.tsx — Login, Register (Self-onboarding), and ForgotPassword screens
 // Data flow: LoginScreen → NavProvider sets role → ScreenRouter shows correct tabs
 //            RegisterScreen → creates OnboardRequest → Admin reviews in AdminOnboardingScreen
+//            ForgotPasswordScreen → POST /api/auth/forgot-password → files a
+//              password_reset_requests row + super_admin notification (the
+//              admin queue admin-users.tsx's Password Resets tab reads). The
+//              backend contract is enumeration-safe: matched pair, wrong
+//              phone and unknown email return BYTE-IDENTICAL acks, and this
+//              screen must preserve that — it renders the endpoint's generic
+//              message verbatim and NEVER branches client-side on "no such
+//              account" (#376 Gap 2).
 // ============================================================
 'use client';
 import React, { useState, useEffect } from 'react';
 import { ENTERPRISE_REGISTRY } from './data';
 import {
   Eye, EyeOff, Check, ChevronRight, AlertTriangle, Phone, Mail,
-  MapPin, Leaf, Hourglass, Hash,
+  MapPin, Leaf, Hash,
   CheckCircle2,
 } from './icons';
 import { type Role } from './navigation';
@@ -147,8 +155,118 @@ function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
+/* ── FORGOT PASSWORD SCREEN ──
+ * Posts to the real POST /api/auth/forgot-password (issue #376 Gap 2): the
+ * backend already throttles, files password_reset_requests rows, notifies
+ * every super_admin in-app AND by email. This screen only closes the UI gap.
+ *
+ * Enumeration-safety contract (mirrors the route's own): every successful
+ * submission renders data.message VERBATIM — matched, wrong-phone and
+ * unknown-email are indistinguishable BY DESIGN. The only responses allowed
+ * to look different are format errors (field-level 400s) and rate limiting
+ * (429), because neither reveals whether an account exists. */
+export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [generalError, setGeneralError] = useState('');
+  const [busy, setBusy] = useState(false);
+  // Set once submitted — from then on we show ONLY the server's generic ack,
+  // regardless of what actually matched.
+  const [ack, setAck] = useState<string | null>(null);
+
+  async function handleSubmit() {
+    const errs: Record<string, string> = {};
+    if (!email.trim()) errs.email = 'Email is required';
+    if (!phone.trim()) errs.phone = 'Phone number is required';
+    if (Object.keys(errs).length > 0) { setFieldErrors(errs); return; }
+    setBusy(true);
+    setGeneralError('');
+    setFieldErrors({});
+    const res = await apiClient.post<{ received: boolean; message: string }>('/api/auth/forgot-password', {
+      email: email.trim(),
+      phone: phone.trim(),
+    });
+    setBusy(false);
+    if (res.success) {
+      // Render the endpoint's message verbatim for EVERY outcome — see the
+      // enumeration-safety note above.
+      setAck(res.data?.message || 'If these details match an account, an administrator has been notified.');
+      return;
+    }
+    if (res.fields) {
+      setFieldErrors(res.fields);
+    } else {
+      // 429 lockout or transport failure — the two shapes allowed to differ.
+      setGeneralError(res.error || 'Could not submit your request — please try again.');
+    }
+  }
+
+  if (ack) {
+    return (
+      <div className="screen-content px-screen" style={{ paddingTop: 40, paddingBottom: 24 }}>
+        <AuthHeader title="Reset Password" subtitle="Request an administrator-assisted reset" />
+        <div style={{ padding: '14px 16px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 16, marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 6 }}>
+            <CheckCircle2 size={15} aria-hidden="true" /> Request received
+          </div>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.55 }}>{ack}</div>
+        </div>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 20 }}>
+          Your farm administrator reviews reset requests and will contact you out of band. For security, we cannot confirm here whether the details matched an account.
+        </div>
+        <button onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>← Back to Login</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="screen-content px-screen" style={{ paddingTop: 32, paddingBottom: 24 }}>
+      <AuthHeader title="Reset Password" subtitle="We'll ask your farm administrator to help" />
+      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 18 }}>
+        Password resets are handled by your farm administrator. Provide BOTH the account&apos;s email and its registered phone so they can verify you — you&apos;ll get a confirmation here either way.
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <label htmlFor="fp-email" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email</label>
+        <input
+          id="fp-email" className="farm-input"
+          style={fieldErrors.email ? { border: '1px solid var(--status-critical)' } : undefined}
+          value={email} onChange={e => setEmail(e.target.value)}
+          placeholder="your@email.com" type="email" autoComplete="email"
+          aria-invalid={!!fieldErrors.email} aria-describedby={fieldErrors.email ? 'fp-email-error' : undefined}
+        />
+        {fieldErrors.email && <div id="fp-email-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{fieldErrors.email}</div>}
+      </div>
+
+      <div style={{ marginBottom: 18 }}>
+        <label htmlFor="fp-phone" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Registered Phone Number</label>
+        <input
+          id="fp-phone" className="farm-input"
+          style={fieldErrors.phone ? { border: '1px solid var(--status-critical)' } : undefined}
+          value={phone} onChange={e => setPhone(e.target.value)}
+          placeholder="+254-7XX-XXX-XXX" type="tel" inputMode="tel" autoComplete="tel"
+          aria-invalid={!!fieldErrors.phone} aria-describedby={fieldErrors.phone ? 'fp-phone-error' : undefined}
+        />
+        {fieldErrors.phone && <div id="fp-phone-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{fieldErrors.phone}</div>}
+      </div>
+
+      {generalError && (
+        <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{generalError}</div>
+      )}
+
+      <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleSubmit} disabled={busy}>
+        {busy ? 'Sending request…' : 'Request Reset →'}
+      </button>
+      <button onClick={onBack} style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', fontWeight: 600, cursor: 'pointer' }}>
+        ← Back to Login
+      </button>
+    </div>
+  );
+}
+
 /* ── LOGIN SCREEN ── */
-export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, tenantId?: string | null, name?: string) => void; onRegister?: () => void }) {
+export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin: (role: Role, tenantId?: string | null, name?: string) => void; onRegister?: () => void; onForgotPassword?: () => void }) {
   const [tab, setTab] = useState<'email' | 'pin'>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -239,15 +357,15 @@ export function LoginScreen({ onLogin, onRegister }: { onLogin: (role: Role, ten
               </button>
             </div>
           </div>
-          {/* No email delivery in this pass (issue #223 decision) — disabled, not a fake flow. */}
+          {/* Real flow (issue #376 Gap 2): POST /api/auth/forgot-password
+              files a reset request in the admins' queue. The old disabled
+              link sat on a stale "no email infrastructure" premise — the
+              endpoint exists and even emails the admins. */}
           <div style={{ marginBottom: 16 }}>
-            <button disabled title="Contact your farm administrator to reset your password."
-              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 'var(--fs-xs)', fontWeight: 600, cursor: 'not-allowed', padding: 0 }}>
+            <button onClick={onForgotPassword}
+              style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
               Forgot password?
             </button>
-            <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 4 }}>
-              Contact your farm administrator to reset your password.
-            </div>
           </div>
           {error && <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{error}</div>}
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleEmailLogin} disabled={busy}>
@@ -578,6 +696,10 @@ export function RegisterScreen({ onBack }: {
   const [selectedEnterprises, setSelectedEnterprises] = useState<string[]>([]);
   const [consentGiven, setConsentGiven] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // Issue #376 Gap 6: the onboard-request id returned on success — shown to
+  // the applicant as a reference code so they have something to quote.
+  const [referenceId, setReferenceId] = useState<string | null>(null);
+  const [refCopied, setRefCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -689,6 +811,9 @@ export function RegisterScreen({ onBack }: {
     const res = await apiClient.post<{ id: string }>('/api/onboard-requests', body);
     setSubmitting(false);
     if (res.success) {
+      // Issue #376 Gap 6: keep the request id so the applicant leaves with a
+      // reference to quote — previously it was discarded here.
+      setReferenceId(res.data?.id ?? null);
       setSubmitted(true);
       return;
     }
@@ -705,18 +830,43 @@ export function RegisterScreen({ onBack }: {
   }
 
   if (submitted) {
+    // Issue #376 Gap 6: short reference code from the request id, so the
+    // applicant has something concrete to quote when contacting the admin
+    // team during the review wait.
+    const refCode = referenceId ? referenceId.slice(-6).toUpperCase() : null;
     return (
       <div className="screen-content px-screen" style={{ paddingTop: 60, textAlign: 'center' }}>
         <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--primary-green)', marginBottom: 16 }}>
           <CheckCircle2 size={48} aria-hidden="true" />
         </div>
         <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 800, color: 'var(--primary-green)', marginBottom: 8 }}>Request Submitted!</div>
-        <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 24 }}>
-          Your onboarding request has been sent to the IFMS admin team.{'\n'}Expect a response within 1–2 business days — the admin team will review it and contact you directly with your login details.
+        <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 16 }}>
+          Your onboarding request has been sent to the IFMS admin team.{'\n'}Expect a response within 1–2 business days — by email.
         </div>
+        {refCode && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 24 }}>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Your reference</span>
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(refCode).then(() => { setRefCopied(true); setTimeout(() => setRefCopied(false), 2000); }); }}
+              title="Copy reference code"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 12, background: 'var(--card)', border: '1px dashed var(--border-subtle)', cursor: 'pointer' }}
+            >
+              <span style={{ fontFamily: 'monospace', fontSize: 'var(--fs-lg)', fontWeight: 800, letterSpacing: '0.12em', color: 'var(--text-primary)' }}>{refCode}</span>
+              <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: refCopied ? 'var(--primary-green)' : 'var(--text-muted)' }}>{refCopied ? 'Copied!' : 'Tap to copy'}</span>
+            </button>
+          </div>
+        )}
         <div style={{ padding: '14px 16px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 16, marginBottom: 24, textAlign: 'left' }}>
           <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>What happens next</div>
-          {['Admin reviews your request (1–2 days)', 'Admin contacts you directly with your login details', 'Set your password and start your farm'].map((s, i) => (
+          {[/* Copy matches what the backend actually does (#376 Gap 6): approval
+               sends a real set-password email (PATCH /api/onboard-requests/[id]),
+               and an unclear application gets an info-needed link instead —
+               both arrive by email, which is why the steps below say so. */
+            'Admin reviews your application (1–2 days)',
+            'You get an EMAIL — a set-password link if approved, or a link to fix details if something needs clarifying',
+            'Set your password and start your farm',
+          ].map((s, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
               <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                 <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)' }}>{i + 1}</span>
@@ -724,12 +874,10 @@ export function RegisterScreen({ onBack }: {
               <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>{s}</span>
             </div>
           ))}
-          {/* Roadmap note, not a warning — today an admin relays login details by
-             hand (no mail dependency exists in this codebase). Kept in the same
-             muted weight as the steps above so it doesn't compete with them. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 4 }}>
-            <Hourglass size={11} aria-hidden="true" /> Automatic email notifications — coming soon
-          </div>
+          {/* (#376 Gap 6: the "Automatic email notifications — coming soon"
+              footnote that lived here was DELETED — it was false. Approval,
+              set-password and getting-started guide emails all send today via
+              lib/email.ts / lib/notification-email.ts.) */}
         </div>
         <button onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>← Back to Login</button>
       </div>

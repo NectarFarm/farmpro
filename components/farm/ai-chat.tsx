@@ -2,11 +2,32 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNav, TopNav } from './navigation';
 import {
-  Send, Bot, UserSingle as User, Sparkles, Leaf, DollarSign, AlertTriangle, RefreshCw,
-  Wheat, BarChart3, CloudRain, ClipboardList, Package, Skull, Bird,
+  Send, Bot, UserSingle as User, Sparkles,
+  Wheat, BarChart3, ClipboardList, Package, Skull, Bird,
   type LucideIcon,
 } from './icons';
 
+/* ── AI farm advisor — real backend (issues #258/#259/#260) ────────────────
+ * This screen used to keyword-match against a table of canned replies, with
+ * a setTimeout for the typing delay, and cited a specific batch code, an FCR
+ * of 1.82 and KSh 177,000 of profit as if they were live readings (#376
+ * Gap 1). A farmer who checks one fabricated number against reality stops
+ * trusting every real number in the app, so none of that survives here.
+ *
+ * It now calls POST /api/ai/advise, which grounds every answer in a bounded
+ * snapshot of THIS tenant's real records and is instructed to say what it
+ * doesn't have rather than fill the gap. See lib/ai-advisor.ts for the
+ * grounding contract.
+ *
+ * Note for anyone comparing against epic #258: that epic lists the endpoint
+ * under "Confirmed facts — Real". It did not exist; it was built alongside
+ * this rewire. Don't trust that list without checking app/api.
+ *
+ * Wire protocol: the endpoint takes { role, content } and returns
+ * { answer } — this screen's own Message type uses `text`, so sendMessage
+ * maps between them. Only the last 10 turns are sent (the server truncates
+ * to the same bound); role gating is enforced server-side too, because a
+ * hidden screen is not a permission. */
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -14,70 +35,108 @@ interface Message {
   time: string;
 }
 
-/* ── Canned AI responses ── */
-const AI_RESPONSES: Record<string, string> = {
-  feed: 'Based on BRO-KMU-022 (920 birds at 35 days), the recommended feed rate is **85–90g/bird/day** (Finisher phase). Your current FCR is 1.82, which is within target. Consider switching to ad libitum feeding if temperatures drop below 18°C this weekend. 🌾',
-  mortality: "The 8% cumulative mortality in BRO-KMU-022 is above the 5% benchmark for this age group. I'd recommend:\n1. Check ventilation in House A01 — temperatures may be spiking mid-day.\n2. Ensure coccidiosis prevention is current.\n3. Request a vet inspection if 2+ birds die today.\n\nWould you like me to draft a vet task? 🐔",
-  weather: "Saturday's heavy rain (82% probability) poses risk to your Layer House B. Key actions:\n• Check roof drainage channels — clogged gutters flood bedding.\n• Reduce stocking density if humidity exceeds 75%.\n• Stock up on Layer Mash (currently only 320kg; I'd order 500kg before Friday).\n\nYour Field F01 maize is at 75% growth — hold off on fertiliser application until Sunday. 🌧️",
-  profit: 'For BRO-KMU-022 so far:\n- Revenue (projected): KSh 322,000 (920 birds @ KSh 350)\n- COGS to date: KSh 145,000\n- Estimated gross profit: **KSh 177,000** (55% margin)\n\nThis is tracking 8% above your October target. Main cost driver: feed at 62% of COGS. Want a full batch P&L breakdown? 💰',
-  task: "Here are today's priority tasks:\n🔴 Overdue: Morning Feeding – House A01 (John Kamau, due 08:00)\n🟡 Pending: Egg Collection – Pen B01 (awaiting approval)\n🟡 Pending: Maize Field Weed Inspection (Ann Wambui)\n✅ Done: Milking – Morning Round (Sarah Mwangi)\n\nShall I send John a reminder about the overdue feeding? 📋",
-  inventory: 'Low stock alerts:\n⚠️ **Layer Mash**: 320kg remaining (reorder point: 500kg). At 120kg/day, you have ~2.7 days left.\n⚠️ **Oxymav B**: 400g remaining — check with Dr. Ken if treatment is still needed.\n\nAll other feeds are adequate. Want me to generate a purchase order for Layer Mash? 📦',
-  default: "I'm your IFMS farm assistant! 🌾 I can help you with:\n\n• **Feed & nutrition** — optimal rates, FCR analysis\n• **Health & mortality** — alerts, vet recommendations\n• **Weather advice** — task adjustments for upcoming conditions\n• **Financials** — batch P&L, cost analysis\n• **Tasks** — what needs doing today\n• **Inventory** — stock alerts and purchase orders\n\nWhat would you like to know about your farm?",
-};
-
-function getAIResponse(input: string): string {
-  const lower = input.toLowerCase();
-  if (lower.includes('feed') || lower.includes('fcr') || lower.includes('mash')) return AI_RESPONSES.feed;
-  if (lower.includes('mortality') || lower.includes('dead') || lower.includes('death')) return AI_RESPONSES.mortality;
-  if (lower.includes('weather') || lower.includes('rain') || lower.includes('rain')) return AI_RESPONSES.weather;
-  if (lower.includes('profit') || lower.includes('revenue') || lower.includes('cost') || lower.includes('finance')) return AI_RESPONSES.profit;
-  if (lower.includes('task') || lower.includes('overdue') || lower.includes('todo')) return AI_RESPONSES.task;
-  if (lower.includes('stock') || lower.includes('inventory') || lower.includes('order')) return AI_RESPONSES.inventory;
-  return AI_RESPONSES.default;
-}
-
-const QUICK_PROMPTS: { icon: LucideIcon; label: string }[] = [
-  { icon: Wheat, label: 'Feed rates today' },
-  { icon: BarChart3, label: 'Batch profit summary' },
-  { icon: CloudRain, label: 'Weather impact advice' },
-  { icon: ClipboardList, label: "Today's priority tasks" },
-  { icon: Package, label: 'Low stock alerts' },
-  { icon: Skull, label: 'Mortality analysis' },
+// Quick prompts are real questions now, not labels that mapped to a canned
+// blob. Each one is a question the grounded context can actually answer from
+// records — feed, mortality, stock, tasks — or honestly decline.
+const QUICK_PROMPTS: { icon: LucideIcon; label: string; question: string }[] = [
+  { icon: Bird, label: 'Batch health', question: 'How are my active batches doing, and has any of them lost an unusual number of birds this month?' },
+  { icon: Package, label: 'Stock to reorder', question: 'What stock is at or below its low-stock threshold, and what should I reorder first?' },
+  { icon: ClipboardList, label: "What's overdue", question: 'What tasks are open or overdue right now, and which should be done first?' },
+  { icon: Wheat, label: 'Feeding check', question: 'Based on what my workers have recorded, is my feeding on track for the batches I have?' },
+  { icon: BarChart3, label: 'Production so far', question: 'What have we collected or produced in the last 30 days?' },
+  { icon: Skull, label: 'Mortality review', question: 'Walk me through the deaths recorded recently and whether I should be worried.' },
 ];
+
+// Roles the backend allows (app/api/ai/advise/route.ts's ADVISOR_ROLES). The
+// server is the enforcement point; this list only decides whether we render a
+// chat the caller would be 403'd out of anyway (#260 task 3).
+const ADVISOR_ROLES = ['owner', 'manager'];
 
 const now = () => new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' });
 
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 'init',
-    role: 'assistant',
-    text: "Hello James! 👋 I'm your IFMS farm assistant.\n\nI have live data on your 6 active batches, today's tasks, inventory levels, and the weekend weather forecast. How can I help you right now?",
-    time: '09:00',
-  },
-];
+// Greeting built from the REAL session user's name (#376 Gap 1) — the old
+// hardcoded "Hello James!" greeted everybody as someone else, alongside a
+// claim about "live data on 6 active batches" that was never true. The
+// capability claim here is now accurate: the endpoint really does read this
+// tenant's batches, records, stock and tasks.
+function initialMessages(userName?: string): Message[] {
+  const name = userName?.trim() ? ` ${userName.trim().split(/\s+/)[0]}` : '';
+  return [
+    {
+      id: 'init',
+      role: 'assistant',
+      text: `Hello${name}! 👋\n\nI can see your farm's recorded data — active batches, what your workers have logged, stock levels and open tasks — and I'll answer from that. If something isn't recorded yet, I'll say so rather than guess.\n\nWhat would you like to know?`,
+      time: now(),
+    },
+  ];
+}
 
-export function AIChatScreen() {
-  const { navigate } = useNav();
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+export function AIChatScreen({ userName }: { userName?: string }) {
+  const { role, activeFarmId } = useNav();
+  const [messages, setMessages] = useState<Message[]>(() => initialMessages(userName));
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  // Surfaced as a retryable banner rather than a fake assistant turn: an
+  // error dressed up as an answer is exactly the confusion this screen's
+  // rewrite exists to remove (#260 task 2).
+  const [error, setError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const allowed = ADVISOR_ROLES.includes(role);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
+  }, [messages, isTyping, error]);
 
-  function sendMessage(text: string) {
-    if (!text.trim()) return;
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', text: text.trim(), time: now() };
+  // Abort any in-flight request when the screen unmounts, so a reply can't
+  // land in a component that's gone.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  async function sendMessage(text: string) {
+    const question = text.trim();
+    if (!question || isTyping) return;
+
+    const userMsg: Message = { id: `${Date.now()}-u`, role: 'user', text: question, time: now() };
+    // Build the wire history from the turns the model should see: the local
+    // greeting is ours, not the model's, so it never goes upstream.
+    const history = [...messages.filter((m) => m.id !== 'init'), userMsg]
+      .map((m) => ({ role: m.role, content: m.text }));
+
     setMessages((m) => [...m, userMsg]);
     setInput('');
+    setError('');
     setIsTyping(true);
-    setTimeout(() => {
-      const reply = getAIResponse(text);
-      setMessages((m) => [...m, { id: (Date.now() + 1).toString(), role: 'assistant', text: reply, time: now() }]);
-      setIsTyping(false);
-    }, 900 + Math.random() * 600);
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch('/api/ai/advise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // farmId mirrors the active farm switcher, so the answer is scoped to
+        // whatever farm the rest of the app is currently showing.
+        body: JSON.stringify({ messages: history.slice(-10), farmId: activeFarmId }),
+        signal: controller.signal,
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        // The endpoint's own message is written for a farmer to read (out of
+        // credit, not configured, busy, unauthorized) — show it verbatim
+        // rather than replacing it with a generic string.
+        setError(json?.error || `The advisor could not answer that (error ${res.status}).`);
+        return;
+      }
+      setMessages((m) => [...m, { id: `${Date.now()}-a`, role: 'assistant', text: String(json.data.answer), time: now() }]);
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return;
+      setError('Could not reach the advisor. Check your connection and try again.');
+    } finally {
+      if (!controller.signal.aborted) setIsTyping(false);
+    }
   }
 
   function renderText(text: string) {
@@ -97,38 +156,55 @@ export function AIChatScreen() {
     });
   }
 
+  // Role gate (#260 task 3). The server 403s these roles anyway; showing a
+  // chat box that always errors would be worse than saying why up front.
+  if (!allowed) {
+    return (
+      <div className="screen-content">
+        <TopNav title="AI Farm Assistant" subtitle="Not available for your role" />
+        <div className="px-screen" style={{ paddingTop: 14 }}>
+          <div className="farm-card" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <Bot size={20} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
+            <div>
+              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                The advisor is limited to owners and managers
+              </div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                It answers using the whole farm&apos;s financial and production records, which your role
+                doesn&apos;t have access to. Everything you can see in your own tabs is live and up to date —
+                ask your farm owner or manager if you need something from the wider records.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="screen-content" style={{ display: 'flex', flexDirection: 'column' }}>
       <TopNav
         title="AI Farm Assistant"
-        subtitle="Powered by IFMS Intelligence"
+        subtitle="Answers from your recorded data"
         rightEl={
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 100, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)' }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--primary-green)' }} />
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)' }}>Online</span>
+            <Sparkles size={10} color="var(--primary-green)" aria-hidden="true" />
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)' }}>
+              {activeFarmId === 'ALL' ? 'All farms' : 'This farm'}
+            </span>
           </div>
         }
       />
 
       {/* Chat messages */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
-        {/* Context strip */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 4 }}>
-          {([
-            { icon: Bird, label: '6 batches active' },
-            { icon: ClipboardList, label: '2 overdue tasks' },
-            { icon: CloudRain, label: 'Rain Saturday' },
-            { icon: AlertTriangle, label: '1 low stock' },
-          ] as { icon: LucideIcon; label: string }[]).map((c) => (
-            <div
-              key={c.label}
-              style={{ display: 'flex', gap: 5, alignItems: 'center', padding: '5px 10px', background: 'var(--card)', borderRadius: 100, border: '1px solid var(--border-subtle)', flexShrink: 0 }}
-            >
-              <c.icon size={13} color="var(--text-muted)" aria-hidden="true" />
-              <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{c.label}</span>
-            </div>
-          ))}
-        </div>
+        {/* The context strip that used to sit here is deliberately gone.
+            #259 task 2 asked whether it needed a new summary field on
+            /api/dashboard/kpis or should be dropped: dropped. It claimed
+            counts ("6 batches active", "1 low stock") with no endpoint
+            behind them, and the advisor now states those figures properly
+            from real records when asked — a decorative strip would be a
+            second source of truth for the same numbers. */}
 
         {messages.map((msg) => (
           <div key={msg.id} style={{ marginBottom: 12, display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
@@ -173,12 +249,12 @@ export function AIChatScreen() {
         {/* Quick prompts (only when few messages) */}
         {messages.length <= 2 && (
           <div>
-            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8, textAlign: 'center' }}>Quick questions</div>
+            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8, textAlign: 'center' }}>Ask about</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
               {QUICK_PROMPTS.map((p) => (
                 <button
                   key={p.label}
-                  onClick={() => sendMessage(p.label)}
+                  onClick={() => sendMessage(p.question)}
                   style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer', display: 'flex', gap: 7, alignItems: 'center', textAlign: 'left' }}
                 >
                   <p.icon size={16} color="var(--text-muted)" aria-hidden="true" />
@@ -186,6 +262,22 @@ export function AIChatScreen() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {error && (
+          <div role="alert" style={{ padding: '10px 12px', marginBottom: 12, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 12 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', lineHeight: 1.5 }}>{error}</div>
+            <button
+              onClick={() => {
+                // Retry the last question the user actually asked.
+                const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+                if (lastUser) { setMessages((m) => m.filter((x) => x.id !== lastUser.id)); sendMessage(lastUser.text); }
+              }}
+              style={{ marginTop: 7, padding: '5px 12px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(248,113,113,0.14)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: 'pointer' }}
+            >
+              Try again
+            </button>
           </div>
         )}
 
@@ -217,7 +309,7 @@ export function AIChatScreen() {
           </button>
         </div>
         <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 5, textAlign: 'center' }}>
-          AI responses are advisory only. Always verify with farm professionals.
+          Advisory only, and not a substitute for a vet. Figures come from your own records — verify anything before acting on it.
         </div>
       </div>
     </div>

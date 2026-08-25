@@ -11,11 +11,14 @@
 //   bell/badge/list are real data from GET /api/products/current-prices,
 //   GET /api/tasks?due=today and GET/PATCH /api/notifications respectively
 //   (see fetch effects below).
-//   The secondary Livestock/Crop enterprise summary CARDS further down (with
-//   per-group emoji/label) are still BATCHES_DATA-driven mock UI — there is
-//   no route that returns that per-group breakdown (only aggregate counts,
-//   which the primary grid now uses for real) and rebuilding those cards is
-//   not this issue's scope.
+//   The old "secondary Livestock/Crop enterprise summary CARDS" were removed
+//   (#376 Gap 4): they computed from the BATCHES_DATA mock array but were
+//   never rendered anywhere — dead code sitting behind a stale "no batches
+//   table exists yet" comment (the table AND GET /api/batches both exist).
+//   Aggregate per-group counts come from GET /api/dashboard/kpis
+//   (livestockUnitsCount / cropBatchGroupsCount); if dedicated per-enterprise
+//   cards ever come back, source them from GET /api/batches?farmId=… grouped
+//   client-side by `enterprise` — never from components/farm/data.ts mocks.
 //   QuickActions navigate to relevant screens.
 //   FarmSwitcherSheet switches activeFarmId (multi-farm, issue #219, made
 //   real by the farm-scoped-data task) → the KPI fetch below re-runs with
@@ -42,7 +45,8 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import { useNav, TopNav } from "./navigation";
-import { BATCHES_DATA, ENTERPRISE_REGISTRY } from "./data";
+// NOTE: no import from ./data — this screen renders real API data only.
+// See the header note above for where per-group batch breakdowns come from.
 import {
   AlertTriangle, CheckCircle2, Package, ChevronRight, Bell,
   Clock, X, Check, Settings, Info, Leaf, Activity, ChevronDown,
@@ -363,23 +367,11 @@ export function DashboardScreen({ userName }: { userName?: string }) {
   const [showFarmSwitcher, setShowFarmSwitcher] = useState(false);
 
   const farm = activeFarmId === "ALL" ? null : farms.find(f => f.id === activeFarmId) ?? farms[0];
-  const farmBatches = activeFarm === "ALL" ? BATCHES_DATA : BATCHES_DATA.filter(b => b.farmCode === activeFarm);
-
-  // Enterprise summary cards — still BATCHES_DATA-driven mock UI. No `batches`
-  // table exists yet (Epic: Crops & Batches hasn't landed); this issue only
-  // scoped the KPI/price/task/notification/weather surfaces below, not a
-  // rebuild of this section.
-  const enterpriseMap = new Map<string, { count: number; qty: number; icon: LucideIcon; label: string; type: string }>();
-  farmBatches.filter(b => b.status === "ACTIVE").forEach(b => {
-    const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === b.enterprise);
-    if (!cfg) return;
-    const existing = enterpriseMap.get(b.enterprise);
-    if (existing) { existing.count++; existing.qty += b.qty; }
-    else enterpriseMap.set(b.enterprise, { count: 1, qty: b.qty, icon: cfg.icon, label: cfg.label, type: cfg.type });
-  });
-  const enterprises = [...enterpriseMap.entries()];
-  const livestock = enterprises.filter(([, v]) => v.type === "livestock");
-  const crops = enterprises.filter(([, v]) => v.type === "crop");
+  // (Issue #376 Gap 4: the BATCHES_DATA-driven enterprise-card computation
+  // that lived here was deleted — it fed variables nothing ever rendered,
+  // behind a comment claiming the `batches` table didn't exist. Both halves
+  // were wrong: the table exists (db/schemas/index.ts), and per-group counts
+  // already reach this screen for real via the KPI fetch below.)
 
   // ── Real data fetches (issue #228, #296) ──
   // Each of these hits a real endpoint scoped to the session's tenant (the

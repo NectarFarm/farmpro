@@ -798,6 +798,11 @@ export function TopNav({
 let _globalLogout: (() => void) | null = null;
 export function setGlobalLogout(fn: () => void) { _globalLogout = fn; }
 
+// Any screen can trigger the same app logout the TopNav button uses (issue
+// #322: Worker Profile's "Sign Out" had no onClick at all). No-op before
+// page.tsx registers the handler — same lazy contract as above.
+export function requestLogout() { _globalLogout?.(); }
+
 function LogoutButton() {
   const [showMenu, setShowMenu] = React.useState(false);
 
