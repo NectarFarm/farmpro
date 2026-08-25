@@ -8,6 +8,8 @@ import { isRecurrence, spawnNextOccurrence } from '@/lib/tasks'
 import { resolveAssignee, resolveApprover } from '@/lib/task-people'
 import { notifyApprovalRaised } from '@/lib/governance'
 import { createAndEmailNotification } from '@/lib/notification-email'
+import { writeAuditLog } from '@/lib/audit'
+import { taskShapeFieldsPresent } from '@/lib/task-fields'
 
 // ── GET/PATCH/DELETE /api/tasks/[id] (issue #243) ───────────────────────────
 // Tenant-scoped: an id only reads/updates/deletes when its tenantId matches
@@ -69,6 +71,53 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const existingRows = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId)))
   const existing = existingRows[0]
   if (!existing) return notFound()
+
+  // ── Who may restructure a task, and who may only report on one ───────────
+  // Gated on the `governance` module rather than a hardcoded
+  // ['owner','manager'] list, for the same reason POST
+  // /api/approvals/[id]/approve is: that module resolves to exactly owner +
+  // manager under the code defaults (lib/permissions.ts's DEFAULT_MATRIX) —
+  // so this is behaviour-preserving for them — while still letting a tenant's
+  // owner widen or narrow it from the Governance screen instead of needing a
+  // code change. Owner and super_admin bypass the matrix outright.
+  //
+  // vet and worker hold `tasks: 'edit'` but not `governance`, so both keep
+  // marking their own work done and neither can reassign it. That is the
+  // intended narrowing, not an oversight.
+  const canReshape = await canEdit(tenantId, session.role, MODULES.governance)
+  const attempted = taskShapeFieldsPresent(b)
+  if (!canReshape && attempted.length > 0) {
+    // Names the way forward rather than a bare 403: the person hitting this
+    // is a worker who wants the job moved, and "ask your manager" is the
+    // actual next step. Reassignment stays a conversation, not a silent write.
+    return forbidden(
+      `Only an owner or manager can change ${attempted.join(', ')} on a task. `
+      + 'Ask them to reassign it — you can still mark your own task done.'
+    )
+  }
+
+  // A worker/vet may report on their OWN work. `assigneeId` is an employees.id
+  // (db/schemas/dashboard.ts), so the session user is resolved to their
+  // employee row to compare.
+  //
+  // An UNASSIGNED task stays completable by anyone who can see it, and that is
+  // deliberate: tasks are routinely created with no assigneeId and the
+  // assignee's name carried only in the `notes` prefix, so refusing those
+  // would stop workers completing most of the tenant's real work — the
+  // behaviour tests/tasks-governance.test.ts and
+  // tests/worker-tasks-today.test.ts both assert. It is also the same call
+  // GET /api/approvals already makes for `scope=mine`, which counts
+  // unassigned approvals as "work that genuinely is mine to do".
+  if (!canReshape && existing.assigneeId) {
+    const [mine] = await db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(and(eq(employees.userId, session.id), eq(employees.tenantId, tenantId)))
+      .limit(1)
+    if (!mine || mine.id !== existing.assigneeId) {
+      return forbidden('That task is assigned to someone else — only they, an owner or a manager can update it.')
+    }
+  }
 
   const patch: Partial<typeof tasks.$inferInsert> = {}
   if (typeof b.title === 'string' && b.title.trim()) patch.title = b.title.trim()
@@ -139,6 +188,40 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     })
   }
 
+  // ── Audit: who moved the work, and who may now sign it off ───────────────
+  // Called exactly once per request, from whichever of the two update
+  // branches below actually runs — the deferred-completion branch returns
+  // early, so a single call after each update is what keeps this to one row
+  // per action rather than two.
+  //
+  // Only accountability changes are logged, not every field patch: a
+  // retitled task is housekeeping, whereas moving who is answerable for the
+  // job (or who is allowed to approve it) is the thing that had no trace at
+  // all before this. A patch that changes neither writes nothing, matching
+  // the "no audit row for a no-op save" pattern PATCH /api/farms/[id] and
+  // PATCH /api/employees/[id] already follow.
+  async function auditAccountabilityChange(): Promise<void> {
+    const assigneeChanged = patch.assigneeId !== undefined && patch.assigneeId !== existing.assigneeId
+    const approverChanged = patch.approverId !== undefined && patch.approverId !== existing.approverId
+    const approvalFlagChanged = patch.requiresApproval !== undefined
+      && patch.requiresApproval !== existing.requiresApproval
+    if (!assigneeChanged && !approverChanged && !approvalFlagChanged) return
+    await writeAuditLog({
+      tenantId,
+      actor: session.id,
+      action: 'task.reassigned',
+      entity: 'task',
+      entityId: id,
+      meta: {
+        ...(assigneeChanged ? { assigneeFrom: existing.assigneeId, assigneeTo: patch.assigneeId } : {}),
+        ...(approverChanged ? { approverFrom: existing.approverId, approverTo: patch.approverId } : {}),
+        ...(approvalFlagChanged
+          ? { requiresApprovalFrom: existing.requiresApproval, requiresApprovalTo: patch.requiresApproval }
+          : {}),
+      },
+    })
+  }
+
   const requestedStatus = typeof b.status === 'string' && b.status.trim() ? b.status.trim() : undefined
   const effectiveRequiresApproval = patch.requiresApproval ?? existing.requiresApproval
 
@@ -190,6 +273,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     patch.status = 'PENDING_APPROVAL'
     const [updated] = await db.update(tasks).set(patch).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
     await notifyNewAssignee(updated.title)
+    await auditAccountabilityChange()
     return ok({ ...updated, approvalRequestId: approvalRequest.id })
   }
 
@@ -201,6 +285,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (rows.length === 0) return notFound()
 
   await notifyNewAssignee(rows[0].title)
+  await auditAccountabilityChange()
 
   // A repeating task that just finished schedules its own successor. The
   // other place a task can finish is an approval being granted, which spawns
@@ -214,6 +299,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 // DELETE /api/tasks/[id] — hard delete, tenant-scoped.
+//
+// Held to the same bar as reshaping a task, not to plain `tasks: edit`.
+// Deleting somebody's task is the most complete form of reassignment there
+// is — the work simply stops existing — and `tasks: edit` is granted to
+// workers so they can mark their own jobs done. A worker being able to erase
+// any task in the tenant is the same hole PATCH had, with no way to notice
+// afterwards because the row is gone.
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') })
@@ -223,8 +315,23 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (!(await canEdit(tenantId, session.role, MODULES.tasks))) {
     return forbidden('Your role does not have edit access to tasks')
   }
+  if (!(await canEdit(tenantId, session.role, MODULES.governance))) {
+    return forbidden('Only an owner or manager can delete a task. Mark it done, or ask them to remove it.')
+  }
 
   const rows = await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))).returning()
   if (rows.length === 0) return notFound()
+
+  // This is a genuine hard delete, so the audit row is the only remaining
+  // evidence the task ever existed. Title and assignee are recorded in `meta`
+  // for that reason — an entityId pointing at a vanished row answers nothing.
+  await writeAuditLog({
+    tenantId,
+    actor: session.id,
+    action: 'task.deleted',
+    entity: 'task',
+    entityId: id,
+    meta: { title: rows[0].title, assigneeId: rows[0].assigneeId, status: rows[0].status },
+  })
   return ok(rows[0])
 }

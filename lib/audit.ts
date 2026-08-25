@@ -26,11 +26,27 @@ export interface AuditEntryInput {
   meta?: Record<string, unknown>
 }
 
+/**
+ * A caller's open transaction. `db.transaction`'s callback argument — the same
+ * `Tx` alias lib/batch-ledger.ts uses, spelled the same way so the two agree.
+ */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 // Never pass credentials (passwords, hashes, temp passwords, PINs) in `meta`
 // — every call site in this feature is deliberately written to log only
 // field names / old->new values / durations, never secrets.
-export async function writeAuditLog(entry: AuditEntryInput): Promise<void> {
-  await db.insert(auditLog).values({
+//
+// ── Why the optional `tx` ─────────────────────────────────────────────────
+// This used to always write through the module-level `db`, which meant an
+// audit row could not join the transaction of the thing it describes. Two
+// call sites already worked around that by inserting into `auditLog`
+// directly just to get a `tx` (lib/governance.ts, PATCH
+// /api/inventory/lots/[id]) — duplicating the sentinel/id logic in both.
+// Passing the caller's `tx` is the fix: an action that rolls back takes its
+// audit row with it, instead of leaving a committed row claiming something
+// happened that did not.
+export async function writeAuditLog(entry: AuditEntryInput, tx?: Tx): Promise<void> {
+  await (tx ?? db).insert(auditLog).values({
     id: randomUUID(),
     tenantId: entry.tenantId ?? PLATFORM_TENANT_SENTINEL,
     actor: entry.actor,

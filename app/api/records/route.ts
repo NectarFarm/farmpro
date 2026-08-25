@@ -12,6 +12,7 @@ import { canEdit, needsApproval, MODULES } from '@/lib/permissions'
 import { applyMovement, applyCount, BatchLedgerError } from '@/lib/batch-ledger'
 import { consumeStock, InsufficientStockError, UnknownItemError, type ConsumeResult } from '@/lib/inventory-consume'
 import { notifyApprovalRaised } from '@/lib/governance'
+import { writeAuditLog } from '@/lib/audit'
 
 // ── GET/POST /api/records (issue #247 task 2) ───────────────────────────────
 // Generic worker-submission log — feeding / mortality / physical_count today
@@ -305,6 +306,10 @@ export async function POST(req: Request) {
               // A death report is never blocked by a headcount nobody
               // entered — see lib/batch-ledger.ts#applyMovement.
               allowClamp: true,
+              // `batch_movements.actor` is rendered verbatim in the batch
+              // ledger UI (components/farm/crops.tsx), so it holds the email,
+              // not the user id — unlike `audit_log.actor`, which is joined
+              // against users.id and therefore takes session.id below.
               sourceType: 'record', sourceId: id, actor: session.email,
             })
           } else {
@@ -313,9 +318,38 @@ export async function POST(req: Request) {
               reason: typeof data.varianceReason === 'string' && data.varianceReason.trim()
                 ? String(data.varianceReason).trim()
                 : undefined,
+              // `batch_movements.actor` is rendered verbatim in the batch
+              // ledger UI (components/farm/crops.tsx), so it holds the email,
+              // not the user id — unlike `audit_log.actor`, which is joined
+              // against users.id and therefore takes session.id below.
               sourceType: 'record', sourceId: id, actor: session.email,
             })
           }
+          // ── The unreviewed correction is the one that needed a trail ──────
+          // An approved headcount change has been audited since the approval
+          // machinery was built (lib/governance.ts writes `approval.approved`
+          // inside its own transaction). This branch — the change that
+          // applied immediately, with nobody signing it off — had none, so
+          // precisely the movement no second person looked at was the one
+          // leaving no trace of who made it. Written with the caller's `tx`
+          // so a rolled-back round (a later batch running out of stock)
+          // takes the audit row with it.
+          await writeAuditLog({
+            tenantId,
+            actor: session.id,
+            action: type === 'mortality' ? 'batch.mortality_applied' : 'batch.count_applied',
+            entity: 'batch',
+            entityId: targetId,
+            meta: {
+              recordId: id,
+              // No approval row exists on this path, and that IS the fact
+              // worth recording: it says the movement took effect on this
+              // role's own authority.
+              approved: false,
+              role: session.role,
+              ...(type === 'mortality' ? { deaths } : { counted }),
+            },
+          }, tx)
         }
 
         for (const line of collectedLines) {

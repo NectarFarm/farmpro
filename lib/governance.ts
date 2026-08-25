@@ -161,7 +161,14 @@ export async function decideApproval(
     // ── Headcount approvals (batch-ledger task) ──────────────────────────
     let ledgerNote: Record<string, unknown> = {}
     if (approval.type === 'mortality' || approval.type === 'physical_count') {
-      const [record] = await tx.select().from(records).where(eq(records.id, approval.entityId)).limit(1)
+      // Tenant-scoped, not just by id: `entityId` is a plain text column with
+      // no FK, so scoping the read to the deciding tenant keeps a malformed or
+      // stale approval row from ever resolving to another tenant's record.
+      const [record] = await tx
+        .select()
+        .from(records)
+        .where(and(eq(records.id, approval.entityId), eq(records.tenantId, tenantId)))
+        .limit(1)
       if (!record) throw new ApprovalError('The record this approval refers to no longer exists', 404)
 
       const data = (record.data ?? {}) as Record<string, unknown>
@@ -183,7 +190,16 @@ export async function decideApproval(
         } else {
           const counted = Math.trunc(Number(data.counted ?? data.physicalCount ?? data.count ?? 0))
           const result = await applyCount(tx, {
-            tenantId, batchId: record.batchId, counted, sourceType: 'record', sourceId: record.id, actor,
+            tenantId, batchId: record.batchId, counted,
+            // The immediate path (POST /api/records) passes the worker's own
+            // explanation for the variance through to the movement's reason.
+            // Approving dropped it, so the same count produced a ledger entry
+            // with a generic "found fewer than recorded" depending only on
+            // whether it happened to need sign-off. Same reason, either route.
+            reason: typeof data.varianceReason === 'string' && data.varianceReason.trim()
+              ? String(data.varianceReason).trim()
+              : undefined,
+            sourceType: 'record', sourceId: record.id, actor,
           })
           ledgerNote = { headcountAfter: result.batch.currentQty, applied: result.delta }
         }
