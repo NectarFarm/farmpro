@@ -17,7 +17,7 @@ import { apiClient } from '@/lib/request';
 import {
   ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff,
   Package, CloudSun, Users, Shield, FileText, Bot, Palette,
-  Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, ClipboardList,
+  Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, ClipboardList, Layers,
   type LucideIcon,
 } from './icons';
 import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, type DateFormat } from '@/lib/datetime';
@@ -365,9 +365,17 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     // an owner/super_admin's only way to reach it, not just declutter a
     // duplicate. Kept visible on every breakpoint, still gated the same way
     // its old "Farm Management" row was.
+    // Farm Configuration is owner-only for the same reason its own screen and
+    // PUT /api/stages are: renaming or reordering a stage changes what every
+    // batch's `stage` value means and what the batch route will accept into
+    // it. This row is the only way to reach that screen — it has no sidebar
+    // entry — so it stays visible on every breakpoint, same as UI Customise.
     ...(role === 'super_admin' || role === 'owner' ? [{
-      label: 'Customisation',
-      items: [{ label: 'UI Customise', icon: Palette, desc: 'Module toggles & farm branding', action: () => navigate('ui-customise') }],
+      label: 'Farm Setup',
+      items: [
+        { label: 'Farm Configuration', icon: Layers, desc: 'Stages & stage life, products per batch, farm structure', action: () => navigate('farm-config') },
+        { label: 'UI Customise', icon: Palette, desc: 'Module toggles & farm branding', action: () => navigate('ui-customise') },
+      ],
     }] : []),
     {
       // Currency/weight unit used to live inside UI Customise's "branding"

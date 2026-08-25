@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { applyMovement, BatchLedgerError } from '@/lib/batch-ledger'
+import { checkStage } from '@/lib/stages'
 
 // ── GET/PATCH /api/batches/[id] (issue #231; auth fix: fix/authenticate-all-apis) ─
 // PATCH is the single update endpoint for a batch's mutable lifecycle fields
@@ -74,7 +75,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const b = (raw ?? {}) as Record<string, unknown>
 
   const patch: Partial<typeof batches.$inferInsert> = {}
-  if (typeof b.stage === 'string') patch.stage = b.stage.trim()
   if (typeof b.status === 'string') patch.status = b.status.trim()
   if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim()
   if (typeof b.species === 'string') patch.species = b.species.trim()
@@ -101,6 +101,54 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       .where(and(eq(productionUnits.id, newUnitId), eq(productionUnits.tenantId, tenantId)))
     if (!unitRows[0]) return notFound()
     patch.unitId = newUnitId
+  }
+
+  // ── `stage` is validated against the farm's own configured stages ────────
+  // It used to be `if (typeof b.stage === 'string') patch.stage = b.stage.trim()`
+  // — any string at all, straight from a free-text input. So "Finisher",
+  // "finisher" and "Finishr" all became distinct stages on the same farm, and
+  // anything that ever buckets by stage fragments silently. The dropdown on the
+  // batch screen is the courtesy; this is the authority.
+  //
+  // Three outcomes, and the third is the one that matters:
+  //   - a configured stage: stored using the FARM'S OWN SPELLING, not the
+  //     caller's, so a stale client sending 'grower' cannot add a second
+  //     spelling of a stage that already exists.
+  //   - an unconfigured stage when the farm HAS a list: refused, naming the
+  //     stages that do exist so the message is actionable.
+  //   - an unconfigured stage when the farm has NO list for this enterprise:
+  //     allowed through. Migration 0036 backfills from existing batches, but a
+  //     brand-new tenant, or one starting a new enterprise, legitimately has no
+  //     rows yet — refusing there would make the first batch of every new
+  //     enterprise un-advanceable with no way out from inside the app. The
+  //     Farm Configuration screen is how a farm graduates out of this state.
+  //
+  // Clearing the stage ('') stays allowed: every batch created before this
+  // existed has an empty stage, and "not staged yet" is a real value.
+  if (typeof b.stage === 'string') {
+    const requested = b.stage.trim()
+    if (requested === '') {
+      patch.stage = ''
+    } else {
+      const [existing] = await db
+        .select({ enterprise: batches.enterprise })
+        .from(batches)
+        .where(and(eq(batches.id, id), eq(batches.tenantId, tenantId)))
+        .limit(1)
+      if (!existing) return notFound()
+      const check = await checkStage(tenantId, existing.enterprise, requested)
+      if (check.ok) {
+        patch.stage = check.name
+      } else if (check.reason === 'none-configured') {
+        patch.stage = requested
+      } else {
+        return badRequest(
+          `"${requested}" is not one of this farm's stages for ${existing.enterprise}. `
+          + `Configured stages: ${check.configured.join(', ')}. `
+          + 'Add it in Settings › Farm Configuration first.'
+        )
+      }
+    }
   }
 
   if (Object.keys(patch).length === 0 && requestedQty === null) {
