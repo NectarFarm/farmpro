@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
-import { farms, productionUnits, batches, users } from '@/db/schemas'
+import { farms, productionUnits, batches, users, records, batchMovements, tasks, inventoryLots, employees, routines } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { isUniqueViolation } from '@/lib/db-errors'
 import { writeAuditLog } from '@/lib/audit'
@@ -231,15 +231,37 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
 
   const units = await db.select({ id: productionUnits.id }).from(productionUnits)
     .where(eq(productionUnits.farmId, id))
-  if (units.length > 0) {
-    const unitIds = units.map((u) => u.id)
-    const batchRows = await db.select({ id: batches.id }).from(batches).where(inArray(batches.unitId, unitIds))
-    return bad(
-      `"${farm.name}" still has ${units.length} production unit${units.length === 1 ? '' : 's'}` +
-      (batchRows.length > 0 ? ` and ${batchRows.length} batch${batchRows.length === 1 ? '' : 'es'}` : '') +
-      '. Deleting it would take that history with it — archive the farm instead (its status can be set to ARCHIVED), or remove the units first.',
-      409,
-    )
+  const unitIds = units.map((u) => u.id)
+  const batchRows = unitIds.length
+    ? await db.select({ id: batches.id }).from(batches).where(inArray(batches.unitId, unitIds))
+    : []
+  const batchIds = batchRows.map((b) => b.id)
+
+  // ── Cascade, only when it is asked for explicitly ────────────────────────
+  // The refusal below is still the default, and still the right default: a
+  // farm with units under it carries batches, the records filed against them,
+  // and the movements that back every headcount. Deleting quietly would take
+  // all of it.
+  //
+  // But an admin re-onboarding a farm — a duplicate from a mis-run signup, a
+  // test farm made during setup — has no route through that guard, and no
+  // amount of archiving removes it. So `?cascade=true` is the explicit,
+  // second-request way through, and the refusal below now TELLS the caller
+  // that, with the counts of exactly what would be destroyed. GET
+  // /api/farms/[id]/deletion-preview returns the same counts without deleting
+  // anything, so a UI can show them before it asks.
+  const cascade = url.searchParams.get('cascade') === 'true'
+  if (unitIds.length > 0 && !cascade) {
+    return NextResponse.json({
+      success: false,
+      error:
+        `"${farm.name}" still has ${unitIds.length} production unit${unitIds.length === 1 ? '' : 's'}` +
+        (batchIds.length > 0 ? ` and ${batchIds.length} batch${batchIds.length === 1 ? '' : 'es'}` : '') +
+        '. Archiving keeps the history and is reversible. To remove it and everything under it permanently, repeat this with cascade=true.',
+      // The UI needs these to name what it is about to destroy.
+      blocked: { units: unitIds.length, batches: batchIds.length },
+      cascadeAvailable: true,
+    }, { status: 409 })
   }
 
   // Who to tell. The farm's own tenant owner(s) — resolved BEFORE the delete,
@@ -249,6 +271,27 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     .where(and(eq(users.tenantId, farm.tenantId), eq(users.role, 'owner'), eq(users.status, 'ACTIVE')))
 
   await db.transaction(async (tx) => {
+    // Order matters: children before parents, or a NOT NULL foreign key
+    // refuses the delete. records -> batch_movements -> batches ->
+    // production_units -> the farm itself. Rows that merely CARRY a farmId
+    // (tasks, inventory lots, employees, routines — all nullable) are
+    // detached rather than destroyed: they belong to the tenant, not to this
+    // farm, and a farm being removed is not a reason to delete someone's
+    // staff record or their stock.
+    if (cascade && batchIds.length > 0) {
+      await tx.delete(records).where(inArray(records.batchId, batchIds))
+      await tx.delete(batchMovements).where(inArray(batchMovements.batchId, batchIds))
+      await tx.delete(batches).where(inArray(batches.id, batchIds))
+    }
+    if (cascade && unitIds.length > 0) {
+      await tx.delete(productionUnits).where(inArray(productionUnits.id, unitIds))
+    }
+    if (cascade) {
+      await tx.update(tasks).set({ farmId: null }).where(eq(tasks.farmId, id))
+      await tx.update(inventoryLots).set({ farmId: null }).where(eq(inventoryLots.farmId, id))
+      await tx.update(employees).set({ farmId: null }).where(eq(employees.farmId, id))
+      await tx.update(routines).set({ farmId: null }).where(eq(routines.farmId, id))
+    }
     await tx.delete(farms).where(eq(farms.id, id))
     await writeAuditLog({
       tenantId: farm.tenantId,
@@ -256,7 +299,13 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       action: 'farm.deleted',
       entity: 'farm',
       entityId: id,
-      meta: { name: farm.name, code: farm.code, reason: reason ?? '', notified: owners.map((o) => o.email) },
+      meta: {
+        name: farm.name, code: farm.code, reason: reason ?? '',
+        notified: owners.map((o) => o.email),
+        // What a cascade actually destroyed, so the audit row answers "where
+        // did those batches go" months later.
+        cascade, unitsDeleted: cascade ? unitIds.length : 0, batchesDeleted: cascade ? batchIds.length : 0,
+      },
     }, tx)
   })
 
