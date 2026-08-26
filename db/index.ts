@@ -29,7 +29,11 @@ function getClient() {
     }
     _client = postgres(process.env.DATABASE_URL, {
       prepare: false,
-      max: 5,
+      // Production pool size. Neon free tier allows up to 10 connections; this
+      // value should stay at or below that limit. Vercel serverless functions
+      // each open their own pool, so total connections = instances × max.
+      // For higher scale, switch to `@neondatabase/serverless` or add PgBouncer.
+      max: 10,
       idle_timeout: 20,
       connect_timeout: 10,
     })

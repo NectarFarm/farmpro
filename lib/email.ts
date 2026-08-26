@@ -163,21 +163,32 @@ export async function sendEmail({ to, template, message }: SendEmailInput): Prom
     : { name: 'IFMS', email: from.trim() }
 
   try {
-    const res = await fetch(BREVO_API_URL, {
-      method: 'POST',
-      headers: {
-        'api-key': apiKey,
-        'Content-Type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify({
-        sender,
-        to: [{ email: to }],
-        subject: message.subject,
-        textContent: message.text,
-        htmlContent: message.html,
-      }),
-    })
+    // Bound external SMTP latency so a slow Brevo response can't exhaust the
+    // limited DB connection pool while waiting. 15s is generous for a
+    // transactional mail API; adjust if Brevo's SLA changes.
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15_000)
+    let res: Response
+    try {
+      res = await fetch(BREVO_API_URL, {
+        method: 'POST',
+        headers: {
+          'api-key': apiKey,
+          'Content-Type': 'application/json',
+          accept: 'application/json',
+        },
+        body: JSON.stringify({
+          sender,
+          to: [{ email: to }],
+          subject: message.subject,
+          textContent: message.text,
+          htmlContent: message.html,
+        }),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
 
     let body: unknown = null
     try {

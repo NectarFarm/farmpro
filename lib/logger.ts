@@ -23,6 +23,15 @@ class Logger {
       console.debug(this.format('debug', message), ...args)
     }
   }
+
+  /** Returns a function that logs `message` with elapsed ms when called. */
+  time(message: string) {
+    const start = Date.now()
+    return () => {
+      const ms = Date.now() - start
+      this.debug(`${message} completed`, { ms })
+    }
+  }
 }
 
 export const logger = new Logger()

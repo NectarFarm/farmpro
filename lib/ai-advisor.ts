@@ -69,6 +69,14 @@ export interface FarmContext {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const ADVISOR_TIMEOUT_MS = 60_000 // 60s: AI calls can be slow; bound them.
+
+/** Creates an AbortSignal that auto-fires after `ms` milliseconds. */
+export function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController()
+  setTimeout(() => controller.abort(), ms)
+  return controller.signal
+}
 
 // Everything here is scoped by tenantId (and optionally farmId) at the query
 // level — there is no code path that widens it. `farmId` follows the same

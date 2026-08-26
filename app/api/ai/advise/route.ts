@@ -4,7 +4,7 @@ import { db } from '@/db'
 import { farms } from '@/db/schemas'
 import { requireTenantSession } from '@/lib/api-auth'
 import {
-  buildFarmContext, buildSystemPrompt, callAdvisor, DEFAULT_MODEL, normalizeMessages,
+  buildFarmContext, buildSystemPrompt, callAdvisor, DEFAULT_MODEL, normalizeMessages, timeoutSignal,
 } from '@/lib/ai-advisor'
 
 // ── POST /api/ai/advise (epic #258; the backend #259 assumed already existed) ─
@@ -96,7 +96,11 @@ export async function POST(req: Request) {
   const result = await callAdvisor(
     buildSystemPrompt(context, farmName),
     messages,
-    { apiKey, model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL },
+    {
+      apiKey,
+      model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
+      signal: timeoutSignal(60_000),
+    },
   )
 
   if (!result.ok) {
