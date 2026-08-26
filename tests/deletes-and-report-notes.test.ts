@@ -105,8 +105,8 @@ describe('DELETE /api/farms/[id] — admin only, refuses to take history with it
   it('refuses a farm that still has production units', () => {
     // production_units.farmId is a NOT NULL FK — deleting would orphan every
     // batch, record and report underneath it.
-    expect(src).toMatch(/still has \$\{units\.length\} production unit/)
-    expect(src).toMatch(/archive the farm instead/)
+    expect(src).toMatch(/still has \$\{unitIds\.length\} production unit/)
+    expect(src).toMatch(/Archiving keeps the history and is reversible/)
   })
 
   it('resolves the owners to email BEFORE the delete', () => {
@@ -147,5 +147,49 @@ describe('Report notes are the farmer\'s call — except the safety line', () =>
     expect(read('db/schemas/settings.ts')).toMatch(/reportNotesEnabled: boolean\('report_notes_enabled'\)/)
     expect(read('app/api/settings/route.ts')).toMatch(/patch\.reportNotesEnabled = b\.reportNotesEnabled/)
     expect(read('components/farm/settings.tsx')).toMatch(/toggleSetting\('reportNotesEnabled'\)/)
+  })
+})
+
+describe('Admin farm deletion — cascade is possible, but never the default', () => {
+  const read2 = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
+  const route = read2('app/api/farms/[id]/route.ts')
+  const ui = read2('components/farm/admin.tsx')
+
+  it('still refuses a non-empty farm unless cascade is asked for explicitly', () => {
+    expect(route).toMatch(/const cascade = url\.searchParams\.get\('cascade'\) === 'true'/)
+    expect(route).toMatch(/if \(unitIds\.length > 0 && !cascade\)/)
+  })
+
+  it('tells the caller cascade exists, with the counts', () => {
+    // A refusal that does not name the way through is a dead end — that is
+    // why the admin could not remove a farm at all.
+    expect(route).toMatch(/cascadeAvailable: true/)
+    expect(route).toMatch(/blocked: \{ units: unitIds\.length, batches: batchIds\.length \}/)
+  })
+
+  it('deletes children before parents, or the FKs refuse', () => {
+    const order = ['delete(records)', 'delete(batchMovements)', 'delete(batches)', 'delete(productionUnits)', 'delete(farms)']
+    const positions = order.map((frag) => route.indexOf(frag))
+    expect(positions.every((n) => n > -1)).toBe(true)
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+  })
+
+  it('detaches tenant-owned rows rather than destroying them', () => {
+    // Staff, stock, tasks and routines belong to the tenant. Removing a farm
+    // is not a reason to delete somebody's employee record.
+    for (const t of ['tasks', 'inventoryLots', 'employees', 'routines']) {
+      expect(route).toMatch(new RegExp(`update\\(${t}\\)\\.set\\(\\{ farmId: null \\}\\)`))
+    }
+    expect(route).not.toMatch(/delete\(employees\)/)
+  })
+
+  it('records in the audit what the cascade actually destroyed', () => {
+    expect(route).toMatch(/unitsDeleted: cascade \? unitIds\.length : 0/)
+  })
+
+  it('the UI requires the farm code typed before a cascade is possible', () => {
+    expect(ui).toMatch(/deletion-preview/)
+    expect(ui).toMatch(/confirmText\.trim\(\) !== deleteTarget\.code/)
+    expect(ui).toMatch(/needsCascade \? 'cascade=true' : ''/)
   })
 })

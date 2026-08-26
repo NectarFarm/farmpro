@@ -248,6 +248,13 @@ export function AdminFarmsScreen() {
 // a time, and every call here passes that tenant's real id explicitly
 // (GET/PATCH /api/farms(/[id]) require it from a super_admin session, which
 // carries no tenantId of its own).
+type DeletionPreview = {
+  farm: { id: string; name: string; code: string };
+  deletes: { productionUnits: number; batches: number; records: number };
+  detaches: { tasks: number; inventoryLots: number; employees: number; routines: number };
+  cascadeRequired: boolean;
+};
+
 function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged: () => void }) {
   const [farms, setFarms] = useState<ApiFarm[] | null>(null);
   const [error, setError] = useState('');
@@ -265,6 +272,11 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [deleteResult, setDeleteResult] = useState('');
+  // Counts of exactly what a cascade would destroy, fetched before we ask.
+  // A generic "are you sure?" is not a decision an admin can make: removing an
+  // empty duplicate and removing a farm with 900 records are different acts.
+  const [preview, setPreview] = useState<DeletionPreview | null>(null);
+  const [confirmText, setConfirmText] = useState('');
 
   const load = useCallback(async () => {
     const res = await apiClient.get<ApiFarm[]>(`/api/farms?tenantId=${tenantId}&includeArchived=true`);
@@ -318,7 +330,10 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
               <button onClick={() => setConfirmTarget(f)} title={f.status === 'ARCHIVED' ? 'Restore' : 'Archive'} style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border-subtle)', cursor: 'pointer', color: f.status === 'ARCHIVED' ? 'var(--status-ok)' : 'var(--status-critical)' }}>
                 {f.status === 'ARCHIVED' ? <RotateCcw size={12} /> : <Archive size={12} />}
               </button>
-              <button onClick={() => { setDeleteTarget(f); setDeleteReason(''); setDeleteError(''); }} title="Delete permanently" style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid rgba(248,113,113,0.35)', cursor: 'pointer', color: 'var(--status-critical)' }}>
+              <button onClick={() => {
+                setDeleteTarget(f); setDeleteReason(''); setDeleteError(''); setConfirmText(''); setPreview(null);
+                apiClient.get<DeletionPreview>(`/api/farms/${f.id}/deletion-preview`).then((r) => { if (r.success) setPreview(r.data); });
+              }} title="Delete permanently" style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid rgba(248,113,113,0.35)', cursor: 'pointer', color: 'var(--status-critical)' }}>
                 <Trash2 size={12} />
               </button>
             </div>
@@ -331,8 +346,40 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
           <div className="farm-card" style={{ padding: 18, width: '100%', maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, marginBottom: 8, color: 'var(--status-critical)' }}>Delete {deleteTarget.name} permanently?</div>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 10 }}>
-              This removes <strong>{deleteTarget.name}</strong> ({deleteTarget.code}) and cannot be undone. If the farm still has production units or batches the server will refuse — archive it instead. <strong>The farm owner is emailed</strong> either way it succeeds.
+              This removes <strong>{deleteTarget.name}</strong> ({deleteTarget.code}) and cannot be undone. <strong>The farm owner is emailed</strong> either way it succeeds.
             </div>
+
+            {preview === null && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginBottom: 10 }}>Checking what is under this farm…</div>}
+
+            {preview && preview.cascadeRequired && (
+              <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 10, marginBottom: 10 }}>
+                <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, color: 'var(--status-critical)', marginBottom: 6 }}>
+                  This farm is not empty. Deleting it destroys:
+                </div>
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                  {preview.deletes.productionUnits} production unit{preview.deletes.productionUnits === 1 ? '' : 's'}<br />
+                  {preview.deletes.batches} batch{preview.deletes.batches === 1 ? '' : 'es'}<br />
+                  <strong>{preview.deletes.records.toLocaleString()} worker record{preview.deletes.records === 1 ? '' : 's'}</strong> — every feeding, death, count and collection filed against those batches
+                </div>
+                {(preview.detaches.employees > 0 || preview.detaches.inventoryLots > 0 || preview.detaches.tasks > 0 || preview.detaches.routines > 0) && (
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 7, paddingTop: 7, borderTop: '1px solid var(--border-subtle)' }}>
+                    Kept, but no longer linked to a farm: {[
+                      preview.detaches.employees && `${preview.detaches.employees} employee${preview.detaches.employees === 1 ? '' : 's'}`,
+                      preview.detaches.inventoryLots && `${preview.detaches.inventoryLots} stock lot${preview.detaches.inventoryLots === 1 ? '' : 's'}`,
+                      preview.detaches.tasks && `${preview.detaches.tasks} task${preview.detaches.tasks === 1 ? '' : 's'}`,
+                      preview.detaches.routines && `${preview.detaches.routines} routine${preview.detaches.routines === 1 ? '' : 's'}`,
+                    ].filter(Boolean).join(', ')}. They belong to the tenant, not to this farm.
+                  </div>
+                )}
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.55 }}>
+                  If you only want it out of the way, <strong>archive</strong> instead — that is reversible.
+                </div>
+                <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', margin: '10px 0 4px' }}>
+                  Type the farm code <span style={{ fontFamily: 'monospace', color: 'var(--status-critical)' }}>{deleteTarget.code}</span> to confirm
+                </label>
+                <input className="farm-input" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder={deleteTarget.code} style={{ fontSize: 'var(--fs-sm)', fontFamily: 'monospace' }} />
+              </div>
+            )}
             <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Reason (included in the email, optional)</label>
             <input className="farm-input" value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="e.g. duplicate entry created during onboarding" style={{ marginBottom: 10, fontSize: 'var(--fs-sm)' }} />
             {deleteError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10, lineHeight: 1.5 }}>{deleteError}</div>}
@@ -341,7 +388,14 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
               <button
                 onClick={async () => {
                   setDeleteBusy(true); setDeleteError('');
-                  const q = deleteReason.trim() ? `?reason=${encodeURIComponent(deleteReason.trim())}` : '';
+                  // cascade only ever goes out when the farm genuinely needs
+                  // it AND the admin typed the code — never as a default.
+                  const needsCascade = !!preview?.cascadeRequired;
+                  const parts = [
+                    deleteReason.trim() ? `reason=${encodeURIComponent(deleteReason.trim())}` : '',
+                    needsCascade ? 'cascade=true' : '',
+                  ].filter(Boolean);
+                  const q = parts.length ? `?${parts.join('&')}` : '';
                   const res = await apiClient.delete<{ name: string; notified: string[]; notifyFailed: string[] }>(`/api/farms/${deleteTarget.id}${q}`);
                   setDeleteBusy(false);
                   if (!res.success) { setDeleteError(res.error || 'Could not delete this farm.'); return; }
@@ -357,10 +411,10 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
                   setDeleteTarget(null);
                   load(); onChanged();
                 }}
-                disabled={deleteBusy}
-                style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'var(--status-critical)', border: 'none', color: '#fff', cursor: 'pointer', opacity: deleteBusy ? 0.7 : 1 }}
+                disabled={deleteBusy || preview === null || (preview.cascadeRequired && confirmText.trim() !== deleteTarget.code)}
+                style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'var(--status-critical)', border: 'none', color: '#fff', cursor: 'pointer', opacity: deleteBusy || preview === null || (preview.cascadeRequired && confirmText.trim() !== deleteTarget.code) ? 0.5 : 1 }}
               >
-                {deleteBusy ? 'Deleting…' : 'Delete'}
+                {deleteBusy ? 'Deleting…' : preview?.cascadeRequired ? 'Delete everything' : 'Delete'}
               </button>
             </div>
           </div>
