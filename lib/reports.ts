@@ -89,7 +89,7 @@ function isoDate(d: Date | null | undefined): string {
 // lib/report-export.ts's PDF/CSV) print those strings VERBATIM, so the
 // screen and the exported document cannot disagree about what the report
 // says, and no second formatter gets hand-rolled in the export path.
-type PresentationSettings = { currencySymbol: string; weightUnit: string; timezone: string; dateFormat: DateFormat }
+type PresentationSettings = { currencySymbol: string; weightUnit: string; timezone: string; dateFormat: DateFormat; notesEnabled: boolean }
 
 async function presentationSettings(tenantId: string): Promise<PresentationSettings> {
   const rows = await db.select().from(tenantSettings).where(eq(tenantSettings.tenantId, tenantId)).limit(1)
@@ -101,7 +101,21 @@ async function presentationSettings(tenantId: string): Promise<PresentationSetti
     // Loose-text column; anything outside DATE_FORMATS falls back rather
     // than producing an undefined format code downstream.
     dateFormat: (DATE_FORMAT_SET.has(s?.dateFormat ?? '') ? s?.dateFormat : DEFAULT_DATE_FORMAT) as DateFormat,
+    // Defaults to true for a tenant with no settings row — the notes are the
+    // honest default and must not disappear just because nobody has visited
+    // Settings yet.
+    notesEnabled: s?.reportNotesEnabled ?? true,
   }
+}
+
+// One gate for every report's notes, so a new report cannot forget to honour
+// the setting: each compute* function passes its notes through this instead of
+// assigning the array directly. `basis` is deliberately NOT gated — it is one
+// line saying where the numbers came from, which is attribution rather than a
+// caveat, and a report that does not say what it was compiled from is not a
+// document anyone should sign.
+function notesFor(pres: PresentationSettings, notes: string[]): string[] {
+  return pres.notesEnabled ? notes : []
 }
 
 const DATE_FORMAT_SET = new Set(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'])
@@ -256,10 +270,10 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       { label: 'Period net', value: fmtMajor(periodNetIncome, pres.currencySymbol), caption: 'Revenue minus purchases' },
       { label: 'GL net position', value: fmtMajor(glTotalRevenue - glTotalExpense, pres.currencySymbol), caption: 'Cumulative, all-time' },
     ],
-    notes: [
-      'GL totals are cumulative (all-time) and tenant-wide regardless of farm scope — they are not filtered by the report period, because the general ledger has no farm relationship to scope by.',
-      'Costs shown are tracked purchase costs only; feed, health, labour and overhead costs are not yet posted to purchases for every activity and may be understated.',
-    ],
+    notes: notesFor(pres, [
+      'GL totals are all-time and cover every farm — not this period, not this farm.',
+      'Costs are tracked purchases only. Untracked feed, health and labour costs mean expenses may be understated.',
+    ]),
     basis: `Compiled from recorded sales and purchase transactions for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists` : ', across all farms'}.`,
     totals: [null, null, 'Period net', null, periodNetIncome, null],
     columnAlign: ['left', 'left', 'left', 'left', 'right', 'left'],
@@ -347,10 +361,10 @@ export async function computeBatchPlReport(tenantId: string, from: Date | null, 
       { label: 'Tracked cost', value: fmtMajor(totalCost, pres.currencySymbol), caption: 'Acquisition cost only' },
       { label: 'Margin', value: fmtMajor(totalMargin, pres.currencySymbol), caption: totalRevenue > 0 ? `${Math.round((totalMargin / totalRevenue) * 1000) / 10}% of revenue` : 'No period revenue' },
     ],
-    notes: [
-      'Cost is each batch\'s cumulative acquisition cost — the only cost currently tracked per batch. Feed, health, labour and overhead costs are untracked, so margins are overstated wherever those costs exist.',
-      'Revenue is filtered to the report period; acquisition cost is a point-in-time fact about each batch and is deliberately NOT period-filtered.',
-    ],
+    notes: notesFor(pres, [
+      'Cost is acquisition cost only — feed, health and labour are untracked, so margins read high.',
+      'Revenue covers the report period; acquisition cost is the batch total, not period-filtered.',
+    ]),
     basis: 'Compiled from real sales against each batch and each batch\'s tracked cost breakdown.',
     totals: [null, 'TOTAL', null, totalRevenue, totalCost, totalMargin, totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 1000) / 10 : 0],
     columnAlign: ['left', 'left', 'left', 'right', 'right', 'right', 'right'],
@@ -409,10 +423,10 @@ export async function computeMortalityReport(tenantId: string, from: Date | null
       { label: 'Records filed', value: fmtInt(rows.length), caption: 'worker submissions' },
       { label: 'Batches affected', value: fmtInt(batchesAffected.size), caption: 'with at least one death' },
     ],
-    notes: [
-      'Cause is as entered by the recording worker and is not veterinary-confirmed.',
-      'Mortality counts are taken at submission time; the batch headcount ledger (batch_movements) remains the authoritative running total.',
-    ],
+    notes: notesFor(pres, [
+      'Cause is as entered by the worker, not veterinary-confirmed.',
+      'The batch headcount ledger remains the authoritative running total.',
+    ]),
     basis: `Compiled from worker-submitted mortality records for the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}.`,
     totals: ['Total', null, totalDeaths, null],
     columnAlign: ['left', 'left', 'right', 'left'],
@@ -483,9 +497,9 @@ export async function computeFeedConsumptionReport(tenantId: string, from: Date 
       { label: 'Feed types issued', value: fmtInt(feedTypes.size), caption: 'distinct items named on rounds' },
       { label: 'Batches fed', value: fmtInt(batchesFed.size), caption: 'with feed recorded in range' },
     ],
-    notes: [
-      'Quantities are as entered by the feeding worker against store stock; each submission consumes the recorded quantity from inventory.',
-    ],
+    notes: notesFor(pres, [
+      'Quantities are worker-entered against store stock, and each one draws down inventory.',
+    ]),
     basis: `Compiled from worker-submitted feeding records for the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}.`,
     totals: [null, null, 'Total', Math.round(totalKg * 100) / 100],
     columnAlign: ['left', 'left', 'left', 'right'],
@@ -555,10 +569,10 @@ export async function computeProductionReport(tenantId: string, from: Date | nul
       { label: 'Collection entries', value: fmtInt(tableRows.length), caption: `${fmtInt(rows.length)} worker submission${rows.length === 1 ? '' : 's'}` },
       { label: 'Products collected', value: fmtInt(productsSeen.size), caption: 'distinct catalogue products' },
     ],
-    notes: [
-      'Quantities are in each product\'s own unit (trays, litres, kg) as defined in the product catalogue and entered by the collecting worker.',
-      'Every collection also increases the product\'s sellable balance; sales reduce it. This report shows activity, not the current balance.',
-    ],
+    notes: notesFor(pres, [
+      'Quantities use each product\'s own unit — trays, litres, kg.',
+      'This is activity for the period, not the current sellable balance.',
+    ]),
     basis: `Compiled from worker-submitted collection records for the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}.`,
     totals: [null, null, 'Total', Math.round(totalQty * 100) / 100],
     columnAlign: ['left', 'left', 'left', 'right'],
@@ -630,11 +644,16 @@ export async function computeVaccinationReport(tenantId: string, from: Date | nu
       { label: 'Birds treated', value: birdsTreated > 0 ? fmtInt(birdsTreated) : '—', caption: birdsTreated > 0 ? `across ${fmtInt(treatmentsWithCount)} treatment${treatmentsWithCount === 1 ? '' : 's'} that recorded a count` : 'no counts recorded' },
       { label: 'Batches treated', value: fmtInt(batchesTreated.size), caption: 'distinct batches in range' },
     ],
-    notes: [
-      'Withdrawal periods are NOT shown because nothing in the system stores a withdrawal period per treatment — this column will be added when treatments carry that data. Check the treatment notes or consult your vet.',
-      'Treatment names and doses are free text as entered by the recording worker; they are not validated against a drug list.',
-    ],
-    basis: `Compiled from worker-submitted health records for the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}. Cause of treatment is not veterinary-confirmed.`,
+    // The withdrawal-period warning is deliberately NOT in `notes` and so
+    // cannot be switched off. Everything else here is a caveat about data
+    // quality; that one is about food safety. This app stores no withdrawal
+    // period per treatment, and a treatment log with no withdrawal column and
+    // no explanation could put meat, milk or eggs into a food chain early.
+    // A farmer may hide their bookkeeping caveats from a buyer — not that.
+    notes: notesFor(pres, [
+      'Treatment names and doses are free text, not validated against a drug list.',
+    ]),
+    basis: `Compiled from worker-submitted health records for the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}. Treatment is not veterinary-confirmed, and NO withdrawal periods are shown — this system does not record them, so check the treatment notes or consult your vet before selling produce.`,
     columnAlign: ['left', 'left', 'left', 'right', 'left', 'left', 'left'],
     columnFormats: ['text', 'text', 'text', 'number', 'text', 'text', 'text'],
   }
@@ -742,11 +761,11 @@ export async function computeFcrReport(tenantId: string, from: Date | null, to: 
       { label: 'Feed issued', value: `${fmtInt(totalFeed)} ${pres.weightUnit}`, caption: humanPeriodLabel(from, to, pres).toLowerCase() },
       { label: 'Batches computable', value: `${fmtInt(fcrValues.length)} of ${fmtInt(batchRows.length)}`, caption: 'need ≥2 weight samples + feed' },
     ],
-    notes: [
-      'FCR = feed issued ÷ (weight gain per bird × current head). It only appears where the batch has at least two weight samples AND feed records in the period — "—" means not measurable yet, never zero.',
-      'Weight gain is the difference between the first and latest sample averages in the period; sampling more often makes it more accurate.',
-      'Ratios are never averaged across batches; the headline figure is the median of the computable ones.',
-    ],
+    notes: notesFor(pres, [
+      'FCR = feed issued ÷ (weight gain per bird × head). Needs two weight samples — "—" means not measurable, never zero.',
+      'Weight gain spans the first and latest samples in the period; sample more often for accuracy.',
+      'The headline is the median of computable ratios, never an average across batches.',
+    ]),
     basis: `Compiled from worker-submitted feeding and weight-sample records for the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}.`,
     columnAlign: ['left', 'right', 'right', 'right', 'right', 'right', 'right'],
     columnFormats: ['text', 'weight', 'weight', 'weight', 'weight', 'number', 'number'],

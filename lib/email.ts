@@ -52,6 +52,7 @@ export type EmailTemplate =
   | 'onboarding-rejected'
   | 'onboarding-guide'
   | 'notification'
+  | 'farm-deleted'
 
 // Every send — success, no-op, or failure — reports this shape so the
 // caller can log it. `providerId` is Brevo's message id (useful for
@@ -336,4 +337,33 @@ export function resolveAppBaseUrl(req?: Request): string {
   }
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   return 'http://localhost:13001'
+}
+
+
+// ── A farm was removed from a farmer's account ─────────────────────────────
+// Sent to the farm's owner when a platform admin deletes one of their farms.
+// This is the one email in this file the recipient did not ask for and cannot
+// undo, so it does two things carefully: it names WHICH farm (an account with
+// several would otherwise have to guess), and it names a way to reach a human.
+// No CTA button — there is nothing for them to click that helps, and a button
+// on a destructive notice reads like a trap.
+export async function sendFarmDeletedEmail(opts: {
+  to: string
+  farmerName: string
+  farmName: string
+  farmCode: string
+  reason?: string
+}): Promise<EmailResult> {
+  const paragraphs = [
+    `Hi ${opts.farmerName},`,
+    `We are writing to let you know that the farm "${opts.farmName}" (${opts.farmCode}) has been removed from your ${APP_NAME} account by an administrator.`,
+    ...(opts.reason ? [`Reason given: ${opts.reason}`] : []),
+    'Your account and any other farms on it are unaffected, and you can continue signing in as normal.',
+    'If you were not expecting this, reply to this message and an administrator will look into it.',
+  ]
+  const message = composeMessage({
+    subject: `${APP_NAME}: the farm "${opts.farmName}" was removed from your account`,
+    paragraphs,
+  })
+  return sendEmail({ to: opts.to, template: 'farm-deleted', message })
 }

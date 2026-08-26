@@ -71,6 +71,19 @@ export const tenantSettings = pgTable('tenant_settings', {
   // log timestamps in the tenant's own convention instead of a hardcoded
   // 'en-KE' locale.
   dateFormat: text('date_format').notNull().default('DD/MM/YYYY'),
+  // ── Do the explanatory notes print on a report? (default: yes) ───────────
+  // Every report carries a short "notes & basis" block saying what the
+  // figures are and are not — GL totals being all-time, costs being
+  // acquisition-only, a cause being worker-entered rather than
+  // vet-confirmed. That candour is the point of it, and it stays the
+  // default.
+  //
+  // But the same block goes out on a document a farmer hands to a buyer or a
+  // co-op, and not every farm wants its caveats printed on the page. Turning
+  // it off removes the notes from the preview, the PDF and the CSV together —
+  // never from one and not another, or the screen and the file would disagree
+  // about what the report says. The figures themselves never change.
+  reportNotesEnabled: boolean('report_notes_enabled').notNull().default(true),
 
   // Farm offices share devices — this bounds how long a session issued to
   // this tenant's users stays valid, read by POST /api/auth/login when

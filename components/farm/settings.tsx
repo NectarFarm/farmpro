@@ -178,6 +178,7 @@ const FONT_OPTIONS: { id: FontSize; label: string; size: string }[] = [
 interface ApiSettings {
   notificationsEnabled: boolean;
   soundAlertsEnabled: boolean;
+  reportNotesEnabled: boolean;
   offlineModeEnabled: boolean;
   currencySymbol: string;
   weightUnit: string;
@@ -271,6 +272,9 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   // dead toggles they fed — the flags still exist in tenant_settings and the
   // PATCH contract, but no control on this screen flips them today.)
   const soundAlerts = settings?.soundAlertsEnabled ?? false;
+  // Defaults to true, matching the server: an unloaded settings object must
+  // not render this as "off" and imply the notes are already suppressed.
+  const reportNotes = settings?.reportNotesEnabled ?? true;
   const currencySymbol = settings?.currencySymbol ?? 'KSh';
   const weightUnit = settings?.weightUnit ?? 'kg';
   const timezone = settings?.timezone ?? 'Africa/Nairobi';
@@ -400,6 +404,18 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         { label: 'Weight unit', desc: 'Used in reports and exports', readOnly: ownerOnlyNote, select: { value: weightUnit, options: WEIGHT_UNIT_OPTIONS.map((u) => ({ value: u, label: u })), onChange: (v) => updateSetting('weightUnit', v) } },
         { label: 'Timezone', desc: 'Used to render every timestamp in the app', readOnly: ownerOnlyNote, select: { value: timezone, options: TIMEZONE_OPTIONS, onChange: (v) => updateSetting('timezone', v) } },
         { label: 'Date format', desc: 'Day/month order for displayed dates', readOnly: ownerOnlyNote, select: { value: dateFormat, options: DATE_FORMAT_OPTIONS, onChange: (v) => updateSetting('dateFormat', v as DateFormat) } },
+      ],
+    },
+    {
+      // Reports group: one control, and it belongs to the person whose name is
+      // on the document. The notes are honest by default; a farm handing a
+      // report to a buyer may not want its bookkeeping caveats printed on the
+      // page, and that is their call to make. Figures never change either way,
+      // and the food-safety line on the treatment report is not part of this
+      // toggle (see lib/reports.ts) — it cannot be switched off.
+      label: 'Reports',
+      items: [
+        { label: 'Print notes on reports', desc: 'The "notes & basis" block explaining what the figures do and don\u2019t cover', toggle: true, value: reportNotes, onToggle: () => toggleSetting('reportNotesEnabled') },
       ],
     },
     {

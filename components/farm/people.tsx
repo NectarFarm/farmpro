@@ -686,7 +686,8 @@ function WorkerLoginCard({ employee, tenantId, onLinked }: {
 }
 
 export function PeopleDetailScreen() {
-  const { params, tenantId } = useNav();
+  const { params, tenantId, goBack } = useNav();
+  const { showToast } = useToast();
   const id = params.id;
   const [employee, setEmployee] = useState<ApiEmployee | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -961,6 +962,14 @@ export function PeopleDetailScreen() {
           tenantId={tenantId}
           onClose={() => setShowEdit(false)}
           onSaved={(updated) => { setEmployee(updated); setShowEdit(false); }}
+          onRemoved={(message) => {
+            // The record this screen is showing may no longer exist, so leave
+            // it rather than re-rendering a detail view of a deleted row. The
+            // server's own message says whether it was deleted or archived.
+            setShowEdit(false);
+            showToast(message, 'success');
+            goBack();
+          }}
         />
       )}
 
@@ -1017,11 +1026,14 @@ function ToggleActiveConfirm({ employee, busy, error, batchLabel, onCancel, onCo
   );
 }
 
-function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
+function EditEmployeeModal({ employee, tenantId, onClose, onSaved, onRemoved }: {
   employee: ApiEmployee;
   tenantId: string;
   onClose: () => void;
   onSaved: (emp: ApiEmployee) => void;
+  // Given the server's own message, because only the server knows whether the
+  // person was deleted outright or archived to protect their records.
+  onRemoved: (message: string) => void;
 }) {
   const [name, setName] = useState(employee.name);
   const [phone, setPhone] = useState(employee.phone);
@@ -1051,6 +1063,25 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
 
   function toggleBatch(id: string) {
     setSelectedBatches((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  // ── Removing someone, with the warning the action deserves ───────────────
+  // Two-step on purpose: the button reveals a confirm panel naming the person
+  // rather than deleting on first tap, because this can suspend their login.
+  // The server decides whether it is a delete or an archive — a worker with
+  // any record or payslip cannot be removed without taking the farm's history
+  // with them (see DELETE /api/employees/[id]) — so this UI never promises
+  // which one will happen. It reports what the server actually did.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    setError('');
+    const res = await apiClient.delete<{ outcome: 'deleted' | 'archived'; message: string }>(`/api/employees/${employee.id}?tenantId=${tenantId}`);
+    setDeleting(false);
+    if (!res.success) { setError(res.error || 'Could not remove this person.'); return; }
+    onRemoved(res.data.message);
   }
 
   async function handleSave() {
@@ -1120,6 +1151,39 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
         <button className="btn-primary" disabled={saving} style={{ width: '100%', justifyContent: 'center', borderRadius: 12, padding: 12, opacity: saving ? 0.7 : 1 }} onClick={handleSave}>
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
+
+        {/* Remove — last, separated, and never the primary action. */}
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
+          {!confirmingDelete ? (
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              style={{ width: '100%', padding: 11, borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer' }}
+            >
+              Remove {employee.name} from this farm
+            </button>
+          ) : (
+            <div style={{ padding: '11px 12px', background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 12 }}>
+              <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+                Remove {employee.name}?
+              </div>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 10 }}>
+                They will be taken off the roster{employee.userId ? ' and will no longer be able to sign in' : ''}. If they have already filed records or been paid, those must stay on the farm&apos;s history — in that case they are archived rather than deleted, and we&apos;ll tell you which happened. This cannot be undone from here.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setConfirmingDelete(false)} disabled={deleting} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 9 }}>
+                  Keep them
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  style={{ flex: 1, padding: 9, borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'var(--status-critical)', border: 'none', color: '#fff', cursor: 'pointer', opacity: deleting ? 0.7 : 1 }}
+                >
+                  {deleting ? 'Removing…' : 'Remove'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

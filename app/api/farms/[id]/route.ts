@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
-import { farms, productionUnits, batches } from '@/db/schemas'
+import { farms, productionUnits, batches, users } from '@/db/schemas'
 import { getSessionUser } from '@/lib/auth'
 import { isUniqueViolation } from '@/lib/db-errors'
 import { writeAuditLog } from '@/lib/audit'
 import { validateLocation } from '@/lib/validation'
+import { sendFarmDeletedEmail } from '@/lib/email'
 
 // ── PATCH /api/farms/[id] (farms CRUD) ──────────────────────────────────────
 // Completes farms CRUD: GET/POST /api/farms already existed with no
@@ -191,4 +192,101 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   })
 
   return NextResponse.json({ success: true, data: updated }, { status: 200 })
+}
+
+// ── DELETE /api/farms/[id] — a platform admin removing a farm ──────────────
+// super_admin only, and deliberately narrower than it sounds.
+//
+// `production_units.farmId` is a NOT NULL foreign key to this row, so a farm
+// with any unit under it cannot be deleted without destroying the units,
+// their batches, and every record and report that traces through them.
+// Postgres would refuse it, and it should: "delete the farm" is not a request
+// to silently delete a season of a farmer's data.
+//
+// So this deletes a farm that has nothing under it — the duplicate, the
+// typo'd second entry, the one created during a mis-run onboarding. Anything
+// with units gets pointed at ARCHIVE (PATCH { status: 'ARCHIVED' }), which
+// already exists and already has its own guard, and which is what "retire
+// this farm" actually means when there is history under it.
+//
+// The farmer is emailed either way it succeeds, because they did not ask for
+// this and would otherwise just find a farm missing. The send is best-effort:
+// the deletion is already committed by then, and failing the response would
+// tell the admin the delete did not happen when it did.
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const session = await getSessionUser()
+  if (!session) return bad('Unauthorized', 401)
+  // Not requireRole() here only because this file predates lib/api-auth.ts and
+  // resolves its session with getSessionUser() throughout — matching the
+  // sibling handlers rather than mixing two auth styles in one file.
+  if (session.role !== 'super_admin') return bad('Only a platform administrator can delete a farm', 403)
+
+  const url = new URL(req.url)
+  const reason = url.searchParams.get('reason')?.trim().slice(0, 300) || undefined
+
+  const rows = await db.select().from(farms).where(eq(farms.id, id)).limit(1)
+  const farm = rows[0]
+  if (!farm) return bad('Farm not found', 404)
+
+  const units = await db.select({ id: productionUnits.id }).from(productionUnits)
+    .where(eq(productionUnits.farmId, id))
+  if (units.length > 0) {
+    const unitIds = units.map((u) => u.id)
+    const batchRows = await db.select({ id: batches.id }).from(batches).where(inArray(batches.unitId, unitIds))
+    return bad(
+      `"${farm.name}" still has ${units.length} production unit${units.length === 1 ? '' : 's'}` +
+      (batchRows.length > 0 ? ` and ${batchRows.length} batch${batchRows.length === 1 ? '' : 'es'}` : '') +
+      '. Deleting it would take that history with it — archive the farm instead (its status can be set to ARCHIVED), or remove the units first.',
+      409,
+    )
+  }
+
+  // Who to tell. The farm's own tenant owner(s) — resolved BEFORE the delete,
+  // since the row is gone afterwards and the tenant link goes with it.
+  const owners = await db.select({ email: users.email, name: users.name })
+    .from(users)
+    .where(and(eq(users.tenantId, farm.tenantId), eq(users.role, 'owner'), eq(users.status, 'ACTIVE')))
+
+  await db.transaction(async (tx) => {
+    await tx.delete(farms).where(eq(farms.id, id))
+    await writeAuditLog({
+      tenantId: farm.tenantId,
+      actor: session.id,
+      action: 'farm.deleted',
+      entity: 'farm',
+      entityId: id,
+      meta: { name: farm.name, code: farm.code, reason: reason ?? '', notified: owners.map((o) => o.email) },
+    }, tx)
+  })
+
+  const emailResults: { to: string; ok: boolean }[] = []
+  for (const owner of owners) {
+    if (!owner.email) continue
+    try {
+      const result = await sendFarmDeletedEmail({
+        to: owner.email,
+        farmerName: owner.name || 'there',
+        farmName: farm.name,
+        farmCode: farm.code,
+        reason,
+      })
+      emailResults.push({ to: owner.email, ok: result.ok })
+    } catch (err) {
+      console.error('[farm-delete] notification email failed', { farmId: id, err })
+      emailResults.push({ to: owner.email, ok: false })
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      deleted: true,
+      name: farm.name,
+      // Reported rather than assumed: an admin should be able to see that
+      // nobody was reachable, instead of believing the farmer was told.
+      notified: emailResults.filter((r) => r.ok).map((r) => r.to),
+      notifyFailed: emailResults.filter((r) => !r.ok).map((r) => r.to),
+    },
+  }, { status: 200 })
 }

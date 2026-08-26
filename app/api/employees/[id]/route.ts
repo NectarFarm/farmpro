@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { employees, batches } from '@/db/schemas'
-import { and, eq, inArray } from 'drizzle-orm'
+import { employees, batches, records, payslips, users } from '@/db/schemas'
+import { and, count, eq, inArray } from 'drizzle-orm'
 import { writeAuditLog } from '@/lib/audit'
 import { requireTenantSession } from '@/lib/api-auth'
 
@@ -165,4 +165,92 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   })
 
   return ok(rows[0])
+}
+
+// ── DELETE /api/employees/[id] — removing someone after they were created ──
+// Owner only. Creating staff was a one-way door: there was no DELETE handler
+// at all, so a mistyped duplicate or someone who never actually started sat on
+// the roster permanently. (The same creation-only shape as batch assignment,
+// fixed separately.)
+//
+// It is NOT a plain delete, because it cannot be. `records.employeeId` and
+// `payslips.employeeId` are both NOT NULL foreign keys to this row, so a
+// worker who has ever filed a record or been paid cannot be removed without
+// destroying the farm's own history — the mortality entry that moved a
+// headcount, the payslip backing a journal entry. Postgres would refuse it,
+// and it SHOULD refuse it.
+//
+// So there are two outcomes, and the route picks based on what actually
+// exists rather than making the caller guess:
+//
+//   No records and no payslips  -> hard delete. Nothing refers to them.
+//   Any history at all          -> ARCHIVE (status: 'INACTIVE') and say so.
+//
+// Archiving is not a consolation prize: it is the correct answer. It removes
+// them from assignment lists and the active roster while every record they
+// filed keeps naming a real person instead of a dangling id. A linked login is
+// suspended in the same transaction — leaving an active `users` row for someone
+// removed from the roster is exactly how a departed worker keeps signing in.
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const auth = await requireTenantSession({
+    // Owner only: this removes a person from the farm and can suspend their
+    // login. A manager can edit staff (canEdit(people)) but not delete them.
+    roles: ['owner'],
+    explicitTenantId: new URL(req.url).searchParams.get('tenantId') ?? undefined,
+  })
+  if ('error' in auth) return auth.error
+  const { tenantId, session } = auth
+
+  const rows = await db.select().from(employees)
+    .where(and(eq(employees.id, id), eq(employees.tenantId, tenantId))).limit(1)
+  const employee = rows[0]
+  if (!employee) return notFound()
+
+  // Counted, not fetched — the answer is a number and these tables grow.
+  const [recordCount] = await db.select({ n: count() }).from(records)
+    .where(and(eq(records.tenantId, tenantId), eq(records.employeeId, id)))
+  const [payslipCount] = await db.select({ n: count() }).from(payslips)
+    .where(and(eq(payslips.tenantId, tenantId), eq(payslips.employeeId, id)))
+  const history = Number(recordCount?.n ?? 0) + Number(payslipCount?.n ?? 0)
+
+  if (history > 0) {
+    if (employee.status === 'INACTIVE') {
+      return NextResponse.json({
+        success: false,
+        error: `${employee.name} is already archived. Their ${history} record${history === 1 ? '' : 's'} must stay on the farm's history, so the row cannot be removed.`,
+      }, { status: 409 })
+    }
+    await db.transaction(async (tx) => {
+      await tx.update(employees).set({ status: 'INACTIVE' })
+        .where(and(eq(employees.id, id), eq(employees.tenantId, tenantId)))
+      if (employee.userId) {
+        await tx.update(users).set({ status: 'SUSPENDED' })
+          .where(and(eq(users.id, employee.userId), eq(users.tenantId, tenantId)))
+      }
+      await writeAuditLog({
+        tenantId, actor: session.id, action: 'employee.archived',
+        entity: 'employee', entityId: id,
+        meta: { name: employee.name, recordCount: Number(recordCount?.n ?? 0), payslipCount: Number(payslipCount?.n ?? 0), loginSuspended: !!employee.userId },
+      }, tx)
+    })
+    return ok({
+      outcome: 'archived',
+      message: `${employee.name} has been archived rather than deleted — they have ${history} record${history === 1 ? '' : 's'} on this farm that must stay. They no longer appear on the active roster${employee.userId ? ' and can no longer sign in' : ''}.`,
+    })
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.delete(employees).where(and(eq(employees.id, id), eq(employees.tenantId, tenantId)))
+    if (employee.userId) {
+      await tx.update(users).set({ status: 'SUSPENDED' })
+        .where(and(eq(users.id, employee.userId), eq(users.tenantId, tenantId)))
+    }
+    await writeAuditLog({
+      tenantId, actor: session.id, action: 'employee.deleted',
+      entity: 'employee', entityId: id,
+      meta: { name: employee.name, loginSuspended: !!employee.userId },
+    }, tx)
+  })
+  return ok({ outcome: 'deleted', message: `${employee.name} has been removed from this farm.` })
 }
