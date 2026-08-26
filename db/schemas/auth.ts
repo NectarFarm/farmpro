@@ -76,6 +76,12 @@ export const sessions = pgTable('sessions', {
   impersonatedBy: text('impersonated_by'),
 }, (t) => [
   index('idx_sessions_user').on(t.userId),
+  // Scalability audit: both the nightly cleanup cron
+  // (app/api/cron/cleanup-sessions) and every request's getSessionUser()
+  // filter on expiresAt (the cron deletes `expiresAt < now`; session lookup
+  // checks `expiresAt > now`) — an unindexed filter here means both scan
+  // every row in the table, on every single authenticated request.
+  index('idx_sessions_expires_at').on(t.expiresAt),
 ])
 
 // A user-initiated request to reset their own password, created only by
