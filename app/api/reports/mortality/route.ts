@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/auth'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
-import { computeMortalityReport, parseDateRange, InvalidDateRangeError, REPORT_VIEWER_ROLES } from '@/lib/reports'
+import { computeMortalityReport, parseDateRange, InvalidDateRangeError, REPORT_VIEWER_ROLES, withReportCache } from '@/lib/reports'
 
 // ── GET /api/reports/mortality (issue #263 task 3; role-gated + session-only
 // tenant for the vet/auditor screens task) ──────────────────────────────────
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
   try {
     const { from, to } = parseDateRange(url.searchParams.get('from'), url.searchParams.get('to'))
-    const report = await computeMortalityReport(tenantId, from, to, farmFilter ?? undefined)
+    const report = await withReportCache('mortality', tenantId, from, to, farmFilter ?? undefined, () => computeMortalityReport(tenantId, from, to, farmFilter ?? undefined))
     return ok(report)
   } catch (err) {
     if (err instanceof InvalidDateRangeError) return badRequest(err.message)

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/auth'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
-import { computeBatchPlReport, parseDateRange, InvalidDateRangeError, REPORT_VIEWER_ROLES } from '@/lib/reports'
+import { computeBatchPlReport, parseDateRange, InvalidDateRangeError, REPORT_VIEWER_ROLES, withReportCache } from '@/lib/reports'
 
 // ── GET /api/reports/batch-pl (issue #263 task 2; role-gated + session-only
 // tenant for the vet/auditor screens task) ──────────────────────────────────
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
   try {
     const { from, to } = parseDateRange(url.searchParams.get('from'), url.searchParams.get('to'))
-    const report = await computeBatchPlReport(tenantId, from, to, farmFilter ?? undefined)
+    const report = await withReportCache('batch-pl', tenantId, from, to, farmFilter ?? undefined, () => computeBatchPlReport(tenantId, from, to, farmFilter ?? undefined))
     return ok(report)
   } catch (err) {
     if (err instanceof InvalidDateRangeError) return badRequest(err.message)
