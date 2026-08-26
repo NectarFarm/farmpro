@@ -16,7 +16,7 @@
 // fall back to unfiltered" requirement in exactly one place instead of once
 // per route.
 import 'server-only'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { farms, productionUnits, batches } from '@/db/schemas'
 
@@ -70,14 +70,28 @@ export async function unitIdsForFarm(tenantId: string, farmId: string): Promise<
 // batches.id rows belonging to one farm (via unitId -> production_units).
 // Used to join-filter `records`/`sales`/`approval_requests`, none of which
 // carry a farm_id of their own. Returns [] (not an error) when the farm has
-// no units yet — callers must special-case an empty array rather than pass
-// it to `inArray`, which Postgres/Drizzle can choke on for an empty list.
+// no units yet, OR has units but no batches on them — callers must
+// special-case an empty array rather than pass it to `inArray`, which
+// Postgres/Drizzle can choke on for an empty list.
+//
+// One JOIN (scalability audit item B), not two sequential round-trips
+// through unitIdsForFarm + a second query: this is called on most
+// farm-scoped requests (reports, records, sales, approvals — see the
+// call-site list in this module's header), so the extra round-trip cost was
+// paid on nearly every farm-scoped request in the app. Both tenantId checks
+// are kept (on production_units AND on batches) — defensive, not load-
+// bearing, same as the two-query version before it; a batch's unitId always
+// implies the same tenant in practice, but this makes that assumption
+// verified rather than assumed.
 export async function batchIdsForFarm(tenantId: string, farmId: string): Promise<string[]> {
-  const unitIds = await unitIdsForFarm(tenantId, farmId)
-  if (unitIds.length === 0) return []
   const rows = await db
     .select({ id: batches.id })
     .from(batches)
-    .where(and(eq(batches.tenantId, tenantId), inArray(batches.unitId, unitIds)))
+    .innerJoin(productionUnits, eq(batches.unitId, productionUnits.id))
+    .where(and(
+      eq(batches.tenantId, tenantId),
+      eq(productionUnits.tenantId, tenantId),
+      eq(productionUnits.farmId, farmId),
+    ))
   return rows.map((r) => r.id)
 }
