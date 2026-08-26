@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { employees, payrollRuns, payslips } from '@/db/schemas'
-import { and, desc, eq, gt } from 'drizzle-orm'
+import { and, desc, eq, gt, lt } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, canView, MODULES } from '@/lib/permissions'
 import { postPayrollJournal } from '@/lib/finance'
@@ -95,6 +95,45 @@ export async function POST(req: Request) {
   }
 
   const memo = typeof b.memo === 'string' ? b.memo.trim() : ''
+
+  // ── Nobody gets paid twice for the same days ─────────────────────────────
+  // The only guard here was the unique index on
+  // (tenant_id, period_start, period_end), which catches an EXACT repeat — a
+  // double-click, or a retried request. It does not catch the mistake that
+  // actually loses money: a second run over an OVERLAPPING period. "1–31 Aug"
+  // followed by "15 Aug–15 Sep" are two different keys, so both inserted, and
+  // every employee was paid twice for the fortnight they share — with two
+  // journal entries debiting Payroll Expense for the full month each.
+  //
+  // Standard half-open overlap test: two ranges overlap when each starts
+  // before the other ends. Checked in the request rather than as a DB
+  // constraint because expressing it in Postgres needs an exclusion
+  // constraint over a range type, which is a schema change and a migration
+  // for a rule this route is the only writer for.
+  const overlapping = await db
+    .select({
+      id: payrollRuns.id,
+      periodStart: payrollRuns.periodStart,
+      periodEnd: payrollRuns.periodEnd,
+    })
+    .from(payrollRuns)
+    .where(and(
+      eq(payrollRuns.tenantId, tenantId),
+      lt(payrollRuns.periodStart, periodEnd),
+      gt(payrollRuns.periodEnd, periodStart),
+    ))
+    .limit(1)
+
+  if (overlapping.length > 0) {
+    const clash = overlapping[0]
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    return badRequest(
+      `Payroll has already been run for ${iso(clash.periodStart)} to ${iso(clash.periodEnd)}, `
+      + 'which overlaps this period — those days would be paid twice. '
+      + 'Pick a period that starts after that run ends.',
+      { periodStart: 'Overlaps a payroll run that already exists' }
+    )
+  }
 
   const eligible = await db
     .select({ id: employees.id, name: employees.name, monthlySalaryCents: employees.monthlySalaryCents })
