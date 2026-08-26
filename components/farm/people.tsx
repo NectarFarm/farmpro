@@ -1027,8 +1027,31 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
   const [phone, setPhone] = useState(employee.phone);
   const [threshold, setThreshold] = useState(String(employee.mortalityPhotoThreshold));
   const [monthlySalary, setMonthlySalary] = useState(employee.monthlySalaryCents > 0 ? String(centsToMajor(employee.monthlySalaryCents)) : '');
+  // ── Batch assignment was creation-only ────────────────────────────────────
+  // The Add Employee flow has a "select batches this employee can access" step,
+  // and this modal had no equivalent — so once someone was created, their
+  // assignment was frozen. There was no other route to it either: PATCH
+  // /api/employees/[id] has accepted `assignedBatchIds` all along (it validates
+  // them against the tenant), nothing in the UI ever sent it. A worker whose
+  // batches changed had to be deleted and recreated.
+  //
+  // This matters more than it looks: useWorkerContext (components/farm/
+  // worker.tsx) filters the worker's whole batch list by assignedBatchIds, and
+  // an employee with an empty array sees NO batches and cannot record anything.
+  const [batches, setBatches] = useState<ApiBatchLite[] | null>(null);
+  const [selectedBatches, setSelectedBatches] = useState<string[]>(employee.assignedBatchIds ?? []);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiClient.get<ApiBatchLite[]>(`/api/batches?tenantId=${tenantId}`).then((res) => {
+      setBatches(res.success ? res.data : []);
+    });
+  }, [tenantId]);
+
+  function toggleBatch(id: string) {
+    setSelectedBatches((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   async function handleSave() {
     if (!name.trim()) { setError('Full name is required.'); return; }
@@ -1040,6 +1063,7 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
       phone: phone.trim(),
       mortalityPhotoThreshold: Number(threshold) || 0,
       monthlySalaryCents,
+      assignedBatchIds: selectedBatches,
     });
     setSaving(false);
     if (!res.success) { setError(res.error || 'Failed to save changes.'); return; }
@@ -1068,6 +1092,29 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved }: {
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Monthly Salary (KSh)</label>
           <input className="farm-input" placeholder="Leave blank if not on payroll" type="number" min={0} value={monthlySalary} onChange={(e) => setMonthlySalary(e.target.value)} />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
+            Assigned batches
+          </label>
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 8, lineHeight: 1.5 }}>
+            A worker only sees the batches assigned to them — with none, they cannot record anything.
+          </div>
+          {batches === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading batches…</div>}
+          {batches !== null && batches.length === 0 && (
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>No batches exist yet for this farm.</div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
+            {(batches ?? []).map((b) => {
+              const on = selectedBatches.includes(b.id);
+              return (
+                <div key={b.id} onClick={() => toggleBatch(b.id)} style={{ padding: '10px 12px', background: on ? 'rgba(74,222,128,0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(74,222,128,0.3)' : 'var(--border-subtle)'}`, borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 'var(--fs-sm)', color: on ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: on ? 700 : 400 }}>{b.code} – {b.name}</span>
+                  {on && <Check size={14} color="var(--primary-green)" />}
+                </div>
+              );
+            })}
+          </div>
         </div>
         {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" disabled={saving} style={{ width: '100%', justifyContent: 'center', borderRadius: 12, padding: 12, opacity: saving ? 0.7 : 1 }} onClick={handleSave}>
