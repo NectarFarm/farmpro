@@ -24,6 +24,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Runs before the build: a migration set that would silently skip a
+      # schema change is worth failing on before anything else is spent.
+      - name: Check migrations
+        run: pnpm run check:migrations
+
       - name: Typecheck
         run: pnpm exec tsc --noEmit
 

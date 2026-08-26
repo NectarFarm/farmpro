@@ -69,6 +69,9 @@ function defaultsFor(tenantId: string) {
     modules: [] as ModuleSetting[],
     timezone: DEFAULT_TIMEZONE,
     dateFormat: DEFAULT_DATE_FORMAT,
+    // Notes print by default — candour is the default, and a tenant with no
+    // settings row must not silently lose the caveats off its reports.
+    reportNotesEnabled: true,
     sessionTimeoutMinutes: null as number | null,
     updatedAt: null as Date | null,
   }
@@ -121,6 +124,10 @@ export async function PATCH(req: Request) {
   if (b.notificationsEnabled !== undefined) {
     if (typeof b.notificationsEnabled !== 'boolean') fields.notificationsEnabled = 'notificationsEnabled must be a boolean'
     else patch.notificationsEnabled = b.notificationsEnabled
+  }
+  if (b.reportNotesEnabled !== undefined) {
+    if (typeof b.reportNotesEnabled !== 'boolean') fields.reportNotesEnabled = 'reportNotesEnabled must be a boolean'
+    else patch.reportNotesEnabled = b.reportNotesEnabled
   }
   if (b.soundAlertsEnabled !== undefined) {
     if (typeof b.soundAlertsEnabled !== 'boolean') fields.soundAlertsEnabled = 'soundAlertsEnabled must be a boolean'

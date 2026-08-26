@@ -1,7 +1,7 @@
 'use client';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Lock, Plus, X, Edit2, Archive, RotateCcw, Palette, Check } from './icons';
+import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Lock, Plus, X, Edit2, Archive, Trash2, RotateCcw, Palette, Check } from './icons';
 import { apiClient } from '@/lib/request';
 
 // ── Real backend wiring (issue #252) ────────────────────────────────────────
@@ -255,6 +255,16 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<ApiFarm | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<ApiFarm | null>(null);
+  // Deleting is separate from archiving on purpose. Archive is the normal way
+  // to retire a farm and is reversible; delete removes the row and cannot be
+  // undone. The server refuses a farm that still has production units under
+  // it — it will not take a season of someone's data with it — so this is for
+  // the duplicate or the mis-created entry.
+  const [deleteTarget, setDeleteTarget] = useState<ApiFarm | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteResult, setDeleteResult] = useState('');
 
   const load = useCallback(async () => {
     const res = await apiClient.get<ApiFarm[]>(`/api/farms?tenantId=${tenantId}&includeArchived=true`);
@@ -308,10 +318,61 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
               <button onClick={() => setConfirmTarget(f)} title={f.status === 'ARCHIVED' ? 'Restore' : 'Archive'} style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border-subtle)', cursor: 'pointer', color: f.status === 'ARCHIVED' ? 'var(--status-ok)' : 'var(--status-critical)' }}>
                 {f.status === 'ARCHIVED' ? <RotateCcw size={12} /> : <Archive size={12} />}
               </button>
+              <button onClick={() => { setDeleteTarget(f); setDeleteReason(''); setDeleteError(''); }} title="Delete permanently" style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid rgba(248,113,113,0.35)', cursor: 'pointer', color: 'var(--status-critical)' }}>
+                <Trash2 size={12} />
+              </button>
             </div>
           </div>
         ))}
       </div>
+
+      {deleteTarget && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 120, padding: 20 }} onClick={() => !deleteBusy && setDeleteTarget(null)}>
+          <div className="farm-card" style={{ padding: 18, width: '100%', maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, marginBottom: 8, color: 'var(--status-critical)' }}>Delete {deleteTarget.name} permanently?</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 10 }}>
+              This removes <strong>{deleteTarget.name}</strong> ({deleteTarget.code}) and cannot be undone. If the farm still has production units or batches the server will refuse — archive it instead. <strong>The farm owner is emailed</strong> either way it succeeds.
+            </div>
+            <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Reason (included in the email, optional)</label>
+            <input className="farm-input" value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="e.g. duplicate entry created during onboarding" style={{ marginBottom: 10, fontSize: 'var(--fs-sm)' }} />
+            {deleteError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10, lineHeight: 1.5 }}>{deleteError}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setDeleteTarget(null)} disabled={deleteBusy} className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+              <button
+                onClick={async () => {
+                  setDeleteBusy(true); setDeleteError('');
+                  const q = deleteReason.trim() ? `?reason=${encodeURIComponent(deleteReason.trim())}` : '';
+                  const res = await apiClient.delete<{ name: string; notified: string[]; notifyFailed: string[] }>(`/api/farms/${deleteTarget.id}${q}`);
+                  setDeleteBusy(false);
+                  if (!res.success) { setDeleteError(res.error || 'Could not delete this farm.'); return; }
+                  // Reported, not assumed: an admin should see when nobody was
+                  // reachable rather than believing the farmer was told.
+                  const { notified, notifyFailed } = res.data;
+                  setDeleteResult(
+                    `${res.data.name} deleted.` +
+                    (notified.length ? ` Owner notified: ${notified.join(', ')}.` : '') +
+                    (notifyFailed.length ? ` Could NOT email: ${notifyFailed.join(', ')}.` : '') +
+                    (!notified.length && !notifyFailed.length ? ' No active owner had an email address to notify.' : '')
+                  );
+                  setDeleteTarget(null);
+                  load(); onChanged();
+                }}
+                disabled={deleteBusy}
+                style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'var(--status-critical)', border: 'none', color: '#fff', cursor: 'pointer', opacity: deleteBusy ? 0.7 : 1 }}
+              >
+                {deleteBusy ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteResult && (
+        <div style={{ marginTop: 8, padding: '9px 11px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          {deleteResult}
+          <button onClick={() => setDeleteResult('')} style={{ marginLeft: 6, background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 'var(--fs-2xs)', textDecoration: 'underline' }}>dismiss</button>
+        </div>
+      )}
 
       {(showAdd || editing) && (
         <FarmFormModal
