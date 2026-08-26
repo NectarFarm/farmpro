@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/auth'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
-import { computeProductionReport, parseDateRange, InvalidDateRangeError, REPORT_VIEWER_ROLES } from '@/lib/reports'
+import { computeProductionReport, parseDateRange, InvalidDateRangeError, REPORT_VIEWER_ROLES, withReportCache } from '@/lib/reports'
 
 // ── GET /api/reports/production (issue #376 Gap 3) ──────────────────────────
 // Derived from the real `records` table (`type: 'production'`) — see
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
   try {
     const { from, to } = parseDateRange(url.searchParams.get('from'), url.searchParams.get('to'))
-    const report = await computeProductionReport(tenantId, from, to, farmFilter ?? undefined)
+    const report = await withReportCache('production', tenantId, from, to, farmFilter ?? undefined, () => computeProductionReport(tenantId, from, to, farmFilter ?? undefined))
     return ok(report)
   } catch (err) {
     if (err instanceof InvalidDateRangeError) return badRequest(err.message)

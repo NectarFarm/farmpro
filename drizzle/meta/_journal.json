@@ -267,6 +267,13 @@
       "when": 1787715987476,
       "tag": "0037_report_notes_toggle",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1787802387476,
+      "tag": "0038_sessions_expires_index",
+      "breakpoints": true
     }
   ]
 }

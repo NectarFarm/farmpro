@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
+import { and, eq, lt } from 'drizzle-orm'
 import { db } from '@/db'
-import { users, tenantSettings } from '@/db/schemas'
+import { users, sessions, tenantSettings } from '@/db/schemas'
 import {
   attachSessionCookie,
   checkLoginThrottle,
@@ -186,6 +186,10 @@ export async function POST(req: Request) {
   }
 
   await clearLoginThrottle(identifier)
+  // Reap expired sessions for this user on every successful login. This keeps
+  // the `sessions` table from growing without waiting for the daily cron, and
+  // the `idx_sessions_user` index keeps the delete cheap.
+  await db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, new Date())))
   const ttlMs = await sessionTtlMsFor(user.tenantId)
   const token = await createSession(user.id, ttlMs)
   const res = json({

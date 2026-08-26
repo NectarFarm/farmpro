@@ -20,7 +20,7 @@
 // `columnFormats` tells the renderer which columns are money/weight so the
 // screen, the CSV and the PDF cannot disagree about a number.
 import 'server-only'
-import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, lte, sum } from 'drizzle-orm'
 import { db } from '@/db'
 import {
   batches, sales, purchases, records, products, employees, tenantSettings, farms,
@@ -33,6 +33,8 @@ import { centsToMajor } from '@/lib/money'
 import {
   formatDate, DEFAULT_TIMEZONE, DEFAULT_DATE_FORMAT, type DateFormat,
 } from '@/lib/datetime'
+import { getCachedReport, setCachedReport, reportCacheKey } from '@/lib/redis'
+import { logger } from '@/lib/logger'
 
 export type { ReportRow, ReportPayload } from '@/lib/report-types'
 
@@ -117,6 +119,39 @@ async function presentationSettings(tenantId: string): Promise<PresentationSetti
 // document anyone should sign.
 function notesFor(pres: PresentationSettings, notes: string[]): string[] {
   return pres.notesEnabled ? notes : []
+}
+
+// ── Report result caching (scalability audit item A) ────────────────────────
+// Wraps a compute*Report call with lib/redis.ts's short-TTL cache. Every
+// GET /api/reports/* route calls this instead of its compute* function
+// directly (see each route's header) — one call site per route, so the key
+// shape can never drift between them.
+//
+// The cache key is built from `type` (this report's own name — 'pl',
+// 'batch-pl', etc, hardcoded per call site, never derived from user input)
+// plus tenantId, farmId and the exact resolved date range — see
+// lib/redis.ts's reportCacheKey for why that set of fields is the
+// non-negotiable minimum for a multi-tenant cache. `from`/`to` are
+// normalized through isoDate() (not the route's raw query-string text) so
+// "2026-01-01" and an equivalent-but-differently-formatted date string
+// resolve to the same key instead of silently missing the cache.
+export async function withReportCache(
+  type: string, tenantId: string, from: Date | null, to: Date | null, farmId: string | undefined,
+  compute: () => Promise<ReportPayload>,
+): Promise<ReportPayload> {
+  const key = reportCacheKey(type, tenantId, isoDate(from), isoDate(to), farmId)
+  const cached = await getCachedReport<ReportPayload>(key)
+  if (cached) {
+    logger.debug('report cache hit', { type, tenantId, farmId: farmId ?? 'ALL' })
+    return cached
+  }
+  const payload = await compute()
+  // Never await this — a cache-write failure (Redis hiccup, serialization
+  // issue) must not turn into a failed report request. setCachedReport
+  // itself already no-ops when Redis isn't configured; this catch is for
+  // the configured-but-erroring case.
+  void setCachedReport(key, payload).catch((err) => logger.warn('report cache write failed', { type, tenantId, error: String(err) }))
+  return payload
 }
 
 const DATE_FORMAT_SET = new Set(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'])
@@ -352,19 +387,37 @@ export async function computeBatchPlReport(tenantId: string, from: Date | null, 
   }
   const batchRows = await db.select().from(batches).where(and(...batchConditions)).orderBy(asc(batches.createdAt))
 
-  const saleConditions = [eq(sales.tenantId, tenantId)]
+  // Database-side aggregation (scalability audit item D), not a fetch-every-
+  // sale-row-and-sum-in-JS loop: this report never shows an individual sale,
+  // only revenue summed per batch, so there is nothing gained by pulling
+  // every sale row into Node just to add them up here — Postgres does that
+  // in one pass and returns at most one row per batch that has sales, not
+  // one row per sale. Picked as the one report worth this treatment because
+  // it's the clearest case of "detail nobody reads": every OTHER report in
+  // this file emits one table row per underlying record (a mortality entry,
+  // a feeding round), so their JS loops are building the exported table
+  // itself, not a throwaway sum — collapsing those would drop rows the
+  // report is supposed to show.
+  const saleConditions = [eq(sales.tenantId, tenantId), isNotNull(sales.batchId)]
   if (from) saleConditions.push(gte(sales.soldAt, from))
   if (to) saleConditions.push(lte(sales.soldAt, to))
-  const periodSales = await db.select().from(sales).where(and(...saleConditions))
+  const revenueBySale = await db
+    .select({ batchId: sales.batchId, total: sum(sales.amountCents) })
+    .from(sales)
+    .where(and(...saleConditions))
+    .groupBy(sales.batchId)
 
   // Kept in cents through this map — only converted to whole units at the
   // final `rows.map` below, right next to `cost`'s own conversion, so both
   // sides of the margin arithmetic use the same unit for the same reason at
-  // the same place (see lib/money.ts).
+  // the same place (see lib/money.ts). `sum()` returns Postgres `numeric` as
+  // a string (drizzle-orm doesn't coerce it, to avoid silently losing
+  // precision on a huge sum) — Number() back is safe here the same way it is
+  // in app/api/produce/available/route.ts's sibling use of `sum()`: these
+  // are cents totals, nowhere near JS's 2^53 safe-integer ceiling.
   const revenueByBatchCents = new Map<string, number>()
-  for (const s of periodSales) {
-    if (!s.batchId) continue
-    revenueByBatchCents.set(s.batchId, (revenueByBatchCents.get(s.batchId) ?? 0) + s.amountCents)
+  for (const r of revenueBySale) {
+    if (r.batchId) revenueByBatchCents.set(r.batchId, Number(r.total ?? 0))
   }
 
   const rows = batchRows.map((b) => {
