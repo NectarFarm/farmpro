@@ -8,6 +8,7 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { and, eq, gt } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
+import { getRedis, isRedisConfigured } from '@/lib/redis'
 import { loginThrottle, sessions, tenants, users } from '@/db/schemas'
 
 export const SESSION_COOKIE = 'ifms_session'
@@ -81,10 +82,24 @@ function lockoutSecondsFor(failures: number, base: number): number {
 }
 
 export async function checkLoginThrottle(identifier: string): Promise<{ locked: boolean; retryAfterSeconds: number }> {
+  const redis = getRedis()
+  if (redis) {
+    const key = `throttle:${identifier}`
+    const row = await redis.hgetall<{ failedCount: string; lockedUntil: string }>(key)
+    if (!row?.lockedUntil) return { locked: false, retryAfterSeconds: 0 }
+    const lockedUntil = new Date(row.lockedUntil).getTime()
+    const remainMs = lockedUntil - Date.now()
+    if (remainMs <= 0) {
+      await redis.del(key)
+      return { locked: false, retryAfterSeconds: 0 }
+    }
+    return { locked: true, retryAfterSeconds: Math.ceil(remainMs / 1000) }
+  }
+
   const rows = await db.select().from(loginThrottle).where(eq(loginThrottle.identifier, identifier)).limit(1)
-  const row = rows[0]
-  if (!row?.lockedUntil) return { locked: false, retryAfterSeconds: 0 }
-  const remainMs = row.lockedUntil.getTime() - Date.now()
+  const dbRow = rows[0]
+  if (!dbRow?.lockedUntil) return { locked: false, retryAfterSeconds: 0 }
+  const remainMs = dbRow.lockedUntil.getTime() - Date.now()
   if (remainMs <= 0) {
     // Lock window over — reset so the next window starts fresh.
     await db.delete(loginThrottle).where(eq(loginThrottle.identifier, identifier))
@@ -94,19 +109,40 @@ export async function checkLoginThrottle(identifier: string): Promise<{ locked: 
 }
 
 export async function recordLoginFailure(identifier: string, base: number = MAX_LOGIN_ATTEMPTS): Promise<void> {
+  const redis = getRedis()
+  if (redis) {
+    const key = `throttle:${identifier}`
+    const next = await redis.hincrby(key, 'failedCount', 1)
+    if (typeof next !== 'number') return
+    const lockSeconds = next >= base ? lockoutSecondsFor(next, base) : 0
+    if (lockSeconds) {
+      const lockedUntil = new Date(Date.now() + lockSeconds * 1000).toISOString()
+      await redis.hset(key, { lockedUntil })
+      await redis.expire(key, lockSeconds + 60)
+    } else {
+      await redis.expire(key, 900)
+    }
+    return
+  }
+
   const rows = await db.select({ failedCount: loginThrottle.failedCount }).from(loginThrottle).where(eq(loginThrottle.identifier, identifier)).limit(1)
-  const next = (rows[0]?.failedCount ?? 0) + 1
-  const lockSeconds = next >= base ? lockoutSecondsFor(next, base) : 0
+  const nextCount = (rows[0]?.failedCount ?? 0) + 1
+  const lockSeconds = nextCount >= base ? lockoutSecondsFor(nextCount, base) : 0
   await db
     .insert(loginThrottle)
-    .values({ identifier, failedCount: next, lockedUntil: lockSeconds ? new Date(Date.now() + lockSeconds * 1000) : null, updatedAt: new Date() })
+    .values({ identifier, failedCount: nextCount, lockedUntil: lockSeconds ? new Date(Date.now() + lockSeconds * 1000) : null, updatedAt: new Date() })
     .onConflictDoUpdate({
       target: loginThrottle.identifier,
-      set: { failedCount: next, lockedUntil: lockSeconds ? new Date(Date.now() + lockSeconds * 1000) : null, updatedAt: new Date() },
+      set: { failedCount: nextCount, lockedUntil: lockSeconds ? new Date(Date.now() + lockSeconds * 1000) : null, updatedAt: new Date() },
     })
 }
 
 export async function clearLoginThrottle(identifier: string): Promise<void> {
+  const redis = getRedis()
+  if (redis) {
+    await redis.del(`throttle:${identifier}`)
+    return
+  }
   await db.delete(loginThrottle).where(eq(loginThrottle.identifier, identifier))
 }
 
