@@ -189,7 +189,15 @@ export async function POST(req: Request) {
   // Reap expired sessions for this user on every successful login. This keeps
   // the `sessions` table from growing without waiting for the daily cron, and
   // the `idx_sessions_user` index keeps the delete cheap.
-  await db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, new Date())))
+  // Housekeeping, not part of signing in — so it must never be able to fail a
+  // login. This runs after the password has already been verified; if the
+  // delete throws (lock contention, a transient connection error), the user
+  // still gets their session and the nightly cron clears the rows instead.
+  try {
+    await db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, new Date())))
+  } catch (err) {
+    console.warn('[login] expired-session reap failed; the nightly cron will catch these', err)
+  }
   const ttlMs = await sessionTtlMsFor(user.tenantId)
   const token = await createSession(user.id, ttlMs)
   const res = json({

@@ -2,6 +2,14 @@
 // Session token stored in an httpOnly cookie (`ifms_session`), row in `sessions`.
 // Password/PIN hashing uses scrypt (node:crypto — no extra deps). This module is
 // imported only by route handlers (server side), never by client components.
+// ── REDIS_IS_OPTIONAL ───────────────────────────────────────────────────────
+// Every Redis call on the login path is wrapped and falls back to the
+// `login_throttle` table. This is not defensive padding: checkLoginThrottle()
+// runs BEFORE credentials are even looked at, so an unwrapped throw there
+// takes down sign-in for the whole app. Upstash being unreachable, rate-
+// limiting us, or holding a stale token must degrade the throttle to its
+// database implementation — never lock every user out of their own farm.
+// A cache outage is not an authentication outage.
 import 'server-only'
 import { cookies } from 'next/headers'
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
@@ -9,6 +17,7 @@ import { and, eq, gt } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { getRedis, isRedisConfigured } from '@/lib/redis'
+import { logger } from '@/lib/logger'
 import { loginThrottle, sessions, tenants, users } from '@/db/schemas'
 
 export const SESSION_COOKIE = 'ifms_session'
@@ -84,16 +93,21 @@ function lockoutSecondsFor(failures: number, base: number): number {
 export async function checkLoginThrottle(identifier: string): Promise<{ locked: boolean; retryAfterSeconds: number }> {
   const redis = getRedis()
   if (redis) {
-    const key = `throttle:${identifier}`
-    const row = await redis.hgetall<{ failedCount: string; lockedUntil: string }>(key)
-    if (!row?.lockedUntil) return { locked: false, retryAfterSeconds: 0 }
-    const lockedUntil = new Date(row.lockedUntil).getTime()
-    const remainMs = lockedUntil - Date.now()
-    if (remainMs <= 0) {
-      await redis.del(key)
-      return { locked: false, retryAfterSeconds: 0 }
+    try {
+      const key = `throttle:${identifier}`
+      const row = await redis.hgetall<{ failedCount: string; lockedUntil: string }>(key)
+      if (!row?.lockedUntil) return { locked: false, retryAfterSeconds: 0 }
+      const lockedUntil = new Date(row.lockedUntil).getTime()
+      const remainMs = lockedUntil - Date.now()
+      if (remainMs <= 0) {
+        await redis.del(key)
+        return { locked: false, retryAfterSeconds: 0 }
+      }
+      return { locked: true, retryAfterSeconds: Math.ceil(remainMs / 1000) }
+    } catch (err) {
+      // Fall through to the database throttle. See REDIS_IS_OPTIONAL above.
+      logger.warn('login throttle: Redis unavailable, falling back to the database', { error: String(err) })
     }
-    return { locked: true, retryAfterSeconds: Math.ceil(remainMs / 1000) }
   }
 
   const rows = await db.select().from(loginThrottle).where(eq(loginThrottle.identifier, identifier)).limit(1)
@@ -111,18 +125,22 @@ export async function checkLoginThrottle(identifier: string): Promise<{ locked: 
 export async function recordLoginFailure(identifier: string, base: number = MAX_LOGIN_ATTEMPTS): Promise<void> {
   const redis = getRedis()
   if (redis) {
-    const key = `throttle:${identifier}`
-    const next = await redis.hincrby(key, 'failedCount', 1)
-    if (typeof next !== 'number') return
-    const lockSeconds = next >= base ? lockoutSecondsFor(next, base) : 0
-    if (lockSeconds) {
-      const lockedUntil = new Date(Date.now() + lockSeconds * 1000).toISOString()
-      await redis.hset(key, { lockedUntil })
-      await redis.expire(key, lockSeconds + 60)
-    } else {
-      await redis.expire(key, 900)
+    try {
+      const key = `throttle:${identifier}`
+      const next = await redis.hincrby(key, 'failedCount', 1)
+      if (typeof next !== 'number') return
+      const lockSeconds = next >= base ? lockoutSecondsFor(next, base) : 0
+      if (lockSeconds) {
+        const lockedUntil = new Date(Date.now() + lockSeconds * 1000).toISOString()
+        await redis.hset(key, { lockedUntil })
+        await redis.expire(key, lockSeconds + 60)
+      } else {
+        await redis.expire(key, 900)
+      }
+      return
+    } catch (err) {
+      logger.warn('login throttle: Redis unavailable recording a failure, falling back to the database', { error: String(err) })
     }
-    return
   }
 
   const rows = await db.select({ failedCount: loginThrottle.failedCount }).from(loginThrottle).where(eq(loginThrottle.identifier, identifier)).limit(1)
@@ -140,8 +158,14 @@ export async function recordLoginFailure(identifier: string, base: number = MAX_
 export async function clearLoginThrottle(identifier: string): Promise<void> {
   const redis = getRedis()
   if (redis) {
-    await redis.del(`throttle:${identifier}`)
-    return
+    try {
+      await redis.del(`throttle:${identifier}`)
+      return
+    } catch (err) {
+      // Clearing is best-effort either way — but still clear the DB row below
+      // so a successful login is not followed by a stale lock.
+      logger.warn('login throttle: Redis unavailable clearing a throttle', { error: String(err) })
+    }
   }
   await db.delete(loginThrottle).where(eq(loginThrottle.identifier, identifier))
 }
