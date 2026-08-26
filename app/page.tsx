@@ -3,7 +3,7 @@ import React, { useState, createContext, useContext } from 'react';
 import { NavProvider, useNav, BottomNav, AppSidebar, setGlobalLogout, RoleNoticeScreen, type Role } from '@/components/farm/navigation';
 import { TourController } from '@/components/farm/tour';
 import { DashboardScreen, NotificationsScreen, NotificationSettingsScreen } from '@/components/farm/dashboard';
-import { CropsScreen, BatchDetailScreen, CropScheduleScreen, ProcessConfigScreen } from '@/components/farm/crops';
+import { CropsScreen, BatchDetailScreen, CropScheduleScreen } from '@/components/farm/crops';
 import { InventoryScreen, InventoryDetailScreen } from '@/components/farm/inventory';
 import { WeatherScreen } from '@/components/farm/weather';
 import { FinanceScreen } from '@/components/farm/finance';
@@ -61,7 +61,6 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'crops':             return <CropsScreen />;
       case 'batch-detail':      return <BatchDetailScreen />;
       case 'crop-schedule':     return <CropScheduleScreen />;
-      case 'process-config':    return <ProcessConfigScreen />;
       case 'inventory':         return <InventoryScreen />;
       case 'inventory-detail':  return <InventoryDetailScreen />;
       case 'weather':           return <WeatherScreen />;

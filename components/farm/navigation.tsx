@@ -13,7 +13,6 @@ export type ScreenId =
   | 'admin-dashboard' | 'admin-farms' | 'admin-settings' | 'admin-onboarding' | 'admin-users'
   | 'batch-detail' | 'crop-schedule' | 'inventory-detail'
   | 'people-detail'
-  | 'process-config'
   | 'notification-settings'
   | 'ui-customise' | 'security-settings' | 'role-notice' | 'routines'
   | 'farm-config'
@@ -130,7 +129,6 @@ const ALL_SCREENS: ScreenId[] = [
   'admin-dashboard', 'admin-farms', 'admin-settings', 'admin-onboarding', 'admin-users',
   'batch-detail', 'crop-schedule', 'inventory-detail',
   'people-detail',
-  'process-config',
   'notification-settings',
   'ui-customise', 'security-settings', 'role-notice',
   'auditor-reports', 'vet-herd', 'about', 'routines', 'getting-started',
@@ -600,7 +598,7 @@ export function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs
 /* Active-tab detection shared by BottomNav (mobile) and AppSidebar (desktop). */
 function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
   const SUB_SCREENS: Record<string, ScreenId[]> = {
-    settings: ['people','governance','reports','inventory','weather','process-config','notification-settings','ui-customise','ai-chat','about','routines','getting-started'],
+    settings: ['people','governance','reports','inventory','weather','notification-settings','ui-customise','ai-chat','about','routines','getting-started'],
     crops: ['batch-detail','crop-schedule'],
     'admin-onboarding': ['admin-onboarding'],
   };
@@ -614,7 +612,7 @@ function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
     crops: ['batch-detail', 'crop-schedule'],
     inventory: ['inventory-detail'],
     people: ['people-detail'],
-    settings: ['process-config', 'notification-settings', 'ui-customise', 'ai-chat', 'about', 'routines', 'getting-started'],
+    settings: ['notification-settings', 'ui-customise', 'ai-chat', 'about', 'routines', 'getting-started'],
   };
   return current === tabId || (DETAIL_SCREENS[tabId] ?? []).includes(current);
 }
