@@ -82,6 +82,12 @@ interface ApiProduct {
 /* A row from GET /api/batches/[id]/products — a product resolved for one
  * batch, flagged whether it's inherited from the batch's unit (and which
  * unit) or an explicit batch-level override. */
+// Shapes from GET /api/routines (rows joined with their ordered steps) and
+// GET /api/routine-runs?batchId= (newest first).
+type ApiRoutineStep = { id: string; kind: string; label: string; required: boolean; sortOrder: number };
+type ApiRoutine = { id: string; name: string; timeOfDay: string; active: boolean; farmId: string | null; steps: ApiRoutineStep[] };
+type ApiRoutineRun = { id: string; routineId: string; batchId: string; skippedCount: number; completedAt: string };
+
 interface ResolvedProduct extends ApiProduct {
   inherited: boolean;
   sourceUnitId: string | null;
@@ -1116,7 +1122,7 @@ function BatchLedger({ batchId, tenantId, refreshKey }: { batchId: string; tenan
 }
 
 export function BatchDetailScreen() {
-  const { goBack, params, navigate, farms, tenantId } = useNav();
+  const { goBack, params, navigate, farms, tenantId, activeFarmId } = useNav();
   const batchId = params.id;
   const batchCode = params.code;
 
@@ -1133,6 +1139,24 @@ export function BatchDetailScreen() {
   } | null>(null);
 
   const [costTab, setCostTab] = useState<'breakdown' | 'processes'>('breakdown');
+  // ── The "Processes" tab reads real routines now ──────────────────────────
+  // It used to list ENTERPRISE_REGISTRY.processes — a fixed per-enterprise
+  // constant in components/farm/data.ts that no farm could change, with a
+  // "Configure" button opening a screen where every control was disabled.
+  // Five hardcoded rows and nothing behind them.
+  //
+  // `routines` + `routine_steps` already ARE this feature, and deliberately
+  // replaced that constant (db/schemas/people.ts says so: a morning round
+  // differs per farm and per enterprise, "which is exactly what
+  // ENTERPRISE_REGISTRY tried to be and why it stayed unwired"). The owner
+  // defines them, a worker walks them, and each step files the same record it
+  // would on its own.
+  //
+  // `routine_runs.batchId` means completion is per BATCH, so this tab can
+  // answer "when was this last done on THIS batch" from real rows instead of
+  // restating a frequency label nobody set.
+  const [routines, setRoutines] = useState<ApiRoutine[] | null>(null);
+  const [runs, setRuns] = useState<ApiRoutineRun[] | null>(null);
   // Products resolved for this batch (product-unit-inheritance task). The list
   // is mostly INHERITED from the batch's unit — a batch with no overrides has
   // no rows of its own — so this is a read of the resolved view, not of
@@ -1180,6 +1204,18 @@ export function BatchDetailScreen() {
   }, [batchId, batchCode, tenantId]);
 
   useEffect(() => { loadBatch(); }, [loadBatch]);
+
+  // Only fetched when the tab is actually opened — the breakdown tab is the
+  // default and most visits never look at processes.
+  useEffect(() => {
+    if (costTab !== 'processes' || !batch) return;
+    apiClient.get<ApiRoutine[]>(`/api/routines?tenantId=${tenantId}&farmId=${activeFarmId}`).then((res) => {
+      setRoutines(res.success ? res.data : []);
+    });
+    apiClient.get<ApiRoutineRun[]>(`/api/routine-runs?tenantId=${tenantId}&batchId=${batch.id}`).then((res) => {
+      setRuns(res.success ? res.data : []);
+    });
+  }, [costTab, batch, tenantId, activeFarmId]);
 
   // The stage list is per (tenant, enterprise), so it can only be narrowed
   // once the batch's own enterprise is known.
@@ -1517,21 +1553,64 @@ export function BatchDetailScreen() {
 
           {costTab === 'processes' && (
             <div>
-              {cfg?.processes.map((p, i, arr) => (
-                <div key={p.code} style={{ padding: '10px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{p.code} · {p.frequency}</div>
+              {routines === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', padding: '8px 0' }}>Loading routines…</div>}
+
+              {routines !== null && routines.length === 0 && (
+                <div style={{ padding: '10px 0' }}>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 10 }}>
+                    No routines are set up for this farm yet. A routine is the checklist a worker walks — feeding, a mortality sweep, a weight sample — and each step files the record it would on its own.
                   </div>
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    {p.requiresApproval && <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>Approval</span>}
-                    <button onClick={() => navigate('process-config', {
-                      batchCode: batch.code, processCode: p.code, enterprise: batch.enterprise,
-                      startDate: fmtDate(batch.startDate) ?? '', endDate: fmtDate(batch.endDate) ?? '', harvestDate: fmtDate(batch.harvestDate) ?? '',
-                    })} style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>Configure</button>
-                  </div>
+                  <button onClick={() => navigate('routines')} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 10 }}>
+                    Set up routines
+                  </button>
                 </div>
-              ))}
+              )}
+
+              {routines !== null && routines.filter((r) => r.active).map((r, i, arr) => {
+                // Last time THIS routine ran on THIS batch — real rows from
+                // routine_runs, not a frequency label nobody set.
+                const lastRun = (runs ?? []).find((run) => run.routineId === r.id);
+                const required = r.steps.filter((st) => st.required).length;
+                return (
+                  <div key={r.id} style={{ padding: '11px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{r.name}</div>
+                        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1, textTransform: 'capitalize' }}>
+                          {r.timeOfDay} · {r.steps.length} step{r.steps.length === 1 ? '' : 's'}{required < r.steps.length ? ` (${required} required)` : ''}
+                          {r.farmId === null ? ' · all farms' : ''}
+                        </div>
+                      </div>
+                      <span className={`chip ${lastRun ? 'chip-ok' : ''}`} style={{ fontSize: 'var(--fs-2xs)', flexShrink: 0 }}>
+                        {lastRun ? `Ran ${fmtDate(lastRun.completedAt) ?? ''}` : 'Not yet run'}
+                      </span>
+                    </div>
+                    {/* The steps themselves — what the worker is actually asked
+                        to do, rather than a code and a frequency. */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 7 }}>
+                      {r.steps.map((st) => (
+                        <span key={st.id} className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>
+                          {st.label}{st.required ? '' : ' (optional)'}
+                        </span>
+                      ))}
+                      {r.steps.length === 0 && (
+                        <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>No steps defined yet — this routine does nothing until it has some.</span>
+                      )}
+                    </div>
+                    {lastRun && lastRun.skippedCount > 0 && (
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--accent-amber)', marginTop: 5 }}>
+                        {lastRun.skippedCount} step{lastRun.skippedCount === 1 ? '' : 's'} skipped on the last run.
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {routines !== null && routines.length > 0 && (
+                <button onClick={() => navigate('routines')} style={{ marginTop: 10, background: 'none', border: 'none', color: 'var(--primary-green)', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: 700, padding: 0 }}>
+                  Edit routines →
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1847,77 +1926,6 @@ export function CropScheduleScreen() {
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ── Process Config ──
- * Decorative — there is no processes/process-config table or route yet
- * (same "no backing store" note as step 4 of the creation wizard above), so
- * this screen has nothing real to save. It used to look up the batches mock
- * array by code for display context; now it reads the same context straight
- * from the nav params BatchDetailScreen passes in (enterprise/dates), so it needs no
- * mock import and no extra fetch for what is, today, a read-only reference
- * view. */
-export function ProcessConfigScreen() {
-  const { goBack, params } = useNav();
-  const { batchCode, processCode, enterprise, startDate, endDate, harvestDate } = params;
-  const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === enterprise);
-  const proc = cfg?.processes.find(p => p.code === processCode) ?? cfg?.processes[0];
-
-  return (
-    <div className="screen-content">
-      <TopNav title={proc?.name ?? 'Process Config'} subtitle={`${batchCode ?? ''}`} showBack />
-      <div className="px-screen" style={{ paddingTop: 14 }}>
-        <div style={{ padding: '10px 14px', background: 'rgba(74,222,128,0.06)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(74,222,128,0.2)', display: 'flex', gap: 8, alignItems: 'center' }}>
-          {cfg?.icon && <cfg.icon size={22} color="var(--primary-green)" aria-hidden="true" />}
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)' }}>{proc?.name}</div>
-            <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{proc?.code} · {proc?.frequency} · Batch: {batchCode}</div>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assigned Worker</label>
-          <select className="farm-input" disabled style={{ opacity: 0.5 }}>
-            <option>Not available yet — no worker assignment on processes</option>
-          </select>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Start Date</label>
-            <input className="farm-input" type="date" defaultValue={startDate || ''} disabled style={{ opacity: 0.7 }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>End Date</label>
-            <input className="farm-input" type="date" defaultValue={endDate || harvestDate || ''} disabled style={{ opacity: 0.7 }} />
-          </div>
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Frequency</label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {['daily','twice-daily','weekly','on-demand'].map(f => (
-              <button key={f} disabled style={{ padding: '9px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 600, background: f === proc?.frequency ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: f === proc?.frequency ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: f === proc?.frequency ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'not-allowed', textTransform: 'capitalize', opacity: 0.7 }}>{f}</button>
-            ))}
-          </div>
-        </div>
-        <div className="farm-card" style={{ padding: 12, marginBottom: 14, opacity: 0.7 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Requires Owner Approval</div>
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>Owner must sign off on each submission</div>
-            </div>
-            <div style={{ width: 44, height: 24, borderRadius: 100, background: proc?.requiresApproval ? 'var(--gradient-primary)' : 'rgba(255,255,255,0.1)', position: 'relative' }}>
-              <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: proc?.requiresApproval ? 23 : 3, boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
-            </div>
-          </div>
-        </div>
-        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginBottom: 12, textAlign: 'center' }}>
-          Reference view only — there is no processes table to save this to yet.
-        </div>
-        <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 20 }} onClick={goBack}>Back</button>
-      </div>
-
     </div>
   );
 }

@@ -97,6 +97,12 @@ export async function GET(req: Request) {
   const { tenantId } = auth
 
   const url = new URL(req.url)
+  // Single-record lookup, added so an approver can read the WHOLE submission
+  // before deciding (components/farm/governance.tsx's review sheet). An
+  // approval_requests row carries only `data.cause` in `details`; the worker's
+  // count, notes, variance reason and photo live on the record itself, and
+  // approving without seeing them is approving a summary.
+  const recordId = url.searchParams.get('id')?.trim()
   const batchId = url.searchParams.get('batchId')?.trim()
   const type = url.searchParams.get('type')?.trim()
   const employeeId = url.searchParams.get('employeeId')?.trim()
@@ -105,6 +111,9 @@ export async function GET(req: Request) {
   if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
 
   const conditions = [eq(records.tenantId, tenantId)]
+  // Tenant scoping is already in `conditions` — an id alone can never reach
+  // another tenant's record.
+  if (recordId) conditions.push(eq(records.id, recordId))
   if (batchId) conditions.push(eq(records.batchId, batchId))
   if (type) conditions.push(eq(records.type, type))
   if (employeeId) conditions.push(eq(records.employeeId, employeeId))

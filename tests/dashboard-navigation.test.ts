@@ -92,3 +92,57 @@ describe('components/farm/dashboard.tsx — honest empty and failure states', ()
     expect(source).toMatch(/\{scheduled > 0 && \(/)
   })
 })
+
+describe('Batch processes read real routines, and approvals must be opened', () => {
+  const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
+  const crops = read('components/farm/crops.tsx')
+  const gov = read('components/farm/governance.tsx')
+
+  it('the Processes tab no longer lists the frozen ENTERPRISE_REGISTRY constant', () => {
+    // Five hardcoded rows per enterprise that no farm could change, with a
+    // Configure button opening a screen where every control was disabled.
+    expect(crops).not.toMatch(/cfg\?\.processes\.map/)
+  })
+
+  it('reads routines and per-batch runs instead', () => {
+    expect(crops).toMatch(/\/api\/routines\?tenantId=/)
+    expect(crops).toMatch(/\/api\/routine-runs\?tenantId=.*batchId=/)
+  })
+
+  it('the dead ProcessConfigScreen is gone, not just unreachable', () => {
+    expect(crops).not.toMatch(/export function ProcessConfigScreen/)
+    expect(read('app/page.tsx')).not.toMatch(/ProcessConfigScreen/)
+    expect(read('components/farm/navigation.tsx')).not.toMatch(/'process-config'/)
+  })
+
+  it('an approval cannot be decided from the list', () => {
+    // decide() must not be reachable from a row — only from the review sheet,
+    // which loads the full record first.
+    expect(gov).not.toMatch(/onClick=\{\(\) => decide\(a, 'approve'\)\}/)
+    expect(gov).not.toMatch(/onClick=\{\(\) => decide\(a, 'reject'\)\}/)
+    expect(gov).toMatch(/onClick=\{\(\) => setReviewing\(a\)\}/)
+  })
+
+  it('the review sheet loads the worker\'s whole submission', () => {
+    // The approval row carries only data.cause in `details`; the count,
+    // variance reason, notes and photo live on the record.
+    expect(gov).toMatch(/ApprovalReviewSheet/)
+    expect(gov).toMatch(/\/api\/records\?tenantId=\$\{tenantId\}&id=\$\{approval\.entityId\}/)
+    expect(gov).toMatch(/record\?\.photoUrl/)
+  })
+
+  it('renders whatever keys the record data actually has, not a fixed list', () => {
+    // `data` is loose per record type — a hardcoded field set would silently
+    // hide whatever a future type puts there.
+    expect(gov).toMatch(/Object\.entries\(record\?\.data \?\? \{\}\)/)
+  })
+
+  it('GET /api/records supports the single-record lookup, tenant-scoped', () => {
+    const route = read('app/api/records/route.ts')
+    expect(route).toMatch(/const recordId = url\.searchParams\.get\('id'\)/)
+    const condAt = route.indexOf("const conditions = [eq(records.tenantId, tenantId)]")
+    const idAt = route.indexOf('if (recordId) conditions.push')
+    expect(condAt).toBeGreaterThan(-1)
+    expect(idAt).toBeGreaterThan(condAt)
+  })
+})

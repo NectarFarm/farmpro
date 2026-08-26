@@ -293,6 +293,9 @@ export function GovernanceScreen() {
   const [activityRoleFilter, setActivityRoleFilter] = useState('all');
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [approvers, setApprovers] = useState<ApproverRow[]>([]);
+  // The approval currently open for review. Decisions are only reachable from
+  // inside this sheet — see the Review button below for why.
+  const [reviewing, setReviewing] = useState<ApprovalRequestRow | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
 
   // Scoping, not decoration: anyone other than the owner is sent only the
@@ -510,14 +513,24 @@ export function GovernanceScreen() {
                       </div>
                     )}
                     {a.status === 'pending' && canDecide(a) && (
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button disabled={decidingId === a.id} onClick={() => decide(a, 'approve')} title={a.assignedApproverId && a.assignedApproverId !== myUserId ? `Deciding on behalf of ${approverName(a.assignedApproverId)} — recorded as an override` : undefined} style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                          <Check size={13} /> Approve
-                        </button>
-                        <button disabled={decidingId === a.id} onClick={() => decide(a, 'reject')} style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                          <X size={13} /> Reject
-                        </button>
-                      </div>
+                      // ── Open it before you sign it off ────────────────────
+                      // Approve/Reject used to sit right here, so a queue could
+                      // be cleared without ever reading what was submitted. The
+                      // approval row carries only `data.cause` in `details` —
+                      // the worker's count, variance reason, notes and photo
+                      // live on the record itself. Deciding from the list was
+                      // deciding on a summary.
+                      //
+                      // The decision buttons now live inside the review sheet,
+                      // which loads the full record first. One extra tap, and
+                      // it is the tap that makes the approval mean something.
+                      <button
+                        disabled={decidingId === a.id}
+                        onClick={() => setReviewing(a)}
+                        style={{ width: '100%', padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.4)', color: 'var(--accent-amber)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                      >
+                        <Eye size={13} /> Review &amp; decide
+                      </button>
                     )}
                   </div>
                 ))}
@@ -685,6 +698,140 @@ export function GovernanceScreen() {
           onSave={saveRole}
         />
       )}
+
+      {reviewing && (
+        <ApprovalReviewSheet
+          approval={reviewing}
+          tenantId={tenantId}
+          busy={decidingId === reviewing.id}
+          approverName={approverName}
+          isOverride={!!reviewing.assignedApproverId && reviewing.assignedApproverId !== myUserId}
+          onClose={() => setReviewing(null)}
+          onDecide={async (decision) => {
+            await decide(reviewing, decision);
+            setReviewing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Approval review sheet ─────────────────────────────────────────────────
+ * The only place an approval can be decided. Loads the underlying record
+ * first, because an approval_requests row carries just `data.cause` in
+ * `details` while the worker's actual submission — the count, the variance
+ * reason, their notes, the photo they were asked for — lives on the record.
+ * A queue cleared from the list was a queue signed off on titles.
+ *
+ * It renders whatever keys the record's `data` blob actually has rather than a
+ * fixed field list: `data` is deliberately loose per record type
+ * (db/schemas/people.ts), so a hardcoded set would silently hide whatever a
+ * future record type puts there — the exact failure this sheet exists to fix. */
+const DATA_LABELS: Record<string, string> = {
+  count: 'Deaths reported', deaths: 'Deaths reported', cause: 'Cause given',
+  counted: 'Head counted', varianceReason: 'Reason for the variance',
+  notes: 'Worker notes', treatment: 'Treatment given', dose: 'Dose',
+  weight: 'Weight (kg)', averageKg: 'Average weight (kg)', sampleSize: 'Samples taken',
+};
+
+function ApprovalReviewSheet({ approval, tenantId, busy, onDecide, onClose, approverName, isOverride }: {
+  approval: ApprovalRequestRow;
+  tenantId: string;
+  busy: boolean;
+  onDecide: (decision: 'approve' | 'reject') => void;
+  onClose: () => void;
+  approverName: (id: string | null) => string | null;
+  isOverride: boolean;
+}) {
+  const [record, setRecord] = useState<{ id: string; type: string; data: Record<string, unknown>; photoUrl: string | null; createdAt: string } | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  useEffect(() => {
+    if (!approval.entityId) { setLoadFailed(true); return; }
+    apiClient.get<{ id: string; type: string; data: Record<string, unknown>; photoUrl: string | null; createdAt: string }[]>(
+      `/api/records?tenantId=${tenantId}&id=${approval.entityId}`,
+    ).then((res) => {
+      if (res.success && res.data.length > 0) setRecord(res.data[0]);
+      else setLoadFailed(true);
+    });
+  }, [approval.entityId, tenantId]);
+
+  // Internal bookkeeping the approver does not need, and the pending flag the
+  // route sets on a deferred record — shown as a state, not as a data row.
+  const HIDDEN_KEYS = new Set(['pendingApproval', 'batchId', 'unitId', 'itemId', 'productId', 'items', 'feedItems', 'samples']);
+  const entries = Object.entries(record?.data ?? {})
+    .filter(([k, v]) => !HIDDEN_KEYS.has(k) && v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => [DATA_LABELS[k] ?? k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase()), typeof v === 'object' ? JSON.stringify(v) : String(v)] as [string, string]);
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-end', zIndex: 210 }} onClick={() => !busy && onClose()}>
+      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '92%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ padding: '16px 18px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+            <div style={{ minWidth: 0 }}>
+              <span className="chip chip-info" style={{ fontSize: 'var(--fs-2xs)' }}>{approval.type}</span>
+              <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: 'var(--text-primary)', marginTop: 5, lineHeight: 1.25 }}>{approval.title}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 3 }}>
+                Submitted by {approval.requestedBy}
+              </div>
+            </div>
+            <button className="btn-icon" onClick={onClose} disabled={busy}><X size={16} /></button>
+          </div>
+
+          <div className="section-eyebrow" style={{ marginBottom: 7 }}>What the worker submitted</div>
+          {record === null && !loadFailed && (
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', padding: '10px 0' }}>Loading the full submission…</div>
+          )}
+          {loadFailed && (
+            <div style={{ padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+              The underlying record could not be loaded, so only the summary below is available. Decide with care — or reject and ask the worker to resubmit.
+            </div>
+          )}
+          {record !== null && (
+            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 12 }}>
+              {entries.length === 0 && (
+                <div style={{ padding: '11px 13px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>This record carries no extra detail beyond its title.</div>
+              )}
+              {entries.map(([label, value], i) => (
+                <div key={label} style={{ padding: '10px 13px', display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: i < entries.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', flexShrink: 0 }}>{label}</span>
+                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 650, color: 'var(--text-primary)', textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {record?.photoUrl && (
+            <>
+              <div className="section-eyebrow" style={{ marginBottom: 7 }}>Photo the worker attached</div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={record.photoUrl} alt="Photo submitted with this record" style={{ width: '100%', borderRadius: 12, border: '1px solid var(--border-subtle)', marginBottom: 12 }} />
+            </>
+          )}
+
+          {approval.details && (
+            <div style={{ padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+              {approval.details}
+            </div>
+          )}
+
+          {isOverride && (
+            <div style={{ padding: '9px 11px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
+              {approverName(approval.assignedApproverId)} was named to decide this. Deciding it yourself is recorded as an override.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button disabled={busy} onClick={() => onDecide('reject')} style={{ flex: 1, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+              <X size={13} /> Reject
+            </button>
+            <button disabled={busy} onClick={() => onDecide('approve')} style={{ flex: 1, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+              <Check size={13} /> {busy ? 'Working…' : 'Approve'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

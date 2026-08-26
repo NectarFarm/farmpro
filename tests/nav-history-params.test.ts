@@ -2,9 +2,9 @@
 // Before this fix, NavProvider's `history` was a plain ScreenId[] stack, and
 // goBack() unconditionally called setParams({}) after popping — so any
 // params-dependent detail screen (batch-detail, inventory-detail,
-// people-detail, process-config) reached through 2+ levels of back
+// people-detail, batch-detail) reached through 2+ levels of back
 // navigation rendered "not found" once an intermediate goBack() wiped its
-// params. e.g. Batch Detail -> Crop Schedule -> Process Config -> back ->
+// params. e.g. Batch Detail -> Crop Schedule -> Batch Detail -> back ->
 // back landed on batch-detail with params: {} instead of the original
 // { id: <batchId> }.
 //
@@ -44,7 +44,7 @@ describe('pushHistoryEntry / popHistoryEntry (issue #320)', () => {
     expect(h.length).toBe(2) // original untouched
   })
 
-  it('reproduces the full Batch Detail -> Crop Schedule -> Process Config -> back -> back flow', () => {
+  it('reproduces the full Batch Detail -> Crop Schedule -> Batch Detail -> back -> back flow', () => {
     // Simulates NavProvider's navigate()/goBack() using the extracted stack
     // functions, mirroring exactly what navigation.tsx now does:
     //   navigate: history = push(history, { screen: current, params }); current = dest; params = p
@@ -71,9 +71,12 @@ describe('pushHistoryEntry / popHistoryEntry (issue #320)', () => {
     expect(current).toBe('crop-schedule')
     expect(params).toEqual({ batchId: 'batch-42' })
 
-    // Crop Schedule -> Process Config (batchId: batch-42, stage: brooding)
-    navigate('process-config', { batchId: 'batch-42', stage: 'brooding' })
-    expect(current).toBe('process-config')
+    // Crop Schedule -> Batch Detail (batchId: batch-42, stage: brooding).
+    // Any third params-carrying screen exercises this; it used to be
+    // 'process-config', which was removed as dead UI (every control in it was
+    // disabled and it saved nothing — the real feature is Routines).
+    navigate('batch-detail', { batchId: 'batch-42', stage: 'brooding' })
+    expect(current).toBe('batch-detail')
     expect(params).toEqual({ batchId: 'batch-42', stage: 'brooding' })
 
     // back #1: -> Crop Schedule, params restored to { batchId: batch-42 }
