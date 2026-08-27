@@ -44,7 +44,15 @@ function isUniqueViolation(err: unknown): boolean {
 // show (and manage) archived ones too.
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const auth = await requireTenantSession()
+  // A super_admin session carries no tenantId of its own, so it MUST be able
+  // to name one — that is what lib/api-auth.ts's explicitTenantId opt-in is
+  // for. Without it this GET returned "tenantId is required" to every platform
+  // admin, while the sibling POST/PATCH on the same resource accepted the
+  // field: the admin screens pass `?tenantId=` and it was being ignored, so a
+  // super_admin could create and edit a tenant's farms but never list them.
+  // Reading the param here, at the call site, is the contract — this module
+  // never reads it from the request itself (see lib/api-auth.ts's header).
+  const auth = await requireTenantSession({ explicitTenantId: new URL(req.url).searchParams.get('tenantId') ?? undefined })
   if ('error' in auth) return auth.error
   const { tenantId } = auth
 
