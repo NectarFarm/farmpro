@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { CACHE_REVALIDATE_SECONDS, FETCH_TIMEOUT_MS, OPEN_METEO_URL, forecastParams } from '@/lib/weather-request'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { farms } from '@/db/schemas'
@@ -26,9 +27,6 @@ import type { WeatherCurrent, WeatherDay, WeatherData } from '@/lib/weather-type
 // `hasCoordinates: false` (not an error, not a fake location) so the screen
 // can render its own empty state and offer a way to set one via
 // PATCH /api/farms/[id].
-const OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast'
-const FETCH_TIMEOUT_MS = 8000
-const CACHE_REVALIDATE_SECONDS = 600
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
@@ -56,14 +54,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: true, data }, { status: 200 })
   }
 
-  const params = new URLSearchParams({
-    latitude: String(farm.latitude),
-    longitude: String(farm.longitude),
-    current: 'temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,is_day,wind_speed_10m',
-    daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum',
-    timezone: 'auto',
-    forecast_days: '5',
-  })
+  const params = forecastParams(farm.latitude, farm.longitude)
 
   let upstream: Response
   try {

@@ -254,7 +254,7 @@ export type AdviseResult =
 export async function callAdvisor(
   system: string,
   messages: ChatMessage[],
-  opts: { apiKey: string; model?: string; signal?: AbortSignal } = { apiKey: '' },
+  opts: { apiKey: string; model?: string; signal?: AbortSignal; maxTokens?: number } = { apiKey: '' },
 ): Promise<AdviseResult> {
   const model = opts.model || DEFAULT_MODEL
   let res: Response
@@ -271,7 +271,11 @@ export async function callAdvisor(
       },
       body: JSON.stringify({
         model,
-        max_tokens: 900,
+        // 900 is right for a chat reply. Structured output — and anything
+        // using a web-search model, where retrieved context eats the budget
+        // before the answer starts — needs more, or the completion comes back
+        // empty and reads as an upstream failure.
+        max_tokens: opts.maxTokens ?? 900,
         temperature: 0.3,
         messages: [{ role: 'system', content: system }, ...messages],
       }),

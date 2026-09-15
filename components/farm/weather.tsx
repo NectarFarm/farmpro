@@ -6,8 +6,90 @@ import { apiClient } from '@/lib/request';
 import {
   CloudSun, Sun, Cloud, CloudFog, CloudRain, CloudLightning, Snowflake,
   Droplets, Wind, Thermometer, Info, MapPin, RefreshCw,
+  Sprout, Wheat, Leaf, Package, Syringe, Home, DollarSign, Sparkles,
+  ExternalLink, AlertTriangle, type LucideIcon,
 } from './icons';
 import type { WeatherData, WeatherIconKeyLike } from '@/lib/weather-types';
+
+/* ── Farm recommendations ──────────────────────────────────────────────────
+ * Cards from GET /api/weather/advice: what to do over the next few days,
+ * generated from this farm's OWN records plus the real forecast for its pin,
+ * and cached server-side for six hours because each generation is a paid AI
+ * call with web search.
+ *
+ * Each card states its BASIS, and that is the part that matters. "From your
+ * records" and "general guidance" carry completely different authority, and a
+ * farmer deciding whether to act on a card needs to know which one they are
+ * reading — the same rule the reports and the advisor already follow. A card
+ * sourced from the open web says so, and links out. */
+type Activity = 'plant' | 'harvest' | 'weed' | 'irrigate' | 'feed' | 'health' | 'stock' | 'shelter' | 'sell' | 'other';
+
+interface Recommendation {
+  title: string; action: string; from: string; to: string;
+  urgency: 'today' | 'soon' | 'plan';
+  basis: 'records' | 'forecast' | 'general';
+  why: string; activity: Activity; enterprise: string | null;
+  sourceUrl?: string; sourceTitle?: string;
+}
+
+const ACTIVITY_ICON: Record<Activity, LucideIcon> = {
+  plant: Sprout, harvest: Wheat, weed: Leaf, irrigate: Droplets,
+  feed: Package, health: Syringe, stock: Package, shelter: Home,
+  sell: DollarSign, other: Sparkles,
+};
+
+const URGENCY_STYLE: Record<Recommendation['urgency'], { label: string; color: string; bg: string }> = {
+  today: { label: 'Today', color: 'var(--status-critical)', bg: 'rgba(248,113,113,0.12)' },
+  soon:  { label: 'This week', color: 'var(--accent-amber)', bg: 'rgba(251,191,36,0.12)' },
+  plan:  { label: 'Plan ahead', color: 'var(--text-muted)', bg: 'var(--card)' },
+};
+
+const BASIS_LABEL: Record<Recommendation['basis'], string> = {
+  records: 'From your records',
+  forecast: 'From the forecast',
+  general: 'General guidance',
+};
+
+function fmtRange(from: string, to: string): string {
+  const f = new Date(from), t = new Date(to);
+  const d = (x: Date) => x.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return from === to ? d(f) : `${d(f)} – ${d(t)}`;
+}
+
+function RecommendationCard({ r }: { r: Recommendation }) {
+  const Icon = ACTIVITY_ICON[r.activity] ?? Sparkles;
+  const u = URGENCY_STYLE[r.urgency];
+  return (
+    <div className="farm-card" style={{ padding: 13, marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <div style={{ width: 30, height: 30, borderRadius: 9, background: u.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon size={15} color={u.color} aria-hidden="true" />
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 3 }}>
+            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 750, color: 'var(--text-primary)' }}>{r.title}</span>
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: u.color }}>{u.label}</span>
+          </div>
+          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 5 }}>
+            {fmtRange(r.from, r.to)}
+            {r.enterprise ? ` · ${r.enterprise.replace(/_/g, ' ')}` : ''}
+          </div>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>{r.action}</div>
+          {r.why && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 4 }}>{r.why}</div>}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 7 }}>
+            <span className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>{BASIS_LABEL[r.basis]}</span>
+            {r.sourceUrl && (
+              <a href={r.sourceUrl} target="_blank" rel="noopener noreferrer"
+                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)', textDecoration: 'none' }}>
+                <ExternalLink size={10} aria-hidden="true" /> {r.sourceTitle || 'Read more'}
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Weather Screen (ui-polish-theme-weather) ────────────────────────────────
 // Replaces the old zero-network "not available yet" placeholder with a real
@@ -53,6 +135,35 @@ export function WeatherScreen() {
   const [data, setData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Recommendations. Fetched separately from the forecast and allowed to fail
+  // on their own: a broken or unconfigured AI must never take the weather
+  // screen down with it, because the forecast is the thing the farmer came for.
+  const [advice, setAdvice] = useState<Recommendation[] | null>(null);
+  const [adviceAt, setAdviceAt] = useState<string>('');
+  const [adviceStale, setAdviceStale] = useState(false);
+  const [adviceError, setAdviceError] = useState('');
+  const [adviceBusy, setAdviceBusy] = useState(false);
+  // Owner/manager only, matching the endpoint — these read the farm's batches,
+  // stock and open work, so a worker would just get a 403.
+  const canSeeAdvice = role === 'owner' || role === 'manager';
+
+  const loadAdvice = useCallback((refresh = false) => {
+    if (!canSeeAdvice || !effectiveFarmId) return;
+    setAdviceBusy(true);
+    setAdviceError('');
+    apiClient.get<{ recommendations: Recommendation[]; generatedAt: string; stale?: boolean }>(
+      `/api/weather/advice?tenantId=${tenantId}&farmId=${effectiveFarmId}${refresh ? '&refresh=true' : ''}`
+    ).then((res) => {
+      setAdviceBusy(false);
+      if (!res.success) { setAdviceError(res.error || 'Could not load recommendations.'); return; }
+      setAdvice(res.data.recommendations);
+      setAdviceAt(res.data.generatedAt);
+      setAdviceStale(!!res.data.stale);
+    });
+  }, [canSeeAdvice, effectiveFarmId, tenantId]);
+
+  useEffect(() => { loadAdvice(false); }, [loadAdvice]);
   const [savingPin, setSavingPin] = useState(false);
   const [manualLat, setManualLat] = useState('');
   const [manualLng, setManualLng] = useState('');
@@ -225,16 +336,75 @@ export function WeatherScreen() {
                   <StatChip icon={<Thermometer size={14} color="var(--accent-red)" />} label="Feels like" value={`${Math.round(data.current.apparentTemperatureC)}°`} />
                 </div>
 
+                {canSeeAdvice && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8, gap: 8 }}>
+                      <div className="section-eyebrow">What to do next</div>
+                      <button
+                        onClick={() => loadAdvice(true)}
+                        disabled={adviceBusy}
+                        style={{ background: 'none', border: 'none', color: 'var(--primary-green)', cursor: adviceBusy ? 'default' : 'pointer', fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: 0, opacity: adviceBusy ? 0.6 : 1 }}
+                      >
+                        {adviceBusy ? 'Thinking…' : 'Refresh'}
+                      </button>
+                    </div>
+
+                    {advice === null && adviceBusy && (
+                      <div className="farm-card" style={{ padding: 14, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+                        Reading your batches, stock and the forecast…
+                      </div>
+                    )}
+
+                    {adviceError && (
+                      <div className="farm-card" style={{ padding: '11px 13px', display: 'flex', gap: 9, alignItems: 'flex-start', border: '1px solid rgba(251,191,36,0.3)' }}>
+                        <AlertTriangle size={14} color="var(--accent-amber)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
+                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.55 }}>{adviceError}</div>
+                      </div>
+                    )}
+
+                    {advice?.map((r, i) => <RecommendationCard key={`${r.title}-${i}`} r={r} />)}
+
+                    {advice !== null && advice.length === 0 && !adviceBusy && !adviceError && (
+                      <div className="farm-card" style={{ padding: 14, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        Nothing urgent from your records and this week&rsquo;s forecast. Record more of your day-to-day work and these get sharper.
+                      </div>
+                    )}
+
+                    {adviceAt && advice && advice.length > 0 && (
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 6, lineHeight: 1.5 }}>
+                        {/* Always dated. Advice whose age is hidden invites
+                            acting on a three-day-old plan as if it were today's. */}
+                        Prepared {new Date(adviceAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {adviceStale ? ' · could not refresh just now, so these may be out of date' : ''}
+                        . Advisory only — check against what you can see on the ground.
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {data.daily && data.daily.length > 0 && (
                   <div style={{ marginBottom: 14 }}>
                     <div className="section-eyebrow" style={{ marginBottom: 8 }}>5-day forecast</div>
                     <div className="farm-card" style={{ overflow: 'hidden' }}>
+                      {/* Header row. Without it the columns were unlabelled:
+                          two bare numbers on the right are only obviously
+                          "high / low" once you already know, and the lone
+                          percentage was anyone's guess. */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface)' }}>
+                        <div style={{ width: 44, fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Day</div>
+                        <div style={{ width: 20 }} aria-hidden="true" />
+                        <div style={{ flex: 1, fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Conditions</div>
+                        <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Rain</div>
+                        <div style={{ width: 62, textAlign: 'right', fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Hi / Lo</div>
+                      </div>
                       {data.daily.map((d, i) => (
                         <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < data.daily!.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
                           <div style={{ width: 44, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{dayLabel(d.date, i)}</div>
                           <WeatherIcon icon={d.icon} size={20} color={d.rainy ? 'var(--status-info)' : 'var(--text-muted)'} />
                           <div style={{ flex: 1, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{d.label}</div>
-                          {d.rainy && <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-info)', fontWeight: 700, flexShrink: 0 }}>{d.precipitationProbabilityPct}%</span>}
+                          <span style={{ fontSize: 'var(--fs-2xs)', color: d.rainy ? 'var(--status-info)' : 'var(--text-dim)', fontWeight: 700, flexShrink: 0, minWidth: 30, textAlign: 'right' }}>
+                            {d.precipitationProbabilityPct}%
+                          </span>
                           <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)', flexShrink: 0, width: 62, textAlign: 'right' }}>
                             {Math.round(d.tempMaxC)}° <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>{Math.round(d.tempMinC)}°</span>
                           </div>
