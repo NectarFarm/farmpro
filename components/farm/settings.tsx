@@ -16,7 +16,7 @@ import { requestTour } from './tour';
 import { apiClient } from '@/lib/request';
 import {
   ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff,
-  Package, CloudSun, Users, Shield, FileText, Bot, Palette,
+  Palette,
   Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, ClipboardList, Layers,
   type LucideIcon,
 } from './icons';
@@ -227,7 +227,10 @@ const SESSION_TIMEOUT_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
-  const { navigate, role, tenantId, pendingApprovals, farms, activeFarmId } = useNav();
+  // `pendingApprovals` is no longer read here: the Governance row that carried
+  // its badge moved to the Manage tab's menu (navigation.tsx's TabMenuSheet),
+  // which reads the same NavContext value.
+  const { navigate, role, tenantId, farms, activeFarmId } = useNav();
   // Who is actually signed in. Fetched here rather than threaded through the
   // shell, matching how components/farm/governance.tsx already reads its own
   // user id — there is no user in NavContext to read.
@@ -337,32 +340,24 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     readOnly?: string;
   };
 
-  // Destinations the desktop sidebar (components/farm/navigation.tsx's
-  // AppSidebar) already lists as first-class items for owner/manager —
-  // Inventory, Weather, People, Governance and Reports. Showing them again
-  // here meant every one of those appeared TWICE on desktop, under two
-  // different labels ("More" here, its own sidebar entry there). Wrapped in
-  // .settings-hub-mobile-only below (app/global.css) so this stays mobile's
-  // "More" menu — its only job once a sidebar exists — without losing the
-  // one thing that has no sidebar or other equivalent: AI Farm Assistant
-  // does have a Dashboard quick-action on every breakpoint, but Governance/
-  // Reports/etc. would otherwise vanish outright below 768px, not just get
-  // decluttered.
-  const mobileHubItems: SettingsRow[] = [
-    { label: 'Inventory', icon: Package, desc: 'Stock, lots & purchases', action: () => navigate('inventory') },
-    { label: 'Weather & IoT', icon: CloudSun, desc: 'Forecast & sensor alerts', action: () => navigate('weather') },
-    { label: 'People & Staff', icon: Users, desc: 'Employees & role assignment', action: () => navigate('people') },
-    // Where an owner says what a "morning round" is. The worker app has
-    // always had the tile; this is the definition behind it.
-    { label: 'Daily routines', icon: Sunrise, desc: 'What your workers are asked to do each round', action: () => navigate('routines') },
-    // Real count from NavCtx's `pendingApprovals` (GET /api/approvals?status=pending,
-    // issue #293) — reused, not re-fetched a second time (issue #298). No
-    // badge (not a fake "0 pending") when the tenant has none pending.
-    { label: 'Governance', icon: Shield, desc: 'Approvals, roles & audit', action: () => navigate('governance'), badge: pendingApprovals > 0 ? `${pendingApprovals} pending` : undefined },
-    { label: 'Reports', icon: FileText, desc: 'Export, share & auditor links', action: () => navigate('reports') },
-    { label: 'AI Farm Assistant', icon: Bot, desc: 'Smart farm advisor chatbot', action: () => navigate('ai-chat') },
-  ];
-
+  /* ── The mobile "Farm Management" hub that used to sit here is gone ──
+   * It listed Inventory / Weather / People / Daily routines / Governance /
+   * Reports / AI Farm Assistant, because a phone had no sidebar and the tab
+   * that reaches this screen was labelled "More" — so this list was the only
+   * way to those seven screens below 768px.
+   *
+   * The Manage tab now opens that list itself (navigation.tsx's TAB_MENUS),
+   * with the same destinations and a line each saying what they are for. Which
+   * left this screen repeating, under a heading, the exact list the user had
+   * just tapped through to get here — and made "App settings" in that menu
+   * lead to a screen whose first section was the menu again. One list, in the
+   * place people tap.
+   *
+   * Nothing lost any route: every destination that was here is in the tab
+   * menu, and the .settings-hub-mobile-only rule in app/global.css went with
+   * it. `pendingApprovals` still reaches the Governance row — see its badge in
+   * TabMenuSheet's caller.
+   */
   const sections: { label: string; items: SettingsRow[] }[] = [
     // UI Customise has no sidebar entry anywhere and no other path to it —
     // unlike the mobileHubItems above, hiding this on desktop would strand
@@ -488,7 +483,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         // The same list emailed on approval (lib/onboarding-guide.ts) —
         // for anyone who deleted that email or just wants to check what's
         // next without digging through their inbox.
-        { label: 'Getting started guide', icon: ClipboardList, desc: 'What to set up, and in what order', action: () => navigate('getting-started') },
+        { label: 'Set up your farm', icon: ClipboardList, desc: 'The nine steps, and how far through them you are', action: () => navigate('getting-started') },
         // This row has always been inert — it described the About screen and
         // never opened it, which made it read as a dead label rather than a
         // link. AboutScreen has existed and been routed the whole time
@@ -500,7 +495,11 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
 
   return (
     <div className="screen-content">
-      <TopNav title="More" subtitle="Settings & configuration" showBell />
+      {/* Was title="More". "More" named nothing — the owner's words: it "tells a
+            user nothing about what's behind it". This screen is where a farm
+            gets managed and configured, so it says that, and the bottom tab
+            that reaches it now reads "Manage" too (navigation.tsx's OWNER_TABS). */}
+        <TopNav title="Manage" subtitle="Your farm, your people, your settings" showBell />
       <div className="px-screen" style={{ paddingTop: 14 }}>
 
         {/* Profile card — the signed-in user, not a mock.
@@ -532,33 +531,6 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
           </div>
           <ChevronRight size={16} color="var(--text-muted)" />
         </button>
-
-        {/* ── Farm Management (mobile-only) ──
-         * This is mobile's "More" tab — its whole reason to exist is that a
-         * phone has no sidebar. Desktop (>=768px, app/global.css) already
-         * lists every one of these as a first-class sidebar item, so showing
-         * them again here duplicated five destinations under two different
-         * labels. .settings-hub-mobile-only hides this block instead of
-         * deleting it — a phone still has no other path to these screens. */}
-        <div className="settings-hub-mobile-only" style={{ marginBottom: 16 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Farm Management</div>
-          <div className="farm-card" style={{ overflow: 'hidden' }}>
-            {mobileHubItems.map((item, i) => (
-              <div key={item.label} onClick={item.action}
-                style={{ padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 12,
-                  borderBottom: i < mobileHubItems.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                  cursor: 'pointer' }}>
-                {item.icon && <item.icon size={17} color="var(--text-muted)" aria-hidden="true" />}
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
-                  {item.desc && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
-                </div>
-                {item.badge && <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{item.badge}</span>}
-                <ChevronRight size={16} color="var(--text-dim)" />
-              </div>
-            ))}
-          </div>
-        </div>
 
         {/* ── Appearance ── */}
         <div style={{ marginBottom: 16 }}>

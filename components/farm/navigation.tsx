@@ -1,7 +1,8 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye, Stethoscope } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X } from './icons';
 import { apiClient } from '@/lib/request';
+import type { SetupState } from '@/lib/setup-state';
 
 /* ── Screen registry ── */
 export type ScreenId =
@@ -80,6 +81,24 @@ export interface NavContext {
   pendingOnboardingRequests: number; // Real count of `onboard_requests` rows with status
                                       // 'pending' (issue #251/#252), super_admin sessions only —
                                       // 0 for every other role (issue #298).
+  /* ── How far through setup this tenant is (setup-sequence task) ──
+   * From GET /api/setup-state: real row counts plus a done/not-done flag per
+   * step of lib/onboarding-guide.ts. `null` means "not loaded" — either still
+   * in flight, the fetch failed, or this role never fetches it at all (only
+   * owner/manager do; a worker cannot act on any of these steps and a
+   * super_admin has no single tenant to report on). Every consumer treats
+   * null as "say nothing", never as "nothing is set up": claiming a farm is
+   * unconfigured because a request failed is exactly the kind of invented
+   * state this codebase's honest-empty-state rule exists to prevent.
+   *
+   * Fetched HERE rather than per screen because three places read it — the
+   * dashboard setup card, the sidebar's setup row, and the Getting Started
+   * checklist — and they must agree. */
+  setupState: SetupState | null;
+  /* Re-read it. Called by the screens that can be looking at it when the user
+   * has just finished a step elsewhere (adding a unit, issuing a login), so
+   * progress moves without a reload. */
+  refreshSetupState: () => void;
 }
 
 /* Tenant scope for /api/farms. With real sessions (issue #221) NavProvider gets
@@ -100,6 +119,7 @@ const NavCtx = createContext<NavContext>({
   navigate: () => {}, goBack: () => {}, setActiveFarmId: () => {},
   pendingApprovals: 0, unreadNotifs: 0,
   openTasksCount: 0, pendingOnboardingRequests: 0,
+  setupState: null, refreshSetupState: () => {},
 });
 
 export function useNav() { return useContext(NavCtx); }
@@ -163,20 +183,26 @@ export function decodeHash(hash: string): { screen: ScreenId; params: Record<str
   return { screen: screenPart, params };
 }
 
-/* ── Tab bar config per role ── */
+/* ── Tab bar config per role ──
+ * "More" is gone as a label (owner's words: it "tells a user nothing about
+ * what's behind it"). The screen behind it is a hub — Inventory, Weather,
+ * People, Routines, Governance, Reports on a phone, plus every app setting —
+ * so "Manage" names what it is for. The tab ID is UNCHANGED ('settings'), so
+ * every `data-tour="nav-settings"` anchor, deep link hash and sub-screen
+ * mapping keeps working; only the word a user reads changed. */
 const OWNER_TABS = [
   { id: 'dashboard' as ScreenId, label: 'Home', icon: Home },
   { id: 'crops' as ScreenId, label: 'Farm', icon: Leaf },
   { id: 'finance' as ScreenId, label: 'Finance', icon: DollarSign },
   { id: 'tasks' as ScreenId, label: 'Tasks', icon: CheckSquare },
-  { id: 'settings' as ScreenId, label: 'More', icon: Settings },
+  { id: 'settings' as ScreenId, label: 'Manage', icon: Settings },
 ];
 const MANAGER_TABS = [
   { id: 'dashboard' as ScreenId, label: 'Home', icon: Home },
   { id: 'crops' as ScreenId, label: 'Farm', icon: Leaf },
   { id: 'tasks' as ScreenId, label: 'Tasks', icon: CheckSquare },
   { id: 'inventory' as ScreenId, label: 'Stock', icon: Package },
-  { id: 'settings' as ScreenId, label: 'More', icon: Settings },
+  { id: 'settings' as ScreenId, label: 'Manage', icon: Settings },
 ];
 const WORKER_TABS = [
   { id: 'worker-home' as ScreenId, label: 'Home', icon: Home },
@@ -202,6 +228,79 @@ const VET_TABS = [
 const AUDITOR_TABS = [
   { id: 'auditor-reports' as ScreenId, label: 'Reports', icon: Eye },
 ];
+
+/* ── What is behind each tab (setup-sequence task) ──────────────────────────
+ * The owner, on the mobile shell: "even somethings look hidden — I expect when
+ * I click Farm I see a dropdown or something for what I do under Farm, which
+ * should take me to that exact screen. And for the AI advisor alone I struggle
+ * finding it when new."
+ *
+ * Both halves are the same bug. A phone has five tabs and the app has about
+ * twenty destinations, so fifteen of them lived behind a tab whose label
+ * mentioned none of them — CropsScreen's four internal tabs (Livestock, Crops,
+ * Units, Products) were invisible until you were already on the screen, and
+ * the AI advisor was reachable only from a dashboard tile and a row buried in
+ * a list called "More".
+ *
+ * So a tab with things under it now OPENS them instead of silently landing on
+ * one of them. Each row names the destination and what you do there, and
+ * navigates to that exact screen — including, where the destination is a tab
+ * inside a screen, the params that open it on that tab (CropsScreen reads
+ * `params.tab`).
+ *
+ * This is not a second navigation system: it is the existing tab, showing its
+ * own contents. Nothing is reachable through a sheet that was not already
+ * reachable, no sheet exists for a tab that has a single destination (Home,
+ * Tasks, Finance, Stock and every worker tab still navigate on one tap), and
+ * the sheet has no state of its own — it closes the moment you pick something.
+ */
+interface TabMenuItem {
+  screen: ScreenId;
+  params?: Record<string, string>;
+  label: string;
+  desc: string;
+  icon: typeof Home;
+  ownerOnly?: boolean;
+}
+
+const TAB_MENUS: Partial<Record<ScreenId, { title: string; items: TabMenuItem[] }>> = {
+  crops: {
+    title: 'Farm',
+    items: [
+      { screen: 'crops', params: { tab: 'units' }, label: 'Production units', desc: 'The houses, pens and fields a batch lives in — set these up first', icon: Home },
+      { screen: 'crops', params: { tab: 'livestock' }, label: 'Livestock batches', desc: 'Flocks and herds, their headcount and how each is doing', icon: Heart },
+      { screen: 'crops', params: { tab: 'crops' }, label: 'Crop batches', desc: 'Planted areas, their stage and expected harvest', icon: Leaf },
+      { screen: 'crops', params: { tab: 'products' }, label: 'Products', desc: 'What you sell, and which units produce it', icon: Package },
+      { screen: 'farm-config', label: 'Farm configuration', desc: 'Growth stages, products per batch, farm structure', icon: Layers, ownerOnly: true },
+    ],
+  },
+  settings: {
+    title: 'Manage',
+    items: [
+      { screen: 'inventory', label: 'Inventory', desc: 'Feed and supplies, stock lots and purchases', icon: Package },
+      { screen: 'people', label: 'People', desc: 'Employees, their pay, and the logins they sign in with', icon: Users },
+      { screen: 'routines', label: 'Daily routines', desc: 'The checklist your workers follow each round', icon: Sunrise },
+      { screen: 'weather', label: 'Weather', desc: 'Forecast for your farm, and what to do about it', icon: CloudSun },
+      { screen: 'ai-chat', label: 'AI farm advisor', desc: 'Ask a question about your own farm’s records', icon: Bot },
+      { screen: 'governance', label: 'Governance', desc: 'Approvals, who can do what, and the audit trail', icon: Shield },
+      { screen: 'reports', label: 'Reports', desc: 'Export production, money and mortality; share with an auditor', icon: FileText, ownerOnly: true },
+      { screen: 'settings', label: 'App settings', desc: 'Your account, appearance, units, notifications and security', icon: Settings },
+    ],
+  },
+};
+
+// The menu for a tab, or null when that tab is a single destination and should
+// navigate straight there. Filtered by role: a manager must not be offered a
+// screen whose API refuses them (same ownerOnly rule AppSidebar applies).
+export function tabMenuFor(tabId: ScreenId, role: Role): { title: string; items: TabMenuItem[] } | null {
+  const menu = TAB_MENUS[tabId];
+  if (!menu) return null;
+  if (role !== 'owner' && role !== 'manager') return null;
+  const items = menu.items.filter((item) => role === 'owner' || !item.ownerOnly);
+  // One item left after filtering is not a menu — it is a redirect with an
+  // extra tap in front of it.
+  return items.length > 1 ? { title: menu.title, items } : null;
+}
 
 function getTabsForRole(role: NavContext['role']) {
   if (role === 'worker') return WORKER_TABS;
@@ -464,8 +563,41 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
     return () => { cancelled = true; };
   }, [role]);
 
+  // ── Setup progress (setup-sequence task) ──
+  // GET /api/setup-state: ten real COUNT(*)s over this tenant's own rows,
+  // turned into done/not-done per step of lib/onboarding-guide.ts server-side.
+  //
+  // Only owner/manager fetch it. A worker cannot complete any of these steps
+  // (every one is an owner action), a vet/auditor never sees a screen that
+  // renders it, and a super_admin has no single tenant whose setup this would
+  // describe — asking for it in those sessions would be a request whose answer
+  // is discarded at best and misleading at worst.
+  //
+  // Stays `null` on failure. Not "0 of 9": a farm with everything configured
+  // must never be told it has nothing set up because one request timed out on
+  // a patchy connection, which is the normal case for this app's users.
+  const [setupState, setSetupState] = useState<SetupState | null>(null);
+  // Bumped by refreshSetupState() to re-run the effect below — a plain counter
+  // rather than calling the fetch directly so there is exactly one code path
+  // that writes `setupState`, cancellation included.
+  const [setupNonce, setSetupNonce] = useState(0);
+  const refreshSetupState = useCallback(() => { setSetupNonce((n) => n + 1); }, []);
+  useEffect(() => {
+    if (role !== 'owner' && role !== 'manager') { setSetupState(null); return; }
+    let cancelled = false;
+    // Deliberately NOT scoped by activeFarmId — see GET /api/setup-state's
+    // header: half of what it counts (products, stock items, permission rules)
+    // has no farm column at all, so a per-farm figure would be half-filtered
+    // and would move when you flipped the switcher for no honest reason.
+    apiClient.get<SetupState>(`/api/setup-state?tenantId=${tenantId}`).then(res => {
+      if (cancelled) return;
+      if (res.success && res.data && Array.isArray(res.data.steps)) setSetupState(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId, role, setupNonce]);
+
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState }}>
       {process.env.NODE_ENV !== 'production' && (
         <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       )}
@@ -533,37 +665,140 @@ export function RoleNoticeScreen() {
   );
 }
 
+/* The sheet a tab with several destinations opens. Deliberately the same
+ * bottom-sheet shape the farm switcher and the sign-out confirm already use,
+ * so it reads as part of the app rather than a new kind of thing. */
+function TabMenuSheet({ menu, onClose }: { menu: { title: string; items: TabMenuItem[] }; onClose: () => void }) {
+  const { navigate, setupState, pendingApprovals } = useNav();
+  // The one step the setup card is currently pointing at, so the same "you are
+  // here" thread runs through the menu: if the next thing to do is behind this
+  // tab, the row that leads to it says so. Null once setup is complete, or
+  // whenever setup state hasn't loaded — never guessed.
+  const nextStep = setupState && !setupState.complete
+    ? setupState.steps.find((s) => s.id === setupState.nextStepId) ?? null
+    : null;
+
+  return (
+    <div
+      style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', zIndex: 400 }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '78%', display: 'flex', flexDirection: 'column' }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label={`${menu.title} destinations`}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px 10px', flexShrink: 0 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 'var(--fs-lg)', color: 'var(--text-primary)' }}>{menu.title}</div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>What you can do here</div>
+          </div>
+          <button type="button" className="btn-icon" onClick={onClose} aria-label="Close"><X size={16} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', padding: '0 14px 18px' }}>
+          {menu.items.map((item) => {
+            const Icon = item.icon;
+            // Matches on screen AND the tab param, so "Production units"
+            // highlights only when the next step is actually the units step,
+            // not merely something else on the same screen.
+            const isNext = !!nextStep?.goTo
+              && nextStep.goTo.screen === item.screen
+              && (nextStep.goTo.params?.tab ?? null) === (item.params?.tab ?? null);
+            return (
+              <button
+                key={`${item.screen}:${item.params?.tab ?? ''}`}
+                type="button"
+                onClick={() => { onClose(); navigate(item.screen, item.params); }}
+                style={{
+                  width: '100%', display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left',
+                  padding: '12px 13px', marginBottom: 8, borderRadius: 14, cursor: 'pointer',
+                  background: isNext ? 'rgba(74,222,128,0.1)' : 'var(--card)',
+                  border: isNext ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <div style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon size={17} color={isNext ? 'var(--primary-green)' : 'var(--text-muted)'} aria-hidden="true" />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', gap: 7, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{item.label}</span>
+                    {isNext && (
+                      <span className="chip" style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--primary-green)' }}>Next step</span>
+                    )}
+                    {/* The Settings screen's mobile hub carried this badge
+                        before that list was replaced by this menu. Same real
+                        count from the same NavContext value (GET /api/approvals
+                        ?status=pending), and still no badge at zero — an
+                        explicit "0 pending" is the fake number this codebase
+                        keeps deleting. */}
+                    {item.screen === 'governance' && pendingApprovals > 0 && (
+                      <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{pendingApprovals} pending</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>{item.desc}</div>
+                </div>
+                <ChevronRight size={16} color="var(--text-dim)" aria-hidden="true" style={{ flexShrink: 0 }} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Bottom Tab Bar ── */
 export function BottomNav() {
   const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests } = useNav();
   const tabs = getTabsForRole(role);
+  // Which tab's contents are open, if any. Local to the bar — a menu is not
+  // application state and must not survive a navigation.
+  const [openMenu, setOpenMenu] = useState<ScreenId | null>(null);
+  const menu = openMenu ? tabMenuFor(openMenu, role) : null;
 
   return (
-    <nav className="bottom-nav" aria-label="Primary mobile">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = tabIsActive(current, tab.id);
-        const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            className={`bottom-nav-item ${isActive ? 'active' : ''}`}
-            onClick={() => navigate(tab.id)}
-            aria-current={isActive ? 'page' : undefined}
-            // Anchor for the guided tour (components/farm/tour.tsx). The
-            // sidebar's equivalent button carries the same id — only one of
-            // the two shells is visible at a time, and the tour picks
-            // whichever one that is.
-            data-tour={`nav-${tab.id}`}
-          >
-            <Icon className="nav-icon" size={22} />
-            {badge !== null && <NavBadge count={badge} tabId={tab.id} />}
-            <span className="nav-label">{tab.label}</span>
-          </button>
-        );
-      })}
-    </nav>
+    <>
+      <nav className="bottom-nav" aria-label="Primary mobile">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = tabIsActive(current, tab.id);
+          const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
+          const hasMenu = tabMenuFor(tab.id, role) !== null;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              className={`bottom-nav-item ${isActive ? 'active' : ''}`}
+              // A tab with several destinations shows them; a tab with one goes
+              // straight there. Same control, no long-press, no double-tap —
+              // nothing a first-time user has to be told about.
+              onClick={() => (hasMenu ? setOpenMenu(tab.id) : navigate(tab.id))}
+              aria-current={isActive ? 'page' : undefined}
+              aria-haspopup={hasMenu ? 'menu' : undefined}
+              aria-expanded={hasMenu ? openMenu === tab.id : undefined}
+              // Anchor for the guided tour (components/farm/tour.tsx). The
+              // sidebar's equivalent button carries the same id — only one of
+              // the two shells is visible at a time, and the tour picks
+              // whichever one that is.
+              data-tour={`nav-${tab.id}`}
+            >
+              <Icon className="nav-icon" size={22} />
+              {badge !== null && <NavBadge count={badge} tabId={tab.id} />}
+              {/* The caret is the whole affordance: it is what distinguishes a
+                  tab that opens a list from one that navigates, before you
+                  have tapped either. 9px and inline with the label so it costs
+                  no vertical space in a 68px bar. */}
+              <span className="nav-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                {tab.label}
+                {hasMenu && <ChevronUp size={9} aria-hidden="true" />}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+      {menu && <TabMenuSheet menu={menu} onClose={() => setOpenMenu(null)} />}
+    </>
   );
 }
 
@@ -612,10 +847,15 @@ function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
  * Keep their active state tied to the actual destination, not to Settings. */
 function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
   const DETAIL_SCREENS: Partial<Record<ScreenId, ScreenId[]>> = {
-    crops: ['batch-detail', 'crop-schedule'],
+    // farm-config is reached from the Farm menu, so it belongs to this row.
+    crops: ['batch-detail', 'crop-schedule', 'farm-config'],
     inventory: ['inventory-detail'],
     people: ['people-detail'],
-    settings: ['notification-settings', 'ui-customise', 'ai-chat', 'about', 'routines', 'getting-started'],
+    // 'routines', 'getting-started' and 'ai-chat' used to fold into Settings
+    // here, because none of them had a sidebar row of its own. All three do
+    // now (see AppSidebar's groups), so folding them in would light up the
+    // wrong item.
+    settings: ['notification-settings', 'ui-customise', 'about', 'security-settings'],
   };
   return current === tabId || (DETAIL_SCREENS[tabId] ?? []).includes(current);
 }
@@ -624,24 +864,58 @@ function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
  * Same tab set BottomNav drives (getTabsForRole). Shown >=1024px via CSS, where
  * BottomNav is hidden; rendered on all sizes so the tab set lives in one place. */
 export function AppSidebar() {
-  const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarmId, farms, setActiveFarmId } = useNav();
+  const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarmId, farms, setActiveFarmId, setupState } = useNav();
   const tabs = getTabsForRole(role);
-  // Three groups instead of the old seven. Five of the old headers (People,
-  // Resources, Finance, Reporting, System) existed purely to restate the one
-  // item inside them ("Finance" group containing only "Finance") — ~120px of
-  // vertical chrome buying no information. Grouped by what the work actually
-  // is instead: the landing view, day-to-day farm operations, and the
-  // business/oversight side of it.
+  /* ── Grouped by WHEN you need it, not by what department owns it ──
+   * (setup-sequence task; before this the three groups were Overview /
+   * Operations / Business.)
+   *
+   * The owner's complaint was that every destination looked equally like a
+   * starting point. Alphabet-soup department headings are part of why: they
+   * tell you which team owns a screen, which is not a question a farmer
+   * standing in a shed has. These four say where in the life of the farm the
+   * screen belongs, which IS the sequence — set the farm up, then run it day
+   * to day, then read the business off it.
+   *
+   * "Set up your farm" appears in the first group ONLY while setup is
+   * unfinished, and carries its real position ("4 of 9") from
+   * GET /api/setup-state. It is one row pointing at one existing screen, not a
+   * parallel menu: nothing is reachable through it that is not reachable
+   * without it.
+   *
+   * Labels changed for the same reason: "Fields & crops" named half of what
+   * that screen holds and named it wrong for a poultry farm — its four tabs
+   * are Livestock, Crops, Units and Products, which is "Units & batches".
+   * "Workers" → "People" matches the screen's own title and the guide's
+   * wording ("Add employees, then give each one a login").
+   */
   const enterpriseGroups = [
-    { label: 'Overview', items: [
+    { label: 'Start here', items: [
       { id: 'dashboard' as ScreenId, label: 'Dashboard', icon: Home, ownerOnly: false },
+      // Rendered only while there is something left to do — see the filter
+      // below. Once setup is complete this row disappears entirely rather
+      // than sitting there as a permanent tick, which is the "get out of the
+      // way" half of the brief.
+      { id: 'getting-started' as ScreenId, label: 'Set up your farm', icon: ClipboardList, ownerOnly: false, setupOnly: true },
     ] },
-    { label: 'Operations', items: [
-      { id: 'crops' as ScreenId, label: 'Fields & crops', icon: Leaf, ownerOnly: false },
-      { id: 'tasks' as ScreenId, label: 'Tasks', icon: CheckSquare, ownerOnly: false },
-      { id: 'weather' as ScreenId, label: 'Weather', icon: CloudSun, ownerOnly: false },
+    { label: 'Set up your farm', items: [
+      { id: 'crops' as ScreenId, label: 'Units & batches', icon: Leaf, ownerOnly: false },
       { id: 'inventory' as ScreenId, label: 'Inventory', icon: Package, ownerOnly: false },
-      { id: 'people' as ScreenId, label: 'Workers', icon: Users, ownerOnly: false },
+      { id: 'people' as ScreenId, label: 'People', icon: Users, ownerOnly: false },
+    ] },
+    { label: 'Day to day', items: [
+      { id: 'tasks' as ScreenId, label: 'Tasks', icon: CheckSquare, ownerOnly: false },
+      // Daily routines had no sidebar entry at all — it was reachable only
+      // through mobile's hub list and the dashboard tile, despite being one
+      // of the nine setup steps. A step the guide tells you to do needs a
+      // door in the shell that names it.
+      { id: 'routines' as ScreenId, label: 'Daily routines', icon: Sunrise, ownerOnly: false },
+      { id: 'weather' as ScreenId, label: 'Weather', icon: CloudSun, ownerOnly: false },
+      // The advisor had no sidebar row either — it was a dashboard tile and a
+      // line inside mobile's hub list, which is precisely the "I struggle
+      // finding it when new" the owner reported. A screen people ask for by
+      // name needs a row that says its name.
+      { id: 'ai-chat' as ScreenId, label: 'AI advisor', icon: Bot, ownerOnly: false },
     ] },
     { label: 'Business', items: [
       // 'governance' used to be dead code: tabBadge() already had a branch
@@ -654,11 +928,34 @@ export function AppSidebar() {
       { id: 'settings' as ScreenId, label: 'Settings', icon: Settings, ownerOnly: false },
     ] },
   ];
+  // Progress text for the setup row, e.g. "4 of 9". Absent (not "0 of 9")
+  // while setupState is null — the row only claims a position once the server
+  // has actually told it one.
+  const setupIncomplete = !!setupState && !setupState.complete;
+  const setupProgressLabel = setupState && !setupState.complete
+    ? `${setupState.completed} of ${setupState.total}`
+    : null;
   // Manager still can't see Finance/Reports — same restriction as before,
   // now expressed per-item (ownerOnly) instead of by dropping whole groups.
   // Owner sees everything; worker/super_admin keep the flat tab-set fallback.
   const groups = role === 'owner' || role === 'manager'
-    ? enterpriseGroups.map((group) => ({ label: group.label, items: group.items.filter((item) => role === 'owner' || !item.ownerOnly) }))
+    ? enterpriseGroups
+        .map((group) => ({
+          label: group.label,
+          items: group.items.filter((item) =>
+            (role === 'owner' || !item.ownerOnly) &&
+            // The setup row exists only while setup is unfinished. `setupOnly`
+            // is checked against real server state, so a tenant whose fetch
+            // failed (setupState null) does NOT get the row either — better to
+            // omit it than to show "set up your farm" to a farm that is
+            // already running.
+            (!('setupOnly' in item && item.setupOnly) || setupIncomplete)
+          ),
+        }))
+        // A group can empty out (Start here never does, but keeping this
+        // general means a future ownerOnly-only group doesn't leave a bare
+        // heading behind).
+        .filter((group) => group.items.length > 0)
     : [{ label: 'Workspace', items: tabs }];
   // Platform-admin screens are tenant-scoped, not farm-scoped: they carry
   // their own tenant picker and never read activeFarmId.
@@ -699,6 +996,17 @@ export function AppSidebar() {
                 color: active ? 'var(--primary-green)' : 'var(--text-muted)', fontWeight: active ? 700 : 500, fontSize: 'var(--fs-base)' }}>
               <Icon size={18} />
               <span style={{ flex: 1 }}>{tab.label}</span>
+              {/* Position, not a count. A red circle with "4" in it would read
+                  as four things wrong; "4 of 9" reads as progress, which is
+                  what it is. Only ever rendered from real server state. */}
+              {tab.id === 'getting-started' && setupProgressLabel && (
+                <span
+                  className="chip"
+                  style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--primary-green)', flexShrink: 0 }}
+                >
+                  {setupProgressLabel}
+                </span>
+              )}
               {badge !== null && <NavBadge count={badge} tabId={tab.id} />}
             </button>
           );

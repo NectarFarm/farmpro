@@ -148,7 +148,14 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
   // ── code ──
   const code = v('code');
   if (!code) {
-    issues.push({ col: 'code', severity: 'error', message: 'Task code is required', suggestion: `TSK-KMU-${String(9000 + rowIdx).padStart(4, '0')}`, autoFix: true });
+    // No auto-fix, and no suggested code. This used to suggest
+    // `TSK-KMU-9000+n` with autoFix:true, so one tap on "Apply All Auto-Fixes"
+    // wrote the DEMO tenant's farm segment (KMU — see lib/codes.ts's
+    // farmSegment) into a real farm's task codes, permanently, referencing a
+    // farm that is not theirs. Nothing client-side knows this tenant's segment
+    // or its next free sequence number, so the honest move is to say what the
+    // code has to look like and let the person supply it.
+    issues.push({ col: 'code', severity: 'error', message: 'Task code is required — TSK-<your farm segment>-0000, matching the codes you already use' });
   } else if (!RE_TASK_CODE.test(code)) {
     const fixed = code.toUpperCase().replace(/\s+/g, '-');
     issues.push({ col: 'code', severity: 'warning', message: `Code "${code}" doesn't match TSK-XXX-0000 pattern`, suggestion: fixed, autoFix: true });
@@ -269,10 +276,13 @@ function validateEmployee(row: Record<string, string>, allRows: Record<string, s
   // ── code ──
   const code = v('code');
   if (!code) {
-    issues.push({ col: 'code', severity: 'error', message: 'Employee code is required', suggestion: `EMP-KMU-${String(100 + rowIdx).padStart(3, '0')}`, autoFix: true });
+    // Same reason as validateTask's code check above: the suggested
+    // `EMP-KMU-1nn` was the demo tenant's farm segment, auto-applied into real
+    // employee records.
+    issues.push({ col: 'code', severity: 'error', message: 'Employee code is required — EMP-<your farm segment>-000, matching the codes you already use' });
   } else if (!RE_EMP_CODE.test(code)) {
     const fixed = code.toUpperCase().replace(/\s+/g, '-');
-    issues.push({ col: 'code', severity: 'warning', message: `Code "${code}" should match EMP-XXX-000 format — e.g. EMP-KMU-007`, suggestion: fixed, autoFix: false });
+    issues.push({ col: 'code', severity: 'warning', message: `Code "${code}" should match the EMP-XXX-000 format`, suggestion: fixed, autoFix: false });
   }
   const dupeInBatch = allRows.some((r, i) => i !== rowIdx && (r.code ?? '') === code && code !== '');
   if (dupeInBatch) issues.push({ col: 'code', severity: 'error', message: 'Duplicate code within this import file' });

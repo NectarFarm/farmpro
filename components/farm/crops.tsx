@@ -17,10 +17,13 @@ import { parseMoneyToCents, centsToMajor, majorToCents } from '@/lib/money';
 // names/emoji/labels/prefixes), not persisted state — there is no
 // enterprise-config table or route, and inventing one is out of scope here.
 
-function genCode(prefix: string, farmCode: string, n: number) {
-  const fc = farmCode.split('-')[1] ?? 'XXX';
-  return `${prefix}-${fc}-${String(n).padStart(3, '0')}`;
-}
+// (`genCode(prefix, farmCode, n)` used to live here. Its only caller was the
+// batch wizard's code preview, which passed a hardcoded farm segment and a
+// hardcoded sequence number — see CropScheduleScreen's code-preview note for
+// why that had to go. Nothing client-side can compute a real code: the
+// sequence is assigned by POST /api/batches / POST /api/units from the
+// tenant's existing rows, via lib/codes.ts's generateCode. Deleted rather than
+// left for a future caller to reach for.)
 
 /* A batch row exactly as GET/POST /api/batches returns it. */
 interface ApiBatch {
@@ -586,9 +589,30 @@ function UnitProductsSheet({ tenantId, unit, allProducts, onSaved, onClose }: {
   );
 }
 
+const CROPS_TABS = ['livestock', 'crops', 'units', 'products'] as const;
+type CropsTab = (typeof CROPS_TABS)[number];
+
+// The Farm tab's menu (components/farm/navigation.tsx's TAB_MENUS) and the
+// setup guide's per-step deep links (lib/onboarding-guide.ts's `goTo`) both
+// name one of this screen's four tabs. Reading it here is what makes "Add your
+// production units" actually land on Units instead of on Livestock and leave
+// the farmer to find the right tab — which was the whole point of the
+// deep link. Anything unrecognised falls back to the screen's own default
+// rather than rendering an empty tab body.
+function initialCropsTab(raw: string | undefined): CropsTab {
+  return (CROPS_TABS as readonly string[]).includes(raw ?? '') ? (raw as CropsTab) : 'livestock';
+}
+
 export function CropsScreen() {
-  const { navigate, activeFarm, farms, tenantId } = useNav();
-  const [tab, setTab] = useState<'livestock' | 'crops' | 'units' | 'products'>('livestock');
+  const { navigate, activeFarm, farms, tenantId, params } = useNav();
+  const [tab, setTab] = useState<CropsTab>(() => initialCropsTab(params.tab));
+  // A second navigate() to this screen with a different tab does not remount
+  // the component, so the initial state above would not re-run — this is what
+  // makes picking "Products" from the Farm menu work when you are already
+  // standing on the Units tab.
+  useEffect(() => {
+    if (params.tab) setTab(initialCropsTab(params.tab));
+  }, [params.tab]);
   const [filter, setFilter] = useState('All');
   const [farmFilter, setFarmFilter] = useState(activeFarm === 'ALL' ? 'All' : activeFarm);
   const [showEnterpriseSelector, setShowEnterpriseSelector] = useState(false);
@@ -1741,14 +1765,33 @@ export function CropScheduleScreen() {
   const [step, setStep] = useState(1);
   const totalSteps = 4;
   const steps = ['Basic Info', cfg.unitName, 'Schedule', 'Processes'];
-  const autoCode = genCode(cfg.batchPrefix, 'KMU', 24);
-  const unitCodePreview = genCode(cfg.unitPrefix, 'KMU', 7);
-
   // Step 1 — batch basics
   const [batchName, setBatchName] = useState(`${cfg.label} Batch – ${new Date().toLocaleString('en-GB', { month: 'short', year: 'numeric' })}`);
   const [farmId, setFarmId] = useState(farms[0]?.id ?? '');
   const [initialQty, setInitialQty] = useState('');
   const [species, setSpecies] = useState('');
+
+  /* ── Code preview: the shape, not a made-up code ──────────────────────────
+   * These two used to read `genCode(cfg.batchPrefix, 'KMU', 24)` and
+   * `genCode(cfg.unitPrefix, 'KMU', 7)` — a hardcoded farm segment and a
+   * hardcoded sequence number, shown in monospace green as "Auto-code:
+   * BRO-KMU-024" to every farmer on every farm. Two lies in one string: KMU is
+   * the demo tenant's location segment, and 024 implied twenty-three earlier
+   * batches. A brand-new owner creating their very first batch was told they
+   * had a history at somebody else's farm.
+   *
+   * The prefix and the farm segment ARE knowable here — the prefix from the
+   * enterprise registry, the segment from the farm actually selected in the
+   * form above. The sequence number is not: POST /api/batches assigns it
+   * server-side from the tenant's existing rows (lib/codes.ts's generateCode),
+   * and any number guessed client-side would be a different number from the
+   * one saved. So the placeholder stays a placeholder — '###' — and the label
+   * says when the real one arrives.
+   */
+  const selectedFarmCode = farms.find(f => f.id === farmId)?.code ?? '';
+  const codeSegment = selectedFarmCode ? (selectedFarmCode.split('-')[1] ?? '') : '';
+  const autoCode = codeSegment ? `${cfg.batchPrefix}-${codeSegment}-###` : `${cfg.batchPrefix}-###`;
+  const unitCodePreview = codeSegment ? `${cfg.unitPrefix}-${codeSegment}-###` : `${cfg.unitPrefix}-###`;
 
   // Step 2 — the production unit this batch lives in (single-unit only, see
   // note on `createBatch` below re: split-delivery/multi-unit).
@@ -1807,7 +1850,7 @@ export function CropScheduleScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title={`New ${cfg.label} Batch`} subtitle={`Auto-code: ${autoCode}`} showBack />
+      <TopNav title={`New ${cfg.label} Batch`} subtitle={`Code starts ${autoCode.replace(/-###$/, '')}`} showBack />
       <div className="px-screen" style={{ paddingTop: 14 }}>
 
         {/* Step indicator */}
@@ -1828,7 +1871,7 @@ export function CropScheduleScreen() {
           <cfg.icon size={32} color="var(--primary-green)" aria-hidden="true" />
           <div>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', color: 'var(--text-primary)' }}>{cfg.label}</div>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Unit: {cfg.unitName} · Batch code preview: <span style={{ fontFamily: 'monospace', color: 'var(--primary-green)', fontWeight: 700 }}>{autoCode}</span></div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Unit: {cfg.unitName} · Batch code: <span style={{ fontFamily: 'monospace', color: 'var(--primary-green)', fontWeight: 700 }}>{autoCode}</span> <span style={{ color: 'var(--text-dim)' }}>(number assigned on save)</span></div>
           </div>
         </div>
 
@@ -1860,7 +1903,7 @@ export function CropScheduleScreen() {
         {step === 2 && (
           <div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{cfg.unitName} Code (auto-generated on save)</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{cfg.unitName} Code (the number is assigned on save)</label>
               <input className="farm-input" value={unitCodePreview} disabled style={{ fontFamily: 'monospace', color: 'var(--primary-green)', fontWeight: 700, opacity: 0.7 }} />
             </div>
             <div style={{ marginBottom: 12 }}>
