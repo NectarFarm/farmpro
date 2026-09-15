@@ -725,3 +725,47 @@
 }
 
 nextjs-portal { display: none !important; }
+
+/* ── Navigation progress bar ───────────────────────────────────────────────
+ * Shown while a screen swap is rendering. The swap is a React transition
+ * (see navigate() in components/farm/navigation.tsx: an urgent setState there
+ * cost 1,288ms INP, almost all of it presentation delay), and a transition
+ * without a pending indicator just looks like a tap that did nothing —
+ * especially on the slow devices the transition was added for. Two pixels,
+ * fixed, above everything, out of the way of content.
+ *
+ * prefers-reduced-motion drops the animation but keeps the bar: the signal is
+ * "something is happening", and that must survive the preference. */
+@keyframes ifms-nav-progress {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.nav-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 9999;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+
+.nav-progress::after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: var(--primary-green);
+  animation: ifms-nav-progress 0.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-progress::after {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
+}

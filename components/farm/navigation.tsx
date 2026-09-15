@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useRef, createContext, useContext, useCallback, useTransition } from 'react';
 import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X } from './icons';
 import { apiClient } from '@/lib/request';
 import type { SetupState } from '@/lib/setup-state';
@@ -69,6 +69,10 @@ export interface NavContext {
                      // session-tenant-wins / PROVISIONAL_TENANT_ID fallback as the farms fetch below.
   navigate: (to: ScreenId, params?: Record<string, string>) => void;
   goBack: () => void;
+  // True while a screen swap is still rendering — see navigate()'s comment on
+  // why the swap is a transition. Anything that wants to show the tap landed
+  // reads this.
+  isNavigating: boolean;
   setActiveFarmId: (id: string) => void; // Pass a real farms.id, or 'ALL' to clear the filter.
   pendingApprovals: number; // Real count from GET /api/approvals?status=pending (issue #293),
                              // farm-scoped by activeFarmId (farm-scoped-data task).
@@ -116,7 +120,7 @@ const NavCtx = createContext<NavContext>({
   activeFarm: 'ALL',
   farms: [],
   tenantId: PROVISIONAL_TENANT_ID,
-  navigate: () => {}, goBack: () => {}, setActiveFarmId: () => {},
+  navigate: () => {}, goBack: () => {}, isNavigating: false, setActiveFarmId: () => {},
   pendingApprovals: 0, unreadNotifs: 0,
   openTasksCount: 0, pendingOnboardingRequests: 0,
   setupState: null, refreshSetupState: () => {},
@@ -347,6 +351,10 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   const startScreen: ScreenId = startScreenForRole(initialRole);
   const [current, setCurrent] = useState<ScreenId>(startScreen);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  // True while a screen swap is rendering. Exposed through the nav context so
+  // the shell can show the tap was received — a transition without one reads
+  // as a dead button on exactly the slow devices it was added for.
+  const [isNavigating, startTransition] = useTransition();
   const [params, setParams] = useState<Record<string, string>>({});
   // Canonical filter value (farm-scoped-data task) — a real farms.id, or
   // 'ALL'. Starts at 'ALL' (not a phantom farm code — see the NavCtx default
@@ -407,8 +415,28 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
     // Push the screen being left along with the params it was showing —
     // not the destination's params — so a later goBack() can restore them.
     setHistory((h) => pushHistoryEntry(h, { screen: current, params }));
-    setCurrent(dest);
-    setParams(nextParams);
+    // ── Why the screen swap is a transition (INP) ─────────────────────────
+    // Measured on a real device: tapping a nav item gave INP 1,288ms, of
+    // which input delay was 1ms and the handler 21ms — the other ~1,266ms was
+    // PRESENTATION delay. Nothing here was slow; the browser simply could not
+    // paint, because these setStates were urgent and app/page.tsx mounts the
+    // whole destination screen in the same frame. Some of those screens are
+    // 2,000 lines of component, so React's render, layout and paint all had
+    // to finish before the tap could show any feedback at all.
+    //
+    // Marking the swap as a transition lets React paint the pressed state
+    // first and build the new screen without blocking that frame. The screen
+    // still arrives as fast as the work allows — what changes is that the UI
+    // stops being frozen while it happens, which is exactly what INP
+    // measures. `isNavigating` below is what keeps that honest: a transition
+    // with no pending indicator just looks like a tap that did nothing.
+    //
+    // NOT wrapped: pushState, which must stay in the gesture's own task, and
+    // setHistory, which is a cheap array push nothing renders from.
+    startTransition(() => {
+      setCurrent(dest);
+      setParams(nextParams);
+    });
     // Mirror onto the browser History API (Android/browser Back fix): a real
     // history entry per in-app navigation is what gives the Back gesture
     // something of ours to pop, instead of leaving/closing the app. Same
@@ -432,8 +460,11 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
     const { history: rest, entry } = popHistoryEntry(history);
     if (!entry) return;
     setHistory(rest);
-    setCurrent(entry.screen);
-    setParams(entry.params);
+    // Same reason as navigate(): going back mounts a whole screen too.
+    startTransition(() => {
+      setCurrent(entry.screen);
+      setParams(entry.params);
+    });
   }, [history]);
 
   // `history` mirrored into a ref so the popstate handler (registered once)
@@ -451,23 +482,32 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onPopState = (event: PopStateEvent) => {
+      // The Android back gesture lands here and mounts a screen exactly like
+      // navigate() does, so it gets the same treatment — this is the
+      // interaction a phone user makes most.
       const { history: rest, entry } = popHistoryEntry(historyRef.current);
       if (entry) {
         setHistory(rest);
-        setCurrent(entry.screen);
-        setParams(entry.params);
+        startTransition(() => {
+          setCurrent(entry.screen);
+          setParams(entry.params);
+        });
         return;
       }
       const state = event.state as { screen?: string; params?: Record<string, string> } | null;
       if (state && typeof state.screen === 'string' && isScreenId(state.screen)) {
         const guarded = guardDestination(role, state.screen);
-        setCurrent(guarded);
-        setParams(state.params ?? {});
+        startTransition(() => {
+          setCurrent(guarded);
+          setParams(state.params ?? {});
+        });
       } else {
         // Nothing usable to restore — land on the role's start screen rather
         // than crash or leak whatever `current` happened to be.
-        setCurrent(startScreenForRole(role));
-        setParams({});
+        startTransition(() => {
+          setCurrent(startScreenForRole(role));
+          setParams({});
+        });
       }
     };
     window.addEventListener('popstate', onPopState);
@@ -597,7 +637,9 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   }, [tenantId, role, setupNonce]);
 
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, isNavigating, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState }}>
+      {/* Two pixels saying the tap landed while the next screen renders. */}
+      {isNavigating && <div className="nav-progress" role="status" aria-label="Loading screen" />}
       {process.env.NODE_ENV !== 'production' && (
         <RoleSelector role={role} setRole={(r) => { setRole(r); setCurrent(startScreenForRole(r)); setHistory([]); }} />
       )}
