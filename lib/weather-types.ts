@@ -34,8 +34,19 @@ export interface WeatherDay {
 
 export interface WeatherData {
   farmName: string
+  // The farm's free-text location ("Nanyuki", "Nakuru, Kenya") as someone
+  // typed it at signup. It is a LABEL, not the thing the forecast was fetched
+  // for — see latitude/longitude below.
   location: string
   hasCoordinates: boolean
+  // The coordinates this forecast is actually for, echoed back so the screen
+  // can show them. Without these the header showed only the free-text
+  // location, which can disagree with the pin — a farm whose GPS sits one
+  // valley over from the town somebody typed reads as a forecast for the
+  // wrong place, with nothing on screen to reveal it. Present only when
+  // hasCoordinates is true.
+  latitude?: number
+  longitude?: number
   current?: WeatherCurrent
   daily?: WeatherDay[]
   updatedAt?: string

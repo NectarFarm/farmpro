@@ -178,8 +178,25 @@ export function WeatherScreen() {
             {data && data.hasCoordinates && !editingPin && data.current && (
               <>
                 <div className="farm-card" style={{ padding: 20, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
+                  <div style={{ minWidth: 0 }}>
+                    {/* Farm name, then the place this forecast is actually for.
+                        The free-text location is a label somebody typed at
+                        signup; the forecast comes from the farm's GPS pin, and
+                        the two can disagree — a pin one valley over from the
+                        town in the label reads as a forecast for the wrong
+                        place with nothing on screen to reveal it. Showing the
+                        coordinates makes the mismatch visible, and the button
+                        below is how it gets corrected. */}
                     <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 2 }}>{data.farmName}</div>
+                    {(data.location || data.latitude != null) && (
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {data.location}
+                        {data.location && data.latitude != null ? ' · ' : ''}
+                        {data.latitude != null && data.longitude != null && (
+                          <span style={{ fontFamily: 'monospace' }}>{data.latitude.toFixed(4)}, {data.longitude.toFixed(4)}</span>
+                        )}
+                      </div>
+                    )}
                     <div className="weather-temp">{Math.round(data.current.temperatureC)}°</div>
                     <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-secondary)', fontWeight: 600, marginTop: 2 }}>{data.current.label}</div>
                     <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 2 }}>Feels like {Math.round(data.current.apparentTemperatureC)}°</div>
@@ -229,7 +246,7 @@ export function WeatherScreen() {
 
                 {canSetCoordinates && (
                   <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }} onClick={() => setEditingPin(true)}>
-                    <MapPin size={13} /> Update farm location
+                    <MapPin size={13} /> Not the right spot? Update the pin
                   </button>
                 )}
 

@@ -150,6 +150,10 @@ export async function GET(req: Request) {
     farmName: farm.name,
     location: farm.location,
     hasCoordinates: true,
+    // Echoed back so the screen can show WHAT was queried, not just the farm's
+    // typed location label.
+    latitude: farm.latitude,
+    longitude: farm.longitude,
     current,
     daily,
     updatedAt: new Date().toISOString(),

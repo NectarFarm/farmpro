@@ -226,54 +226,6 @@ export interface Product {
   priceHistory: ProductPrice[];
 }
 
-export const PRODUCTS_DATA: Product[] = [
-  {
-    id: 'PRD-KMU-001', name: 'Tray Eggs (30)', emoji: '🥚',
-    batchCode: 'LYR-KMU-008', farmCode: 'FRM-KMU-001', enterprise: 'layer',
-    priceHistory: [
-      { price: 480, unit: 'tray', currency: 'KSh', startDate: '2026-01-01', endDate: '2026-07-31', notes: 'Pre-season rate' },
-      { price: 530, unit: 'tray', currency: 'KSh', startDate: '2026-08-01', notes: 'August price increase' },
-    ],
-  },
-  {
-    id: 'PRD-KMU-002', name: 'Live Broiler (kg)', emoji: '🐔',
-    batchCode: 'BRO-KMU-022', farmCode: 'FRM-KMU-001', enterprise: 'broiler',
-    priceHistory: [
-      { price: 350, unit: 'kg liveweight', currency: 'KSh', startDate: '2026-01-01' },
-    ],
-  },
-  {
-    id: 'PRD-KMU-003', name: 'Fresh Milk (litre)', emoji: '🥛',
-    batchCode: 'COW-KMU-003', farmCode: 'FRM-KMU-001', enterprise: 'dairy_cow',
-    priceHistory: [
-      { price: 55, unit: 'litre', currency: 'KSh', startDate: '2026-01-01', endDate: '2026-06-30' },
-      { price: 60, unit: 'litre', currency: 'KSh', startDate: '2026-07-01' },
-    ],
-  },
-  {
-    id: 'PRD-KMU-004', name: 'Maize (90kg bag)', emoji: '🌽',
-    batchCode: 'MZE-KMU-007', farmCode: 'FRM-KMU-001', enterprise: 'maize',
-    priceHistory: [
-      { price: 4200, unit: 'bag', currency: 'KSh', startDate: '2026-01-01' },
-    ],
-  },
-  {
-    id: 'PRD-KMU-005', name: 'Kale / Sukuma (kg)', emoji: '🥬',
-    batchCode: 'KIT-KMU-002', farmCode: 'FRM-KMU-001', enterprise: 'kitchen_garden',
-    priceHistory: [
-      { price: 80, unit: 'kg', currency: 'KSh', startDate: '2026-01-01' },
-    ],
-  },
-  {
-    id: 'PRD-KMU-006', name: 'Live Pork (kg)', emoji: '🐷',
-    batchCode: 'PIG-KMU-004', farmCode: 'FRM-KMU-001', enterprise: 'pig',
-    priceHistory: [
-      { price: 420, unit: 'kg liveweight', currency: 'KSh', startDate: '2026-01-01' },
-    ],
-  },
-];
-
-// Helper: get current price for a product on a given date
 export function getCurrentPrice(product: Product, onDate?: string): ProductPrice | null {
   const d = onDate ?? new Date().toISOString().slice(0, 10);
   const valid = product.priceHistory
@@ -496,17 +448,6 @@ export interface ApprovalRequest {
   evidencePhoto?: boolean;
 }
 
-export const APPROVALS_DATA: ApprovalRequest[] = [
-  { code: 'APR-KMU-0041', type: 'Egg Collection', title: 'Egg Collection – 145 trays recorded', requestedByCode: 'EMP-KMU-002', requestedByName: 'John Kamau', batchCode: 'LYR-KMU-008', farmCode: 'FRM-KMU-001', details: 'Morning + evening rounds combined. 145 trays (30 eggs each). 3 cracked.', requestedAt: '2026-08-11 07:45', status: 'pending', priority: 'high', evidencePhoto: true },
-  { code: 'APR-KMU-0042', type: 'Mortality', title: 'Pig mortality – 2 animals (PIG-KMU-004)', requestedByCode: 'EMP-KMU-003', requestedByName: 'Sarah Mwangi', batchCode: 'PIG-KMU-004', farmCode: 'FRM-KMU-001', details: '2 pigs found dead. Cause: heat stress. Photos attached.', requestedAt: '2026-08-11 09:30', status: 'pending', priority: 'high', evidencePhoto: true },
-  { code: 'APR-KMU-0043', type: 'Harvest', title: 'Kitchen garden harvest – 28kg kale', requestedByCode: 'EMP-KMU-004', requestedByName: 'Ann Wambui', batchCode: 'KIT-KMU-002', farmCode: 'FRM-KMU-001', details: 'Kale harvest ready for market. Estimated 28kg gross.', requestedAt: '2026-08-10 14:00', status: 'approved', priority: 'medium' },
-  { code: 'APR-KMU-0044', type: 'Milking', title: 'Dairy milking – 84L morning', requestedByCode: 'EMP-KMU-003', requestedByName: 'Sarah Mwangi', batchCode: 'COW-KMU-003', farmCode: 'FRM-KMU-001', details: '12 cows milked. 84L total (7L/cow avg). 1 cow withheld (mastitis).', requestedAt: '2026-08-11 06:45', status: 'approved', priority: 'medium' },
-];
-
-/* ── Notifications ── */
-// Populated from: GovernanceScreen approvals, system events, task overdue alerts
-// NavProvider reads unreadNotifs count for badge display.
-// NotificationsScreen marks items read.
 export interface Notification {
   id: string;
   type: 'weather' | 'alert' | 'approval' | 'task' | 'system';
@@ -518,48 +459,6 @@ export interface Notification {
   sourceCode?: string; // APR code, TSK code etc for deep linking
 }
 
-export const NOTIFICATIONS_DATA: Notification[] = [
-  { id: 'N001', type: 'weather', title: 'Heavy Rain – Saturday', body: '82% rain forecast for Nakuru. Check drainage & shelters.', time: '2h ago', read: false, farmCode: 'FRM-KMU-001' },
-  { id: 'N002', type: 'approval', title: 'Approval needed: Egg Collection', body: 'John Kamau submitted 145 trays. Review required.', time: '5m ago', read: false, farmCode: 'FRM-KMU-001', sourceCode: 'APR-KMU-0041' },
-  { id: 'N003', type: 'task', title: 'Task Overdue: BRO-KMU-022 feeding', body: 'Morning feeding was due at 08:00. Assigned to John Kamau.', time: '45m ago', read: false, farmCode: 'FRM-KMU-001', sourceCode: 'TSK-KMU-0082' },
-  { id: 'N004', type: 'alert', title: 'Low Stock: Layer Mash', body: 'Only 320kg remaining (reorder: 500kg). Place order now.', time: '3h ago', read: true, farmCode: 'FRM-KMU-001' },
-  { id: 'N005', type: 'system', title: 'Payroll due in 17 days', body: 'August payroll (KSh 126,000) is due on 28 Aug.', time: '1d ago', read: true },
-  { id: 'N006', type: 'approval', title: 'Approved: Dairy milking 84L', body: 'Your milking record was approved by James Kamau.', time: '1h ago', read: true, farmCode: 'FRM-KMU-001', sourceCode: 'APR-KMU-0044' },
-];
-
-/* ── GL Accounts ── */
-export const GL_CHART = [
-  { code: '1000', account: 'Cash in Hand',            class: 'Asset',    normal: 'debit'  },
-  { code: '1001', account: 'Bank – Equity Bank',      class: 'Asset',    normal: 'debit'  },
-  { code: '1100', account: 'Accounts Receivable',     class: 'Asset',    normal: 'debit'  },
-  { code: '1200', account: 'Livestock Inventory',     class: 'Asset',    normal: 'debit'  },
-  { code: '1201', account: 'Feed & Supplies Inventory', class: 'Asset',  normal: 'debit'  },
-  { code: '1300', account: 'Land & Improvements',     class: 'Asset',    normal: 'debit'  },
-  { code: '1301', account: 'Farm Equipment',          class: 'Asset',    normal: 'debit'  },
-  { code: '2000', account: 'Accounts Payable',        class: 'Liability', normal: 'credit' },
-  { code: '2001', account: 'Loans – KCB Farm Loan',  class: 'Liability', normal: 'credit' },
-  { code: '2100', account: 'Accrued Wages',           class: 'Liability', normal: 'credit' },
-  { code: '3000', account: "Owner's Equity",          class: 'Equity',   normal: 'credit' },
-  { code: '3100', account: 'Retained Earnings',       class: 'Equity',   normal: 'credit' },
-  { code: '4001', account: 'Egg Sales',               class: 'Revenue',  normal: 'credit' },
-  { code: '4002', account: 'Broiler Sales',           class: 'Revenue',  normal: 'credit' },
-  { code: '4003', account: 'Pork Sales',              class: 'Revenue',  normal: 'credit' },
-  { code: '4004', account: 'Milk Sales',              class: 'Revenue',  normal: 'credit' },
-  { code: '4005', account: 'Crop / Produce Sales',    class: 'Revenue',  normal: 'credit' },
-  { code: '5001', account: 'Feed Costs',              class: 'COGS',     normal: 'debit'  },
-  { code: '5002', account: 'Livestock Purchases',     class: 'COGS',     normal: 'debit'  },
-  { code: '5003', account: 'Seed & Fertiliser',       class: 'COGS',     normal: 'debit'  },
-  { code: '6001', account: 'Salaries & Wages',        class: 'OpEx',     normal: 'debit'  },
-  { code: '6002', account: 'Veterinary & Medicine',   class: 'OpEx',     normal: 'debit'  },
-  { code: '6003', account: 'Utilities',               class: 'OpEx',     normal: 'debit'  },
-  { code: '6004', account: 'Repairs & Maintenance',   class: 'OpEx',     normal: 'debit'  },
-  { code: '6005', account: 'Depreciation',            class: 'OpEx',     normal: 'debit'  },
-  { code: '6006', account: 'Insurance',               class: 'OpEx',     normal: 'debit'  },
-];
-
-/* ── Onboarding Requests (SaaS admin) ── */
-// Self-registration: farmer fills out RegisterScreen → creates OnboardRequest
-// Admin reviews in AdminOnboardingScreen → approve creates a Farm record
 export interface OnboardRequest {
   id: string;
   farmerName: string;
@@ -576,13 +475,6 @@ export interface OnboardRequest {
   notes?: string;
 }
 
-export const ONBOARD_REQUESTS: OnboardRequest[] = [
-  { id: 'ORQ-001', farmerName: 'Mary Wanjiku', email: 'mary@email.com', phone: '+254-712-000-001', farmName: 'Rift Valley Poultry', location: 'Nakuru, Kenya', enterprises: ['layer','broiler'], requestedAt: '2026-08-10 14:00', status: 'pending' },
-  { id: 'ORQ-002', farmerName: 'Peter Rono', email: 'peter@email.com', phone: '+254-722-000-002', farmName: 'Eldoret Dairy', location: 'Eldoret, Kenya', enterprises: ['dairy_cow','maize'], requestedAt: '2026-08-09 10:00', status: 'info-needed', notes: 'Need to verify land ownership documents.' },
-  { id: 'ORQ-003', farmerName: 'Grace Mutua', email: 'grace@email.com', phone: '+254-733-000-003', farmName: 'Machakos Veggie Farm', location: 'Machakos, Kenya', enterprises: ['vegetables','kitchen_garden'], requestedAt: '2026-08-08 09:00', status: 'approved' },
-];
-
-/* ── CSV Templates ── */
 export const CSV_TEMPLATES: Record<string, { cols: string[]; example: string[] }> = {
   employees: {
     cols: ['code','name','role','phone','salary','payday','startDate','endDate','batches','active'],
