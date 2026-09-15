@@ -125,7 +125,14 @@ const VALID_TASK_TYPES = ['feeding','egg-collection','milking','mortality','heal
 const VALID_FREQUENCIES = ['once','daily','weekly','on-demand'];
 const VALID_PRIORITIES  = ['high','medium','low'];
 const VALID_STATUSES    = ['PENDING','DONE','OVERDUE','APPROVED','REJECTED'];
-const VALID_ROLES       = OWNER_ROLES.map(r => r.id);
+// The BUILT-IN roles only. A tenant can define its own in Governance
+// (RoleBuilderSheet -> POST /api/role-permissions), so this list is not the
+// authority on what is valid — which is why every message below says
+// "built-in" rather than claiming a role is undefined. These validators are
+// deliberately format-only (see the note above); the server checks a role
+// against the tenant's real rows on import, and these stay warnings so a
+// custom role never blocks a file.
+const BUILT_IN_ROLES    = OWNER_ROLES.map(r => r.id);
 
 // Reference checks (does this batch/farm/role exist?) are NOT done here any
 // more. They used to run against EMPLOYEES_DATA / BATCHES_DATA / TASKS_DATA —
@@ -179,8 +186,8 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
     }
   } else {
     const roleId = aCode.replace('GROUP:', '');
-    if (!VALID_ROLES.includes(roleId) && roleId !== 'all') {
-      issues.push({ col: 'assigneeCode', severity: 'warning', message: `Role "${roleId}" not defined. Valid: ${VALID_ROLES.join(', ')}, all` });
+    if (!BUILT_IN_ROLES.includes(roleId) && roleId !== 'all') {
+      issues.push({ col: 'assigneeCode', severity: 'warning', message: `"${roleId}" is not a built-in role (${BUILT_IN_ROLES.join(', ')}, all). If your farm defines it in Governance this will still import.` });
     }
   }
 
@@ -284,9 +291,9 @@ function validateEmployee(row: Record<string, string>, allRows: Record<string, s
   const role = v('role');
   if (!role) {
     issues.push({ col: 'role', severity: 'error', message: 'Role is required', suggestion: 'worker', autoFix: true });
-  } else if (!VALID_ROLES.includes(role)) {
-    const match = fuzzyMatchCode(role, VALID_ROLES);
-    issues.push({ col: 'role', severity: 'warning', message: `Role "${role}" not defined. Valid: ${VALID_ROLES.join(', ')}${match ? ` — did you mean "${match}"?` : ''}`, suggestion: match ?? 'worker', autoFix: !!match });
+  } else if (!BUILT_IN_ROLES.includes(role)) {
+    const match = fuzzyMatchCode(role, BUILT_IN_ROLES);
+    issues.push({ col: 'role', severity: 'warning', message: `"${role}" is not a built-in role (${BUILT_IN_ROLES.join(', ')})${match ? ` — did you mean "${match}"?` : ''}. A custom role defined in Governance will still import.`, suggestion: match ?? 'worker', autoFix: !!match });
   }
 
   // ── phone ──

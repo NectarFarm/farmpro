@@ -15,6 +15,7 @@ export * from './auditor'
 export * from './payroll'
 export * from './email'
 export * from './enterprises'
+export * from './advice'
 export * from './stages'
 
 // A tenant's farms. One tenant owns several farms; each farm carries its own
