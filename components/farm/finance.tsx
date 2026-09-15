@@ -919,7 +919,15 @@ export function FinanceScreen() {
   const totalRevenue = Number(budgetReport?.meta.periodRevenue ?? 0);
   const totalExpenses = Number(budgetReport?.meta.periodExpense ?? 0);
   const margin = totalRevenue - totalExpenses;
-  const budgetTotal = totalRevenue + totalExpenses;
+  // (`budgetTotal = totalRevenue + totalExpenses` used to sit here, feeding a
+  // progress bar and a "Revenue N% / Expenses N%" pair under a heading that
+  // says "Budget". There is no budget, target or forecast anywhere in this
+  // schema — grep `db/schemas/*.ts`. The bar was revenue's share of gross cash
+  // flow, so the two figures always summed to 100% and it carried no
+  // information at all, while under that heading it read as "I am 62% of the
+  // way to my target". Removed rather than rewired: the three real figures
+  // above it are the honest answer, and inventing a denominator to draw a bar
+  // against is exactly what this app's empty-state rule forbids.)
 
   // Converted to whole units here (once, via lib/money.ts's centsToMajor)
   // rather than at every render/export site below — the server's real
@@ -991,7 +999,11 @@ export function FinanceScreen() {
           </div>
 
           <div className="farm-card farm-card-active" style={{ padding: 18, marginBottom: 14 }}>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Budget Overview — {periodLabel}</div>
+            {/* Was "Budget Overview". Renamed with the fabricated budget bar that sat
+                under it: the card has never shown a budget, only what actually
+                came in and went out, and a heading promising one is what made
+                the bar beneath it read as attainment. */}
+            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Money in and out — {periodLabel}</div>
             {budgetError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{budgetError}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <div>
@@ -1009,12 +1021,12 @@ export function FinanceScreen() {
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Net</div>
               </div>
             </div>
-            <div className="progress-track" style={{ marginTop: 14 }}>
-              <div className="progress-fill" style={{ width: `${budgetTotal > 0 ? Math.min((totalRevenue/budgetTotal)*100,100) : 0}%` }} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>
-              <span>Revenue {budgetTotal > 0 ? Math.round((totalRevenue/budgetTotal)*100) : 0}%</span>
-              <span>Expenses {budgetTotal > 0 ? Math.round((totalExpenses/budgetTotal)*100) : 0}%</span>
+            {/* No bar here on purpose — see the note where budgetTotal used
+                to be computed. This line says what the three figures are and
+                what they are not, which is the same "state your basis" rule
+                the reports and the weather advice already follow. */}
+            <div style={{ marginTop: 12, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+              Actuals for {periodLabel}, from your recorded sales and purchases. You haven&rsquo;t set a budget to compare them against — this app has nowhere to enter one yet.
             </div>
           </div>
 

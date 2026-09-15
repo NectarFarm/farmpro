@@ -1,8 +1,9 @@
 'use client';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import type { ReportPayload } from '@/lib/report-types';
+import { periodDateRange } from '@/lib/period-range';
 import {
   columnAlignFor, documentHeader, downloadReportCsv, downloadReportPdf, formatCell,
   formatTotalsCell, hasTotalsRow, initialsFor, parseAccentColor, presentableMeta,
@@ -83,8 +84,22 @@ function fmtExpiry(iso: string): string {
 
 export function ReportsScreen() {
   const { tenantId, role, activeFarmId, farms } = useNav();
-  const [dateFrom, setDateFrom] = useState('2026-08-01');
-  const [dateTo, setDateTo] = useState('2026-08-31');
+  /* The default report window is the CURRENT month, computed at mount.
+   *
+   * It used to be a hardcoded '2026-08-01' → '2026-08-31' — the last surviving
+   * piece of the old static mock's "August 2026" period (lib/period-range.ts's
+   * header documents that same fixed label being removed from Finance). Nothing
+   * ever reset it, so months later a farmer tapping a report type and hitting
+   * Export got a real, correctly-computed P&L or mortality report for a period
+   * they never chose, labelled and filed under that period's dates as if it
+   * were current. Wrong data is obvious; right data for the wrong month is not.
+   *
+   * Uses the same periodDateRange() helper Finance's period toggle already
+   * uses, so "this month" means the same thing on both screens. `to` is today,
+   * not month-end: a report cannot cover days that haven't happened. */
+  const initialRange = useMemo(() => periodDateRange('month'), []);
+  const [dateFrom, setDateFrom] = useState(initialRange.from);
+  const [dateTo, setDateTo] = useState(initialRange.to);
   const [selected, setSelected] = useState<string | null>(null);
 
   const [report, setReport] = useState<ReportPayload | null>(null);

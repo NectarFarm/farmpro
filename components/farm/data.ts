@@ -1,22 +1,27 @@
 // ============================================================
 // data.ts — IFMS Single Source of Truth
 // ============================================================
-// Data flow overview:
-//   1. ENTERPRISE_REGISTRY  → drives CropScheduleScreen (what processes to show),
-//      BatchDetailScreen (metrics/KPIs), WorkerRecordScreen (which forms to show)
-//   2. BATCHES_DATA         → filtered by activeFarm in NavProvider,
-//      used by DashboardScreen, CropsScreen, FinanceScreen
-//   3. TASKS_DATA           → shown in TasksScreen, DashboardScreen today strip,
-//      WorkerHomeScreen; approval tasks feed APPROVALS_DATA
-//   4. APPROVALS_DATA       → shown in GovernanceScreen; on approve/reject
-//      a NOTIFICATION is appended and shown in NotificationsScreen
-//   5. NOTIFICATIONS_DATA   → badge count in BottomNav; full list in NotificationsScreen
-//   6. EMPLOYEES_DATA       → used by PeopleScreen, TasksScreen (assignee picker),
-//      WorkerProfileScreen; role maps to OWNER_ROLES permissions
-//   7. PRODUCTS_DATA        → priced products attached to batches; price history
-//      with start/end dates drives FinanceScreen sales & batch P&L
-//   8. GL_CHART             → FinanceScreen GL view; code ranges 1-6xxx per convention
-//   9. ONBOARD_REQUESTS     → AdminOnboardingScreen; status changes visible to admin
+// This header used to be a map of nine mock arrays and which screens rendered
+// them. That description is long out of date: every screen listed below now
+// fetches its rows from a real API route, and the mock arrays that fed them
+// (FARMS_DATA, BATCHES_DATA, TASKS_DATA, EMPLOYEES_DATA) have been deleted —
+// see the notes where each one used to sit. Do not reintroduce one: a demo
+// farm or a demo employee in a real account's screen is a bug this repo has
+// already shipped and fixed more than once.
+//
+// What legitimately lives here now:
+//   1. ENTERPRISE_REGISTRY  → UI CONFIG, not farm data: per enterprise type,
+//      the icon, label, unit noun and code prefix. Drives CropScheduleScreen
+//      (which processes to show), BatchDetailScreen (which metrics), and
+//      WorkerRecordScreen (which forms). lib/codes.ts carries a server-safe
+//      mirror of its `type` field, because this file is "use client".
+//   2. CSV_TEMPLATES        → the header rows and example lines of the
+//      downloadable import templates. Example values inside a template file
+//      the user downloads are examples, and are labelled as such.
+//   3. OWNER_ROLES          → the built-in role ids and their default
+//      permission/approval matrix, read by csv-import.tsx for the list of
+//      role names a CSV may name, and mirrored by PUT /api/role-permissions.
+//   4. Interfaces           → shape documentation for the rows the API returns.
 // ============================================================
 
 'use client';
@@ -252,24 +257,14 @@ export interface Farm {
   createdAt: string;
 }
 
-export const FARMS_DATA: Farm[] = [
-  {
-    code: 'FRM-KMU-001', name: 'Nakuru Main Farm', location: 'Nakuru, Kenya',
-    address: 'Off Nakuru-Nairobi Highway, Lanet, Nakuru County',
-    lat: -0.2802, lng: 36.0665,
-    size: '12 acres', owner: 'James Kamau', plan: 'Pro',
-    enterprises: ['broiler', 'layer', 'pig', 'dairy_cow', 'maize', 'kitchen_garden'],
-    employees: 5, maxEmployees: 15, status: 'active', createdAt: '2024-01-15',
-  },
-  {
-    code: 'FRM-KMU-002', name: 'Eldoret Satellite Farm', location: 'Eldoret, Kenya',
-    address: 'Huruma Road, Eldoret West, Uasin Gishu County',
-    lat: 0.5143, lng: 35.2698,
-    size: '6 acres', owner: 'James Kamau', plan: 'Basic',
-    enterprises: ['goat', 'maize', 'vegetables'],
-    employees: 2, maxEmployees: 5, status: 'active', createdAt: '2025-03-01',
-  },
-];
+// (FARMS_DATA — two demo farms ("Nakuru Main Farm" / "Eldoret Satellite Farm", owner "James Kamau", plan "Pro") — was deleted by the setup-sequence
+// task. Nothing imported it any more: every screen that once read it now
+// fetches the real rows (see this file's header). It survived as dead code one
+// `import` away from putting somebody else's farm back on a real account's
+// screen, which is exactly the bug the surviving comments elsewhere in this
+// repo describe. The `Farm` interface above stays — it still documents the
+// shape, and removing a type costs nothing but explains less.)
+
 
 /* ── Employees ── */
 export interface Employee {
@@ -289,14 +284,14 @@ export interface Employee {
   permissions?: Record<string, 'edit' | 'view' | 'hidden'>; // override if needed
 }
 
-export const EMPLOYEES_DATA: Employee[] = [
-  { code: 'EMP-KMU-001', name: 'Peter Njoroge', role: 'manager', phone: '+254-712-345-678', salary: 45000, payday: 28, active: true, farmCode: 'FRM-KMU-001', startDate: '2024-01-20', batches: ['ALL'], pin: null },
-  { code: 'EMP-KMU-002', name: 'John Kamau', role: 'worker', phone: '+254-722-111-222', salary: 18000, payday: 28, active: true, farmCode: 'FRM-KMU-001', startDate: '2024-02-01', batches: ['BRO-KMU-022','LYR-KMU-008'], pin: '****' },
-  { code: 'EMP-KMU-003', name: 'Sarah Mwangi', role: 'worker', phone: '+254-733-444-555', salary: 18000, payday: 28, active: true, farmCode: 'FRM-KMU-001', startDate: '2024-02-01', batches: ['PIG-KMU-004','COW-KMU-003'], pin: '****' },
-  { code: 'EMP-KMU-004', name: 'Ann Wambui', role: 'harvest_lead', phone: '+254-744-666-777', salary: 22000, payday: 28, active: true, farmCode: 'FRM-KMU-001', startDate: '2025-01-10', endDate: '2026-12-31', batches: ['MZE-KMU-007','KIT-KMU-002'], pin: '****', customRole: 'Harvest Lead' },
-  { code: 'EMP-KMU-005', name: 'Dr. Ken Oduya', role: 'vet', phone: '+254-755-888-999', salary: 25000, payday: 5, active: true, farmCode: 'FRM-KMU-001', startDate: '2024-01-20', batches: ['ALL'], pin: null },
-  { code: 'EMP-KMU-006', name: 'Moses Kiptoo', role: 'worker', phone: '+254-766-000-111', salary: 16000, payday: 28, active: true, farmCode: 'FRM-KMU-002', startDate: '2025-03-15', batches: ['ALL'], pin: '****' },
-];
+// (EMPLOYEES_DATA — six invented employees with names, phone numbers and salaries — was deleted by the setup-sequence
+// task. Nothing imported it any more: every screen that once read it now
+// fetches the real rows (see this file's header). It survived as dead code one
+// `import` away from putting somebody else's farm back on a real account's
+// screen, which is exactly the bug the surviving comments elsewhere in this
+// repo describe. The `Employee` interface above stays — it still documents the
+// shape, and removing a type costs nothing but explains less.)
+
 
 /* ── Batches ── */
 export interface Batch {
@@ -324,14 +319,14 @@ export interface Batch {
   customProcesses?: ProcessTemplate[];
 }
 
-export const BATCHES_DATA: Batch[] = [
-  { code: 'BRO-KMU-022', label: 'Broilers Oct Run', enterprise: 'broiler', farmCode: 'FRM-KMU-001', unitCode: 'HSE-KMU-A01', qty: 920, initialQty: 1000, startDate: '2026-10-01', endDate: '2026-12-01', status: 'ACTIVE', stage: 'Grower', cost: 145000 },
-  { code: 'LYR-KMU-008', label: 'Layers Batch 8', enterprise: 'layer', farmCode: 'FRM-KMU-001', unitCode: 'PEN-KMU-B01', qty: 490, initialQty: 500, startDate: '2026-02-20', status: 'ACTIVE', stage: 'Peak Lay', cost: 95000 },
-  { code: 'PIG-KMU-004', label: 'Pig Fatteners Q4', enterprise: 'pig', farmCode: 'FRM-KMU-001', unitCode: 'STY-KMU-P01', qty: 62, initialQty: 65, startDate: '2026-07-15', endDate: '2026-11-15', status: 'ACTIVE', stage: 'Fattening', cost: 182000, transferDate: '2026-08-20', transferToUnitCode: 'STY-KMU-P02', transferNotes: 'Moving to new sty for final fattening phase' },
-  { code: 'COW-KMU-003', label: 'Dairy Herd Batch 3', enterprise: 'dairy_cow', farmCode: 'FRM-KMU-001', unitCode: 'PAD-KMU-D01', qty: 12, initialQty: 12, startDate: '2025-01-01', status: 'ACTIVE', stage: 'Lactating', cost: 480000 },
-  { code: 'MZE-KMU-007', label: 'Maize Field Oct', enterprise: 'maize', farmCode: 'FRM-KMU-001', unitCode: 'FLD-KMU-F01', qty: 2, initialQty: 2, startDate: '2026-03-15', harvestDate: '2026-07-20', status: 'ACTIVE', stage: 'Growing (75%)', cost: 42000 },
-  { code: 'KIT-KMU-002', label: 'Kale & Spinach Plot', enterprise: 'kitchen_garden', farmCode: 'FRM-KMU-001', unitCode: 'PLT-KMU-F02', qty: 1, initialQty: 1, startDate: '2026-07-01', status: 'ACTIVE', stage: 'Mature', cost: 8500 },
-];
+// (BATCHES_DATA — invented batches with headcounts and acquisition costs — was deleted by the setup-sequence
+// task. Nothing imported it any more: every screen that once read it now
+// fetches the real rows (see this file's header). It survived as dead code one
+// `import` away from putting somebody else's farm back on a real account's
+// screen, which is exactly the bug the surviving comments elsewhere in this
+// repo describe. The `Batch` interface above stays — it still documents the
+// shape, and removing a type costs nothing but explains less.)
+
 
 /* ── Owner-defined Roles ── */
 // Roles are created/edited in GovernanceScreen > Role Builder tab.
@@ -420,13 +415,14 @@ export interface Task {
   externalWorkers?: { name: string; phone?: string; portion?: string }[];
 }
 
-export const TASKS_DATA: Task[] = [
-  { code: 'TSK-KMU-0081', title: 'Egg Collection – Pen B01', type: 'egg-collection', assigneeCode: 'EMP-KMU-002', assigneeName: 'John Kamau', farmCode: 'FRM-KMU-001', batchCode: 'LYR-KMU-008', unitCode: 'PEN-KMU-B01', location: 'Pen B01', startDate: '2026-08-11', dueTime: '07:30', frequency: 'daily', status: 'PENDING', requiresApproval: true, priority: 'high' },
-  { code: 'TSK-KMU-0082', title: 'Morning Feeding – BRO-KMU-022', type: 'feeding', assigneeCode: 'EMP-KMU-002', assigneeName: 'John Kamau', farmCode: 'FRM-KMU-001', batchCode: 'BRO-KMU-022', unitCode: 'HSE-KMU-A01', location: 'House A01', startDate: '2026-08-11', dueTime: '08:00', frequency: 'daily', status: 'OVERDUE', requiresApproval: false, priority: 'high' },
-  { code: 'TSK-KMU-0083', title: 'Milking – Morning Round', type: 'milking', assigneeCode: 'EMP-KMU-003', assigneeName: 'Sarah Mwangi', farmCode: 'FRM-KMU-001', batchCode: 'COW-KMU-003', unitCode: 'PAD-KMU-D01', location: 'Paddock D01', startDate: '2026-08-11', dueTime: '06:00', frequency: 'daily', status: 'DONE', requiresApproval: true, priority: 'high' },
-  { code: 'TSK-KMU-0084', title: 'Maize Field Weed Inspection', type: 'weed', assigneeCode: 'EMP-KMU-004', assigneeName: 'Ann Wambui', farmCode: 'FRM-KMU-001', batchCode: 'MZE-KMU-007', unitCode: 'FLD-KMU-F01', location: 'Field F01', startDate: '2026-08-11', endDate: '2026-08-14', dueTime: '09:00', frequency: 'once', status: 'PENDING', requiresApproval: false, priority: 'medium' },
-  { code: 'TSK-KMU-0085', title: 'Maize Weeding – Group Task', type: 'weed', assigneeCode: 'GROUP:worker', assigneeName: 'All Workers', farmCode: 'FRM-KMU-001', batchCode: 'MZE-KMU-007', unitCode: 'FLD-KMU-F01', location: 'Field F01', startDate: '2026-08-15', endDate: '2026-08-17', dueTime: '07:00', frequency: 'once', status: 'PENDING', requiresApproval: true, priority: 'high', notes: 'Divide field into 3 rows per person. Bring own jembes.', externalWorkers: [{ name: 'James Mwangi', phone: '+254-700-111-222', portion: 'Rows 1–4' }, { name: 'Lucy Achieng', phone: '+254-711-333-444', portion: 'Rows 5–8' }] },
-];
+// (TASKS_DATA — invented tasks assigned to invented people — was deleted by the setup-sequence
+// task. Nothing imported it any more: every screen that once read it now
+// fetches the real rows (see this file's header). It survived as dead code one
+// `import` away from putting somebody else's farm back on a real account's
+// screen, which is exactly the bug the surviving comments elsewhere in this
+// repo describe. The `Task` interface above stays — it still documents the
+// shape, and removing a type costs nothing but explains less.)
+
 
 /* ── Approval Requests ── */
 // When a worker submits a task that requiresApproval=true, an ApprovalRequest is created.

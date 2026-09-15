@@ -60,6 +60,8 @@ import {
 } from "./icons";
 import { apiClient } from "@/lib/request";
 import { centsToMajor } from "@/lib/money";
+import { SetupStrip } from "./setup-progress";
+import type { SetupState } from "@/lib/setup-state";
 
 // ── Real backend shapes (issue #228, revisited #292, #296) ──────────────────
 // KPI fields computed from tables that exist on this branch
@@ -304,7 +306,7 @@ function AlertIcon({ icon: Icon, count, label, tone, onClick }: {
  * tour silently skipped them. Now they land on these tiles. */
 function OperationalDashboard({
   role, userName, farmName, farmMeta, kpis, kpisFailed, tasksToday, notifs, period, setPeriod, navigate, settings,
-  onSwitchFarm, canSwitchFarm,
+  onSwitchFarm, canSwitchFarm, setupState,
 }: {
   role: DashboardRole; userName?: string; farmName: string; farmMeta: string; kpis: KpiData | null;
   // Was set by the fetch and rendered nowhere — so a failed KPI load left
@@ -319,6 +321,11 @@ function OperationalDashboard({
   // media-query gated) — this is what lets a mobile user with more than one
   // farm actually switch.
   onSwitchFarm?: () => void; canSwitchFarm?: boolean;
+  // Real setup progress from GET /api/setup-state, fetched once in
+  // NavProvider. `null` (not loaded, failed, or a role that never asks) makes
+  // SetupStrip render nothing at all — see its header for why a failed fetch
+  // stays silent here while the KPI grid below says when it failed.
+  setupState: SetupState | null;
 }) {
   const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
   const isManager = role === "manager";
@@ -400,6 +407,16 @@ function OperationalDashboard({
           <AlertIcon icon={Bell} count={unread} label="Notifications" tone="var(--status-info)" onClick={() => navigate("notifications")} />
         </div>
       </header>
+
+      {/* ── Where you are in setting the farm up ──
+          First thing under the header while setup is unfinished, and GONE the
+          moment it is finished — not collapsed, not a tick, absent. The owner's
+          complaint was that opening the app told a new user nothing about what
+          they were part-way through; this card is the answer, and on an
+          established farm the same card would be the clutter they also
+          objected to. Renders nothing when `setupState` is null, so a failed
+          request never pushes the revenue figure down for an apology. */}
+      <SetupStrip state={setupState} onNavigate={navigate} />
 
       {/* Hero: the one figure this role opens the app for. An owner reads
           money; a manager reads whether today's work is on track. */}
@@ -590,7 +607,7 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
 
 /* ── Dashboard Screen ── */
 export function DashboardScreen({ userName }: { userName?: string }) {
-  const { navigate, role, activeFarmId, activeFarm, farms, tenantId } = useNav();
+  const { navigate, role, activeFarmId, activeFarm, farms, tenantId, setupState, refreshSetupState } = useNav();
   const [showFarmSwitcher, setShowFarmSwitcher] = useState(false);
 
   const farm = activeFarmId === "ALL" ? null : farms.find(f => f.id === activeFarmId) ?? farms[0];
@@ -670,6 +687,13 @@ export function DashboardScreen({ userName }: { userName?: string }) {
 
   const unread = notifs?.filter(n => !n.read).length ?? 0;
 
+  // Re-read setup progress whenever the dashboard is opened. Coming back here
+  // after adding a unit or issuing a worker's login is the normal way a step
+  // gets finished, and a card still saying "no production units yet" after the
+  // farmer has just added three is the exact failure this whole feature is
+  // supposed to prevent.
+  useEffect(() => { refreshSetupState(); }, [refreshSetupState]);
+
   // (The `quickActions` array that used to sit here was computed on every
   // render and passed nowhere — see OperationalDashboard's header. Its intent
   // now lives in that component's destination grid, which actually renders.)
@@ -693,6 +717,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
       // had before.
       canSwitchFarm={farms.length > 1}
       onSwitchFarm={() => setShowFarmSwitcher(true)}
+      setupState={setupState}
     />
     {showFarmSwitcher && <FarmSwitcherSheet onClose={() => setShowFarmSwitcher(false)} />}
   </>;
@@ -825,90 +850,78 @@ export function NotificationsScreen() {
   );
 }
 
-/* ── Notification Settings Screen ── */
+/* ── Notification Settings Screen ──────────────────────────────────────────
+ * What this screen USED to do: hold five per-type toggles, five "SMS also"
+ * toggles and a quiet-hours window in local React state, pre-set to invented
+ * values (weather ON, system OFF, approvals SMS ON, quiet hours 22:00–06:00).
+ * Nothing was fetched, nothing was saved, and the state died on unmount — so a
+ * farmer read "Approval Requests: SMS ON" as their own configuration when it
+ * was a literal in this file, and it advertised an SMS delivery channel that
+ * does not exist anywhere in this app.
+ *
+ * There is no backend to wire it to: `tenant_settings` (db/schemas/settings.ts)
+ * has exactly one notification column, `notificationsEnabled`, and no per-type,
+ * per-channel or quiet-hours storage of any kind. Inventing that schema is a
+ * different piece of work from showing it.
+ *
+ * So this screen now says what actually happens, which is the same treatment
+ * settings.tsx already gives Push / Sound / Offline — the rows that link here.
+ * The notification KINDS listed are real: every one is a `sourceType` the
+ * backend genuinely writes (task — app/api/notifications/route.ts; approval and
+ * record — lib/governance.ts; sale, purchase and payroll_run — lib/finance.ts).
+ */
 const NOTIF_TYPES: { id: string; label: string; icon: LucideIcon; desc: string }[] = [
-  { id: "weather", label: "Weather Alerts", icon: CloudSun, desc: "Rainfall, temperature extremes, storms" },
-  { id: "approval", label: "Approval Requests", icon: CheckCircle2, desc: "Worker submissions needing your review" },
-  { id: "task", label: "Task Reminders", icon: ClipboardList, desc: "Overdue tasks and upcoming deadlines" },
-  { id: "alert", label: "Stock & Farm Alerts", icon: AlertTriangle, desc: "Low stock, health alerts, anomalies" },
-  { id: "system", label: "System", icon: Bell, desc: "Payroll reminders, subscription, updates" },
+  { id: "task", label: "Task reminders", icon: ClipboardList, desc: "A task assigned to you, and overdue work" },
+  { id: "approval", label: "Approval requests", icon: CheckCircle2, desc: "Submissions waiting on your decision, and the outcome" },
+  { id: "record", label: "Worker records", icon: Activity, desc: "Mortality, production and other records as they come in" },
+  { id: "sale", label: "Sales & purchases", icon: DollarSign, desc: "Money recorded against your farm" },
+  { id: "payroll_run", label: "Payroll", icon: Users, desc: "A payroll run completing" },
 ];
 
 export function NotificationSettingsScreen() {
-  const { goBack } = useNav();
-  const [enabled, setEnabled] = useState<Record<string, boolean>>({ weather: true, approval: true, task: true, alert: true, system: false });
-  const [sms, setSms] = useState<Record<string, boolean>>({ weather: false, approval: true, task: false, alert: true, system: false });
-  const [quietStart, setQuietStart] = useState("22:00");
-  const [quietEnd, setQuietEnd] = useState("06:00");
-  const [quietEnabled, setQuietEnabled] = useState(true);
+  const { navigate } = useNav();
 
   return (
     <div className="screen-content">
-      <TopNav title="Notification Settings" showBack subtitle="Per-type controls & SMS" />
+      <TopNav title="Notifications" showBack subtitle="What you get told about" />
       <div className="px-screen" style={{ paddingTop: 14 }}>
+
+        {/* The honest statement, first, before the list — so nobody reads the
+            list as a set of switches they have already set. */}
+        <div className="farm-card" style={{ padding: '12px 14px', marginBottom: 14, display: "flex", gap: 10, alignItems: "flex-start", border: "1px solid rgba(251,191,36,0.3)" }}>
+          <Info size={15} color="var(--accent-amber)" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+          <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", lineHeight: 1.55 }}>
+            Every kind of notification below is on, for everyone who can see it, and arrives in the app. Choosing them one by one, sending them by SMS, and quiet hours are all not built yet — this screen will show the controls when they are, rather than showing switches that save nothing.
+          </div>
+        </div>
+
         <div style={{ marginBottom: 14 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Notification Types</div>
+          <div className="section-eyebrow" style={{ marginBottom: 8 }}>What you are notified about</div>
           <div className="farm-card" style={{ overflow: "hidden" }}>
             {NOTIF_TYPES.map((t, i) => (
-              <div key={t.id} style={{ padding: "13px 14px", borderBottom: i < NOTIF_TYPES.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                  <div style={{ display: "flex", gap: 9, flex: 1 }}>
-                    <t.icon size={16} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
-                    <div>
-                      <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: "var(--text-primary)" }}>{t.label}</div>
-                      <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", marginTop: 1 }}>{t.desc}</div>
-                    </div>
-                  </div>
-                  <button onClick={() => setEnabled(e => ({ ...e, [t.id]: !e[t.id] }))}
-                    style={{ width: 44, height: 24, borderRadius: 100, border: "none", cursor: "pointer", flexShrink: 0, marginLeft: 10,
-                      background: enabled[t.id] ? "var(--primary-green)" : "rgba(255,255,255,0.1)", position: "relative" }}>
-                    <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: enabled[t.id] ? 23 : 3, transition: "left 0.2s" }} />
-                  </button>
+              <div key={t.id} style={{ padding: "13px 14px", display: "flex", gap: 10, alignItems: "flex-start", borderBottom: i < NOTIF_TYPES.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
+                <t.icon size={16} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 'var(--fs-base)', fontWeight: 650, color: "var(--text-primary)" }}>{t.label}</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", marginTop: 1, lineHeight: 1.45 }}>{t.desc}</div>
                 </div>
-                {enabled[t.id] && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)" }}>SMS also</span>
-                    <button onClick={() => setSms(s => ({ ...s, [t.id]: !s[t.id] }))}
-                      style={{ width: 36, height: 20, borderRadius: 100, border: "none", cursor: "pointer",
-                        background: sms[t.id] ? "rgba(96,165,250,0.6)" : "rgba(255,255,255,0.08)", position: "relative" }}>
-                      <div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: sms[t.id] ? 19 : 3, transition: "left 0.2s" }} />
-                    </button>
-                    <span style={{ fontSize: 'var(--fs-2xs)', color: sms[t.id] ? "var(--accent-blue)" : "var(--text-dim)", fontWeight: 600 }}>{sms[t.id] ? "ON" : "OFF"}</span>
-                  </div>
-                )}
+                {/* A word, not a switch. A switch implies it can be flipped. */}
+                <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)', flexShrink: 0 }}>In app</span>
               </div>
             ))}
           </div>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Quiet Hours</div>
-          <div className="farm-card" style={{ padding: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: "var(--text-primary)" }}>Enable Quiet Hours</div>
-                <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", marginTop: 1 }}>Silence non-critical notifications overnight</div>
-              </div>
-              <button onClick={() => setQuietEnabled(q => !q)}
-                style={{ width: 44, height: 24, borderRadius: 100, border: "none", cursor: "pointer", flexShrink: 0,
-                  background: quietEnabled ? "var(--primary-green)" : "rgba(255,255,255,0.1)", position: "relative" }}>
-                <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: quietEnabled ? 23 : 3, transition: "left 0.2s" }} />
-              </button>
-            </div>
-            {quietEnabled && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>From</label>
-                  <input className="farm-input" type="time" value={quietStart} onChange={e => setQuietStart(e.target.value)} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>Until</label>
-                  <input className="farm-input" type="time" value={quietEnd} onChange={e => setQuietEnd(e.target.value)} />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <button
+          onClick={() => navigate("notifications")}
+          className="farm-card"
+          style={{ width: "100%", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10, textAlign: "left", cursor: "pointer" }}
+        >
+          <Bell size={16} color="var(--text-muted)" aria-hidden="true" />
+          <span style={{ flex: 1, fontSize: 'var(--fs-base)', fontWeight: 650, color: "var(--text-primary)" }}>Open your notifications</span>
+          <ChevronRight size={16} color="var(--text-dim)" aria-hidden="true" />
+        </button>
+
         <div style={{ paddingBottom: 80 }} />
       </div>
     </div>

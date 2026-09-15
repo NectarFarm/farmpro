@@ -256,6 +256,16 @@ export function TourOverlay({ steps, onFinish }: { steps: TourStep[]; onFinish: 
  */
 const OWNER_TOUR: TourStep[] = [
   {
+    // Added by the setup-sequence task. Its target only exists while setup is
+    // unfinished (SetupStrip renders nothing once every step is done), and a
+    // step whose element is missing is skipped silently — so an established
+    // farm replaying the tour simply starts at the dashboard step, exactly as
+    // before, with no dead pointer at an empty rectangle.
+    target: 'setup-progress',
+    title: 'What you have set up, and what is next',
+    body: 'Nine things turn an empty account into a working farm, in an order that matters — a unit before a batch, a batch before anything you record against it. This card counts what you have actually entered, names the next step, and takes you to it. It disappears for good once all nine are done.',
+  },
+  {
     target: 'nav-dashboard',
     title: 'Start here each morning',
     body: 'The dashboard totals up production, money and anything overdue across your farms. It fills in as you record work — an empty dashboard means nothing has been entered yet, not that something is broken.',
