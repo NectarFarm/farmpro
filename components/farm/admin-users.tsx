@@ -10,7 +10,7 @@
 // ============================================================
 'use client';
 import React, { useCallback, useEffect, useState } from 'react';
-import { TopNav } from './navigation';
+import { TopNav, useNav } from './navigation';
 import {
   Search, X, AlertTriangle, CheckCircle2, Clock, Key,
   UserCheck, ShieldAlert, ChevronRight, Mail, Phone, LogOut,
@@ -599,9 +599,22 @@ function ImpersonationLogTab() {
  * Main screen
  * ================================================================ */
 type Tab = 'users' | 'password-resets' | 'impersonation-log';
+const VALID_TABS = new Set<Tab>(['users', 'password-resets', 'impersonation-log']);
+// Mirrors CropsScreen's initialCropsTab(params.tab) — a sidebar row (see
+// navigation.tsx's admin People & Access group) can deep-link straight into
+// Password Resets or the Impersonation Log instead of always landing on
+// Users, the same way CropsScreen's tab menu opens straight on one of its
+// four internal tabs.
+function initialUsersTab(paramTab: string | undefined): Tab {
+  return paramTab && VALID_TABS.has(paramTab as Tab) ? (paramTab as Tab) : 'users';
+}
 
 export function AdminUsersScreen() {
-  const [tab, setTab] = useState<Tab>('users');
+  const { params } = useNav();
+  const [tab, setTab] = useState<Tab>(() => initialUsersTab(params.tab));
+  useEffect(() => {
+    if (params.tab) setTab(initialUsersTab(params.tab));
+  }, [params.tab]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');

@@ -13,6 +13,7 @@ import { isUniqueViolation, uniqueViolationConstraint } from '@/lib/db-errors'
 import { resolveAppBaseUrl, sendOnboardingApprovedEmail, sendOnboardingInfoNeededEmail, sendOnboardingRejectedEmail } from '@/lib/email'
 import { issueSetPasswordToken } from '@/lib/set-password'
 import { issueOnboardUpdateToken } from '@/lib/onboard-update'
+import { writeAuditLog } from '@/lib/audit'
 
 // ── PATCH /api/onboard-requests/[id] (issue #251) ───────────────────────────
 // super_admin only. Body: { status: 'approved' | 'rejected' | 'info-needed', notes? }.
@@ -90,6 +91,38 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const existing = rows[0]
   if (!existing) return bad('Onboarding request not found', 404)
 
+  // Transition guard. Until now this route accepted ANY target status
+  // regardless of `existing.status` — pending/info-needed <-> approved/
+  // rejected were all reachable from each other with nothing but the
+  // tenantId check two lines down (which only protects against
+  // double-provisioning, not against the request row itself lying about a
+  // tenant that still exists). Two rules, deliberately narrow:
+  //
+  // 1. Once a tenant is actually provisioned (existing.tenantId set), this
+  //    row's status can't be walked back to pending/rejected/info-needed —
+  //    doing so would silently mislabel a live, working account as
+  //    "rejected" in the admin queue while changing nothing about the
+  //    account itself. Re-submitting `approved` stays a no-op (handled by
+  //    the early-return just below, untouched by this guard).
+  // 2. Reopening a rejected request (rejected -> anything else) is legitimate
+  //    — a rejection made in error should be correctable — but reversing a
+  //    considered "no" needs a reason on record, especially when the very
+  //    next step can provision a real tenant. `reopenReason` is required and
+  //    audited (see writeAuditLog calls below); it is never persisted to the
+  //    request's own `notes` (that field is applicant-facing / re-sent in
+  //    emails, and a reopen reason is an internal admin note).
+  if (hasStatusChange && existing.tenantId && status !== 'approved') {
+    return bad('This request has already been approved and provisioned a tenant; its status can no longer be changed here.', 409)
+  }
+  const isReopen = hasStatusChange && existing.status === 'rejected' && status !== 'rejected'
+  const reopenReason = typeof b.reopenReason === 'string' ? b.reopenReason.trim() : ''
+  if (isReopen && !reopenReason) {
+    return NextResponse.json(
+      { success: false, error: 'A reason is required to reopen a rejected request.', fields: { reopenReason: 'Required to reopen a rejected request.' } },
+      { status: 400 }
+    )
+  }
+
   const locationSet = loc
     ? { address: loc.address, latitude: loc.latitude, longitude: loc.longitude }
     : {}
@@ -123,6 +156,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         .set({ status, tenantId, ...(notes !== undefined ? { notes } : {}), ...locationSet })
         .where(eq(onboardRequests.id, id))
         .returning()
+
+      // Reversing a rejection straight into a provisioned tenant is the most
+      // consequential path this route has — record who did it and why,
+      // against the tenant it just created.
+      if (isReopen) {
+        await writeAuditLog({
+          tenantId,
+          actor: session.id,
+          action: 'onboarding.reopened',
+          entity: 'onboard_request',
+          entityId: id,
+          meta: { fromStatus: 'rejected', toStatus: status, reason: reopenReason },
+        })
+      }
 
       // Email a one-time, expiring set-password link instead of the temp
       // password itself — see lib/set-password.ts's header for why. This is
@@ -185,6 +232,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     })
     .where(eq(onboardRequests.id, id))
     .returning()
+
+  // Reopening (rejected -> pending/info-needed here; rejected -> approved is
+  // audited in the branch above instead) — same record-who-and-why reasoning.
+  if (isReopen) {
+    await writeAuditLog({
+      tenantId: existing.tenantId,
+      actor: session.id,
+      action: 'onboarding.reopened',
+      entity: 'onboard_request',
+      entityId: id,
+      meta: { fromStatus: 'rejected', toStatus: status, reason: reopenReason },
+    })
+  }
 
   // Best-effort notification emails — never affect the response either way,
   // same reasoning as the approval branch above.

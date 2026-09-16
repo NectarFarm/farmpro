@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback, useTransition } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X, Key, Activity, Building2 } from './icons';
 import { apiClient } from '@/lib/request';
 import type { SetupState } from '@/lib/setup-state';
 
@@ -902,11 +902,30 @@ function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
   return current === tabId || (DETAIL_SCREENS[tabId] ?? []).includes(current);
 }
 
+/* Shared shape for every grouped-sidebar row below (enterpriseGroups,
+ * adminGroups, and the flat `tabs` fallback all render through the same
+ * .map in AppSidebar). `params`/`dataTour` are only used by rows that deep-
+ * link into a sub-tab of the screen they navigate to (e.g. the admin
+ * People & Access group below) rather than the screen's own default view. */
+interface SidebarGroupItem {
+  id: ScreenId;
+  label: string;
+  icon: typeof Home;
+  ownerOnly?: boolean;
+  setupOnly?: boolean;
+  params?: Record<string, string>;
+  dataTour?: string;
+}
+interface SidebarGroup {
+  label: string;
+  items: SidebarGroupItem[];
+}
+
 /* ── Desktop Sidebar (issue #220) ──
  * Same tab set BottomNav drives (getTabsForRole). Shown >=1024px via CSS, where
  * BottomNav is hidden; rendered on all sizes so the tab set lives in one place. */
 export function AppSidebar() {
-  const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarmId, farms, setActiveFarmId, setupState } = useNav();
+  const { current, params, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarmId, farms, setActiveFarmId, setupState } = useNav();
   const tabs = getTabsForRole(role);
   /* ── Grouped by WHEN you need it, not by what department owns it ──
    * (setup-sequence task; before this the three groups were Overview /
@@ -931,7 +950,7 @@ export function AppSidebar() {
    * "Workers" → "People" matches the screen's own title and the guide's
    * wording ("Add employees, then give each one a login").
    */
-  const enterpriseGroups = [
+  const enterpriseGroups: SidebarGroup[] = [
     { label: 'Start here', items: [
       { id: 'dashboard' as ScreenId, label: 'Dashboard', icon: Home, ownerOnly: false },
       // Rendered only while there is something left to do — see the filter
@@ -970,6 +989,48 @@ export function AppSidebar() {
       { id: 'settings' as ScreenId, label: 'Settings', icon: Settings, ownerOnly: false },
     ] },
   ];
+  /* ── Platform admin's sidebar (owner brief: "his navigation is so small,
+   * check presentation of that navigation") ───────────────────────────────
+   * Every admin API already has a screen behind it — stats, tenants,
+   * onboarding requests, users, admin-mediated password resets, and audited
+   * impersonation (+ its log) all have a consuming component already. The
+   * gap was never a missing feature; it was that super_admin fell through to
+   * the same flat "Workspace" list as worker/vet/auditor below — five rows
+   * repeating the bottom bar's five tabs — while two of those real
+   * capabilities (password resets, the impersonation log) live one level
+   * deeper, inside AdminUsersScreen's own tab row, with nothing in the
+   * navigation hinting they exist at all.
+   *
+   * Grouped the same way enterpriseGroups is grouped above — by what the job
+   * actually is, not by which API file backs it — and the two "Users"
+   * sub-rows deep-link into AdminUsersScreen's existing tab state via
+   * `params.tab` (the same params.tab mechanism CropsScreen already reads),
+   * so this adds zero new screens. ADMIN_TABS / the bottom bar are untouched:
+   * a phone's bottom bar stays five tabs by design, this only restructures
+   * the desktop sidebar, which had room to actually say what the job is.
+   */
+  const adminGroups: SidebarGroup[] = [
+    { label: 'Platform', items: [
+      { id: 'admin-dashboard' as ScreenId, label: 'Overview', icon: BarChart3 },
+    ] },
+    { label: 'Tenants', items: [
+      { id: 'admin-farms' as ScreenId, label: 'Farms', icon: Building2 },
+      { id: 'admin-settings' as ScreenId, label: 'Tenant Config', icon: Settings },
+    ] },
+    { label: 'Applications', items: [
+      { id: 'admin-onboarding' as ScreenId, label: 'Onboarding Requests', icon: ClipboardList },
+    ] },
+    { label: 'People & Access', items: [
+      { id: 'admin-users' as ScreenId, label: 'Users', icon: UserCheck },
+      // Deep links: same screen, opened straight on the tab that used to be
+      // reachable only by first landing on "Users" and noticing its own
+      // chip row. Distinct data-tour ids (not the shared `nav-admin-users`
+      // the row above uses) so a future tour step can target exactly one of
+      // the three without ambiguity.
+      { id: 'admin-users' as ScreenId, label: 'Password Resets', icon: Key, params: { tab: 'password-resets' }, dataTour: 'nav-admin-users-password-resets' },
+      { id: 'admin-users' as ScreenId, label: 'Impersonation Log', icon: Activity, params: { tab: 'impersonation-log' }, dataTour: 'nav-admin-users-impersonation-log' },
+    ] },
+  ];
   // Progress text for the setup row, e.g. "4 of 9". Absent (not "0 of 9")
   // while setupState is null — the row only claims a position once the server
   // has actually told it one.
@@ -979,8 +1040,10 @@ export function AppSidebar() {
     : null;
   // Manager still can't see Finance/Reports — same restriction as before,
   // now expressed per-item (ownerOnly) instead of by dropping whole groups.
-  // Owner sees everything; worker/super_admin keep the flat tab-set fallback.
-  const groups = role === 'owner' || role === 'manager'
+  // Owner sees everything; super_admin gets its own grouping (adminGroups);
+  // worker/vet/auditor keep the flat tab-set fallback — each has only one or
+  // a handful of destinations, so a flat list already says what the job is.
+  const groups: SidebarGroup[] = role === 'owner' || role === 'manager'
     ? enterpriseGroups
         .map((group) => ({
           label: group.label,
@@ -998,7 +1061,9 @@ export function AppSidebar() {
         // general means a future ownerOnly-only group doesn't leave a bare
         // heading behind).
         .filter((group) => group.items.length > 0)
-    : [{ label: 'Workspace', items: tabs }];
+    : role === 'super_admin'
+      ? adminGroups
+      : [{ label: 'Workspace', items: tabs }];
   // Platform-admin screens are tenant-scoped, not farm-scoped: they carry
   // their own tenant picker and never read activeFarmId.
   const showFarmFilter = farms.length > 0 && !current.startsWith('admin-');
@@ -1018,15 +1083,23 @@ export function AppSidebar() {
             <div style={{ padding: '0 12px', margin: '8px 0 5px', fontSize: 'var(--fs-xs)', fontWeight: 650, color: 'var(--text-dim)' }}>{group.label}</div>
             {group.items.map((tab) => {
           const Icon = tab.icon;
-          const active = sidebarIsActive(current, tab.id);
+          // A row with `params` deep-links into a SUB-tab of the screen it
+          // navigates to (e.g. admin-users?tab=password-resets) — active
+          // state has to match that param too, or all three "Users" rows
+          // in People & Access would light up together the moment any one
+          // of them was current. Rows without `params` keep the existing
+          // sidebarIsActive behaviour untouched.
+          const active = tab.params
+            ? current === tab.id && Object.entries(tab.params).every(([k, v]) => params[k] === v)
+            : sidebarIsActive(current, tab.id);
           const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
           return (
             <button
-              key={tab.id}
+              key={tab.dataTour ?? tab.id}
               type="button"
-              onClick={() => navigate(tab.id)}
+              onClick={() => navigate(tab.id, tab.params)}
               aria-current={active ? 'page' : undefined}
-              data-tour={`nav-${tab.id}`}
+              data-tour={tab.dataTour ?? `nav-${tab.id}`}
               style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', marginBottom: 2,
                 borderRadius: 10, cursor: 'pointer', textAlign: 'left', position: 'relative',
                 // Was a hardcoded #e8f0e9 / #c9ddcc pair — switched to the same
