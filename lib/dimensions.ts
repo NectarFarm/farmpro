@@ -62,6 +62,11 @@ export class DimensionValidationError extends Error {}
 // rather than writing an unanalysed line, per the owner's brief.
 export class DimensionRequirementError extends Error {}
 
+// Thrown by lib/reports.ts's computeDimensionPlReport when the requested
+// dimension code doesn't exist for this tenant (a typo, or a tenant that
+// never created it) — routes turn this into a 404, not a 500.
+export class DimensionNotFoundError extends Error {}
+
 // ── System dimensions (owner instruction, 2026-09-16: UNIT first) ──────────
 export const SYSTEM_DIMENSION_CODES = { UNIT: 'UNIT', FARM: 'FARM', BATCH: 'BATCH', ENTERPRISE: 'ENTERPRISE' } as const
 
@@ -253,6 +258,37 @@ export async function reconcileSystemDimensions(tenantId: string, dbOrTx: DbOrTx
   for (const u of unitRows) await projectUnit(dbOrTx, tenantId, u)
   const batchRows = await dbOrTx.select().from(batches).where(eq(batches.tenantId, tenantId))
   for (const b of batchRows) await projectBatch(dbOrTx, tenantId, b)
+}
+
+// ── Reporting support (lib/reports.ts's computeDimensionPlReport) ──────────
+export async function dimensionByCode(tenantId: string, code: string, dbOrTx: DbOrTx = db) {
+  const rows = await dbOrTx.select().from(dimensions).where(and(eq(dimensions.tenantId, tenantId), eq(dimensions.code, code))).limit(1)
+  return rows[0]
+}
+
+export async function dimensionValuesFor(tenantId: string, dimensionId: string, dbOrTx: DbOrTx = db) {
+  return dbOrTx.select().from(dimensionValues).where(and(eq(dimensionValues.dimensionId, dimensionId), eq(dimensionValues.tenantId, tenantId)))
+}
+
+// Rolls a value up to its ancestor at `targetLevel` by walking
+// `parentValueId` (a WITHIN-dimension level link — see
+// db/schemas/dimensions.ts). A value shallower than the target level (its
+// own levelOrdinal < targetLevel) can't be split any further down, so it
+// rolls up to itself. Bounded walk (a dimension has at most a handful of
+// levels; 10 is generous headroom against a corrupt/cyclic parent chain).
+export function ancestorAtLevel(
+  valuesById: Map<string, typeof dimensionValues.$inferSelect>, valueId: string, targetLevel: number,
+): string {
+  let current = valuesById.get(valueId)
+  if (!current) return valueId
+  let steps = 0
+  while (current.levelOrdinal > targetLevel && current.parentValueId && steps < 10) {
+    const parent = valuesById.get(current.parentValueId)
+    if (!parent) break
+    current = parent
+    steps++
+  }
+  return current.id
 }
 
 // ── Resolution: source master -> real operational ancestors ────────────────

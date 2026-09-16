@@ -69,7 +69,7 @@
 // history, and archiving a batch six months from now must not silently
 // rewrite what a line posted against it in January meant.
 import { pgTable, text, timestamp, integer, boolean, index, uniqueIndex } from 'drizzle-orm/pg-core'
-import { accounts, journalLines } from './finance'
+import { journalLines } from './finance'
 
 // One named analytical axis per tenant — "UNIT", "FARM", "BATCH",
 // "ENTERPRISE" (system, kept in step with the operational tables by

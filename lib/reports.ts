@@ -24,10 +24,11 @@ import { and, asc, eq, gte, inArray, isNotNull, lte, sum } from 'drizzle-orm'
 import { db } from '@/db'
 import {
   batches, sales, purchases, records, products, employees, tenantSettings, farms,
-  payrollRuns,
+  payrollRuns, journalEntries, journalLines, journalLineDimensions, accounts,
 } from '@/db/schemas'
 import { computeTrialBalance } from '@/lib/finance'
 import { batchIdsForFarm, unitIdsForFarm } from '@/lib/farm-scope'
+import { dimensionByCode, dimensionValuesFor, ancestorAtLevel, DimensionNotFoundError } from '@/lib/dimensions'
 import type { ReportRow, ReportPayload } from '@/lib/report-types'
 import { centsToMajor } from '@/lib/money'
 import {
@@ -865,5 +866,138 @@ export async function computeFcrReport(tenantId: string, from: Date | null, to: 
     basis: `Compiled from worker-submitted feeding and weight-sample records for the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}.`,
     columnAlign: ['left', 'right', 'right', 'right', 'right', 'right', 'right'],
     columnFormats: ['text', 'weight', 'weight', 'weight', 'weight', 'number', 'number'],
+  }
+}
+
+// ── GET /api/reports/dimension-pl (dimensions-on-gl task) ──────────────────
+// The owner's main reporting ask: a P&L grouped by a CHOSEN dimension, at a
+// CHOSEN level, rolling child values up into their parent — this is what
+// closes computePlReport's own "GL totals are all-time and cover every
+// farm" caveat for the first time, for whichever dimension/level the caller
+// picks (Farm at level 1 gives exactly a per-farm P&L; Batch, Enterprise,
+// or any user-defined dimension work the same way).
+//
+// ── Backward compatibility with pre-dimensions journal lines ────────────────
+// Every journal line posted before this task has NO journal_line_dimensions
+// row at all — there is no dimension to guess for history that predates the
+// concept. Rather than silently dropping that revenue/expense from the
+// report (which would make an old tenant's dimension P&L look smaller than
+// its real trial balance) or silently bucketing it under some arbitrary
+// value (which would misattribute it), every such line is collected into an
+// explicit "Unanalysed" row — reported honestly as a gap, never guessed.
+//
+// Only REVENUE/EXPENSE-class accounts are summed (same convention
+// computePlReport's glTotalRevenue/glTotalExpense already uses) — an
+// asset/liability/equity line rolling up by dimension isn't a P&L figure.
+export async function computeDimensionPlReport(
+  tenantId: string, dimensionCode: string, level: number, from: Date | null, to: Date | null,
+): Promise<ReportPayload> {
+  const pres = await presentationSettings(tenantId)
+  const dimension = await dimensionByCode(tenantId, dimensionCode)
+  if (!dimension) throw new DimensionNotFoundError(`No "${dimensionCode}" dimension exists for this tenant`)
+  const targetLevel = Math.min(Math.max(1, Math.trunc(level) || 1), dimension.levelCount)
+
+  const allValues = await dimensionValuesFor(tenantId, dimension.id)
+  const valuesById = new Map(allValues.map((v) => [v.id, v]))
+  // Only values AT the target level (or the dimension's own top level, for a
+  // value shallower than the target — see ancestorAtLevel) are real report
+  // rows; a value at a deeper level only ever appears rolled up into one of
+  // these, never as its own row (that's the point of "rolling up").
+  const rowValues = allValues.filter((v) => !v.archived && v.levelOrdinal <= targetLevel)
+    .filter((v) => v.levelOrdinal === targetLevel || !allValues.some((o) => o.parentValueId === v.id))
+
+  const entryConditions = [eq(journalEntries.tenantId, tenantId)]
+  if (from) entryConditions.push(gte(journalEntries.entryDate, from))
+  if (to) entryConditions.push(lte(journalEntries.entryDate, to))
+  const entries = await db.select({ id: journalEntries.id }).from(journalEntries).where(and(...entryConditions))
+  const entryIds = entries.map((e) => e.id)
+
+  type Line = { id: string; accountId: string; debitCents: number; creditCents: number; class: string }
+  const lines: Line[] = entryIds.length > 0
+    ? await db
+        .select({ id: journalLines.id, accountId: journalLines.accountId, debitCents: journalLines.debitCents, creditCents: journalLines.creditCents, class: accounts.class })
+        .from(journalLines)
+        .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
+        .where(inArray(journalLines.entryId, entryIds))
+    : []
+  const relevantLines = lines.filter((l) => l.class === 'REVENUE' || l.class === 'EXPENSE')
+
+  const lineDims = relevantLines.length > 0
+    ? await db.select().from(journalLineDimensions).where(and(eq(journalLineDimensions.dimensionId, dimension.id), inArray(journalLineDimensions.lineId, relevantLines.map((l) => l.id))))
+    : []
+  const valueIdByLineId = new Map(lineDims.map((d) => [d.lineId, d.valueId]))
+
+  const UNANALYSED = '__unanalysed__'
+  const revenueCents = new Map<string, number>()
+  const expenseCents = new Map<string, number>()
+  const bump = (map: Map<string, number>, key: string, amount: number) => map.set(key, (map.get(key) ?? 0) + amount)
+
+  for (const line of relevantLines) {
+    const rawValueId = valueIdByLineId.get(line.id)
+    const groupKey = rawValueId && valuesById.has(rawValueId) ? ancestorAtLevel(valuesById, rawValueId, targetLevel) : UNANALYSED
+    if (line.class === 'REVENUE') bump(revenueCents, groupKey, line.creditCents - line.debitCents)
+    else bump(expenseCents, groupKey, line.debitCents - line.creditCents)
+  }
+
+  const hasUnanalysed = revenueCents.has(UNANALYSED) || expenseCents.has(UNANALYSED)
+  const groupIds = [...rowValues.map((v) => v.id), ...(hasUnanalysed ? [UNANALYSED] : [])]
+
+  type Row = { label: string; code: string; revenue: number; expense: number; net: number }
+  const rows: Row[] = groupIds.map((id) => {
+    const revCents = revenueCents.get(id) ?? 0
+    const expCents = expenseCents.get(id) ?? 0
+    const value = valuesById.get(id)
+    return {
+      code: value?.code ?? 'UNANALYSED',
+      label: value?.name ?? 'Unanalysed (posted before dimensions existed)',
+      revenue: centsToMajor(revCents),
+      expense: centsToMajor(expCents),
+      net: centsToMajor(revCents - expCents),
+    }
+  }).sort((a, b) => {
+    if (a.code === 'UNANALYSED') return 1
+    if (b.code === 'UNANALYSED') return -1
+    return a.code.localeCompare(b.code)
+  })
+
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0)
+  const totalExpense = rows.reduce((s, r) => s + r.expense, 0)
+  const totalNet = totalRevenue - totalExpense
+  const unanalysedNet = rows.find((r) => r.code === 'UNANALYSED')?.net ?? 0
+
+  return {
+    title: `Profit & Loss by ${dimension.name}`,
+    meta: {
+      tenantId,
+      from: isoDate(from),
+      to: isoDate(to),
+      generatedAt: new Date().toISOString(),
+      dimensionCode: dimension.code,
+      dimensionName: dimension.name,
+      level: targetLevel,
+      rowCount: rows.length,
+      totalRevenue,
+      totalExpense,
+      totalNet,
+      periodLabel: humanPeriodLabel(from, to, pres),
+    },
+    columns: [`${dimension.name} code`, `${dimension.name} name`, 'Revenue', 'Expense', 'Net'],
+    rows: rows.map((r) => [r.code === 'UNANALYSED' ? '—' : r.code, r.label, r.revenue, r.expense, r.net]),
+    headline: [
+      { label: 'Total revenue', value: fmtMajor(totalRevenue, pres.currencySymbol), caption: `by ${dimension.name}, level ${targetLevel}` },
+      { label: 'Total expense', value: fmtMajor(totalExpense, pres.currencySymbol), caption: humanPeriodLabel(from, to, pres).toLowerCase() },
+      { label: 'Net', value: fmtMajor(totalNet, pres.currencySymbol), caption: 'Revenue minus expense' },
+      ...(hasUnanalysed ? [{ label: 'Unanalysed', value: fmtMajor(unanalysedNet, pres.currencySymbol), caption: 'Posted before dimensions existed' }] : []),
+    ],
+    notes: notesFor(pres, [
+      hasUnanalysed
+        ? 'Some journal lines were posted before analytical dimensions existed and carry no dimension of their own — they are grouped as "Unanalysed" above rather than guessed or silently dropped.'
+        : 'Every journal line in this period carries a value for this dimension.',
+      'Only revenue and expense accounts are summed here — asset, liability and equity balances are not part of a profit-and-loss view.',
+    ]),
+    basis: `Compiled from posted journal lines for the period above, grouped by ${dimension.name} and rolled up to level ${targetLevel} of ${dimension.levelCount}.`,
+    totals: [null, 'TOTAL', totalRevenue, totalExpense, totalNet],
+    columnAlign: ['left', 'left', 'right', 'right', 'right'],
+    columnFormats: ['text', 'text', 'money', 'money', 'money'],
   }
 }
