@@ -1,7 +1,7 @@
 'use client';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Lock, Plus, X, Edit2, Archive, Trash2, RotateCcw, Palette, Check } from './icons';
+import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Lock, Plus, X, Edit2, Archive, Trash2, RotateCcw, Palette, Check, Sprout } from './icons';
 import { apiClient } from '@/lib/request';
 
 // ── Real backend wiring (issue #252) ────────────────────────────────────────
@@ -127,7 +127,7 @@ export function AdminDashboardScreen() {
           </div>
 
           {/* Quick actions */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
             <button className="btn-primary" style={{ justifyContent: 'center', padding: 12, borderRadius: 12, fontSize: 'var(--fs-sm)' }} onClick={() => navigate('admin-onboarding')}>
               <Users size={14} /> Review Requests
             </button>
@@ -135,6 +135,15 @@ export function AdminDashboardScreen() {
               <Building2 size={14} /> View Tenants
             </button>
           </div>
+          {/* A tenant asking to widen its own enterprise scope (GET/PATCH
+             /api/admin/enterprise-requests) is a different queue from the
+             new-tenant applications "Review Requests" opens above — it had
+             no screen at all before this row existed, so it gets a row of
+             its own rather than being folded silently into "Review Requests"
+             and left for an admin to discover by accident. */}
+          <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', padding: 12, borderRadius: 12, fontSize: 'var(--fs-sm)', marginBottom: 20 }} onClick={() => navigate('admin-enterprise-requests')}>
+            <Sprout size={14} /> Enterprise Requests
+          </button>
         </>
       )}
     </div>

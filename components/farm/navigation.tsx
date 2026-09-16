@@ -11,6 +11,7 @@ export type ScreenId =
   | 'notifications' | 'ai-chat'
   | 'worker-home' | 'worker-record' | 'worker-pay' | 'worker-profile'
   | 'admin-dashboard' | 'admin-farms' | 'admin-settings' | 'admin-onboarding' | 'admin-users'
+  | 'admin-enterprise-requests'
   | 'batch-detail' | 'crop-schedule' | 'inventory-detail'
   | 'people-detail'
   | 'notification-settings'
@@ -150,6 +151,7 @@ const ALL_SCREENS: ScreenId[] = [
   'notifications', 'ai-chat',
   'worker-home', 'worker-record', 'worker-pay', 'worker-profile',
   'admin-dashboard', 'admin-farms', 'admin-settings', 'admin-onboarding', 'admin-users',
+  'admin-enterprise-requests',
   'batch-detail', 'crop-schedule', 'inventory-detail',
   'people-detail',
   'notification-settings',
@@ -880,7 +882,13 @@ function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
   const SUB_SCREENS: Record<string, ScreenId[]> = {
     settings: ['people','governance','reports','inventory','weather','notification-settings','ui-customise','ai-chat','about','routines','getting-started'],
     crops: ['batch-detail','crop-schedule'],
-    'admin-onboarding': ['admin-onboarding'],
+    // Enterprise requests (widen an existing tenant's scope) has no tab of
+    // its own — it's reached from the Onboarding queue and the Overview
+    // quick actions (see admin-enterprise-requests.tsx) rather than a 6th
+    // bottom-nav icon, which would squeeze five already-tight labels at
+    // 360px. Grouping it under 'admin-onboarding' here keeps the Requests
+    // tab visually "on" while it's open, instead of no tab lighting up at all.
+    'admin-onboarding': ['admin-onboarding', 'admin-enterprise-requests'],
   };
   return current === tabId || (SUB_SCREENS[tabId] ?? []).includes(current);
 }
@@ -893,6 +901,9 @@ function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
     crops: ['batch-detail', 'crop-schedule', 'farm-config'],
     inventory: ['inventory-detail'],
     people: ['people-detail'],
+    // Same reasoning as tabIsActive's SUB_SCREENS above — enterprise requests
+    // has no sidebar row of its own on the super_admin's plain tab list.
+    'admin-onboarding': ['admin-enterprise-requests'],
     // 'routines', 'getting-started' and 'ai-chat' used to fold into Settings
     // here, because none of them had a sidebar row of its own. All three do
     // now (see AppSidebar's groups), so folding them in would light up the

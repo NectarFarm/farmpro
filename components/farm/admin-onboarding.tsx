@@ -582,6 +582,7 @@ function RequestDetail({
 }
 
 export function AdminOnboardingScreen() {
+  const { navigate } = useNav();
   const [requests, setRequests] = useState<AdminOnboardRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -668,6 +669,19 @@ export function AdminOnboardingScreen() {
         )}
         {!loading && !loadError && (
         <>
+        {/* This queue is new-tenant applications only — a farm asking to
+           widen its OWN enterprise scope (e.g. an existing broiler tenant
+           adding layers) is a separate queue (GET/PATCH
+           /api/admin/enterprise-requests), not one of the rows below. */}
+        <button
+          className="farm-card"
+          onClick={() => navigate('admin-enterprise-requests')}
+          style={{ width: '100%', textAlign: 'left', padding: 12, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+        >
+          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>An existing tenant wanting a new enterprise? See Enterprise Requests</span>
+          <ChevronRight size={14} color="var(--text-muted)" />
+        </button>
+
         {/* Summary */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           {[
