@@ -80,11 +80,18 @@ function toOnboardRequest(row: ApiOnboardRequest): AdminOnboardRequest {
   };
 }
 
-/* A request is actionable while it is still open. 'info-needed' counts:
- * clicking "Info Needed" used to make the status non-pending, which hid the
- * approve and reject buttons for good — so an admin who requested info by
- * mistake, or who received the information, had no way to move the request
- * forward. Only the terminal states close it out. */
+/* A request shows the approve/reject/request-info trio while it is still in
+ * open review. 'info-needed' counts: clicking "Info Needed" used to make the
+ * status non-pending, which hid the approve and reject buttons for good — so
+ * an admin who requested info by mistake, or who received the information,
+ * had no way to move the request forward.
+ *
+ * 'rejected' is deliberately NOT in this set — the three buttons below don't
+ * make sense on a closed application — but it is not a dead end either: see
+ * the "Reopen for review" block further down, which sends a rejected request
+ * back to 'pending' (with a required reason, audited server-side) so it can
+ * re-enter this same trio afterward. 'approved' has no path back at all once
+ * a tenant is provisioned — the API itself refuses that transition now. */
 const ACTIONABLE = new Set<OnboardRequest['status']>(['pending', 'info-needed']);
 
 const STATUS_CONFIG: Record<OnboardRequest['status'], { color: string; bg: string; label: string }> = {
@@ -372,7 +379,7 @@ function RequestDetail({
   onClose,
 }: {
   req: AdminOnboardRequest;
-  onAction: (id: string, action: OnboardRequest['status'], notes?: string) => Promise<string | null>;
+  onAction: (id: string, action: OnboardRequest['status'], notes?: string, reopenReason?: string) => Promise<string | null>;
   onLocationSaved: (id: string, patch: { address: string | null; lat: number | null; lng: number | null }) => void;
   onClose: () => void;
 }) {
@@ -381,12 +388,36 @@ function RequestDetail({
   const [actionError, setActionError] = useState('');
   const [sendingGuide, setSendingGuide] = useState(false);
   const [guideMessage, setGuideMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  // Reopening is the one action here that requires a reason (server rejects
+  // the PATCH without one — see app/api/onboard-requests/[id]/route.ts) since
+  // it can lead straight to provisioning a real tenant out of a decision
+  // that was already made and recorded as "no".
+  const [reopenReason, setReopenReason] = useState('');
   const s = STATUS_CONFIG[req.status];
 
   async function handle(action: OnboardRequest['status']) {
     setSaving(true);
     setActionError('');
     const failure = await onAction(req.id, action, infoNote.trim() || undefined);
+    setSaving(false);
+    if (!failure) onClose();
+    else setActionError(failure);
+  }
+
+  // Sends the request back to 'pending' rather than straight to 'approved' —
+  // reopening and deciding are kept as two separate, deliberate steps so the
+  // reason on record is about "why reconsider this" and the subsequent
+  // approve/reject/request-info goes through the exact same reviewed path
+  // every other request does, instead of a rejected-only shortcut.
+  async function handleReopen() {
+    const reason = reopenReason.trim();
+    if (!reason) {
+      setActionError('A reason is required to reopen a rejected request.');
+      return;
+    }
+    setSaving(true);
+    setActionError('');
+    const failure = await onAction(req.id, 'pending', undefined, reason);
     setSaving(false);
     if (!failure) onClose();
     else setActionError(failure);
@@ -576,6 +607,37 @@ function RequestDetail({
             <MessageSquare size={14} /> Request More Info
           </button>
         )}
+
+        {/* A rejection made in error was previously permanent from this
+           screen — the API never enforced that (PATCH only ever validated
+           the target status, never `existing.status`), so this was a UI gap,
+           not a backend one. Reopening requires a reason: it is the one
+           record of why a "no" is being reconsidered, which matters most
+           when the very next action can provision a real tenant. */}
+        {req.status === 'rejected' && (
+          <div className="farm-card" style={{ padding: 14, marginTop: 4, border: '1px solid var(--status-warning)', background: 'rgba(251,191,36,0.06)' }}>
+            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Reopen for Review</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.5 }}>
+              Puts this request back to Pending so it can be approved, rejected, or sent back for info again. Requires a reason for the record.
+            </div>
+            <textarea
+              className="farm-input"
+              rows={2}
+              value={reopenReason}
+              onChange={(e) => setReopenReason(e.target.value)}
+              placeholder="Why is this being reopened? (required)"
+              style={{ resize: 'none', marginBottom: 10 }}
+            />
+            <button
+              disabled={saving || !reopenReason.trim()}
+              onClick={() => void handleReopen()}
+              className="btn-secondary"
+              style={{ width: '100%', justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 9, opacity: saving || !reopenReason.trim() ? 0.6 : 1 }}
+            >
+              {saving ? 'Reopening…' : 'Reopen for Review'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -609,10 +671,11 @@ export function AdminOnboardingScreen() {
   // to return a boolean, which threw the reason away — an admin approving a
   // request whose email already exists was told "Failed to update this
   // request. Try again.", advice that could never work.
-  async function act(id: string, action: OnboardRequest['status'], notes?: string): Promise<string | null> {
+  async function act(id: string, action: OnboardRequest['status'], notes?: string, reopenReason?: string): Promise<string | null> {
     const res = await apiClient.patch<ApiOnboardRequest>(`/api/onboard-requests/${id}`, {
       status: action,
       ...(notes !== undefined ? { notes } : {}),
+      ...(reopenReason !== undefined ? { reopenReason } : {}),
     });
     if (!res.success) {
       const message = res.error || 'Failed to update this request.';

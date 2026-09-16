@@ -9,7 +9,7 @@
 // (lib/tenant-provisioning.ts) — submit -> approve -> tenant-exists.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
 
@@ -22,7 +22,7 @@ import { POST as onboardPOST, GET as onboardGET } from '@/app/api/onboard-reques
 import { PATCH as onboardPATCH } from '@/app/api/onboard-requests/[id]/route'
 import { POST as loginPOST } from '@/app/api/auth/login/route'
 import { db } from '@/db'
-import { tenants, users, sessions, farms, onboardRequests, setPasswordTokens } from '@/db/schemas'
+import { tenants, users, sessions, farms, onboardRequests, setPasswordTokens, auditLog } from '@/db/schemas'
 import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
@@ -519,5 +519,182 @@ run('onboarding requests: field validation + location + consent (issues #251/#25
 
     const [row] = await db.select().from(onboardRequests).where(eq(onboardRequests.id, id))
     expect(row.consentVersion).toBe('v1')
+  })
+})
+
+// ── Reopening a rejected request (admin-navigation-and-registration-gaps task) ──
+// Before this, PATCH accepted ANY target status regardless of `existing.status`
+// — rejected -> approved silently provisioned a tenant out of a decision
+// already on record as "no", with nothing written down about why it was
+// reversed, and an approved+provisioned request could just as silently be
+// flipped back to pending/rejected without touching the tenant it already
+// created. Covers both halves: reopening now requires and audits a reason,
+// and a provisioned request can no longer be walked back through this route.
+run('onboarding requests: reopening a rejected request', () => {
+  const superAdminEmail = `super-onboard-reopen-${randomUUID()}@test.ifms`
+  const superAdminId = randomUUID()
+  let superAdminSessionToken: string
+
+  const createdRequestIds: string[] = []
+  const provisionedTenantIds: string[] = []
+
+  async function makeRejectedRequest(overrides: Record<string, unknown> = {}) {
+    const id = randomUUID()
+    await db.insert(onboardRequests).values({
+      id,
+      farmerName: 'Reopen Test Farmer',
+      email: `reopen-${randomUUID()}@test.ifms`,
+      phone: '0712345678',
+      farmName: `Reopen Test Farm ${randomUUID().slice(0, 8)}`,
+      location: 'Nakuru, Kenya',
+      enterprises: ['layer'],
+      status: 'rejected',
+      notes: 'Did not meet minimum flock size.',
+      ...overrides,
+    })
+    createdRequestIds.push(id)
+    return id
+  }
+
+  beforeAll(async () => {
+    const salt = randomUUID()
+    await db.insert(users).values({
+      id: superAdminId, tenantId: null, name: 'Reopen Test Super Admin', email: superAdminEmail,
+      role: 'super_admin', passwordHash: hashSecret('platPass123', salt), passwordSalt: salt, status: 'ACTIVE',
+    })
+    superAdminSessionToken = await createSession(superAdminId)
+    mockCookie = superAdminSessionToken
+  })
+
+  afterAll(async () => {
+    await db.delete(auditLog).where(eq(auditLog.entity, 'onboard_request'))
+    for (const tenantId of provisionedTenantIds) {
+      const ownerRows = await db.select({ id: users.id }).from(users).where(eq(users.tenantId, tenantId))
+      for (const owner of ownerRows) {
+        await db.delete(setPasswordTokens).where(eq(setPasswordTokens.userId, owner.id))
+      }
+      await db.delete(users).where(eq(users.tenantId, tenantId))
+      await db.delete(farms).where(eq(farms.tenantId, tenantId))
+      await db.delete(tenants).where(eq(tenants.id, tenantId))
+    }
+    for (const id of createdRequestIds) {
+      await db.delete(onboardRequests).where(eq(onboardRequests.id, id))
+    }
+    await db.delete(sessions).where(eq(sessions.userId, superAdminId))
+    await db.delete(users).where(eq(users.id, superAdminId))
+  })
+
+  it('refuses to reopen a rejected request with no reason (400, fields.reopenReason set)', async () => {
+    const id = await makeRejectedRequest()
+    const { status, payload } = await readJson(
+      await onboardPATCH(jsonRequest(`http://localhost/api/onboard-requests/${id}`, 'PATCH', { status: 'pending' }), {
+        params: Promise.resolve({ id }),
+      })
+    )
+    expect(status).toBe(400)
+    expect(payload.success).toBe(false)
+    expect(payload.fields.reopenReason).toBeTruthy()
+
+    const [row] = await db.select().from(onboardRequests).where(eq(onboardRequests.id, id))
+    expect(row.status).toBe('rejected')
+  })
+
+  it('reopens rejected -> pending with a reason, and audits it', async () => {
+    const id = await makeRejectedRequest()
+    const { status, payload } = await readJson(
+      await onboardPATCH(jsonRequest(`http://localhost/api/onboard-requests/${id}`, 'PATCH', {
+        status: 'pending',
+        reopenReason: 'Applicant supplied the missing flock-size detail by phone.',
+      }), { params: Promise.resolve({ id }) })
+    )
+    expect(status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.data.status).toBe('pending')
+
+    const [auditRow] = await db.select().from(auditLog)
+      .where(and(eq(auditLog.entity, 'onboard_request'), eq(auditLog.entityId, id)))
+    expect(auditRow).toBeTruthy()
+    expect(auditRow.action).toBe('onboarding.reopened')
+    expect(auditRow.actor).toBe(superAdminId)
+    expect(auditRow.meta).toMatchObject({
+      fromStatus: 'rejected',
+      toStatus: 'pending',
+      reason: 'Applicant supplied the missing flock-size detail by phone.',
+    })
+  })
+
+  it('reopens rejected straight to approved, provisions a tenant, and audits the reopen', async () => {
+    const id = await makeRejectedRequest()
+    const { status, payload } = await readJson(
+      await onboardPATCH(jsonRequest(`http://localhost/api/onboard-requests/${id}`, 'PATCH', {
+        status: 'approved',
+        reopenReason: 'Rejected in error — flock size was actually within policy.',
+      }), { params: Promise.resolve({ id }) })
+    )
+    expect(status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.data.status).toBe('approved')
+    expect(typeof payload.data.tenantId).toBe('string')
+    const tenantId: string = payload.data.tenantId
+    provisionedTenantIds.push(tenantId)
+
+    const tenantRows = await db.select().from(tenants).where(eq(tenants.id, tenantId))
+    expect(tenantRows).toHaveLength(1)
+
+    const [auditRow] = await db.select().from(auditLog)
+      .where(and(eq(auditLog.entity, 'onboard_request'), eq(auditLog.entityId, id)))
+    expect(auditRow).toBeTruthy()
+    expect(auditRow.action).toBe('onboarding.reopened')
+    expect(auditRow.tenantId).toBe(tenantId)
+    expect(auditRow.meta).toMatchObject({ fromStatus: 'rejected', toStatus: 'approved' })
+  })
+
+  it('refuses to change the status of an already-provisioned request (409), and never re-audits it as a reopen', async () => {
+    const id = await makeRejectedRequest()
+    const { payload: approved } = await readJson(
+      await onboardPATCH(jsonRequest(`http://localhost/api/onboard-requests/${id}`, 'PATCH', {
+        status: 'approved',
+        reopenReason: 'Reopening to correct a mistaken rejection.',
+      }), { params: Promise.resolve({ id }) })
+    )
+    provisionedTenantIds.push(approved.data.tenantId)
+
+    const { status, payload } = await readJson(
+      await onboardPATCH(jsonRequest(`http://localhost/api/onboard-requests/${id}`, 'PATCH', { status: 'rejected' }), {
+        params: Promise.resolve({ id }),
+      })
+    )
+    expect(status).toBe(409)
+    expect(payload.success).toBe(false)
+
+    const [row] = await db.select().from(onboardRequests).where(eq(onboardRequests.id, id))
+    expect(row.status).toBe('approved')
+    expect(row.tenantId).toBe(approved.data.tenantId)
+
+    // Only the one reopen (rejected -> approved) should have been audited —
+    // the refused second PATCH must not add a second row.
+    const auditRows = await db.select().from(auditLog)
+      .where(and(eq(auditLog.entity, 'onboard_request'), eq(auditLog.entityId, id)))
+    expect(auditRows).toHaveLength(1)
+  })
+
+  it('re-approving an already-provisioned request is still a no-op (guard does not break the existing idempotent branch)', async () => {
+    const id = await makeRejectedRequest()
+    const { payload: approved } = await readJson(
+      await onboardPATCH(jsonRequest(`http://localhost/api/onboard-requests/${id}`, 'PATCH', {
+        status: 'approved',
+        reopenReason: 'Reopening to correct a mistaken rejection.',
+      }), { params: Promise.resolve({ id }) })
+    )
+    provisionedTenantIds.push(approved.data.tenantId)
+
+    const { status, payload } = await readJson(
+      await onboardPATCH(jsonRequest(`http://localhost/api/onboard-requests/${id}`, 'PATCH', { status: 'approved' }), {
+        params: Promise.resolve({ id }),
+      })
+    )
+    expect(status).toBe(200)
+    expect(payload.data.tenantId).toBe(approved.data.tenantId)
+    expect(payload.data.ownerTempPassword).toBeUndefined()
   })
 })

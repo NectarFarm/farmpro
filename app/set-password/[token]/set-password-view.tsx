@@ -1,5 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/request';
 
 // Public, token-gated "set your password" form — no session, no app shell.
@@ -8,8 +10,13 @@ import { apiClient } from '@/lib/request';
 // vars from app/global.css) since this page is reached before the applicant
 // has ever signed in.
 const MIN_PASSWORD_LENGTH = 8;
+// How long the applicant sees "Password set" before we take them to sign-in
+// ourselves. Long enough to read the confirmation, short enough that nobody
+// sits on a token URL wondering what to do next.
+const REDIRECT_DELAY_SECONDS = 3;
 
 export function SetPasswordView({ token }: { token: string }) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [resolveError, setResolveError] = useState('');
   const [email, setEmail] = useState('');
@@ -20,6 +27,7 @@ export function SetPasswordView({ token }: { token: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [done, setDone] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(REDIRECT_DELAY_SECONDS);
 
   useEffect(() => {
     apiClient.get<{ email: string; name: string }>(`/api/set-password/${encodeURIComponent(token)}`).then((res) => {
@@ -32,6 +40,24 @@ export function SetPasswordView({ token }: { token: string }) {
       }
     });
   }, [token]);
+
+  // Once the reset succeeds there is nothing left for the applicant to do on
+  // this token URL — send them to sign-in on their own after a short beat so
+  // they can read the confirmation first. `/` is a relative, environment-
+  // correct destination (same origin the reset itself was served from, and
+  // the same route the "Continue to sign in" link below points at), so this
+  // needs none of the server-side base-URL resolution lib/email.ts does for
+  // outbound email links. router.push (not a hard reload) so this lands the
+  // same way clicking the link would.
+  useEffect(() => {
+    if (!done) return;
+    if (secondsLeft <= 0) {
+      router.push('/');
+      return;
+    }
+    const timer = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [done, secondsLeft, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -72,9 +98,16 @@ export function SetPasswordView({ token }: { token: string }) {
           {!loading && !resolveError && done && (
             <div>
               <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, marginBottom: 6 }}>Password set</div>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                You can now sign in with your new password.
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 16 }}>
+                You can now sign in with your new password. Taking you there in {secondsLeft}…
               </div>
+              <Link
+                href="/"
+                className="btn-primary"
+                style={{ display: 'flex', width: '100%', justifyContent: 'center', borderRadius: 12, padding: 12, textDecoration: 'none' }}
+              >
+                Continue to sign in
+              </Link>
             </div>
           )}
 
