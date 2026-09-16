@@ -26,6 +26,7 @@ import {
 import {
   AdminDashboardScreen, AdminFarmsScreen, AdminSettingsScreen,
 } from '@/components/farm/admin';
+import { AdminEnterpriseRequestsScreen } from '@/components/farm/admin-enterprise-requests';
 import { AIChatScreen } from '@/components/farm/ai-chat';
 import { Leaf } from '@/components/farm/icons';
 import { AdminOnboardingScreen } from '@/components/farm/admin-onboarding';
@@ -46,7 +47,7 @@ export function useLogout() { return useContext(LogoutCtx); }
 const TAB_SCREENS = new Set([
   'dashboard','crops','finance','tasks','settings',
   'worker-home','worker-record','worker-pay','worker-profile',
-  'admin-dashboard','admin-farms','admin-settings','admin-onboarding','admin-users',
+  'admin-dashboard','admin-farms','admin-settings','admin-onboarding','admin-users','admin-enterprise-requests',
   'inventory','weather','people','governance','reports',
   'ai-chat','ui-customise',
   'auditor-reports','vet-herd',
@@ -87,6 +88,7 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'admin-settings':    return <AdminSettingsScreen />;
       case 'admin-onboarding':  return <AdminOnboardingScreen />;
       case 'admin-users':       return <AdminUsersScreen />;
+      case 'admin-enterprise-requests': return <AdminEnterpriseRequestsScreen />;
       case 'ai-chat':           return <AIChatScreen userName={userName} />;
       case 'ui-customise':      return <UICustomiseScreen />;
       case 'auditor-reports':   return <AuditorReportsScreen />;

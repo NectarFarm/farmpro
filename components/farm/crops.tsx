@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/request';
 import { Plus, X, Check, Upload, Package, Archive, Edit2, PawPrint, Sprout, MapPin, HelpCircle, ClipboardList, Home } from './icons';
 import { StatusTimeline } from './status-timeline';
 import { parseMoneyToCents, centsToMajor, majorToCents } from '@/lib/money';
+import { useToast } from './ui-shared';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
 // This screen used to render entirely from the batches mock array exported by
@@ -55,6 +56,20 @@ interface ApiStage {
   name: string;
   sortOrder: number;
   typicalDays: number | null;
+}
+
+/* The slice of GET /api/employees this screen needs to offer worker
+ * assignment on a new batch (worker-assignment-on-batches task). Assignment
+ * is stored on the EMPLOYEE (employees.assignedBatchIds, a text[]), never on
+ * the batch — there is no batch-side column for it and none should be added.
+ * See CropScheduleScreen's assignment step below for how a brand-new batch
+ * (no id until the wizard's final save) is reconciled with that. */
+interface ApiEmployeeLite {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+  assignedBatchIds: string[];
 }
 
 /* A production unit row exactly as GET/POST /api/units returns it. */
@@ -1802,8 +1817,31 @@ export function CropScheduleScreen() {
   const [endOrHarvestDate, setEndOrHarvestDate] = useState('');
   const [initialCost, setInitialCost] = useState('');
 
+  // ── Worker assignment (worker-assignment-on-batches task) ────────────────
+  // The old copy here ("Not available yet — no worker assignment on batches")
+  // was stale: PATCH /api/employees/[id] has accepted `assignedBatchIds` all
+  // along (see people.tsx's EditEmployeeModal, the same feature from the
+  // employee side). It was never wired up FROM this wizard specifically
+  // because there is no batch to assign to yet at step 3 — the id is only
+  // handed back by POST /api/batches at the very end (see createBatch below).
+  // So this step just collects the admin's picks locally, and createBatch()
+  // applies them, employee by employee, once the batch id actually exists.
+  const [employees, setEmployees] = useState<ApiEmployeeLite[] | null>(null);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<ApiEmployeeLite[]>(`/api/employees?tenantId=${tenantId}&status=ACTIVE`).then((res) => {
+      if (!cancelled) setEmployees(res.success ? res.data : []);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+  function toggleEmployee(id: string) {
+    setSelectedEmployeeIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const { showToast } = useToast();
 
   // ── Create flow (issue #232 task 7) ────────────────────────────────────
   // "Crop schedule create (single unit) → POST /api/units then POST
@@ -1840,11 +1878,43 @@ export function CropScheduleScreen() {
       startDate: startDate || undefined,
       ...(isCrop ? { harvestDate: endOrHarvestDate || undefined } : { endDate: endOrHarvestDate || undefined }),
     });
-    setSaving(false);
     if (!batchRes.success) {
+      setSaving(false);
       setError(batchRes.error || 'Failed to create the batch.');
       return;
     }
+
+    // ── Apply the worker picks from step 3 now that the batch has an id ─────
+    // Each employee's assignedBatchIds is a separate row this admin doesn't
+    // otherwise touch — a plain PATCH with "the selection from when step 3
+    // loaded" would silently drop any OTHER batch assignment someone else
+    // gave that employee in the meantime. So each one is re-read immediately
+    // before its PATCH and the new batch id is added to whatever is there
+    // NOW, not to the stale snapshot from when this wizard opened. That
+    // narrows the race to "between this GET and this PATCH", which is the
+    // best this UI can do without a version/If-Match on the employee row —
+    // it does not eliminate a concurrent edit landing in that exact window.
+    if (selectedEmployeeIds.length > 0) {
+      const results = await Promise.all(selectedEmployeeIds.map(async (employeeId) => {
+        const current = await apiClient.get<ApiEmployeeLite>(`/api/employees/${employeeId}?tenantId=${tenantId}`);
+        const name = current.success ? current.data.name : employeeId;
+        const nextIds = current.success
+          ? Array.from(new Set([...(current.data.assignedBatchIds ?? []), batchRes.data.id]))
+          : [batchRes.data.id];
+        const patchRes = await apiClient.patch<ApiEmployeeLite>(`/api/employees/${employeeId}?tenantId=${tenantId}`, {
+          assignedBatchIds: nextIds,
+        });
+        return { name, ok: patchRes.success, error: patchRes.success ? '' : (patchRes.error || 'assignment failed') };
+      }));
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length === 0) {
+        showToast(`Batch created and assigned to ${results.length} worker${results.length === 1 ? '' : 's'}.`, 'success');
+      } else {
+        showToast(`Batch created, but ${failed.length} assignment${failed.length === 1 ? '' : 's'} failed: ${failed.map((f) => f.name).join(', ')}.`, 'warning');
+      }
+    }
+
+    setSaving(false);
     navigate('batch-detail', { id: batchRes.data.id, code: batchRes.data.code });
   }
 
@@ -1933,10 +2003,25 @@ export function CropScheduleScreen() {
               <input className="farm-input" type="number" placeholder="0" value={initialCost} onChange={e => setInitialCost(e.target.value)} />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assign Employee(s)</label>
-              <select className="farm-input" multiple disabled style={{ height: 90, fontSize: 'var(--fs-sm)', opacity: 0.5 }}>
-                <option>Not available yet — no worker assignment on batches</option>
-              </select>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assign Worker(s)</label>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 8, lineHeight: 1.5 }}>
+                A worker only sees the batches assigned to them — leave nobody selected and nobody can record anything against this one yet. You can change this later from People &gt; edit a worker.
+              </div>
+              {employees === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading workers…</div>}
+              {employees !== null && employees.length === 0 && (
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>No active workers on this farm yet.</div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
+                {(employees ?? []).map((emp) => {
+                  const on = selectedEmployeeIds.includes(emp.id);
+                  return (
+                    <div key={emp.id} onClick={() => toggleEmployee(emp.id)} style={{ padding: '10px 12px', background: on ? 'rgba(74,222,128,0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(74,222,128,0.3)' : 'var(--border-subtle)'}`, borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                      <span style={{ fontSize: 'var(--fs-sm)', color: on ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: on ? 700 : 400 }}>{emp.name}{emp.role ? ` · ${emp.role}` : ''}</span>
+                      {on && <Check size={14} color="var(--primary-green)" />}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
