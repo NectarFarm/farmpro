@@ -17,6 +17,7 @@ export type ScreenId =
   | 'notification-settings'
   | 'ui-customise' | 'security-settings' | 'role-notice' | 'routines'
   | 'farm-config'
+  | 'dimensions'
   | 'auditor-reports' | 'vet-herd' | 'about' | 'getting-started';
 
 /* ── Session role contract (issue #219) ──
@@ -278,6 +279,9 @@ const TAB_MENUS: Partial<Record<ScreenId, { title: string; items: TabMenuItem[] 
       { screen: 'crops', params: { tab: 'crops' }, label: 'Crop batches', desc: 'Planted areas, their stage and expected harvest', icon: Leaf },
       { screen: 'crops', params: { tab: 'products' }, label: 'Products', desc: 'What you sell, and which units produce it', icon: Package },
       { screen: 'farm-config', label: 'Farm configuration', desc: 'Growth stages, products per batch, farm structure', icon: Layers, ownerOnly: true },
+      // Owner-only: this decides how the ledger is analysed, which is an
+      // accounting decision rather than a day-to-day operational one.
+      { screen: 'dimensions', label: 'Dimensions', desc: 'The coded levels every sale, purchase and journal line is reported by', icon: Layers, ownerOnly: true },
     ],
   },
   settings: {
@@ -898,7 +902,7 @@ function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
 function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
   const DETAIL_SCREENS: Partial<Record<ScreenId, ScreenId[]>> = {
     // farm-config is reached from the Farm menu, so it belongs to this row.
-    crops: ['batch-detail', 'crop-schedule', 'farm-config'],
+    crops: ['batch-detail', 'crop-schedule', 'farm-config', 'dimensions'],
     inventory: ['inventory-detail'],
     people: ['people-detail'],
     // Same reasoning as tabIsActive's SUB_SCREENS above — enterprise requests
@@ -996,6 +1000,7 @@ export function AppSidebar() {
       // rendered anywhere in the app. Adding it here is what makes it live.
       { id: 'governance' as ScreenId, label: 'Governance', icon: Shield, ownerOnly: false },
       { id: 'finance' as ScreenId, label: 'Finance', icon: DollarSign, ownerOnly: true },
+      { id: 'dimensions' as ScreenId, label: 'Dimensions', icon: Layers, ownerOnly: true },
       { id: 'reports' as ScreenId, label: 'Reports', icon: FileText, ownerOnly: true },
       { id: 'settings' as ScreenId, label: 'Settings', icon: Settings, ownerOnly: false },
     ] },
