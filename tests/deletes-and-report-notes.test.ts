@@ -124,7 +124,9 @@ describe('Report notes are the farmer\'s call — except the safety line', () =>
 
   it('routes every report\'s notes through the one gate', () => {
     expect(reports).not.toMatch(/notes: \[/)
-    expect(reports.match(/notes: notesFor\(/g)?.length).toBe(7)
+    // 8 since the dimensions-on-gl task added computeDimensionPlReport,
+    // which follows the same notesFor() gate as every report before it.
+    expect(reports.match(/notes: notesFor\(/g)?.length).toBe(8)
   })
 
   it('defaults to printing notes when a tenant has no settings row', () => {
