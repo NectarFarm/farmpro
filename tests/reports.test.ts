@@ -123,6 +123,13 @@ run('reports: P&L, Batch P&L, Mortality, Feed Consumption (issue #263)', () => {
       postRequest('http://localhost/api/purchases', {
         tenantId, supplier: 'Unga Ltd', itemName: 'Broiler Starter Mash', unit: 'kg',
         quantity: 100, unitCostCents: 100, totalCostCents: 10000, amountPaidCents: 10000,
+        // Dated explicitly, like the two sales above. Without this the row
+        // takes purchases.createdAt's now() default, so the narrow-window
+        // assertion below only passed while the system clock happened to sit
+        // inside August 2026 — it started failing on 1 September for reasons
+        // having nothing to do with the code under test. `receivedDate` is
+        // written straight to purchases.createdAt (lib/inventory.ts).
+        receivedDate: inRange.toISOString(),
       })
     )
 
