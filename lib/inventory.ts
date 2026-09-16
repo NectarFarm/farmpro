@@ -152,6 +152,10 @@ export async function recordPurchase(input: {
   // for why they're never independent facts. `null`/omitted keeps both
   // unscoped (tenant-wide), same as before this task existed.
   farmId?: string | null
+  // Explicit dimension overrides (dimensions-on-gl task) — see
+  // lib/finance.ts's postPurchaseJournal / lib/dimensions.ts's
+  // resolveMasterDimensions for the resolution order this participates in.
+  dimensions?: Record<string, string>
 }): Promise<RecordPurchaseResult> {
   return db.transaction(async (tx): Promise<RecordPurchaseResult> => {
     const existing = await tx
@@ -235,7 +239,7 @@ export async function recordPurchase(input: {
     // (amount paid) / Cr Accounts Payable (amount owed) — posted in the same
     // transaction as the purchase itself so a purchase can never exist
     // without its journal entry. See lib/finance.ts's postPurchaseJournal.
-    await postPurchaseJournal(tx, purchase)
+    await postPurchaseJournal(tx, purchase, { dimensions: input.dimensions })
 
     return { item, lot, purchase }
   })

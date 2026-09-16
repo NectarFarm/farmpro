@@ -17,6 +17,7 @@ export * from './email'
 export * from './enterprises'
 export * from './advice'
 export * from './stages'
+export * from './dimensions'
 
 // A tenant's farms. One tenant owns several farms; each farm carries its own
 // production units. The farm switcher in the shell reads these via GET /api/farms.
@@ -106,6 +107,20 @@ export const batches = pgTable('batches', {
   name: text('name').notNull(),
   species: text('species').notNull().default(''),
   enterprise: text('enterprise').notNull(),
+  // ── Crop vs livestock, made explicit (dimensions-on-gl task) ─────────────
+  // Was PURELY derived — lib/codes.ts's `enterpriseTypeFor()` looks
+  // `enterprise` up in a hardcoded map (ENTERPRISE_TYPES) every time a screen
+  // needed to know. The owner wants explicit control (a checkbox/dropdown at
+  // batch-creation time) rather than an inference nobody can override for an
+  // enterprise subtype the map hasn't caught up with yet. 'livestock' |
+  // 'crop' | '' — '' (the default) means "not explicitly set", and every
+  // reader (see lib/codes.ts's `batchEnterpriseType`) falls back to the old
+  // map lookup for a blank value, so EVERY existing row keeps behaving
+  // exactly as before this column existed. Migration 0040 backfills this
+  // column from the map for every batch that already exists, so new code can
+  // prefer the stored field without silently reclassifying pre-existing
+  // batches whose enterprise isn't in the map at all (fallback stays '').
+  enterpriseType: text('enterprise_type').notNull().default(''),
   stage: text('stage').notNull().default(''),
   status: text('status').notNull().default('ACTIVE'),
   initialQty: integer('initial_qty').notNull().default(0),

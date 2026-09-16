@@ -6,6 +6,8 @@ import { and, asc, eq, like } from 'drizzle-orm'
 import { farmSegment, generateCode, unitPrefixFor } from '@/lib/codes'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession } from '@/lib/api-auth'
+import { projectUnit } from '@/lib/dimensions'
+import { logger } from '@/lib/logger'
 
 // ── GET/POST /api/units (issue #232) ────────────────────────────────────────
 // The `production_units` table has existed since #219, but no route ever read
@@ -139,6 +141,15 @@ export async function POST(req: Request) {
       .insert(productionUnits)
       .values({ id, tenantId, farmId, type, name, code, status })
       .returning()
+
+    // Write-through projection (dimensions-on-gl task) — best-effort, same
+    // "must not fail the domain write" convention as POST /api/farms.
+    try {
+      await projectUnit(db, tenantId, { id, code, name })
+    } catch (err) {
+      logger.warn('unit dimension projection failed', { tenantId, unitId: id, error: String(err) })
+    }
+
     return created(rows[0])
   } catch (err) {
     if (isUniqueViolation(err)) {

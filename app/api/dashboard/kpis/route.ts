@@ -3,7 +3,7 @@ import { db } from '@/db'
 import { tasks, notifications, products, batches, sales, approvalRequests } from '@/db/schemas'
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { syncTaskNotifications, DONE_STATUSES } from '@/app/api/notifications/route'
-import { enterpriseTypeFor } from '@/lib/codes'
+import { batchEnterpriseType } from '@/lib/codes'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession } from '@/lib/api-auth'
 
@@ -344,7 +344,7 @@ export async function GET(req: Request) {
   // subtypes skipped rather than guessed).
   const enterpriseGroups = new Map<string, { qty: number; type: 'livestock' | 'crop' }>()
   for (const b of activeBatchRows) {
-    const type = enterpriseTypeFor(b.enterprise)
+    const type = batchEnterpriseType(b)
     if (!type) continue
     const existing = enterpriseGroups.get(b.enterprise)
     if (existing) existing.qty += b.currentQty

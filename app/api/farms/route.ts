@@ -4,6 +4,8 @@ import { farms } from '@/db/schemas'
 import { and, eq, asc } from 'drizzle-orm'
 import { requireTenantSession } from '@/lib/api-auth'
 import { validateLocation } from '@/lib/validation'
+import { projectFarm } from '@/lib/dimensions'
+import { logger } from '@/lib/logger'
 
 // ── Farms API (issue #219; auth fix: fix/authenticate-all-apis) ────────────
 // New-backend routes powering the shell's farm switcher. Built fresh in this
@@ -114,6 +116,17 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ success: false, error: 'Failed to create farm' }, { status: 500, headers: corsHeaders })
   }
+
+  // Write-through projection (dimensions-on-gl task): keeps the FARM
+  // dimension in step with the real table. Best-effort — a failure here
+  // must not fail farm creation; lib/dimensions.ts's reconcileSystemDimensions
+  // can repair any tenant whose projection ever falls behind.
+  try {
+    await projectFarm(db, tenantId, { id, code, name })
+  } catch (err) {
+    logger.warn('farm dimension projection failed', { tenantId, farmId: id, error: String(err) })
+  }
+
   return created({ id, code })
 }
 

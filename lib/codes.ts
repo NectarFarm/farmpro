@@ -108,6 +108,22 @@ export function enterpriseTypeFor(enterprise: string): 'livestock' | 'crop' | un
   return ENTERPRISE_TYPES[enterprise]
 }
 
+// ── Explicit classification, with the map as a fallback (dimensions-on-gl
+// task) ──────────────────────────────────────────────────────────────────
+// `batches.enterpriseType` is now a real stored column (db/schemas/index.ts)
+// instead of a pure inference — the owner wants explicit control (a
+// checkbox/dropdown) rather than only ever trusting this hardcoded map. This
+// is the ONE place every reader should call instead of `enterpriseTypeFor`
+// directly on a batch: it prefers the stored field, and only falls back to
+// the map for a batch that predates the column (stored value `''`) or where
+// a caller hasn't set it explicitly yet — so nothing that read
+// `enterpriseTypeFor(b.enterprise)` before this column existed changes
+// behaviour for a single existing row.
+export function batchEnterpriseType(batch: { enterprise: string; enterpriseType?: string | null }): 'livestock' | 'crop' | undefined {
+  if (batch.enterpriseType === 'livestock' || batch.enterpriseType === 'crop') return batch.enterpriseType
+  return enterpriseTypeFor(batch.enterprise)
+}
+
 // Unknown/future enterprise subtype not in the map yet: fall back to a
 // deterministic 3-letter prefix from the subtype string itself rather than
 // throwing, so a new enterprise type doesn't hard-block batch creation.

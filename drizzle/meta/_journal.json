@@ -281,6 +281,13 @@
       "when": 1787888787476,
       "tag": "0039_weather_advice",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1789552021981,
+      "tag": "0040_analytical_dimensions",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
+import { DimensionRequirementError, DimensionValidationError, isPlainDimensionMap } from '@/lib/dimensions'
 import {
   isInvalid, requireCount, requireNonNegativeCount, requireCents,
   requireEventDate, requireFutureAllowedDate,
@@ -183,23 +184,36 @@ export async function POST(req: Request) {
     expiryDate = parsed
   }
 
-  const result = await recordPurchase({
-    tenantId,
-    supplier,
-    itemName,
-    category,
-    unit,
-    lowStockThreshold,
-    quantity,
-    unitCostCents,
-    totalCostCents,
-    paymentMethod,
-    amountPaidCents,
-    lotNo,
-    expiryDate,
-    receivedDate,
-    farmId: farmFilter ?? null,
-  })
+  let result
+  try {
+    result = await recordPurchase({
+      tenantId,
+      supplier,
+      itemName,
+      category,
+      unit,
+      lowStockThreshold,
+      quantity,
+      unitCostCents,
+      totalCostCents,
+      paymentMethod,
+      amountPaidCents,
+      lotNo,
+      expiryDate,
+      receivedDate,
+      farmId: farmFilter ?? null,
+      dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
+    })
+  } catch (err) {
+    // dimensions-on-gl task: a required dimension missing on an account this
+    // purchase posts to refuses the whole write (transaction rolled back)
+    // rather than posting an unanalysed line — see lib/dimensions.ts's
+    // attachLineDimensions.
+    if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError) {
+      return badRequest(err.message)
+    }
+    throw err
+  }
 
   if ('problem' in result) return badRequest(result.problem)
   return created(result)

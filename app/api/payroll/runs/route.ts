@@ -4,7 +4,7 @@ import { employees, payrollRuns, payslips } from '@/db/schemas'
 import { and, desc, eq, gt, lt } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, canView, MODULES } from '@/lib/permissions'
-import { postPayrollJournal } from '@/lib/finance'
+import { postPayrollJournal, DimensionRequirementError, DimensionValidationError } from '@/lib/finance'
 import { isUniqueViolation } from '@/lib/db-errors'
 import { startOfUtcDay } from '@/app/api/tasks/route'
 
@@ -136,7 +136,7 @@ export async function POST(req: Request) {
   }
 
   const eligible = await db
-    .select({ id: employees.id, name: employees.name, monthlySalaryCents: employees.monthlySalaryCents })
+    .select({ id: employees.id, name: employees.name, monthlySalaryCents: employees.monthlySalaryCents, farmId: employees.farmId })
     .from(employees)
     .where(and(eq(employees.tenantId, tenantId), eq(employees.status, 'ACTIVE'), gt(employees.monthlySalaryCents, 0)))
 
@@ -145,6 +145,16 @@ export async function POST(req: Request) {
   }
 
   const totalAmountCents = eligible.reduce((sum, e) => sum + e.monthlySalaryCents, 0)
+
+  // ── One farm's worth of dimension analysis, or none (dimensions-on-gl task)
+  // postPayrollJournal posts ONE aggregate entry for the whole run, so it can
+  // only carry a Farm dimension when every eligible employee actually shares
+  // one — the common case for a single-farm tenant. A run spanning several
+  // farms (or any farm-less employee) posts with no Farm dimension rather
+  // than guessing whose farm the wages belong to, same stance
+  // lib/reports.ts's P&L already takes on payroll.
+  const firstFarmId = eligible[0].farmId
+  const runFarmId = firstFarmId && eligible.every((e) => e.farmId === firstFarmId) ? firstFarmId : null
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -174,7 +184,7 @@ export async function POST(req: Request) {
         })))
         .returning()
 
-      await postPayrollJournal(tx, { id: run.id, tenantId, totalAmountCents, periodStart, periodEnd })
+      await postPayrollJournal(tx, { id: run.id, tenantId, totalAmountCents, periodStart, periodEnd, farmId: runFarmId })
 
       return { run, payslips: slipRows }
     })
@@ -183,6 +193,13 @@ export async function POST(req: Request) {
   } catch (err) {
     if (isUniqueViolation(err)) {
       return badRequest('A payroll run already exists for this exact period')
+    }
+    // dimensions-on-gl task: a required dimension missing on an account this
+    // run posts to refuses the whole run (transaction rolled back) rather
+    // than posting an unanalysed line — see lib/dimensions.ts's
+    // attachLineDimensions.
+    if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError) {
+      return badRequest(err.message)
     }
     throw err
   }

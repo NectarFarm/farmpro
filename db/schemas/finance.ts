@@ -133,20 +133,35 @@ export const accounts = pgTable('accounts', {
   uniqueIndex('idx_accounts_code').on(t.code),
 ])
 
-// One journal entry per posted sale or purchase. `sourceType`/`sourceId`
-// trace an entry back to the `sales` or `purchases` row that produced it —
-// no entry is ever hand-created outside a real domain write in this pass.
+// One journal entry per posted sale, purchase or payroll run. `sourceType`/
+// `sourceId` trace an entry back to the row that produced it — no entry is
+// ever hand-created outside a real domain write in this pass.
+//
+// `farmId` (dimensions-on-gl task): plain logical reference, no DB FK — same
+// convention as `sales.batchId` above (farms lives in db/schemas/index.ts,
+// which itself re-exports this file, so a real FK here would be an import
+// cycle). Filled in at posting time by lib/finance.ts wherever the source
+// document resolves to one farm (a sale against a batch resolves batch ->
+// unit -> farm; a purchase already carries its own farmId). NULL when the
+// source has no farm relationship at all (a payroll run pays a person, not a
+// farm) or when a sale/purchase carries no batch/farm of its own — this is
+// exactly the gap lib/reports.ts's P&L used to paper over with an all-time,
+// all-farm-only GL caveat; a farm-scoped dimension report
+// (lib/reports.ts's computeDimensionPlReport) can now read this column
+// directly instead of falling back to that caveat for every figure.
 export const journalEntries = pgTable('journal_entries', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
-  sourceType: text('source_type').notNull(), // 'sale' | 'purchase'
+  sourceType: text('source_type').notNull(), // 'sale' | 'purchase' | 'payroll_run'
   sourceId: text('source_id').notNull(),
+  farmId: text('farm_id'),
   memo: text('memo').notNull().default(''),
   entryDate: timestamp('entry_date').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (t) => [
   index('idx_journal_entries_tenant').on(t.tenantId),
   index('idx_journal_entries_tenant_source').on(t.tenantId, t.sourceType, t.sourceId),
+  index('idx_journal_entries_tenant_farm').on(t.tenantId, t.farmId),
 ])
 
 // The debit/credit lines of a journal entry. Real FKs are fine here —
