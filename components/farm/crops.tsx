@@ -1785,6 +1785,15 @@ export function CropScheduleScreen() {
   const [farmId, setFarmId] = useState(farms[0]?.id ?? '');
   const [initialQty, setInitialQty] = useState('');
   const [species, setSpecies] = useState('');
+  // ── Crop vs livestock, made explicit (dimensions-on-gl task) ─────────────
+  // Was purely INFERRED server-side from `enterprise` via a hardcoded map
+  // (lib/codes.ts's ENTERPRISE_TYPES) — an admin had no way to say so
+  // themselves, and a future enterprise subtype the map hasn't caught up
+  // with yet would silently classify as neither. Defaults to the same
+  // registry lookup `isCrop` below already uses (so the common case needs no
+  // extra tap), but is now a real, editable field POST /api/batches stores —
+  // see db/schemas/index.ts's `batches.enterpriseType`.
+  const [enterpriseType, setEnterpriseType] = useState<'crop' | 'livestock'>(cfg.type);
 
   /* ── Code preview: the shape, not a made-up code ──────────────────────────
    * These two used to read `genCode(cfg.batchPrefix, 'KMU', 24)` and
@@ -1872,6 +1881,7 @@ export function CropScheduleScreen() {
       unitId: unitRes.data.id,
       name: batchName.trim(),
       enterprise: subtype,
+      enterpriseType,
       species: species.trim(),
       initialQty: initialQty ? Math.trunc(Number(initialQty)) : 0,
       acquisitionCostCents: costCents ?? 0,
@@ -1955,6 +1965,13 @@ export function CropScheduleScreen() {
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
               <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
                 {farms.map(f => <option key={f.id} value={f.id}>{f.name} ({f.code})</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Classification</label>
+              <select className="farm-input" value={enterpriseType} onChange={e => setEnterpriseType(e.target.value as 'crop' | 'livestock')}>
+                <option value="livestock">Livestock</option>
+                <option value="crop">Crop</option>
               </select>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
