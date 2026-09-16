@@ -6,6 +6,8 @@ import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { applyMovement, BatchLedgerError } from '@/lib/batch-ledger'
 import { checkStage } from '@/lib/stages'
+import { projectBatch } from '@/lib/dimensions'
+import { logger } from '@/lib/logger'
 
 // ── GET/PATCH /api/batches/[id] (issue #231; auth fix: fix/authenticate-all-apis) ─
 // PATCH is the single update endpoint for a batch's mutable lifecycle fields
@@ -78,6 +80,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (typeof b.status === 'string') patch.status = b.status.trim()
   if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim()
   if (typeof b.species === 'string') patch.species = b.species.trim()
+  // Crop vs livestock, explicit (dimensions-on-gl task) — same 'crop' |
+  // 'livestock' enum POST /api/batches enforces; empty string is refused
+  // here too since "unset" only ever happens via the create-time default,
+  // never a deliberate edit back to unknown.
+  if (typeof b.enterpriseType === 'string' && b.enterpriseType.trim()) {
+    const requested = b.enterpriseType.trim()
+    if (requested !== 'crop' && requested !== 'livestock') {
+      return badRequest("enterpriseType must be 'crop' or 'livestock'")
+    }
+    patch.enterpriseType = requested
+  }
   // currentQty is deliberately NOT patched here any more — see the ledger
   // block after the update. Overwriting it directly is what let the number
   // drift with no explanation attached.
@@ -201,5 +214,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   if (rows.length === 0) return notFound()
+
+  // Write-through projection (dimensions-on-gl task): a name edit must reach
+  // the BATCH dimension value's own name, same reasoning as
+  // PATCH /api/farms/[id]. Best-effort — must not fail the edit itself.
+  if ('name' in patch) {
+    try {
+      await projectBatch(db, tenantId, { id: rows[0].id, code: rows[0].code, name: rows[0].name, enterprise: rows[0].enterprise })
+    } catch (err) {
+      logger.warn('batch dimension projection failed', { tenantId, batchId: id, error: String(err) })
+    }
+  }
+
   return ok(rows[0])
 }

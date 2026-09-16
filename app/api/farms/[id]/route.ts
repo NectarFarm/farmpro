@@ -7,6 +7,8 @@ import { isUniqueViolation } from '@/lib/db-errors'
 import { writeAuditLog } from '@/lib/audit'
 import { validateLocation } from '@/lib/validation'
 import { sendFarmDeletedEmail } from '@/lib/email'
+import { projectFarm, archiveProjectedDimensionValue } from '@/lib/dimensions'
+import { logger } from '@/lib/logger'
 
 // ── PATCH /api/farms/[id] (farms CRUD) ──────────────────────────────────────
 // Completes farms CRUD: GET/POST /api/farms already existed with no
@@ -191,6 +193,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     meta: { changes },
   })
 
+  // Write-through projection (dimensions-on-gl task): a code/name edit must
+  // reach the FARM dimension value or an accountant reporting by dimension
+  // would see a stale code. Archive/restore does NOT touch the dimension
+  // value at all — an archived farm can still be restored and posted
+  // against, so its projection stays live (see db/schemas/dimensions.ts's
+  // header on why `archived` there is reserved for a genuine delete).
+  if ('name' in changes || 'code' in changes) {
+    try {
+      await projectFarm(db, tenantId, { id: updated.id, code: updated.code, name: updated.name })
+    } catch (err) {
+      logger.warn('farm dimension projection failed', { tenantId, farmId: id, error: String(err) })
+    }
+  }
+
   return NextResponse.json({ success: true, data: updated }, { status: 200 })
 }
 
@@ -282,9 +298,15 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       await tx.delete(records).where(inArray(records.batchId, batchIds))
       await tx.delete(batchMovements).where(inArray(batchMovements.batchId, batchIds))
       await tx.delete(batches).where(inArray(batches.id, batchIds))
+      // dimensions-on-gl task: a real delete (unlike an archive) must
+      // archive the batch's projected BATCH dimension value too — a posted
+      // journal line's dimension keeps pointing at it (see
+      // db/schemas/dimensions.ts's header), but no NEW posting can use it.
+      for (const batchId of batchIds) await archiveProjectedDimensionValue(tx, 'batch', batchId)
     }
     if (cascade && unitIds.length > 0) {
       await tx.delete(productionUnits).where(inArray(productionUnits.id, unitIds))
+      for (const unitId of unitIds) await archiveProjectedDimensionValue(tx, 'unit', unitId)
     }
     if (cascade) {
       await tx.update(tasks).set({ farmId: null }).where(eq(tasks.farmId, id))
@@ -293,6 +315,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       await tx.update(routines).set({ farmId: null }).where(eq(routines.farmId, id))
     }
     await tx.delete(farms).where(eq(farms.id, id))
+    await archiveProjectedDimensionValue(tx, 'farm', id)
     await writeAuditLog({
       tenantId: farm.tenantId,
       actor: session.id,

@@ -8,6 +8,7 @@ import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { BatchLedgerError } from '@/lib/batch-ledger'
 import { ProduceShortfallError } from '@/lib/produce'
+import { DimensionRequirementError, DimensionValidationError, isPlainDimensionMap } from '@/lib/dimensions'
 import { isInvalid, requireCents, requireCount, requireEventDate } from '@/lib/validate-input'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
@@ -158,6 +159,7 @@ export async function POST(req: Request) {
       method,
       status,
       soldAt,
+      dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })
     return created(sale)
   } catch (err) {
@@ -168,6 +170,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: err.message }, { status: err.status })
     }
     if (err instanceof ProduceShortfallError) return badRequest(err.message)
+    // dimensions-on-gl task: a required dimension missing on an account this
+    // sale posts to refuses the whole write (transaction rolled back) rather
+    // than posting an unanalysed line — see lib/dimensions.ts's
+    // attachLineDimensions.
+    if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError) {
+      return badRequest(err.message)
+    }
     throw err
   }
 }

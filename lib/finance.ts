@@ -11,9 +11,15 @@ import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
 import { db } from '@/db'
-import { accounts, journalEntries, journalLines, sales, purchases } from '@/db/schemas'
+import { accounts, journalEntries, journalLines, sales, purchases, batches, productionUnits } from '@/db/schemas'
 import { applyMovement } from '@/lib/batch-ledger'
 import { availableProduce, ProduceShortfallError } from '@/lib/produce'
+import {
+  resolveMasterDimensions, attachLineDimensions, attachDocumentDimensions,
+  DimensionValidationError, DimensionRequirementError, type MasterRef,
+} from '@/lib/dimensions'
+
+export { DimensionValidationError, DimensionRequirementError }
 
 // Minimal transaction type covering what the posting helpers below need —
 // lets them run either inside `db.transaction(...)` (recordSale) or inside an
@@ -63,6 +69,50 @@ async function accountIdByCode(dbOrTx: Tx | typeof db, code: string): Promise<st
   return row.id
 }
 
+// ── Dimension capture (dimensions-on-gl task) ───────────────────────────────
+// A sale/purchase/payroll run resolves to exactly one farm today (a batch
+// belongs to one unit belongs to one farm; a purchase already carries its
+// own farmId) — this is the fact `journal_entries.farmId` records, and it is
+// what closes lib/reports.ts's "GL totals ... cover every farm" caveat for
+// anything posted from here on. NOT the same thing as the FARM *dimension*
+// value attached to each line below (that one goes through the same
+// resolveMasterDimensions() every other dimension does) — this is a plain
+// denormalised column for a cheap direct filter, same role
+// purchases.farmId/sales already play elsewhere in this schema.
+async function farmIdForBatch(dbOrTx: Tx | typeof db, tenantId: string, batchId: string): Promise<string | null> {
+  const rows = await dbOrTx
+    .select({ farmId: productionUnits.farmId })
+    .from(batches)
+    .innerJoin(productionUnits, eq(batches.unitId, productionUnits.id))
+    .where(and(eq(batches.id, batchId), eq(batches.tenantId, tenantId), eq(productionUnits.tenantId, tenantId)))
+    .limit(1)
+  return rows[0]?.farmId ?? null
+}
+
+// Resolves a document's base dimension set, writes it to `document_dimensions`
+// (owner instruction: dimensions ride on the document, not only the ledger
+// line), then attaches the per-account-ruled final set to every one of its
+// journal lines — refusing (via DimensionRequirementError) if any line's
+// account has an unmet required dimension. Shared by every post*Journal
+// function below so the capture/enforcement rule can't drift between them.
+async function captureDimensions(
+  tx: Tx,
+  args: {
+    tenantId: string
+    docType: 'sale' | 'purchase' | 'payroll_run'
+    docId: string
+    sourceMaster: MasterRef | null
+    explicit?: Record<string, string>
+    lines: { id: string; accountId: string }[]
+  },
+): Promise<void> {
+  const base = await resolveMasterDimensions(tx, args.tenantId, args.sourceMaster, args.explicit ?? {})
+  await attachDocumentDimensions(tx, { tenantId: args.tenantId, docType: args.docType, docId: args.docId, base })
+  for (const line of args.lines) {
+    await attachLineDimensions(tx, { tenantId: args.tenantId, lineId: line.id, accountId: line.accountId, base })
+  }
+}
+
 // ── Sale -> journal entry (issue #239 task 3) ───────────────────────────────
 // A sale posts Dr Cash (status 'paid') or Dr Accounts Receivable (status
 // 'pending') for the full amount, Cr Sales Revenue for the full amount — the
@@ -75,10 +125,21 @@ async function accountIdByCode(dbOrTx: Tx | typeof db, code: string): Promise<st
 // cents down to match it — the source of issue #290's bug class. Converting
 // the whole ledger to cents instead of whole units removes that conversion
 // entirely rather than moving it to the other side.)
-export async function postSaleJournal(tx: Tx, sale: { id: string; tenantId: string; amountCents: number; status: string }) {
+export async function postSaleJournal(
+  tx: Tx,
+  sale: { id: string; tenantId: string; amountCents: number; status: string; batchId?: string | null },
+  opts: { dimensions?: Record<string, string> } = {},
+) {
   await ensureAccountsSeeded(tx)
   const debitAccountId = await accountIdByCode(tx, sale.status === 'pending' ? ACCOUNT_CODES.ACCOUNTS_RECEIVABLE : ACCOUNT_CODES.CASH)
   const revenueAccountId = await accountIdByCode(tx, ACCOUNT_CODES.SALES_REVENUE)
+
+  // A sale against a batch already knows its batch, hence its unit, hence
+  // its farm (dimensions-on-gl task) — derived here rather than asking
+  // anyone to re-enter it. An ad-hoc sale with no batchId derives nothing;
+  // its lines carry only whatever an account's own default supplies.
+  const farmId = sale.batchId ? await farmIdForBatch(tx, sale.tenantId, sale.batchId) : null
+  const sourceMaster: MasterRef | null = sale.batchId ? { masterType: 'batch', masterId: sale.batchId } : null
 
   const [entry] = await tx
     .insert(journalEntries)
@@ -87,14 +148,20 @@ export async function postSaleJournal(tx: Tx, sale: { id: string; tenantId: stri
       tenantId: sale.tenantId,
       sourceType: 'sale',
       sourceId: sale.id,
+      farmId,
       memo: sale.status === 'pending' ? 'Sale recorded on account' : 'Cash sale recorded',
     })
     .returning()
 
-  await tx.insert(journalLines).values([
+  const lines = await tx.insert(journalLines).values([
     { id: randomUUID(), entryId: entry.id, accountId: debitAccountId, debitCents: sale.amountCents, creditCents: 0 },
     { id: randomUUID(), entryId: entry.id, accountId: revenueAccountId, debitCents: 0, creditCents: sale.amountCents },
-  ])
+  ]).returning()
+
+  await captureDimensions(tx, {
+    tenantId: sale.tenantId, docType: 'sale', docId: sale.id, sourceMaster, explicit: opts.dimensions,
+    lines: lines.map((l) => ({ id: l.id, accountId: l.accountId })),
+  })
 
   return entry
 }
@@ -120,13 +187,19 @@ export async function postSaleJournal(tx: Tx, sale: { id: string; tenantId: stri
 // still balances by construction.
 export async function postPurchaseJournal(
   tx: Tx,
-  purchase: { id: string; tenantId: string; totalCostCents: number; amountPaidCents: number }
+  purchase: { id: string; tenantId: string; totalCostCents: number; amountPaidCents: number; farmId?: string | null },
+  opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
   const expenseAccountId = await accountIdByCode(tx, ACCOUNT_CODES.PURCHASES_EXPENSE)
   const total = Math.max(0, purchase.totalCostCents)
   const paid = Math.min(Math.max(0, purchase.amountPaidCents), total)
   const owed = total - paid
+
+  // A purchase already carries its own farmId (db/schemas/inventory.ts) —
+  // no batch/unit hop needed, unlike a sale.
+  const farmId = purchase.farmId ?? null
+  const sourceMaster: MasterRef | null = farmId ? { masterType: 'farm', masterId: farmId } : null
 
   const [entry] = await tx
     .insert(journalEntries)
@@ -135,6 +208,7 @@ export async function postPurchaseJournal(
       tenantId: purchase.tenantId,
       sourceType: 'purchase',
       sourceId: purchase.id,
+      farmId,
       memo: owed > 0 ? (paid > 0 ? 'Purchase recorded, partially paid' : 'Purchase recorded on account') : 'Purchase recorded, paid in full',
     })
     .returning()
@@ -150,7 +224,12 @@ export async function postPurchaseJournal(
     const apAccountId = await accountIdByCode(tx, ACCOUNT_CODES.ACCOUNTS_PAYABLE)
     lines.push({ id: randomUUID(), entryId: entry.id, accountId: apAccountId, debitCents: 0, creditCents: owed })
   }
-  await tx.insert(journalLines).values(lines)
+  const insertedLines = await tx.insert(journalLines).values(lines).returning()
+
+  await captureDimensions(tx, {
+    tenantId: purchase.tenantId, docType: 'purchase', docId: purchase.id, sourceMaster, explicit: opts.dimensions,
+    lines: insertedLines.map((l) => ({ id: l.id, accountId: l.accountId })),
+  })
 
   return entry
 }
@@ -167,11 +246,26 @@ export async function postPurchaseJournal(
 // postSaleJournal/postPurchaseJournal above.
 export async function postPayrollJournal(
   tx: Tx,
-  run: { id: string; tenantId: string; totalAmountCents: number; periodStart: Date; periodEnd: Date }
+  run: { id: string; tenantId: string; totalAmountCents: number; periodStart: Date; periodEnd: Date; farmId?: string | null },
+  opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
   const expenseAccountId = await accountIdByCode(tx, ACCOUNT_CODES.PAYROLL_EXPENSE)
   const cashAccountId = await accountIdByCode(tx, ACCOUNT_CODES.CASH)
+
+  // "The employee master carries its unit and farm, so postPayrollJournal
+  // picks them up without anyone re-keying" (owner instruction) — true for
+  // the common case of a single-farm tenant, or a run whose eligible
+  // employees all share one farm. This function still posts ONE aggregate
+  // entry for the whole run (not one line per employee — that would be a
+  // real posting-model change, out of scope here), so it can only carry ONE
+  // farm's worth of dimension analysis. The caller (POST /api/payroll/runs)
+  // resolves `run.farmId` to that shared farm, or leaves it null when the
+  // run spans employees on different farms (or farm-less employees) — an
+  // honest "not attributable to one farm" rather than a guess, the same
+  // stance lib/reports.ts's P&L already takes on payroll.
+  const farmId = run.farmId ?? null
+  const sourceMaster: MasterRef | null = farmId ? { masterType: 'farm', masterId: farmId } : null
 
   const [entry] = await tx
     .insert(journalEntries)
@@ -180,6 +274,7 @@ export async function postPayrollJournal(
       tenantId: run.tenantId,
       sourceType: 'payroll_run',
       sourceId: run.id,
+      farmId,
       memo: `Payroll run ${run.periodStart.toISOString().slice(0, 10)} to ${run.periodEnd.toISOString().slice(0, 10)}`,
     })
     .returning()
@@ -187,10 +282,15 @@ export async function postPayrollJournal(
   // Zero-amount entries would balance trivially but carry no information —
   // the route this is called from already refuses to create a run with no
   // eligible (rate > 0) employees, so `totalAmountCents` is always > 0 here.
-  await tx.insert(journalLines).values([
+  const lines = await tx.insert(journalLines).values([
     { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: run.totalAmountCents, creditCents: 0 },
     { id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debitCents: 0, creditCents: run.totalAmountCents },
-  ])
+  ]).returning()
+
+  await captureDimensions(tx, {
+    tenantId: run.tenantId, docType: 'payroll_run', docId: run.id, sourceMaster, explicit: opts.dimensions,
+    lines: lines.map((l) => ({ id: l.id, accountId: l.accountId })),
+  })
 
   return entry
 }
@@ -216,6 +316,11 @@ export async function recordSale(input: {
   method?: string
   status?: string
   soldAt?: Date
+  // Explicit dimension overrides (dimensions-on-gl task), keyed by dimension
+  // CODE — highest priority in resolveMasterDimensions' resolution order.
+  // Optional: most sales carry nothing here and rely entirely on the
+  // batch-derived system dimensions.
+  dimensions?: Record<string, string>
 }) {
   return db.transaction(async (tx) => {
     const [sale] = await tx
@@ -234,7 +339,7 @@ export async function recordSale(input: {
       })
       .returning()
 
-    await postSaleJournal(tx, sale)
+    await postSaleJournal(tx, sale, { dimensions: input.dimensions })
 
     // ── Selling livestock takes it off the batch (batch-ledger task) ───────
     // Only when the product says it should. A sale of eggs leaves the hens

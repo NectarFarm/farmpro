@@ -3,10 +3,12 @@ import { enterpriseRefusalReason } from '@/lib/enterprises'
 import { db } from '@/db'
 import { batches, productionUnits, farms } from '@/db/schemas'
 import { and, asc, eq, inArray, like } from 'drizzle-orm'
-import { batchPrefixFor, farmSegment, generateCode } from '@/lib/codes'
+import { batchPrefixFor, enterpriseTypeFor, farmSegment, generateCode } from '@/lib/codes'
 import { farmNotFoundResponse, resolveFarmFilter, unitIdsForFarm } from '@/lib/farm-scope'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
+import { projectBatch } from '@/lib/dimensions'
+import { logger } from '@/lib/logger'
 
 // ── GET/POST /api/batches (issue #231; auth fix: fix/authenticate-all-apis) ─
 // Fresh build: no `batches` table, `costing.ts`, or `/api/batches/*` route
@@ -130,6 +132,24 @@ export async function POST(req: Request) {
   const farmRows = await db.select().from(farms).where(eq(farms.id, unit.farmId))
   const farmCode = farmRows[0]?.code ?? 'FRM-XXX-000'
 
+  // ── Crop vs livestock, explicit (dimensions-on-gl task) ──────────────────
+  // Was purely derived from `enterprise` via lib/codes.ts's ENTERPRISE_TYPES
+  // map. The owner wants explicit control — a caller MAY say so directly
+  // ('crop' | 'livestock'); if it doesn't, this defaults from the same map
+  // so nothing changes for an integration that predates this field. An
+  // explicit value outside the two known types is refused rather than
+  // silently stored — this is meant to be a deliberate choice, not free text.
+  let enterpriseType = ''
+  if (typeof b.enterpriseType === 'string' && b.enterpriseType.trim()) {
+    const requested = b.enterpriseType.trim()
+    if (requested !== 'crop' && requested !== 'livestock') {
+      return badRequest("enterpriseType must be 'crop' or 'livestock'")
+    }
+    enterpriseType = requested
+  } else {
+    enterpriseType = enterpriseTypeFor(enterprise) ?? ''
+  }
+
   const species = typeof b.species === 'string' ? b.species.trim() : ''
   const stage = typeof b.stage === 'string' ? b.stage.trim() : ''
   const status = typeof b.status === 'string' ? b.status.trim() : 'ACTIVE'
@@ -177,6 +197,7 @@ export async function POST(req: Request) {
         name,
         species,
         enterprise,
+        enterpriseType,
         stage,
         status,
         initialQty,
@@ -187,6 +208,15 @@ export async function POST(req: Request) {
         harvestDate,
       })
       .returning()
+
+    // Write-through projection (dimensions-on-gl task) — best-effort, same
+    // "must not fail the domain write" convention as POST /api/farms.
+    try {
+      await projectBatch(db, tenantId, { id, code: rows[0].code, name, enterprise })
+    } catch (err) {
+      logger.warn('batch dimension projection failed', { tenantId, batchId: id, error: String(err) })
+    }
+
     return created(rows[0])
   } catch (err) {
     if (isUniqueViolation(err)) {
