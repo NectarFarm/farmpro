@@ -141,17 +141,75 @@ export function useReverseGeocode(lat: string, lng: string, onResult: (addr: str
 
 /* ── Shared gradient header ── */
 function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return <AuthMasthead eyebrow={title} headline={subtitle} />;
+}
+
+/* ── The first thing anyone sees ───────────────────────────────────────────
+ * This is the whole of a demo's first impression, so it is the one place in
+ * the app that gets to be a composition rather than a form.
+ *
+ * What it replaced: a centred leaf icon over "IFMS" over "Integrated Farm
+ * Management System" over a pill toggle — the default SaaS sign-in, and an
+ * acronym plus its own expansion, which tells a farmer nothing about what the
+ * thing does.
+ *
+ * Three deliberate choices:
+ *
+ * 1. LEFT-ALIGNED, not centred. Centred-logo-over-centred-form is what every
+ *    generated sign-in looks like. Ranging left gives the type somewhere to
+ *    start and lets the headline carry the page.
+ *
+ * 2. THE HEADLINE SAYS WHAT IT DOES. "Every bird, bag and shilling accounted
+ *    for" is the product's actual promise in the farmer's own units. An
+ *    acronym is not a value proposition.
+ *
+ * 3. THE HORIZON IS DRAWN, NOT PHOTOGRAPHED. No image asset: a stock photo
+ *    would be generic, a generated one would look generated, and either costs
+ *    bytes an APK has to carry and a field connection has to load. Contour
+ *    lines are how farmland is actually drawn on a map, they cost nothing, and
+ *    they scale to any screen. Pure CSS, no file. */
+function AuthMasthead({ eyebrow, headline }: { eyebrow: string; headline: string }) {
   return (
-    <div style={{ textAlign: 'center', marginBottom: 28 }}>
-      {/* Same brand mark as the sidebar (navigation.tsx's AppSidebar) rather
-         than a bare icon floating on its own, so the app's identity reads
-         the same on the first screen anyone sees as it does everywhere
-         else. This is the screen a demo starts on — it earns the tile. */}
-      <div className="brand-mark brand-mark-lg">
-        <Leaf size={28} color="var(--on-primary)" strokeWidth={2.2} aria-hidden="true" />
+    <div style={{ position: 'relative', marginBottom: 26, paddingTop: 4 }}>
+      {/* Contour lines — land, drawn the way land is drawn. Sits behind the
+          type at low contrast so it never competes with it. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'absolute', inset: '-8px -24px 0 -24px', pointerEvents: 'none', overflow: 'hidden',
+          maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 88%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 88%)',
+        }}
+      >
+        <svg width="100%" height="150" viewBox="0 0 400 150" preserveAspectRatio="none" fill="none">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <path
+              key={i}
+              d={`M-20 ${38 + i * 21} C 70 ${18 + i * 21}, 150 ${58 + i * 21}, 230 ${34 + i * 21} S 360 ${12 + i * 21}, 420 ${40 + i * 21}`}
+              stroke="var(--primary-green)"
+              strokeOpacity={0.16 - i * 0.022}
+              strokeWidth="1"
+            />
+          ))}
+        </svg>
       </div>
-      <div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{title}</div>
-      <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>{subtitle}</div>
+
+      <div style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          {/* The shared brand mark, not a one-off inline square: the same
+              class the sidebar uses, so the identity is literally the same
+              object in both places and the token pass's gradient and radius
+              come with it. */}
+          <span className="brand-mark" style={{ width: 26, height: 26, borderRadius: 9 }}>
+            <Leaf size={15} color="var(--on-primary)" aria-hidden="true" />
+          </span>
+          <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 750, color: 'var(--text-primary)', letterSpacing: '0.01em' }}>{eyebrow}</span>
+        </div>
+
+        <h1 style={{ margin: 0, fontSize: 'var(--fs-3xl)', lineHeight: 1.12, letterSpacing: '-0.025em', fontWeight: 800, color: 'var(--text-primary)', maxWidth: '15ch' }}>
+          {headline}
+        </h1>
+      </div>
     </div>
   );
 }
@@ -321,19 +379,52 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
 
   return (
     <div className="screen-content px-screen" style={{ paddingTop: 40, paddingBottom: 24 }}>
-      <AuthHeader title="IFMS" subtitle="Integrated Farm Management System" />
+      <AuthMasthead eyebrow="IFMS" headline="Every bird, bag and shilling accounted for." />
 
-      {/* Tab toggle */}
-      <div style={{ display: 'flex', background: 'var(--card)', borderRadius: 12, padding: 4, marginBottom: 20, border: '1px solid var(--border-subtle)' }}>
-        {(['email', 'pin'] as const).map(t => (
-          <button key={t} onClick={() => { setTab(t); setError(''); setPhoneError(''); }}
-            style={{ flex: 1, padding: '9px', borderRadius: 9, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', border: 'none',
-              background: tab === t ? 'rgba(var(--primary-rgb),0.18)' : 'transparent',
-              color: tab === t ? 'var(--primary-green)' : 'var(--text-muted)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            {t === 'email' ? <><Mail size={13} aria-hidden="true" /> Email / Password</> : <><Hash size={13} aria-hidden="true" /> Worker PIN</>}
-          </button>
-        ))}
+      {/* ── Two ways in, because there are two kinds of person ──────────────
+          This was a pill toggle reading "Email / Password" and "Worker PIN" —
+          the mechanism, not the person. But the choice here is genuinely "who
+          are you": an owner signing in from an office, or a worker signing in
+          at the door of a poultry house with one hand. That duality is the
+          most characteristic thing about this product, so it gets stated
+          plainly instead of being hidden behind jargon about credentials.
+
+          Kept as a switch rather than promoted to a full role-chooser screen:
+          a returning user should never have to answer a question they have
+          already answered, and an extra tap every morning is a real cost to
+          someone doing this in the rain. */}
+      <div role="tablist" aria-label="How you sign in" style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        {([
+          { id: 'email' as const, label: 'I run the farm', hint: 'Email & password', icon: Mail },
+          { id: 'pin' as const, label: 'I work here', hint: 'Phone & PIN', icon: Hash },
+        ]).map((opt) => {
+          const active = tab === opt.id;
+          return (
+            <button
+              key={opt.id}
+              role="tab"
+              aria-selected={active}
+              onClick={() => { setTab(opt.id); setError(''); setPhoneError(''); }}
+              style={{
+                flex: 1, minWidth: 0, textAlign: 'left', cursor: 'pointer',
+                padding: '11px 12px', borderRadius: 14,
+                background: active ? 'var(--card)' : 'transparent',
+                border: active ? '1px solid var(--border-hover)' : '1px solid var(--border-subtle)',
+                // The selected card lifts a hair rather than glowing. Depth by
+                // material, not by light — see the masthead note.
+                boxShadow: active ? '0 1px 0 var(--border-subtle)' : 'none',
+              }}
+            >
+              <opt.icon size={15} color={active ? 'var(--primary-green)' : 'var(--text-dim)'} aria-hidden="true" />
+              <span style={{ display: 'block', marginTop: 7, fontSize: 'var(--fs-sm)', fontWeight: 750, color: active ? 'var(--text-primary)' : 'var(--text-muted)', lineHeight: 1.2 }}>
+                {opt.label}
+              </span>
+              <span style={{ display: 'block', marginTop: 2, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.3 }}>
+                {opt.hint}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {tab === 'email' ? (
@@ -370,7 +461,7 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
           </div>
           {error && <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{error}</div>}
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleEmailLogin} disabled={busy}>
-            {busy ? 'Signing in…' : <>Sign In <ChevronRight size={15} aria-hidden="true" /></>}
+            {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </div>
       ) : (
@@ -423,10 +514,10 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
 
       {/* Register link */}
       <div style={{ textAlign: 'center', marginTop: 20 }}>
-        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>New farmer? </span>
-        <button style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 2 }}
+        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>No account yet? </span>
+        <button style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer' }}
           onClick={onRegister}>
-          Request Access <ChevronRight size={14} aria-hidden="true" />
+          Apply for access
         </button>
       </div>
     </div>
