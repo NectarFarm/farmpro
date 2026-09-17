@@ -71,11 +71,29 @@ export function GettingStartedScreen() {
                   >
                     {i + 1}
                   </div>
+                  {/* ── Why the detail is folded away ──────────────────────
+                      Every step used to render its whole paragraph at once.
+                      Nine of them ran four phone-screens deep, so the one
+                      thing this page exists to answer — what do I do next —
+                      was buried under prose nobody setting up a farm for the
+                      first time is going to read standing up.
+                      The body is still here in full, one tap away, because
+                      the detail is genuinely useful the moment you are stuck.
+                      <details> rather than React state: it is keyboard- and
+                      screen-reader-operable for free, and it survives with no
+                      JavaScript. */}
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{step.title}</div>
-                    <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.5 }}>{step.body}</div>
+                    <details>
+                      <summary style={{ cursor: 'pointer', listStyle: 'none', display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                        <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{step.title}</span>
+                        <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--primary-green)', fontWeight: 700, flexShrink: 0 }}>Why</span>
+                      </summary>
+                      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 5, lineHeight: 1.55 }}>{step.body}</div>
+                    </details>
                     {step.screen && (
-                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 5, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>
+                      /* Sentence case, not tracked-out caps. This is a place
+                         you can go, so it should read like one. */
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 6, fontWeight: 700 }}>
                         {step.screen}
                       </div>
                     )}
