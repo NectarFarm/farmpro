@@ -560,7 +560,7 @@ function Step2FarmDetails({
   return (
     <div>
       <div style={{ marginBottom: 14 }}>
-        <label htmlFor="farm-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm Name *</label>
+        <label htmlFor="farm-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm name</label>
         <input
           id="farm-name" className="farm-input"
           style={errors.farmName ? { border: '1px solid var(--status-critical)' } : undefined}
@@ -656,7 +656,7 @@ function Step2FarmDetails({
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={onBack}>← Back</button>
         <button className="btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={onNext}>
-          Next: Enterprises <ChevronRight size={15} aria-hidden="true" />
+          Continue
         </button>
       </div>
     </div>
@@ -978,15 +978,32 @@ export function RegisterScreen({ onBack }: {
 
   return (
     <div className="screen-content px-screen" style={{ paddingTop: 32, paddingBottom: 24 }}>
-      <AuthHeader title="Request Farm Access" subtitle="Join IFMS — free 14-day trial" />
+      {/* This said "Join IFMS — free 14-day trial". There is no trial: no
+          billing, no subscription and no plan exists anywhere in the schema
+          or the API (the admin screen says so itself — "Plans & packages —
+          not available yet"). It was a promise the product could not keep, on
+          the very first screen of the flow.
+          It also set the wrong expectation twice over. This is not a self-serve
+          signup — you send an application, a person reads it, and an account is
+          created for you a day or two later. "Free trial" implies you are about
+          to be let in, so the wait that follows reads as something going wrong
+          rather than the process working. */}
+      <AuthMasthead eyebrow="Apply for access" headline="Tell us about your farm." />
+      <p style={{ margin: '-14px 0 22px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.55, maxWidth: '38ch' }}>
+        A person reviews every application. If it all fits, your farm is set up and
+        you&rsquo;ll get an email to choose a password — usually within a day or two.
+      </p>
 
       {/* Steps */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 22 }}>
         {[1,2,3].map(s => (
           <div key={s} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
             <div style={{ height: 4, width: '100%', borderRadius: 100, background: step >= s ? 'var(--primary-green)' : 'var(--border-subtle)', transition: 'background 0.25s' }} />
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: step >= s ? 'var(--primary-green)' : 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              {['Your Info', 'Farm Details', 'Enterprises'][s-1]}
+            {/* Sentence case. Tracked-out all-caps micro-labels are the
+                commonest tell in generated interfaces, and at this size they
+                are also measurably harder to read. */}
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: step >= s ? 'var(--primary-green)' : 'var(--text-dim)' }}>
+              {['You', 'Your farm', 'What you farm'][s-1]}
             </span>
           </div>
         ))}
@@ -995,7 +1012,7 @@ export function RegisterScreen({ onBack }: {
       {step === 1 && (
         <div>
           <div style={{ marginBottom: 14 }}>
-            <label htmlFor="farmer-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Full Name *</label>
+            <label htmlFor="farmer-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Your name</label>
             <input
               id="farmer-name" className="farm-input"
               style={errors.farmerName ? { border: '1px solid var(--status-critical)' } : undefined}
@@ -1006,7 +1023,7 @@ export function RegisterScreen({ onBack }: {
             {errors.farmerName && <div id="farmer-name-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.farmerName}</div>}
           </div>
           <div style={{ marginBottom: 14 }}>
-            <label htmlFor="farmer-email" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email Address *</label>
+            <label htmlFor="farmer-email" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email</label>
             <div style={{ position: 'relative' }}>
               <Mail size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
@@ -1020,7 +1037,7 @@ export function RegisterScreen({ onBack }: {
             {errors.email && <div id="farmer-email-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.email}</div>}
           </div>
           <div style={{ marginBottom: 20 }}>
-            <label htmlFor="farmer-phone" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone Number *</label>
+            <label htmlFor="farmer-phone" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone</label>
             <div style={{ position: 'relative' }}>
               <Phone size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
@@ -1034,7 +1051,7 @@ export function RegisterScreen({ onBack }: {
             {errors.phone && <div id="farmer-phone-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.phone}</div>}
           </div>
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleStep1Next}>
-            Next: Farm Details <ChevronRight size={15} aria-hidden="true" />
+            Continue
           </button>
         </div>
       )}

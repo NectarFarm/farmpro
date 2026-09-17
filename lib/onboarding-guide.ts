@@ -55,7 +55,11 @@ export const ONBOARDING_GUIDE_STEPS: OnboardingGuideStep[] = [
     id: 'farm',
     title: 'Your farm is already set up',
     body: "Approving your application created your first farm automatically, using the farm name and area you applied with. A farm is the top-level container everything else belongs to — production units, batches, stock, employees and finance all sit under one. Adding another farm today means asking your platform administrator; there's no self-serve way to create one yet.",
-    screen: 'Farm switcher (sidebar)',
+    // Was "Farm switcher (sidebar)" — but .farm-sidebar is display:none below
+    // 768px, so on the phone this app actually ships as, it pointed at
+    // something that is not on screen. The switcher a phone user has is the
+    // farm name in the dashboard header.
+    screen: 'Home → tap your farm name',
   },
   {
     id: 'units',
