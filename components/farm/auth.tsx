@@ -57,8 +57,8 @@ export function GpsMapBlock({
         disabled={loading}
         style={{ width: '100%', padding: '10px 14px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700,
           cursor: loading ? 'wait' : 'pointer',
-          background: hasCoords ? 'rgba(74,222,128,0.12)' : 'var(--card)',
-          border: hasCoords ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+          background: hasCoords ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)',
+          border: hasCoords ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
           color: hasCoords ? 'var(--primary-green)' : 'var(--text-muted)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
         <MapPin size={13} aria-hidden="true" /> {loading ? 'Detecting…' : hasCoords ? `${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}` : 'Detect My GPS Location'}
@@ -144,10 +144,11 @@ function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div style={{ textAlign: 'center', marginBottom: 28 }}>
       {/* Same brand mark as the sidebar (navigation.tsx's AppSidebar) rather
-         than a farm-generic emoji, so the app's identity reads the same on
-         the login screen as everywhere else. */}
-      <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--primary-green)', marginBottom: 8 }}>
-        <Leaf size={40} aria-hidden="true" />
+         than a bare icon floating on its own, so the app's identity reads
+         the same on the first screen anyone sees as it does everywhere
+         else. This is the screen a demo starts on — it earns the tile. */}
+      <div className="brand-mark brand-mark-lg">
+        <Leaf size={28} color="var(--on-primary)" strokeWidth={2.2} aria-hidden="true" />
       </div>
       <div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{title}</div>
       <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>{subtitle}</div>
@@ -206,7 +207,7 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
     return (
       <div className="screen-content px-screen" style={{ paddingTop: 40, paddingBottom: 24 }}>
         <AuthHeader title="Reset Password" subtitle="Request an administrator-assisted reset" />
-        <div style={{ padding: '14px 16px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 16, marginBottom: 20 }}>
+        <div style={{ padding: '14px 16px', background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.2)', borderRadius: 16, marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 6 }}>
             <CheckCircle2 size={15} aria-hidden="true" /> Request received
           </div>
@@ -252,11 +253,11 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
       </div>
 
       {generalError && (
-        <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{generalError}</div>
+        <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{generalError}</div>
       )}
 
       <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleSubmit} disabled={busy}>
-        {busy ? 'Sending request…' : 'Request Reset →'}
+        {busy ? 'Sending request…' : <>Request Reset <ChevronRight size={15} aria-hidden="true" /></>}
       </button>
       <button onClick={onBack} style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', fontWeight: 600, cursor: 'pointer' }}>
         ← Back to Login
@@ -327,7 +328,7 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
         {(['email', 'pin'] as const).map(t => (
           <button key={t} onClick={() => { setTab(t); setError(''); setPhoneError(''); }}
             style={{ flex: 1, padding: '9px', borderRadius: 9, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', border: 'none',
-              background: tab === t ? 'rgba(74,222,128,0.18)' : 'transparent',
+              background: tab === t ? 'rgba(var(--primary-rgb),0.18)' : 'transparent',
               color: tab === t ? 'var(--primary-green)' : 'var(--text-muted)',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             {t === 'email' ? <><Mail size={13} aria-hidden="true" /> Email / Password</> : <><Hash size={13} aria-hidden="true" /> Worker PIN</>}
@@ -367,9 +368,9 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
               Forgot password?
             </button>
           </div>
-          {error && <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{error}</div>}
+          {error && <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{error}</div>}
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleEmailLogin} disabled={busy}>
-            {busy ? 'Signing in…' : 'Sign In →'}
+            {busy ? 'Signing in…' : <>Sign In <ChevronRight size={15} aria-hidden="true" /></>}
           </button>
         </div>
       ) : (
@@ -403,15 +404,15 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
               Enter your phone number above to unlock the PIN pad.
             </div>
           )}
-          {error && <div style={{ padding: '8px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12, textAlign: 'center' }}>{error}</div>}
+          {error && <div style={{ padding: '8px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12, textAlign: 'center' }}>{error}</div>}
           {/* PIN pad — disabled (with the hint above) until a phone number is
               entered, since a PIN alone can no longer authenticate anyone. */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, opacity: phone.trim() ? 1 : 0.5 }}>
             {['1','2','3','4','5','6','7','8','9','','0','DEL'].map((d, i) => (
               <button key={i} onClick={() => d && phone.trim() && handlePinKey(d)} disabled={!phone.trim()}
                 style={{ padding: '16px 8px', borderRadius: 14, fontSize: d === 'DEL' ? 12 : 20, fontWeight: 700, cursor: d && phone.trim() ? 'pointer' : 'default',
-                  background: d === 'DEL' ? 'rgba(248,113,113,0.1)' : d ? 'var(--card)' : 'transparent',
-                  border: d === 'DEL' ? '1px solid rgba(248,113,113,0.2)' : d ? '1px solid var(--border-subtle)' : 'none',
+                  background: d === 'DEL' ? 'rgba(var(--critical-rgb),0.1)' : d ? 'var(--card)' : 'transparent',
+                  border: d === 'DEL' ? '1px solid rgba(var(--critical-rgb),0.2)' : d ? '1px solid var(--border-subtle)' : 'none',
                   color: d === 'DEL' ? 'var(--status-critical)' : 'var(--text-primary)' }}>
                 {d}
               </button>
@@ -423,9 +424,9 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
       {/* Register link */}
       <div style={{ textAlign: 'center', marginTop: 20 }}>
         <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>New farmer? </span>
-        <button style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer' }}
+        <button style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 2 }}
           onClick={onRegister}>
-          Request Access →
+          Request Access <ChevronRight size={14} aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -501,8 +502,8 @@ function Step2FarmDetails({
          rather than something you have to read for. */}
       <div style={{
         marginBottom: 20, padding: 12, borderRadius: 12,
-        border: `1px solid ${hasPin ? 'rgba(74,222,128,0.35)' : 'var(--status-warning, #f59e0b)'}`,
-        background: hasPin ? 'rgba(74,222,128,0.06)' : 'rgba(245,158,11,0.06)',
+        border: `1px solid ${hasPin ? 'rgba(var(--primary-rgb),0.35)' : 'var(--status-warning, #f59e0b)'}`,
+        background: hasPin ? 'rgba(var(--primary-rgb),0.06)' : 'rgba(245,158,11,0.06)',
       }}>
         <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
           Farm GPS Location {hasPin
@@ -564,7 +565,7 @@ function Step2FarmDetails({
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={onBack}>← Back</button>
         <button className="btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={onNext}>
-          Next: Enterprises →
+          Next: Enterprises <ChevronRight size={15} aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -857,7 +858,7 @@ export function RegisterScreen({ onBack }: {
             </button>
           </div>
         )}
-        <div style={{ padding: '14px 16px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 16, marginBottom: 24, textAlign: 'left' }}>
+        <div style={{ padding: '14px 16px', background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.2)', borderRadius: 16, marginBottom: 24, textAlign: 'left' }}>
           <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>What happens next</div>
           {[/* Copy matches what the backend actually does (#376 Gap 6): approval
                sends a real set-password email (PATCH /api/onboard-requests/[id]),
@@ -868,7 +869,7 @@ export function RegisterScreen({ onBack }: {
             'Set your password and start your farm',
           ].map((s, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
-              <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+              <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                 <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)' }}>{i + 1}</span>
               </div>
               <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>{s}</span>
@@ -942,7 +943,7 @@ export function RegisterScreen({ onBack }: {
             {errors.phone && <div id="farmer-phone-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.phone}</div>}
           </div>
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleStep1Next}>
-            Next: Farm Details →
+            Next: Farm Details <ChevronRight size={15} aria-hidden="true" />
           </button>
         </div>
       )}
@@ -972,8 +973,8 @@ export function RegisterScreen({ onBack }: {
               return (
                 <button key={e.subtype} onClick={() => toggleEnterprise(e.subtype)}
                   style={{ padding: '11px 10px', borderRadius: 14, cursor: 'pointer', textAlign: 'center',
-                    background: sel ? 'rgba(74,222,128,0.15)' : 'var(--card)',
-                    border: sel ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)' }}>
+                    background: sel ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
+                    border: sel ? '1px solid rgba(var(--primary-rgb),0.5)' : '1px solid var(--border-subtle)' }}>
                   <div style={{ marginBottom: 4, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}><e.icon size={28} aria-hidden="true" /></div>
                   <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}>{e.label}</div>
                   <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 2 }}>{e.type}</div>
@@ -983,7 +984,7 @@ export function RegisterScreen({ onBack }: {
             })}
           </div>
           {enterprisesMessage && (
-            <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, marginBottom: 12, fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)' }}>
+            <div style={{ padding: '8px 12px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 10, marginBottom: 12, fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)' }}>
               <AlertTriangle size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} /> {enterprisesMessage}
             </div>
           )}
@@ -1010,14 +1011,14 @@ export function RegisterScreen({ onBack }: {
               Used only to review and set up your farm account.
             </div>
             {consentMessage && (
-              <div id="consent-error" style={{ padding: '6px 10px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--accent-amber)', marginTop: 6, marginLeft: 24 }}>
+              <div id="consent-error" style={{ padding: '6px 10px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--accent-amber)', marginTop: 6, marginLeft: 24 }}>
                 {consentMessage}
               </div>
             )}
           </div>
 
           {submitError && (
-            <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>
               {submitError}
             </div>
           )}

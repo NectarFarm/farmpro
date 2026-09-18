@@ -363,8 +363,8 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
             {(['paid', 'pending'] as const).map(s => (
               <button key={s} onClick={() => setStatus(s)} style={{
                 padding: '9px 8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
-                background: status === s ? 'rgba(74,222,128,0.1)' : 'var(--card)',
-                border: status === s ? '1px solid rgba(74,222,128,0.3)' : '1px solid var(--border-subtle)',
+                background: status === s ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
+                border: status === s ? '1px solid rgba(var(--primary-rgb),0.3)' : '1px solid var(--border-subtle)',
                 color: status === s ? 'var(--primary-green)' : 'var(--text-muted)',
               }}>{s.toUpperCase()}</button>
             ))}
@@ -675,7 +675,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
 
         {result ? (
           <div>
-            <div style={{ padding: '14px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 12, marginBottom: 14, textAlign: 'center' }}>
+            <div style={{ padding: '14px', background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.25)', borderRadius: 12, marginBottom: 14, textAlign: 'center' }}>
               <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 4 }}>Payroll run complete</div>
               <div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(result.run.totalAmountCents)}</div>
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{result.run.employeeCount} employee{result.run.employeeCount === 1 ? '' : 's'} paid · posted to the ledger</div>
@@ -706,7 +706,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Memo (optional)</label>
               <input className="farm-input" placeholder="e.g. August 2026 salaries" value={memo} onChange={e => setMemo(e.target.value)} />
             </div>
-            <div style={{ padding: '10px 12px', background: 'rgba(251,191,36,0.06)', borderRadius: 10, border: '1px solid rgba(251,191,36,0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
               Every active employee with a monthly salary set is paid their full rate for this period — gross pay only, no tax or statutory deductions. This posts a Payroll Expense entry to the ledger and cannot be undone from here.
             </div>
             {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
@@ -991,8 +991,8 @@ export function FinanceScreen() {
             {BUDGET_PERIODS.map((p) => (
               <button key={p} onClick={() => setPeriod(p)} style={{
                 padding: '4px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer',
-                background: period === p ? 'rgba(74,222,128,0.2)' : 'transparent',
-                border: period === p ? '1px solid rgba(74,222,128,0.4)' : '1px solid transparent',
+                background: period === p ? 'rgba(var(--primary-rgb),0.2)' : 'transparent',
+                border: period === p ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid transparent',
                 color: period === p ? 'var(--primary-green)' : 'var(--text-muted)',
               }}>{p.toUpperCase()}</button>
             ))}
@@ -1123,7 +1123,7 @@ export function FinanceScreen() {
       {/* ── GL ACCOUNTS ── */}
       {tab === 'gl' && (
         <div className="px-screen">
-          <div style={{ padding: '10px 14px', background: 'rgba(96,165,250,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(96,165,250,0.2)' }}>
+          <div style={{ padding: '10px 14px', background: 'rgba(var(--info-rgb),0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(var(--info-rgb),0.2)' }}>
             <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--accent-blue)', marginBottom: 2 }}>General Ledger — {accounts.length} accounts</div>
             <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
               <div>

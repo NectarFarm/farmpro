@@ -302,7 +302,7 @@ export function WorkerHomeScreen() {
           {employee?.name ?? '…'} <Wheat size={19} color="var(--primary-green)" aria-hidden="true" />
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(96,165,250,0.1)', borderRadius: 100, border: '1px solid rgba(96,165,250,0.25)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(var(--info-rgb),0.1)', borderRadius: 100, border: '1px solid rgba(var(--info-rgb),0.25)' }}>
             <Wifi size={11} color="var(--accent-blue)" />
             <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--accent-blue)' }}>Online</span>
           </div>
@@ -328,7 +328,7 @@ export function WorkerHomeScreen() {
             <div key={t.id} style={{ padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center', borderBottom: i < tasksToday.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
               <div style={{
                 width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-                background: done ? 'rgba(74,222,128,0.12)' : 'var(--surface)',
+                background: done ? 'rgba(var(--primary-rgb),0.12)' : 'var(--surface)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
                 <ClipboardList size={16} color={done ? 'var(--status-ok)' : 'var(--text-muted)'} />
@@ -348,7 +348,7 @@ export function WorkerHomeScreen() {
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button onClick={() => markTaskDone(t)} disabled={taskActionId === t.id} style={{
                     padding: '7px 10px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700,
-                    background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)',
+                    background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)',
                     color: 'var(--primary-green)', cursor: taskActionId === t.id ? 'default' : 'pointer',
                   }} title="Mark this task done">
                     <Check size={12} />
@@ -376,7 +376,7 @@ export function WorkerHomeScreen() {
           <div key={r.id} style={{ padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center', borderBottom: i < recent.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
             <div style={{
               width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-              background: 'rgba(74,222,128,0.12)', color: 'var(--primary-green)',
+              background: 'rgba(var(--primary-rgb),0.12)', color: 'var(--primary-green)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
               {(() => { const RecordIcon = RECORD_TYPE_LABEL[r.type]?.icon ?? ClipboardList; return <RecordIcon size={17} aria-hidden="true" />; })()}
@@ -403,8 +403,8 @@ export function WorkerHomeScreen() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
         {Object.entries(RECORD_TYPE_LABEL).map(([type, meta]) => (
           <button key={type} onClick={() => navigate('worker-record', { type })} style={{
-            padding: '12px 4px', borderRadius: 14, background: doneTodayTypes.has(type) ? 'rgba(74,222,128,0.08)' : 'var(--card)',
-            border: doneTodayTypes.has(type) ? '1px solid rgba(74,222,128,0.25)' : '1px solid var(--border-subtle)',
+            padding: '12px 4px', borderRadius: 14, background: doneTodayTypes.has(type) ? 'rgba(var(--primary-rgb),0.08)' : 'var(--card)',
+            border: doneTodayTypes.has(type) ? '1px solid rgba(var(--primary-rgb),0.25)' : '1px solid var(--border-subtle)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'pointer', position: 'relative',
           }}>
             {doneTodayTypes.has(type) && <div style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: '50%', background: 'var(--status-ok)' }} />}
@@ -568,7 +568,7 @@ function BatchPicker({ batches, onPick }: { batches: ApiBatch[] | null; onPick: 
   if (batches === null) return <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading your batches…</div>;
   if (batches.length === 0) {
     return (
-      <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+      <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
         No batches are assigned to you yet. Ask your manager to assign one before submitting records.
       </div>
     );
@@ -751,11 +751,11 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
             </div>
 
             {stockError && (
-              <div style={{ padding: '10px 12px', marginBottom: 10, borderRadius: 10, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{stockError}</div>
+              <div style={{ padding: '10px 12px', marginBottom: 10, borderRadius: 10, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{stockError}</div>
             )}
             {stock === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', marginBottom: 10 }}>Loading what is in stock…</div>}
             {stock !== null && stock.length === 0 && !stockError && (
-              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
                 There is no stock recorded for this farm yet. Ask your manager to add the feed to the store before recording a feeding.
               </div>
             )}
@@ -807,7 +807,7 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
                   {lines.length > 1 && (
                     <button
                       onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}
-                      style={{ marginTop: 4, padding: '6px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}
+                      style={{ marginTop: 4, padding: '6px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}
                     >Remove</button>
                   )}
                 </div>
@@ -832,7 +832,7 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
 
         {step === 3 && (
           <div>
-            <div style={{ padding: '14px', background: 'rgba(74,222,128,0.06)', borderRadius: 14, border: '1px solid rgba(74,222,128,0.2)', marginBottom: 16 }}>
+            <div style={{ padding: '14px', background: 'rgba(var(--primary-rgb),0.06)', borderRadius: 14, border: '1px solid rgba(var(--primary-rgb),0.2)', marginBottom: 16 }}>
               <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 10 }}>Summary</div>
               {filledLines.map((line, i) => {
                 const item = (stock ?? []).find((s) => s.id === line.itemId);
@@ -880,7 +880,7 @@ function MultiBatchPicker({ batches, selected, onToggle }: {
   if (batches === null) return <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading your batches…</div>;
   if (batches.length === 0) {
     return (
-      <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+      <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
         No batches are assigned to you yet. Ask your manager to assign one before submitting records.
       </div>
     );
@@ -892,7 +892,7 @@ function MultiBatchPicker({ batches, selected, onToggle }: {
         return (
           <button key={b.id} onClick={() => onToggle(b.id)} style={{
             width: '100%', padding: '14px 16px', marginBottom: 8, borderRadius: 12, textAlign: 'left', cursor: 'pointer',
-            background: on ? 'rgba(74,222,128,0.12)' : 'var(--card)',
+            background: on ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)',
             border: on ? '1px solid var(--primary-green)' : '1px solid var(--border-subtle)',
             fontSize: 'var(--fs-base)', fontWeight: 600, color: on ? 'var(--primary-green)' : 'var(--text-primary)',
             display: 'flex', alignItems: 'center', gap: 8,
@@ -1073,7 +1073,7 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
             </div>
 
             {routine.steps.length === 0 && (
-              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                 Nobody has said what this round involves yet. Ask your manager to add the steps.
               </div>
             )}
@@ -1166,7 +1166,7 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
                           <button key={value} onClick={() => setField(step.id, 'done', value)}
                             style={{
                               flex: 1, padding: '10px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer',
-                              background: field(step.id, 'done') === value ? (value === 'yes' ? 'rgba(74,222,128,0.15)' : 'rgba(248,113,113,0.12)') : 'var(--card)',
+                              background: field(step.id, 'done') === value ? (value === 'yes' ? 'rgba(var(--primary-rgb),0.15)' : 'rgba(var(--critical-rgb),0.12)') : 'var(--card)',
                               border: field(step.id, 'done') === value ? `1px solid ${value === 'yes' ? 'var(--primary-green)' : 'var(--status-critical)'}` : '1px solid var(--border-subtle)',
                               color: field(step.id, 'done') === value ? (value === 'yes' ? 'var(--primary-green)' : 'var(--status-critical)') : 'var(--text-muted)',
                             }}>{label}</button>
@@ -1304,7 +1304,7 @@ function CollectProductsForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => vo
     >
       {productList === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading this batch&apos;s products…</div>}
       {productList !== null && productList.length === 0 && (
-        <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+        <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
           This batch has no products set up. Ask your manager to add what it produces — eggs, milk, whatever it is — on the batch.
         </div>
       )}
@@ -1460,7 +1460,7 @@ function WeightForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
         <Plus size={13} /> Another sample
       </button>
       {numbers.length > 0 && (
-        <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)', fontSize: 'var(--fs-base)', fontWeight: 700 }}>
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(var(--primary-rgb),0.06)', border: '1px solid rgba(var(--primary-rgb),0.2)', fontSize: 'var(--fs-base)', fontWeight: 700 }}>
           Average: {average.toFixed(2)} kg <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>from {numbers.length} sample{numbers.length === 1 ? '' : 's'}</span>
         </div>
       )}
@@ -1627,7 +1627,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
                 </div>
                 <button onClick={() => setCount(count + 1)} style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--surface)', border: '1px solid var(--border-subtle)', fontSize: 'var(--fs-3xl)', color: 'var(--text-primary)', cursor: 'pointer' }}>+</button>
               </div>
-              {needsPhoto && <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', background: 'rgba(248,113,113,0.08)', borderRadius: 10, border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', fontWeight: 600, marginBottom: 10 }}><AlertTriangle size={12} aria-hidden="true" /> Photo required for {threshold}+ deaths (your farm&apos;s threshold)</div>}
+              {needsPhoto && <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', background: 'rgba(var(--critical-rgb),0.08)', borderRadius: 10, border: '1px solid rgba(var(--critical-rgb),0.25)', fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', fontWeight: 600, marginBottom: 10 }}><AlertTriangle size={12} aria-hidden="true" /> Photo required for {threshold}+ deaths (your farm&apos;s threshold)</div>}
             </div>
             <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>Cause of death:</div>
             {/* Sourced from the shared list rather than a fourth inline copy —
@@ -1641,12 +1641,12 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
               {MORTALITY_CAUSES.map((c) => {
                 const active = c === cause && !causeIsOther;
                 return (
-                  <button key={c} onClick={() => { setCauseIsOther(false); setCause(c); }} style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, background: active ? 'rgba(248,113,113,0.12)' : 'var(--card)', border: active ? '1px solid rgba(248,113,113,0.3)' : '1px solid var(--border-subtle)', color: active ? 'var(--status-critical)' : 'var(--text-muted)', cursor: 'pointer' }}>{c}</button>
+                  <button key={c} onClick={() => { setCauseIsOther(false); setCause(c); }} style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, background: active ? 'rgba(var(--critical-rgb),0.12)' : 'var(--card)', border: active ? '1px solid rgba(var(--critical-rgb),0.3)' : '1px solid var(--border-subtle)', color: active ? 'var(--status-critical)' : 'var(--text-muted)', cursor: 'pointer' }}>{c}</button>
                 );
               })}
               <button
                 onClick={() => { setCauseIsOther(true); setCause(''); }}
-                style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, background: causeIsOther ? 'rgba(248,113,113,0.12)' : 'var(--card)', border: causeIsOther ? '1px solid rgba(248,113,113,0.3)' : '1px solid var(--border-subtle)', color: causeIsOther ? 'var(--status-critical)' : 'var(--text-muted)', cursor: 'pointer' }}
+                style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, background: causeIsOther ? 'rgba(var(--critical-rgb),0.12)' : 'var(--card)', border: causeIsOther ? '1px solid rgba(var(--critical-rgb),0.3)' : '1px solid var(--border-subtle)', color: causeIsOther ? 'var(--status-critical)' : 'var(--text-muted)', cursor: 'pointer' }}
               >{OTHER_OPTION}…</button>
             </div>
             {causeIsOther && (
@@ -1664,7 +1664,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
 
         {step === 3 && (
           <div>
-            <div style={{ padding: '14px', background: 'rgba(248,113,113,0.06)', borderRadius: 14, border: '1px solid rgba(248,113,113,0.2)', marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ padding: '14px', background: 'rgba(var(--critical-rgb),0.06)', borderRadius: 14, border: '1px solid rgba(var(--critical-rgb),0.2)', marginBottom: 16, textAlign: 'center' }}>
               <div style={{ marginBottom: 8, color: 'var(--status-critical)' }}><Camera size={40} aria-hidden="true" /></div>
               <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Photo Evidence Required</div>
               <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>Your farm requires a photo for {threshold}+ deaths. This helps with disease investigation.</div>
@@ -1672,7 +1672,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
             {photoDataUrl ? (
               <img src={photoDataUrl} alt="Mortality evidence" style={{ width: '100%', borderRadius: 14, marginBottom: 10, maxHeight: 200, objectFit: 'cover' }} />
             ) : null}
-            <label style={{ width: '100%', padding: '16px', borderRadius: 14, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
+            <label style={{ width: '100%', padding: '16px', borderRadius: 14, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
               <Camera size={18} /> {photoDataUrl ? 'Retake Photo' : 'Take Photo'}
               <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} style={{ display: 'none' }} />
             </label>
@@ -1683,7 +1683,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
 
         {step === 4 && batch && (
           <div>
-            <div style={{ padding: '14px', background: 'rgba(74,222,128,0.06)', borderRadius: 14, border: '1px solid rgba(74,222,128,0.2)', marginBottom: 16 }}>
+            <div style={{ padding: '14px', background: 'rgba(var(--primary-rgb),0.06)', borderRadius: 14, border: '1px solid rgba(var(--primary-rgb),0.2)', marginBottom: 16 }}>
               <div style={{ fontWeight: 700, marginBottom: 8 }}>Confirm & Save</div>
               {[['Batch', batch.code],['Deaths',`${count}`],['Cause', cause],['Photo', photoDataUrl ? 'Attached' : needsPhoto ? 'Missing' : 'Not required']].map(([k, v]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 'var(--fs-sm)' }}>
@@ -1742,7 +1742,7 @@ function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void
       </div>
       <div className="px-screen" style={{ paddingTop: 16 }}>
         {ctx.batches !== null && ctx.batches.length === 0 ? (
-          <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+          <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
             No batches are assigned to you yet.
           </div>
         ) : (
@@ -1779,11 +1779,11 @@ function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>Reason for variance</label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 {['Suspected theft','Found extra','Uncounted deaths','Counting error'].map((r) => (
-                  <button key={r} onClick={() => setReason(r)} style={{ padding: '9px 8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 600, background: r === reason ? 'rgba(251,191,36,0.1)' : 'var(--card)', border: r === reason ? '1px solid rgba(251,191,36,0.3)' : '1px solid var(--border-subtle)', color: r === reason ? 'var(--status-warning)' : 'var(--text-muted)', cursor: 'pointer' }}>{r}</button>
+                  <button key={r} onClick={() => setReason(r)} style={{ padding: '9px 8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 600, background: r === reason ? 'rgba(var(--warning-rgb),0.1)' : 'var(--card)', border: r === reason ? '1px solid rgba(var(--warning-rgb),0.3)' : '1px solid var(--border-subtle)', color: r === reason ? 'var(--status-warning)' : 'var(--text-muted)', cursor: 'pointer' }}>{r}</button>
                 ))}
               </div>
             </div>
-            <div style={{ padding: '10px 12px', background: 'rgba(251,191,36,0.06)', borderRadius: 10, border: '1px solid rgba(251,191,36,0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
               This count <strong style={{ color: 'var(--text-secondary)' }}>does not change the system count</strong>. Your owner will review and approve any adjustments.
             </div>
             {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
@@ -1904,7 +1904,7 @@ export function WorkerProfileScreen() {
     <div className="screen-content px-screen" style={{ paddingTop: 16 }}>
       {/* Avatar */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 20 }}>
-        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(74,222,128,0.2)', border: '2px solid rgba(74,222,128,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-4xl)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 10 }}>
+        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(var(--primary-rgb),0.2)', border: '2px solid rgba(var(--primary-rgb),0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-4xl)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 10 }}>
           {employee ? employee.name.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 2) : '…'}
         </div>
         <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700 }}>{employee?.name ?? 'Loading…'}</div>
@@ -1941,7 +1941,7 @@ export function WorkerProfileScreen() {
       {/* Issue #322: this button had no onClick — dead control on the screen
           workers see most. Routes through the same app-wide logout the
           TopNav button uses. */}
-      <button onClick={() => requestLogout()} style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer', marginBottom: 20 }}>
+      <button onClick={() => requestLogout()} style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', color: 'var(--status-critical)', cursor: 'pointer', marginBottom: 20 }}>
         Sign Out
       </button>
     </div>

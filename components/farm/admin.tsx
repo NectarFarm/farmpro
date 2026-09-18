@@ -232,7 +232,7 @@ export function AdminFarmsScreen() {
                     </div>
                     <button
                       onClick={() => setExpandedTenant((cur) => (cur === t.id ? null : t.id))}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 0', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: expandedTenant === t.id ? 'rgba(74,222,128,0.1)' : 'var(--card)', border: '1px solid var(--border-subtle)', color: expandedTenant === t.id ? 'var(--primary-green)' : 'var(--text-muted)' }}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 0', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: expandedTenant === t.id ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)', border: '1px solid var(--border-subtle)', color: expandedTenant === t.id ? 'var(--primary-green)' : 'var(--text-muted)' }}
                     >
                       {expandedTenant === t.id ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                       {expandedTenant === t.id ? 'Hide Farms' : 'Manage Farms'}
@@ -310,7 +310,7 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
         </div>
         <button
           onClick={() => setShowAdd(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)' }}
         >
           <Plus size={12} /> Add
         </button>
@@ -342,7 +342,7 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
               <button onClick={() => {
                 setDeleteTarget(f); setDeleteReason(''); setDeleteError(''); setConfirmText(''); setPreview(null);
                 apiClient.get<DeletionPreview>(`/api/farms/${f.id}/deletion-preview`).then((r) => { if (r.success) setPreview(r.data); });
-              }} title="Delete permanently" style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid rgba(248,113,113,0.35)', cursor: 'pointer', color: 'var(--status-critical)' }}>
+              }} title="Delete permanently" style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid rgba(var(--critical-rgb),0.35)', cursor: 'pointer', color: 'var(--status-critical)' }}>
                 <Trash2 size={12} />
               </button>
             </div>
@@ -361,7 +361,7 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
             {preview === null && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginBottom: 10 }}>Checking what is under this farm…</div>}
 
             {preview && preview.cascadeRequired && (
-              <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 10, marginBottom: 10 }}>
+              <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.07)', border: '1px solid rgba(var(--critical-rgb),0.35)', borderRadius: 10, marginBottom: 10 }}>
                 <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, color: 'var(--status-critical)', marginBottom: 6 }}>
                   This farm is not empty. Deleting it destroys:
                 </div>
@@ -431,7 +431,7 @@ function TenantFarmsPanel({ tenantId, onChanged }: { tenantId: string; onChanged
       )}
 
       {deleteResult && (
-        <div style={{ marginTop: 8, padding: '9px 11px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+        <div style={{ marginTop: 8, padding: '9px 11px', background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.3)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
           {deleteResult}
           <button onClick={() => setDeleteResult('')} style={{ marginLeft: 6, background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 'var(--fs-2xs)', textDecoration: 'underline' }}>dismiss</button>
         </div>
@@ -735,7 +735,7 @@ export function AdminSettingsScreen() {
                 <div className="section-eyebrow">Farms</div>
                 <button
                   onClick={() => setShowAddFarm(true)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)' }}
                 >
                   <Plus size={12} /> Add Farm
                 </button>

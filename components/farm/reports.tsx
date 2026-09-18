@@ -253,13 +253,18 @@ export function ReportsScreen() {
             const isSel = selected === r.id;
             return (
               <button key={r.id} onClick={() => setSelected(isSel ? null : r.id)}
+                className="farm-card"
                 style={{
-                  padding: 12, borderRadius: 14, textAlign: 'left', cursor: 'pointer',
-                  background: isSel ? 'rgba(74,222,128,0.12)' : 'var(--card)',
-                  border: isSel ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
-                  transition: 'all 0.15s ease',
+                  padding: 12, textAlign: 'left', cursor: 'pointer',
+                  borderLeft: `3px solid ${r.color}`,
+                  background: isSel ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
+                  borderTop: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
+                  borderRight: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
+                  borderBottom: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
                 }}>
-                <div style={{ marginBottom: 6, color: r.color }}><r.icon size={22} aria-hidden="true" /></div>
+                <span className="icon-tile sm" style={{ background: `color-mix(in srgb, ${r.color} 16%, var(--card))`, color: r.color, marginBottom: 8 }}>
+                  <r.icon size={16} aria-hidden="true" />
+                </span>
                 <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: isSel ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.2, marginBottom: 3 }}>{r.name}</div>
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</div>
                 {isSel && (
@@ -275,7 +280,7 @@ export function ReportsScreen() {
         {/* Not-available state — `labour` is the only report type left with no
             real data source (see NOT_AVAILABLE_REASONS). */}
         {selected && !isRealType && (
-          <div className="farm-card" style={{ padding: 14, marginBottom: 16, border: '1px solid rgba(248,113,113,0.3)' }}>
+          <div className="farm-card" style={{ padding: 14, marginBottom: 16, border: '1px solid rgba(var(--critical-rgb),0.3)' }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
               <AlertTriangle size={18} color="var(--status-warning)" style={{ flexShrink: 0, marginTop: 2 }} />
               <div>
@@ -317,7 +322,7 @@ export function ReportsScreen() {
         )}
 
         {/* Auditor link */}
-        <div className="farm-card" style={{ padding: 14, marginBottom: 14, border: '1px solid rgba(167,139,250,0.3)' }}>
+        <div className="farm-card" style={{ padding: 14, marginBottom: 14, border: '1px solid rgba(var(--purple-rgb),0.3)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Auditor / Investor Access</div>
             <span className="chip chip-purple" style={{ fontSize: 'var(--fs-2xs)' }}>~8h link</span>
@@ -342,14 +347,14 @@ export function ReportsScreen() {
                 <div style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{auditorError}</div>
               )}
               {auditorLink && (
-                <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(167,139,250,0.06)', borderRadius: 10, border: '1px solid rgba(167,139,250,0.2)' }}>
+                <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(var(--purple-rgb),0.06)', borderRadius: 10, border: '1px solid rgba(var(--purple-rgb),0.2)' }}>
                   <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 4 }}>Temporary link (expires {fmtExpiry(auditorLink.expiresAt)}):</div>
-                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-purple)', fontFamily: 'monospace', wordBreak: 'break-all', padding: '6px 8px', background: 'rgba(167,139,250,0.08)', borderRadius: 6 }}>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-purple)', fontFamily: 'monospace', wordBreak: 'break-all', padding: '6px 8px', background: 'rgba(var(--purple-rgb),0.08)', borderRadius: 6 }}>
                     {typeof window !== 'undefined' ? `${window.location.origin}/auditor/${auditorLink.token}` : `/auditor/${auditorLink.token}`}
                   </div>
                   <button
                     onClick={handleCopyAuditorLink}
-                    style={{ marginTop: 8, padding: '6px 14px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', color: 'var(--accent-purple)', cursor: 'pointer' }}
+                    style={{ marginTop: 8, padding: '6px 14px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(var(--purple-rgb),0.15)', border: '1px solid rgba(var(--purple-rgb),0.3)', color: 'var(--accent-purple)', cursor: 'pointer' }}
                   >
                     {copied ? 'Copied!' : 'Copy Link'}
                   </button>

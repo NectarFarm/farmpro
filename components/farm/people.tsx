@@ -218,7 +218,7 @@ export function PeopleScreen() {
               {(['card','table'] as const).map((m) => (
                 <button key={m} onClick={() => setViewMode(m)} style={{
                   width: 32, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                  background: viewMode === m ? 'rgba(74,222,128,0.15)' : 'var(--surface)', border: 'none',
+                  background: viewMode === m ? 'rgba(var(--primary-rgb),0.15)' : 'var(--surface)', border: 'none',
                   color: viewMode === m ? 'var(--primary-green)' : 'var(--text-dim)', fontSize: 'var(--fs-md)',
                 }} title={m === 'card' ? 'Card view' : 'Table view'}>
                   {m === 'card' ? <List size={15} aria-hidden="true" /> : <Grid3X3 size={15} aria-hidden="true" />}
@@ -332,7 +332,7 @@ export function PeopleScreen() {
                 {emp.assignedBatchIds.length > 0 && (
                   <div style={{ marginTop: 10, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     {emp.assignedBatchIds.slice(0, 4).map((b) => (
-                      <span key={b} style={{ padding: '2px 8px', borderRadius: 100, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.15)', fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>{batchLabel(b)}</span>
+                      <span key={b} style={{ padding: '2px 8px', borderRadius: 100, background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.15)', fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>{batchLabel(b)}</span>
                     ))}
                     {emp.assignedBatchIds.length > 4 && <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>+{emp.assignedBatchIds.length - 4} more</span>}
                   </div>
@@ -466,7 +466,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
 
         {addStep === 2 && (
           <div>
-            <div style={{ padding: '10px 12px', background: 'rgba(74,222,128,0.06)', borderRadius: 10, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--primary-rgb),0.06)', borderRadius: 10, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
               Login credentials (PIN / email &amp; password) are provisioned separately and aren&apos;t part of this form yet.
             </div>
             <div style={{ marginBottom: 10 }}>
@@ -488,7 +488,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
               {batches.map((b) => {
                 const on = selectedBatches.includes(b.id);
                 return (
-                  <div key={b.id} onClick={() => toggleBatch(b.id)} style={{ padding: '10px 12px', background: on ? 'rgba(74,222,128,0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(74,222,128,0.3)' : 'var(--border-subtle)'}`, borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                  <div key={b.id} onClick={() => toggleBatch(b.id)} style={{ padding: '10px 12px', background: on ? 'rgba(var(--primary-rgb),0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(var(--primary-rgb),0.3)' : 'var(--border-subtle)'}`, borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                     <span style={{ fontSize: 'var(--fs-sm)', color: on ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: on ? 700 : 400 }}>{b.code} – {b.name}</span>
                     {on && <Check size={14} color="var(--primary-green)" />}
                   </div>
@@ -663,13 +663,13 @@ function WorkerLoginCard({ employee, tenantId, onLinked }: {
           </div>
 
           {confirmRevoke && (
-            <div style={{ marginTop: 10, padding: 10, borderRadius: 10, border: '1px solid var(--status-critical)', background: 'rgba(248,113,113,0.06)' }}>
+            <div style={{ marginTop: 10, padding: 10, borderRadius: 10, border: '1px solid var(--status-critical)', background: 'rgba(var(--critical-rgb),0.06)' }}>
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 8 }}>
                 Revoke sign-in for {employee.name}? Their PIN stops working immediately and any open session ends. Their work records are kept.
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn-secondary" onClick={() => setConfirmRevoke(false)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
-                <button disabled={busy} onClick={revoke} style={{ flex: 1, justifyContent: 'center', padding: 10, borderRadius: 10, fontWeight: 700, fontSize: 'var(--fs-sm)', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)', color: 'var(--status-critical)', cursor: 'pointer' }}>
+                <button disabled={busy} onClick={revoke} style={{ flex: 1, justifyContent: 'center', padding: 10, borderRadius: 10, fontWeight: 700, fontSize: 'var(--fs-sm)', background: 'rgba(var(--critical-rgb),0.12)', border: '1px solid rgba(var(--critical-rgb),0.35)', color: 'var(--status-critical)', cursor: 'pointer' }}>
                   Revoke sign-in
                 </button>
               </div>
@@ -805,8 +805,8 @@ export function PeopleDetailScreen() {
           {(['profile','permissions','payroll'] as const).map((t) => (
             <button key={t} onClick={() => setActiveSection(t)} style={{
               flex: 1, padding: '8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
-              background: activeSection === t ? 'rgba(74,222,128,0.15)' : 'var(--card)',
-              border: activeSection === t ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+              background: activeSection === t ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
+              border: activeSection === t ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
               color: activeSection === t ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize',
             }}>{t}</button>
           ))}
@@ -826,7 +826,7 @@ export function PeopleDetailScreen() {
                 </div>
                 <button disabled={busy} onClick={() => setShowRoleDropdown(s => !s)}
                   style={{ padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer',
-                    background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)' }}>
+                    background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)' }}>
                   {showRoleDropdown ? 'Cancel' : 'Change Role'}
                 </button>
               </div>
@@ -839,7 +839,7 @@ export function PeopleDetailScreen() {
                   {availableRoles.map((r) => (
                     <button key={r} onClick={() => handleSaveRole(r)}
                       style={{ padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
-                        background: employee.role === r ? 'rgba(74,222,128,0.12)' : 'var(--surface)',
+                        background: employee.role === r ? 'rgba(var(--primary-rgb),0.12)' : 'var(--surface)',
                         border: employee.role === r ? '2px solid var(--primary-green)' : '1px solid var(--border-subtle)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -876,7 +876,7 @@ export function PeopleDetailScreen() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
               <button className="btn-secondary" style={{ justifyContent: 'center', padding: 12, borderRadius: 12 }} onClick={() => setShowEdit(true)}>Edit Details</button>
-              <button disabled={busy} onClick={() => { setToggleError(''); setShowToggleConfirm(true); }} style={{ padding: 12, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)', border: `1px solid ${employee.status === 'ACTIVE' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}`, color: employee.status === 'ACTIVE' ? 'var(--status-critical)' : 'var(--status-ok)', cursor: 'pointer' }}>
+              <button disabled={busy} onClick={() => { setToggleError(''); setShowToggleConfirm(true); }} style={{ padding: 12, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: employee.status === 'ACTIVE' ? 'rgba(var(--critical-rgb),0.1)' : 'rgba(var(--primary-rgb),0.1)', border: `1px solid ${employee.status === 'ACTIVE' ? 'rgba(var(--critical-rgb),0.3)' : 'rgba(var(--primary-rgb),0.3)'}`, color: employee.status === 'ACTIVE' ? 'var(--status-critical)' : 'var(--status-ok)', cursor: 'pointer' }}>
                 {employee.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
               </button>
             </div>
@@ -908,7 +908,7 @@ export function PeopleDetailScreen() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {assignedRole.approvalRequired.map(a => (
                     <span key={a} style={{ padding: '4px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700,
-                      background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: 'var(--accent-amber)' }}>
+                      background: 'rgba(var(--warning-rgb),0.1)', border: '1px solid rgba(var(--warning-rgb),0.3)', color: 'var(--accent-amber)' }}>
                       {a.replace(/-/g, ' ')}
                     </span>
                   ))}
@@ -921,7 +921,7 @@ export function PeopleDetailScreen() {
         {activeSection === 'payroll' && (
           <div>
             {employee.monthlySalaryCents === 0 && (
-              <div style={{ padding: '10px 12px', background: 'rgba(251,191,36,0.06)', borderRadius: 10, border: '1px solid rgba(251,191,36,0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+              <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                 No monthly salary set — this employee is skipped by every payroll run until one is set in Edit Details.
               </div>
             )}
@@ -1010,7 +1010,7 @@ function ToggleActiveConfirm({ employee, busy, error, batchLabel, onCancel, onCo
             : <>This makes <strong>{employee.name}</strong> active again.</>}
         </div>
         {deactivating && employee.assignedBatchIds.length > 0 && (
-          <div style={{ padding: '8px 10px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)' }}>
+          <div style={{ padding: '8px 10px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 8, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)' }}>
             Still assigned to {employee.assignedBatchIds.length} batch{employee.assignedBatchIds.length === 1 ? '' : 'es'}: {employee.assignedBatchIds.map(batchLabel).join(', ')}. Deactivating does not unassign them.
           </div>
         )}
@@ -1139,7 +1139,7 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved, onRemoved }: 
             {(batches ?? []).map((b) => {
               const on = selectedBatches.includes(b.id);
               return (
-                <div key={b.id} onClick={() => toggleBatch(b.id)} style={{ padding: '10px 12px', background: on ? 'rgba(74,222,128,0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(74,222,128,0.3)' : 'var(--border-subtle)'}`, borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                <div key={b.id} onClick={() => toggleBatch(b.id)} style={{ padding: '10px 12px', background: on ? 'rgba(var(--primary-rgb),0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(var(--primary-rgb),0.3)' : 'var(--border-subtle)'}`, borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                   <span style={{ fontSize: 'var(--fs-sm)', color: on ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: on ? 700 : 400 }}>{b.code} – {b.name}</span>
                   {on && <Check size={14} color="var(--primary-green)" />}
                 </div>
@@ -1157,12 +1157,12 @@ function EditEmployeeModal({ employee, tenantId, onClose, onSaved, onRemoved }: 
           {!confirmingDelete ? (
             <button
               onClick={() => setConfirmingDelete(true)}
-              style={{ width: '100%', padding: 11, borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer' }}
+              style={{ width: '100%', padding: 11, borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', color: 'var(--status-critical)', cursor: 'pointer' }}
             >
               Remove {employee.name} from this farm
             </button>
           ) : (
-            <div style={{ padding: '11px 12px', background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 12 }}>
+            <div style={{ padding: '11px 12px', background: 'rgba(var(--critical-rgb),0.06)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 12 }}>
               <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
                 Remove {employee.name}?
               </div>

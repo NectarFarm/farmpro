@@ -221,18 +221,26 @@ function StatTile({ value, label, note, onClick }: { value: React.ReactNode; lab
 
 // An icon-over-label destination tile. 72px tall, four across — a comfortable
 // thumb target on a phone without the label wrapping at 360px.
-function NavTile({ icon: Icon, label, tour, onClick }: { icon: LucideIcon; label: string; tour?: string; onClick: () => void }) {
+//
+// `tint` is optional and deliberately used on only three of these eight
+// tiles (inventory/weather/finance) — the ones with an unambiguous domain
+// (stock, weather, money). Colour is meant to carry meaning here, not
+// decorate every tile the same way; People/Routines/Reports/Advisor/Settings
+// stay neutral rather than being force-fit into a domain that doesn't exist.
+function NavTile({ icon: Icon, label, tour, tint, onClick }: { icon: LucideIcon; label: string; tour?: string; tint?: 'sage' | 'sand' | 'sky' | 'straw'; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       data-tour={tour}
       style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 5,
-        height: 72, padding: '6px 4px', borderRadius: 14, cursor: 'pointer',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
+        width: '100%', height: 76, padding: '8px 4px', borderRadius: 'var(--radius-control)', cursor: 'pointer',
         background: 'var(--card)', border: '1px solid var(--border-subtle)',
       }}
     >
-      <Icon size={20} color="var(--text-secondary)" aria-hidden="true" />
+      <span className={`icon-tile sm${tint ? ` tint-${tint}` : ''}`}>
+        <Icon size={16} color={tint ? undefined : 'var(--text-secondary)'} aria-hidden="true" />
+      </span>
       <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 650, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.15 }}>{label}</span>
     </button>
   );
@@ -351,12 +359,12 @@ function OperationalDashboard({
   // above already links to all three, with a live number on it. Repeating them
   // here would be the crowding this rebuild is removing, and it is what left
   // the owner grid with an orphan row of two.
-  const destinations: { id: string; label: string; icon: LucideIcon; tour?: string; roles: readonly string[] }[] = ([
-    { id: "inventory", label: "Stock", icon: Package, roles: ["owner", "manager"] },
-    { id: "weather", label: "Weather", icon: CloudSun, tour: "nav-weather", roles: ["owner", "manager"] },
+  const destinations: { id: string; label: string; icon: LucideIcon; tour?: string; tint?: "sage" | "sand" | "sky" | "straw"; roles: readonly string[] }[] = ([
+    { id: "inventory", label: "Stock", icon: Package, tint: "straw" as const, roles: ["owner", "manager"] },
+    { id: "weather", label: "Weather", icon: CloudSun, tour: "nav-weather", tint: "sky" as const, roles: ["owner", "manager"] },
     { id: "people", label: "Workers", icon: Users, tour: "nav-people", roles: ["owner", "manager"] },
     { id: "routines", label: "Routines", icon: ClipboardList, roles: ["owner", "manager"] },
-    { id: "finance", label: "Finance", icon: DollarSign, roles: ["owner"] },
+    { id: "finance", label: "Finance", icon: DollarSign, tint: "sand" as const, roles: ["owner"] },
     { id: "reports", label: "Reports", icon: FileText, roles: ["owner"] },
     { id: "ai-chat", label: "Advisor", icon: Bot, roles: ["owner", "manager"] },
     // On mobile the bottom tab for this is labelled "More", which says nothing
@@ -419,8 +427,11 @@ function OperationalDashboard({
       <SetupStrip state={setupState} onNavigate={navigate} />
 
       {/* Hero: the one figure this role opens the app for. An owner reads
-          money; a manager reads whether today's work is on track. */}
-      <div className="farm-card" style={{ padding: 16, marginBottom: 12 }}>
+          money; a manager reads whether today's work is on track.
+          `enter-rise` is the app's one orchestrated first-paint moment (see
+          app/global.css) — this card and the destination grid below rise in
+          together on mount; nothing else in the app animates on load. */}
+      <div className="farm-card enter-rise" style={{ padding: 16, marginBottom: 12 }}>
         {isManager ? (
           <>
             <HeroMetric
@@ -489,8 +500,10 @@ function OperationalDashboard({
       <section style={{ marginBottom: 18 }}>
         <div className="section-eyebrow" style={{ marginBottom: 8 }}>Go to</div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${tileColumns}, 1fr)`, gap: 8 }}>
-          {destinations.map(d => (
-            <NavTile key={d.id} icon={d.icon} label={d.label} tour={d.tour} onClick={() => navigate(d.id)} />
+          {destinations.map((d, i) => (
+            <div key={d.id} className="enter-rise" style={{ "--stagger": `${40 + i * 25}ms` } as React.CSSProperties}>
+              <NavTile icon={d.icon} label={d.label} tour={d.tour} tint={d.tint} onClick={() => navigate(d.id)} />
+            </div>
           ))}
         </div>
       </section>
@@ -527,7 +540,7 @@ function OperationalDashboard({
           ))}
         </div>
         {kpisFailed && (
-          <div className="farm-card" style={{ marginTop: 10, padding: '11px 13px', display: 'flex', gap: 9, alignItems: 'flex-start', border: '1px solid rgba(251,191,36,0.3)' }}>
+          <div className="farm-card" style={{ marginTop: 10, padding: '11px 13px', display: 'flex', gap: 9, alignItems: 'flex-start', border: '1px solid rgba(var(--warning-rgb),0.3)' }}>
             <Info size={15} color="var(--accent-amber)" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
             <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Farm figures couldn&rsquo;t be loaded just now, so the numbers above are blank rather than wrong. Everything else on this screen still works.
@@ -575,10 +588,10 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
         </div>
         <button onClick={() => { setActiveFarmId("ALL"); onClose() }}
           style={{ width: "100%", padding: "12px 14px", marginBottom: 10, borderRadius: 14, textAlign: "left", cursor: "pointer",
-            background: activeFarmId === "ALL" ? "rgba(74,222,128,0.12)" : "var(--card)",
-            border: activeFarmId === "ALL" ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
+            background: activeFarmId === "ALL" ? "rgba(var(--primary-rgb),0.12)" : "var(--card)",
+            border: activeFarmId === "ALL" ? "1px solid rgba(var(--primary-rgb),0.4)" : "1px solid var(--border-subtle)",
             display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: 'var(--primary-green)' }}><Globe size={18} aria-hidden="true" /></div>
+          <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(var(--primary-rgb),0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: 'var(--primary-green)' }}><Globe size={18} aria-hidden="true" /></div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: "var(--text-primary)" }}>All Farms</div>
             <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)" }}>Aggregated view · {farms.length} farms</div>
@@ -588,10 +601,10 @@ function FarmSwitcherSheet({ onClose }: { onClose: () => void }) {
         {farms.map(farm => (
           <button key={farm.id} onClick={() => { setActiveFarmId(farm.id); onClose() }}
             style={{ width: "100%", padding: "12px 14px", marginBottom: 10, borderRadius: 14, textAlign: "left", cursor: "pointer",
-              background: activeFarmId === farm.id ? "rgba(74,222,128,0.12)" : "var(--card)",
-              border: activeFarmId === farm.id ? "1px solid rgba(74,222,128,0.4)" : "1px solid var(--border-subtle)",
+              background: activeFarmId === farm.id ? "rgba(var(--primary-rgb),0.12)" : "var(--card)",
+              border: activeFarmId === farm.id ? "1px solid rgba(var(--primary-rgb),0.4)" : "1px solid var(--border-subtle)",
               display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(74,222,128,0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: 'var(--primary-green)' }}><Building2 size={18} aria-hidden="true" /></div>
+            <div style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(var(--primary-rgb),0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: 'var(--primary-green)' }}><Building2 size={18} aria-hidden="true" /></div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: "var(--text-primary)" }}>{farm.name}</div>
               <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)" }}>{farm.code} · {farm.location}</div>
@@ -800,7 +813,7 @@ export function NotificationsScreen() {
       />
       <div className="px-screen" style={{ paddingTop: 14 }}>
         {unread > 0 && (
-          <div style={{ padding: "8px 12px", background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: 10, fontSize: 'var(--fs-xs)', color: "var(--primary-green)", marginBottom: 14, fontWeight: 600 }}>
+          <div style={{ padding: "8px 12px", background: "rgba(var(--primary-rgb),0.06)", border: "1px solid rgba(var(--primary-rgb),0.15)", borderRadius: 10, fontSize: 'var(--fs-xs)', color: "var(--primary-green)", marginBottom: 14, fontWeight: 600 }}>
             {unread} unread notification{unread > 1 ? "s" : ""}
           </div>
         )}
@@ -822,8 +835,8 @@ export function NotificationsScreen() {
                   return (
                     <button key={n.id} onClick={() => handleNotifTap(n)}
                       style={{ width: "100%", padding: 14, marginBottom: 8, borderRadius: 14, textAlign: "left", cursor: "pointer",
-                        background: n.read ? "var(--card)" : "rgba(74,222,128,0.05)",
-                        border: `1px solid ${n.read ? "var(--border-subtle)" : "rgba(74,222,128,0.2)"}` }}>
+                        background: n.read ? "var(--card)" : "rgba(var(--primary-rgb),0.05)",
+                        border: `1px solid ${n.read ? "var(--border-subtle)" : "rgba(var(--primary-rgb),0.2)"}` }}>
                       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                         <div style={{ width: 32, height: 32, borderRadius: 10, background: `${color}15`, border: `1px solid ${color}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color }}>
                           {(() => { const NotifIcon = typeIcon[n.sourceType] ?? Bell; return <NotifIcon size={15} aria-hidden="true" />; })()}
@@ -888,7 +901,7 @@ export function NotificationSettingsScreen() {
 
         {/* The honest statement, first, before the list — so nobody reads the
             list as a set of switches they have already set. */}
-        <div className="farm-card" style={{ padding: '12px 14px', marginBottom: 14, display: "flex", gap: 10, alignItems: "flex-start", border: "1px solid rgba(251,191,36,0.3)" }}>
+        <div className="farm-card" style={{ padding: '12px 14px', marginBottom: 14, display: "flex", gap: 10, alignItems: "flex-start", border: "1px solid rgba(var(--warning-rgb),0.3)" }}>
           <Info size={15} color="var(--accent-amber)" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
           <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", lineHeight: 1.55 }}>
             Every kind of notification below is on, for everyone who can see it, and arrives in the app. Choosing them one by one, sending them by SMS, and quiet hours are all not built yet — this screen will show the controls when they are, rather than showing switches that save nothing.

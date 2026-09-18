@@ -52,9 +52,9 @@ function enterpriseDisplay(key: string): { label: string; Icon: typeof Sprout } 
 }
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
-  pending:  { color: 'var(--status-warning)', bg: 'rgba(251,191,36,0.1)', label: 'Pending' },
-  approved: { color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.08)', label: 'Approved' },
-  rejected: { color: 'var(--status-critical)', bg: 'rgba(248,113,113,0.08)', label: 'Rejected' },
+  pending:  { color: 'var(--status-warning)', bg: 'rgba(var(--warning-rgb),0.1)', label: 'Pending' },
+  approved: { color: 'var(--status-ok)', bg: 'rgba(var(--primary-rgb),0.08)', label: 'Approved' },
+  rejected: { color: 'var(--status-critical)', bg: 'rgba(var(--critical-rgb),0.08)', label: 'Rejected' },
 };
 
 function RequestDecisionSheet({
@@ -183,14 +183,14 @@ function RequestDecisionSheet({
               <button
                 disabled={saving !== null}
                 onClick={() => void decide('approved')}
-                style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: saving !== null ? 'default' : 'pointer', opacity: saving !== null ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--status-ok)', cursor: saving !== null ? 'default' : 'pointer', opacity: saving !== null ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
                 <Check size={14} /> {saving === 'approved' ? 'Approving…' : 'Approve'}
               </button>
               <button
                 disabled={saving !== null}
                 onClick={() => void decide('rejected')}
-                style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: saving !== null ? 'default' : 'pointer', opacity: saving !== null ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', cursor: saving !== null ? 'default' : 'pointer', opacity: saving !== null ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
                 <X size={14} /> {saving === 'rejected' ? 'Rejecting…' : 'Reject'}
               </button>
@@ -268,9 +268,9 @@ export function AdminEnterpriseRequestsScreen() {
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
               {[
-                { label: 'Pending', value: all.filter((r) => r.status === 'pending').length, color: 'var(--status-warning)', bg: 'rgba(251,191,36,0.1)' },
-                { label: 'Approved', value: all.filter((r) => r.status === 'approved').length, color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.08)' },
-                { label: 'Rejected', value: all.filter((r) => r.status === 'rejected').length, color: 'var(--status-critical)', bg: 'rgba(248,113,113,0.08)' },
+                { label: 'Pending', value: all.filter((r) => r.status === 'pending').length, color: 'var(--status-warning)', bg: 'rgba(var(--warning-rgb),0.1)' },
+                { label: 'Approved', value: all.filter((r) => r.status === 'approved').length, color: 'var(--status-ok)', bg: 'rgba(var(--primary-rgb),0.08)' },
+                { label: 'Rejected', value: all.filter((r) => r.status === 'rejected').length, color: 'var(--status-critical)', bg: 'rgba(var(--critical-rgb),0.08)' },
               ].map((s) => (
                 <div key={s.label} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: 10, textAlign: 'center', border: `1px solid ${s.color}30` }}>
                   <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -303,7 +303,7 @@ export function AdminEnterpriseRequestsScreen() {
                       key={req.id}
                       onClick={() => setSelected(req)}
                       className="farm-card"
-                      style={{ padding: 14, width: '100%', textAlign: 'left', cursor: 'pointer', border: req.status === 'pending' ? '1px solid rgba(251,191,36,0.25)' : '1px solid var(--border-subtle)' }}
+                      style={{ padding: 14, width: '100%', textAlign: 'left', cursor: 'pointer', border: req.status === 'pending' ? '1px solid rgba(var(--warning-rgb),0.25)' : '1px solid var(--border-subtle)' }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
