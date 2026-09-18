@@ -507,14 +507,24 @@
  * just capped .farm-device-frame at 760px and left the mobile bottom tab bar
  * in place, which meant tablets got a 760px centred column with five tabs
  * stretched across it and 10px labels nowhere near a thumb — worst of both
- * worlds. Full 250px sidebar (no icon-rail variant) now applies from 768px
- * up; only the >=1024px frame width cap remains a separate breakpoint. */
+ * worlds. A sidebar (no icon-rail variant) now applies from 768px up; only
+ * the >=1024px frame width cap remains a separate breakpoint.
+ *
+ * WIDTH (design-system-revamp screenshot pass): a flat 250px here, at every
+ * width from 768px up, was a third of a 768px viewport spent on navigation
+ * — disproportionate, and content never got any of it back. 200px at the
+ * tight 768-1023px end (nav is secondary to the work at that size); 232px
+ * from 1024px up, where there is room to let it breathe without starving
+ * the content column (see the >=1024px override below). Neither value
+ * wraps the longest real labels ("Onboarding Requests", "Impersonation
+ * Log", "Units & batches") — verified via the button/nav padding trim
+ * alongside it (components/farm/navigation.tsx's AppSidebar). */
 @media (min-width: 768px) {
   .farm-shell { flex-direction: row; }
   .farm-sidebar {
     display: flex;
     flex-direction: column;
-    width: 250px;
+    width: 200px;
     flex-shrink: 0;
     height: 100%;
     background: var(--surface);
@@ -524,7 +534,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 16px;
+    padding: 16px 12px;
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
@@ -927,11 +937,37 @@
 .text-gradient { color: var(--primary-green); }
 .text-gradient-warm { color: var(--accent-amber); }
 
-@media (min-width: 1024px) {
+/* Screenshot pass (design-system-revamp): this used to trigger at 1024px,
+ * one whole breakpoint after the sidebar itself appears at 768px (see the
+ * @media (min-width: 768px) block above). That gap meant 768-1023px got a
+ * permanent 200px nav rail sitting right beside content that still used the
+ * PHONE gutter (20px) — content visibly hugging the sidebar's border, and a
+ * jump to 32px immediately after at 1024px that made the tighter width look
+ * like a mistake rather than a step. Moved to 768px so the gutter grows up
+ * WITH the sidebar, not a breakpoint late.
+ *
+ * max-width dropped 1320px -> 900px: 1320 was sized for a full-bleed phone/
+ * tablet column with no sidebar eating into it. Once a sidebar is docked,
+ * shell-main's own width is already viewport-minus-sidebar, so 1320 never
+ * actually capped anything at any realistic desktop width (at 1280px wide
+ * with the sidebar docked, the column is ~1030px — under 1320 either way) —
+ * single-line copy (e.g. the Reports screen's Auditor/Investor blurb) ran
+ * edge-to-edge across it uncapped. 900px is still roomy enough for the
+ * 2-column report/settings card grids (each card lands ~410px) but actually
+ * engages at typical laptop widths instead of only on ultra-wide monitors. */
+@media (min-width: 768px) {
   .screen-content { padding-bottom: 36px; }
-  .px-screen { max-width: 1320px; margin: 0 auto; padding-left: 32px; padding-right: 32px; }
+  .px-screen { max-width: 900px; margin: 0 auto; padding-left: 32px; padding-right: 32px; }
   .top-nav { padding-left: 32px; padding-right: 32px; }
   .top-nav-title { font-size: 26px !important; letter-spacing: -0.02em; }
+}
+
+/* Sidebar width, continued from the >=768px rule above: 200px there is the
+ * tight case (nav is secondary to the work on a narrow tablet-width
+ * screen); from 1024px up there is room to let it breathe a little without
+ * starving the content column the way the old flat 250px did everywhere. */
+@media (min-width: 1024px) {
+  .farm-sidebar { width: 232px; }
 }
 
 nextjs-portal { display: none !important; }
