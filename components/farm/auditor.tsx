@@ -64,7 +64,7 @@ export function AuditorReportsScreen() {
     <div className="screen-content">
       <TopNav title="Reports" subtitle="Read-only auditor access" />
       <div className="px-screen" style={{ paddingTop: 12, paddingBottom: 40 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 12, marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'rgba(var(--info-rgb),0.08)', border: '1px solid rgba(var(--info-rgb),0.2)', borderRadius: 12, marginBottom: 14 }}>
           <Eye size={14} color="var(--accent-blue)" />
           <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>You have read-only access to this tenant&apos;s reports. Nothing here can change any data.</span>
         </div>

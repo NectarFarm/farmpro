@@ -474,9 +474,9 @@ const ENTITY_LABEL: Record<ImportEntity, string> = {
 };
 
 const SEV_CONFIG: Record<IssueSeverity, { color: string; bg: string; icon: LucideIcon }> = {
-  error:   { color: '#f87171', bg: 'rgba(248,113,113,0.1)',  icon: XCircle },
-  warning: { color: '#fbbf24', bg: 'rgba(251,191,36,0.1)',   icon: AlertTriangle },
-  info:    { color: '#60a5fa', bg: 'rgba(96,165,250,0.1)',   icon: Info },
+  error:   { color: '#f87171', bg: 'rgba(var(--critical-rgb),0.1)',  icon: XCircle },
+  warning: { color: '#fbbf24', bg: 'rgba(var(--warning-rgb),0.1)',   icon: AlertTriangle },
+  info:    { color: '#60a5fa', bg: 'rgba(var(--info-rgb),0.1)',   icon: Info },
 };
 
 /* ─────────────────────────────────────────────────────────────
@@ -646,7 +646,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
             <div style={{ display: 'flex', gap: 4, marginTop: 12 }}>
               {(['upload','review','done'] as const).map((p, idx) => (
                 <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', fontSize: 'var(--fs-xs)', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', background: phase === p ? 'var(--primary-green)' : phases_done(phase, p) ? 'rgba(74,222,128,0.3)' : 'var(--card)', color: phase === p ? '#000' : 'var(--text-muted)', border: `1px solid ${phase === p ? 'var(--primary-green)' : 'var(--border-subtle)'}` }}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', fontSize: 'var(--fs-xs)', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', background: phase === p ? 'var(--primary-green)' : phases_done(phase, p) ? 'rgba(var(--primary-rgb),0.3)' : 'var(--card)', color: phase === p ? '#000' : 'var(--text-muted)', border: `1px solid ${phase === p ? 'var(--primary-green)' : 'var(--border-subtle)'}` }}>
                     {phases_done(phase, p) ? <Check size={12} aria-hidden="true" /> : idx + 1}
                   </div>
                   <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: phase === p ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{p}</span>
@@ -663,7 +663,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
             {phase === 'upload' && (
               <div>
                 {/* Download template */}
-                <div style={{ padding: 16, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 14, marginBottom: 20 }}>
+                <div style={{ padding: 16, background: 'rgba(var(--primary-rgb),0.06)', border: '1px solid rgba(var(--primary-rgb),0.2)', borderRadius: 14, marginBottom: 20 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 6 }}><ClipboardList size={15} aria-hidden="true" /> Use the export format</div>
                   <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 12 }}>
                     The best import file is one you previously exported from this app — it already has the correct column names and code formats. You can also download the blank template below.
@@ -674,7 +674,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                       <span key={c} style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--accent-cyan)' }}>{c}</span>
                     ))}
                   </div>
-                  <button onClick={() => downloadCSV(entity as keyof typeof import('./data').CSV_TEMPLATES)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 9, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--primary-green)', cursor: 'pointer' }}>
+                  <button onClick={() => downloadCSV(entity as keyof typeof import('./data').CSV_TEMPLATES)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 9, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--primary-green)', cursor: 'pointer' }}>
                     <Download size={13} /> Download blank template
                   </button>
                 </div>
@@ -696,13 +696,13 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
               <div>
                 {/* Column issues */}
                 {(missingCols.length > 0 || extraCols.length > 0) && (
-                  <div style={{ padding: 14, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 12, marginBottom: 16 }}>
+                  <div style={{ padding: 14, background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 12, marginBottom: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--accent-amber)', marginBottom: 8 }}><AlertTriangle size={13} aria-hidden="true" /> Column issues detected</div>
                     {missingCols.length > 0 && (
                       <div style={{ marginBottom: 6 }}>
                         <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>Missing columns (will default to blank):</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                          {missingCols.map(c => <span key={c} style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }}>{c}</span>)}
+                          {missingCols.map(c => <span key={c} style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: '#f87171' }}>{c}</span>)}
                         </div>
                       </div>
                     )}
@@ -710,7 +710,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                       <div>
                         <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>Extra columns (will be ignored):</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                          {extraCols.map(c => <span key={c} style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)' }}>{c}</span>)}
+                          {extraCols.map(c => <span key={c} style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: 'rgba(var(--info-rgb),0.1)', border: '1px solid rgba(var(--info-rgb),0.3)', color: 'var(--accent-cyan)' }}>{c}</span>)}
                         </div>
                       </div>
                     )}
@@ -720,9 +720,9 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                 {/* Summary bar */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 16 }}>
                   {[
-                    { label: 'Errors', count: errorRows, color: '#f87171', bg: 'rgba(248,113,113,0.1)' },
-                    { label: 'Warnings', count: warningRows, color: '#fbbf24', bg: 'rgba(251,191,36,0.1)' },
-                    { label: 'Clean', count: cleanRows, color: 'var(--primary-green)', bg: 'rgba(74,222,128,0.1)' },
+                    { label: 'Errors', count: errorRows, color: '#f87171', bg: 'rgba(var(--critical-rgb),0.1)' },
+                    { label: 'Warnings', count: warningRows, color: '#fbbf24', bg: 'rgba(var(--warning-rgb),0.1)' },
+                    { label: 'Clean', count: cleanRows, color: 'var(--primary-green)', bg: 'rgba(var(--primary-rgb),0.1)' },
                   ].map(s => (
                     <div key={s.label} style={{ textAlign: 'center', padding: 10, borderRadius: 10, background: s.bg, border: `1px solid ${s.color}30` }}>
                       <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.count}</div>
@@ -733,7 +733,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
 
                 {/* Fix All Auto button */}
                 {results.some(r => r.issues.some(i => i.autoFix)) && (
-                  <button onClick={fixAll} style={{ width: '100%', marginBottom: 14, padding: '10px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <button onClick={fixAll} style={{ width: '100%', marginBottom: 14, padding: '10px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--info-rgb),0.1)', border: '1px solid rgba(var(--info-rgb),0.3)', color: 'var(--accent-cyan)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                     <RefreshCw size={13} /> Apply All Auto-Fixes ({results.flatMap(r => r.issues.filter(i => i.autoFix)).length} corrections)
                   </button>
                 )}
@@ -746,7 +746,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                     const infos    = row.issues.filter(i => i.severity === 'info');
                     const isExpanded = expandedRow === ri;
                     const dominantSev: IssueSeverity = errors.length ? 'error' : warnings.length ? 'warning' : infos.length ? 'info' : 'info';
-                    const borderColor = row.importable ? (warnings.length ? '#fbbf24' : 'rgba(74,222,128,0.5)') : '#f87171';
+                    const borderColor = row.importable ? (warnings.length ? '#fbbf24' : 'rgba(var(--primary-rgb),0.5)') : '#f87171';
 
                     // Key display value (first meaningful col)
                     const keyCol = entity === 'inventory' ? 'id' : 'code';
@@ -759,7 +759,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                         {/* Row header */}
                         <button
                           onClick={() => setExpandedRow(isExpanded ? null : ri)}
-                          style={{ width: '100%', padding: '12px 14px', background: `${row.importable ? 'var(--card)' : 'rgba(248,113,113,0.06)'}`, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                          style={{ width: '100%', padding: '12px 14px', background: `${row.importable ? 'var(--card)' : 'rgba(var(--critical-rgb),0.06)'}`, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', border: 'none', textAlign: 'left' }}>
                           <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: SEV_CONFIG[dominantSev].bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: SEV_CONFIG[dominantSev].color }}>
                             {row.importable ? (warnings.length ? <AlertTriangle size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />) : <XCircle size={14} aria-hidden="true" />}
                           </div>
@@ -769,10 +769,10 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                               <span style={{ color: 'var(--text-muted)', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameVal}</span>
                             </div>
                             <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                              {errors.length > 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(248,113,113,0.15)', color: '#f87171', fontWeight: 700 }}>{errors.length} error{errors.length > 1 ? 's' : ''}</span>}
-                              {warnings.length > 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(251,191,36,0.15)', color: '#fbbf24', fontWeight: 700 }}>{warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
-                              {infos.length > 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(96,165,250,0.12)', color: 'var(--accent-cyan)', fontWeight: 700 }}>{infos.length} info</span>}
-                              {row.issues.length === 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(74,222,128,0.15)', color: 'var(--primary-green)', fontWeight: 700 }}><Check size={9} aria-hidden="true" /> Clean</span>}
+                              {errors.length > 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(var(--critical-rgb),0.15)', color: '#f87171', fontWeight: 700 }}>{errors.length} error{errors.length > 1 ? 's' : ''}</span>}
+                              {warnings.length > 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(var(--warning-rgb),0.15)', color: '#fbbf24', fontWeight: 700 }}>{warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
+                              {infos.length > 0 && <span style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(var(--info-rgb),0.12)', color: 'var(--accent-cyan)', fontWeight: 700 }}>{infos.length} info</span>}
+                              {row.issues.length === 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--fs-2xs)', padding: '1px 6px', borderRadius: 100, background: 'rgba(var(--primary-rgb),0.15)', color: 'var(--primary-green)', fontWeight: 700 }}><Check size={9} aria-hidden="true" /> Clean</span>}
                             </div>
                           </div>
                           {isExpanded ? <ChevronUp size={14} color="var(--text-dim)" /> : <ChevronDown size={14} color="var(--text-dim)" />}
@@ -795,10 +795,10 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                                       {issue.suggestion !== undefined && (
                                         <div style={{ marginTop: 4, display: 'flex', gap: 6, alignItems: 'center' }}>
                                           <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Suggestion:</span>
-                                          <span style={{ fontSize: 'var(--fs-2xs)', fontFamily: 'monospace', color: 'var(--primary-green)', background: 'rgba(74,222,128,0.1)', padding: '1px 6px', borderRadius: 4 }}>{issue.suggestion || '(blank)'}</span>
+                                          <span style={{ fontSize: 'var(--fs-2xs)', fontFamily: 'monospace', color: 'var(--primary-green)', background: 'rgba(var(--primary-rgb),0.1)', padding: '1px 6px', borderRadius: 4 }}>{issue.suggestion || '(blank)'}</span>
                                           <button
                                             onClick={() => applySuggestion(ri, issue.col, issue.suggestion!)}
-                                            style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
+                                            style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
                                             Apply
                                           </button>
                                         </div>
@@ -834,11 +834,11 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
                                             onChange={e => setEditValue(e.target.value)}
                                             onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingCell(null); }}
                                           />
-                                          <button onClick={commitEdit} style={{ padding: '5px 10px', borderRadius: 7, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}><Check size={11} /></button>
+                                          <button onClick={commitEdit} style={{ padding: '5px 10px', borderRadius: 7, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}><Check size={11} /></button>
                                           <button onClick={() => setEditingCell(null)} style={{ padding: '5px 8px', borderRadius: 7, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={11} /></button>
                                         </div>
                                       ) : (
-                                        <div style={{ flex: 1, display: 'flex', gap: 6, alignItems: 'center', padding: '6px 10px', borderRadius: 8, background: hasError ? 'rgba(248,113,113,0.08)' : hasWarn ? 'rgba(251,191,36,0.06)' : 'var(--card)', border: `1px solid ${hasError ? 'rgba(248,113,113,0.3)' : hasWarn ? 'rgba(251,191,36,0.2)' : 'var(--border-subtle)'}` }}>
+                                        <div style={{ flex: 1, display: 'flex', gap: 6, alignItems: 'center', padding: '6px 10px', borderRadius: 8, background: hasError ? 'rgba(var(--critical-rgb),0.08)' : hasWarn ? 'rgba(var(--warning-rgb),0.06)' : 'var(--card)', border: `1px solid ${hasError ? 'rgba(var(--critical-rgb),0.3)' : hasWarn ? 'rgba(var(--warning-rgb),0.2)' : 'var(--border-subtle)'}` }}>
                                           <span style={{ flex: 1, fontSize: 'var(--fs-sm)', color: val ? 'var(--text-primary)' : 'var(--text-dim)', fontStyle: val ? 'normal' : 'italic' }}>{val || '(empty)'}</span>
                                           <button onClick={() => startEdit(ri, col)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--text-dim)', display: 'flex', alignItems: 'center' }}><Edit2 size={11} /></button>
                                         </div>
@@ -886,7 +886,7 @@ export function CsvImportModal({ entity, onClose, onImport }: CsvImportModalProp
               <button
                 onClick={confirmImport}
                 disabled={importableRows.length === 0}
-                style={{ flex: 2, padding: '12px', borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, cursor: importableRows.length === 0 ? 'not-allowed' : 'pointer', background: importableRows.length === 0 ? 'var(--card)' : 'rgba(74,222,128,0.15)', border: importableRows.length === 0 ? '1px solid var(--border-subtle)' : '1px solid rgba(74,222,128,0.4)', color: importableRows.length === 0 ? 'var(--text-dim)' : 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                style={{ flex: 2, padding: '12px', borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, cursor: importableRows.length === 0 ? 'not-allowed' : 'pointer', background: importableRows.length === 0 ? 'var(--card)' : 'rgba(var(--primary-rgb),0.15)', border: importableRows.length === 0 ? '1px solid var(--border-subtle)' : '1px solid rgba(var(--primary-rgb),0.4)', color: importableRows.length === 0 ? 'var(--text-dim)' : 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 <Check size={14} />
                 Import {importableRows.length} of {results.length} rows
                 {errorRows > 0 && <span style={{ fontSize: 'var(--fs-2xs)', color: '#f87171', marginLeft: 2 }}>({errorRows} skipped)</span>}

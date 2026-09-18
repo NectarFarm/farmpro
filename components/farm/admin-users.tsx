@@ -124,7 +124,7 @@ export function ImpersonationBanner({ info, onReturned }: { info: ImpersonationI
       role="alert"
       style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000,
-        background: 'repeating-linear-gradient(135deg, rgba(251,191,36,0.95), rgba(251,191,36,0.95) 10px, rgba(217,119,6,0.95) 10px, rgba(217,119,6,0.95) 20px)',
+        background: 'repeating-linear-gradient(135deg, rgba(var(--warning-rgb),0.95), rgba(var(--warning-rgb),0.95) 10px, rgba(217,119,6,0.95) 10px, rgba(217,119,6,0.95) 20px)',
         borderBottom: '2px solid var(--status-warning)',
         padding: '9px 14px',
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
@@ -174,7 +174,7 @@ function TempPasswordModal({ email, password, onClose }: { email: string; passwo
           <code style={{ fontFamily: 'monospace', fontSize: 'var(--fs-md)', fontWeight: 700, flex: 1, letterSpacing: '0.02em', wordBreak: 'break-all', color: 'var(--text-primary)' }}>{password}</code>
           <button
             onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(password); setCopied(true); }}
-            style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer', flexShrink: 0 }}
+            style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', cursor: 'pointer', flexShrink: 0 }}
           >
             {copied ? 'Copied' : 'Copy'}
           </button>
@@ -232,8 +232,8 @@ function ImpersonateDialog({ user, onClose, onStarted }: { user: AdminUser; onCl
                   onClick={() => setMinutes(m)}
                   style={{
                     flex: 1, padding: '12px 6px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
-                    background: minutes === m ? 'rgba(74,222,128,0.15)' : 'var(--surface)',
-                    border: minutes === m ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)',
+                    background: minutes === m ? 'rgba(var(--primary-rgb),0.15)' : 'var(--surface)',
+                    border: minutes === m ? '1px solid rgba(var(--primary-rgb),0.5)' : '1px solid var(--border-subtle)',
                     color: minutes === m ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: 700, fontSize: 'var(--fs-md)',
                   }}
                 >
@@ -259,7 +259,7 @@ function ImpersonateDialog({ user, onClose, onStarted }: { user: AdminUser; onCl
               <ShieldAlert size={18} color="var(--status-warning)" />
               <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>Confirm accountability</div>
             </div>
-            <div style={{ padding: '12px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, marginBottom: 16, fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            <div style={{ padding: '12px 14px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 10, marginBottom: 16, fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
               You are about to sign in as <strong>{user.name}</strong> ({user.email}) for <strong>{minutes} minutes</strong>. Every action taken during this window is recorded against your admin account, and you are personally responsible for it. The session ends automatically at expiry, or you can end it early at any time from the banner shown while impersonating.
             </div>
             {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>{error}</div>}
@@ -343,7 +343,7 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>{user.name}</div>
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(74,222,128,0.1)', color: 'var(--primary-green)', border: '1px solid rgba(74,222,128,0.3)' }}>
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(var(--primary-rgb),0.1)', color: 'var(--primary-green)', border: '1px solid rgba(var(--primary-rgb),0.3)' }}>
               {roleLabel(user.role).toUpperCase()}
             </span>
           </div>
@@ -446,7 +446,7 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
             <button
               onClick={() => void resetPassword()}
               disabled={resetting}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-blue)', cursor: resetting ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--info-rgb),0.1)', border: '1px solid rgba(var(--info-rgb),0.3)', color: 'var(--accent-blue)', cursor: resetting ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               <Key size={13} /> {resetting ? 'Resetting…' : 'Reset Password'}
             </button>
@@ -454,7 +454,7 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
               onClick={() => setShowImpersonate(true)}
               disabled={user.role === 'super_admin'}
               title={user.role === 'super_admin' ? 'Cannot impersonate another super_admin' : undefined}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: user.role === 'super_admin' ? 'not-allowed' : 'pointer', opacity: user.role === 'super_admin' ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', cursor: user.role === 'super_admin' ? 'not-allowed' : 'pointer', opacity: user.role === 'super_admin' ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               <UserCheck size={13} /> Log in as user
             </button>
@@ -523,7 +523,7 @@ function PasswordResetsTab() {
               <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700 }}>{row.userName}</div>
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{row.email} · {row.phone}</div>
             </div>
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(251,191,36,0.1)', color: 'var(--status-warning)', border: '1px solid rgba(251,191,36,0.3)' }}>PENDING</span>
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(var(--warning-rgb),0.1)', color: 'var(--status-warning)', border: '1px solid rgba(var(--warning-rgb),0.3)' }}>PENDING</span>
           </div>
           <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 10 }}>
             <Clock size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} /> Requested {formatDateTime(row.requestedAt)}
@@ -531,7 +531,7 @@ function PasswordResetsTab() {
           <button
             onClick={() => void handle(row)}
             disabled={busyId === row.id}
-            style={{ width: '100%', padding: 9, borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-blue)', cursor: busyId === row.id ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            style={{ width: '100%', padding: 9, borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--info-rgb),0.1)', border: '1px solid rgba(var(--info-rgb),0.3)', color: 'var(--accent-blue)', cursor: busyId === row.id ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
           >
             <Key size={12} /> {busyId === row.id ? 'Resetting…' : 'Reset Password'}
           </button>
@@ -577,7 +577,7 @@ function ImpersonationLogTab() {
         const endedEarly = row.meta?.endedEarly === true;
         return (
           <div key={row.id} className="farm-card" style={{ padding: 12, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isStart ? 'rgba(74,222,128,0.12)' : 'rgba(96,165,250,0.1)', border: `1px solid ${isStart ? 'rgba(74,222,128,0.3)' : 'rgba(96,165,250,0.3)'}` }}>
+            <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isStart ? 'rgba(var(--primary-rgb),0.12)' : 'rgba(var(--info-rgb),0.1)', border: `1px solid ${isStart ? 'rgba(var(--primary-rgb),0.3)' : 'rgba(var(--info-rgb),0.3)'}` }}>
               {isStart ? <UserCheck size={13} color="var(--primary-green)" /> : <LogOut size={13} color="var(--accent-blue)" />}
             </div>
             <div style={{ flex: 1 }}>
@@ -704,11 +704,11 @@ export function AdminUsersScreen() {
                         <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{u.email}{u.phone ? ` · ${u.phone}` : ''}</div>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                        <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(74,222,128,0.1)', color: 'var(--primary-green)', border: '1px solid rgba(74,222,128,0.3)' }}>
+                        <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(var(--primary-rgb),0.1)', color: 'var(--primary-green)', border: '1px solid rgba(var(--primary-rgb),0.3)' }}>
                           {roleLabel(u.role).toUpperCase()}
                         </span>
                         {u.status !== 'ACTIVE' && (
-                          <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(248,113,113,0.1)', color: 'var(--status-critical)', border: '1px solid rgba(248,113,113,0.3)' }}>
+                          <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: 'rgba(var(--critical-rgb),0.1)', color: 'var(--status-critical)', border: '1px solid rgba(var(--critical-rgb),0.3)' }}>
                             {u.status}
                           </span>
                         )}

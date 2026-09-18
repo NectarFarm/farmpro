@@ -3,29 +3,55 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ── Theme tokens (ui-polish-theme-weather) ──────────────────────────────────
- * Settings offers four themes (tenant_settings.theme) and, until this task,
- * nothing applied the stored choice to the DOM: no class/attribute ever
- * landed on <html>, global.css had zero per-theme overrides, and 43 hex
- * colours below bypassed the token system entirely — so picking a theme
- * changed a database row and nothing else. components/farm/settings.tsx's
- * ThemeProvider now sets `data-theme` on <html> (see applyThemeVisuals) and
- * every theme's full palette lives here as one flat override block per
- * theme, keyed on that attribute — the single source of truth for what each
- * theme looks like, instead of a scattered .style.setProperty() call per
- * token from JS.
+/* ── Theme tokens (design-system-revamp) ─────────────────────────────────────
+ * Full rewrite of the palette/type/radius layer. What changed and why:
+ *
+ * 1. TYPEFACE — the app never chose one; it fell back to the OS default
+ *    (`ui-sans-serif, system-ui…`). app/layout.tsx now self-hosts Schibsted
+ *    Grotesk via next/font/google (build-time, no runtime fetch — matters for
+ *    the offline APK) and exposes it as --font-schibsted; --font-sans below
+ *    is that font with the old system stack kept only as a fallback chain.
+ *
+ * 2. DARK THEME STOPPED GLOWING — near-black (#0a0f0a) + acid green
+ *    (#4ade80) is a generated-design cliché. dark-farm below is a warm
+ *    charcoal ground with a desaturated sage green that reads as a material,
+ *    not a light source.
+ *
+ * 3. RGB-TRIPLET TOKENS (--primary-rgb, --critical-rgb, --warning-rgb,
+ *    --info-rgb, --purple-rgb) are new. Before this, ~460 rgba(...) tints
+ *    scattered across components/farm/*.tsx were hardcoded to the OLD
+ *    dark-theme hex values (rgba(74,222,128,…) etc.) REGARDLESS of the active
+ *    theme — every "selected", "active" and status-tinted surface in the app
+ *    rendered the same acid-green/red/amber/blue wash in all four themes.
+ *    That is a real reason the app "feels random" independent of any single
+ *    screen: switching themes never actually changed those surfaces. Those
+ *    call sites now read `rgba(var(--primary-rgb), α)` etc., so every one of
+ *    them tracks the active theme's real palette. See the sed pass in the
+ *    PR description for the mechanical, one-time rewrite.
+ *
+ * 4. DOMAIN TINTS (--tint-sage/-sand/-sky/-straw) give colour a job: sage for
+ *    crops/livestock, sand for finance, sky for weather, straw for stock —
+ *    used sparingly (an icon tile, a left accent rule), never as a full-card
+ *    wash. Each theme defines its own ink/soft/border so the device works
+ *    identically (same class names) in all four, including high-contrast and
+ *    sun-mode where the "soft" wash is intentionally minimal.
+ *
+ * 5. RADIUS NOW VARIES BY HIERARCHY — --radius-card (18px), --radius-control
+ *    (10px), --radius-chip (999px) replace the old "everything is ~10px"
+ *    flatness.
  *
  * :root below IS "light-farm" (the operational default before any theme is
- * read from settings, and while data-theme="light-farm" is set — no
- * override block needed for it since :root already matches). The other
+ * read from settings, and while data-theme="light-farm" is set). The other
  * three themes each override the full set of role tokens beneath it. */
 :root {
-  /* Operational default: neutral, daylight-friendly, with colour reserved for meaning. */
-  --background: #f7f8f5;
+  /* Light is the PRIMARY theme — a field app used in daylight. Cool
+   * off-white ground (deliberately not a warm cream, which is its own
+   * generated-design tell), deep green-black ink instead of a flat #111. */
+  --background: #f6f7f3;
   --surface: #ffffff;
   --card: #ffffff;
-  --card-hover: #fafbf8;
-  --border-subtle: #e4e7e1;
+  --card-hover: #eff2ea;
+  --border-subtle: #e1e5dc;
   --border-hover: #9fbea6;
 
   --primary-green: #2f6f3e;
@@ -33,37 +59,53 @@
    * into .btn-primary:hover, so a theme that made --primary-green bright
    * (dark/high-contrast/sun) still darkened toward this one fixed shade on
    * hover, which looked wrong or, worse, barely changed at all. */
-  --primary-green-strong: #285f35;
+  --primary-green-strong: #24592f;
   /* Text/icon colour placed ON TOP of a --primary-green fill (buttons, the
-   * FAB, the active step indicator). Light-farm's green is dark enough for
-   * white text, but dark-farm/high-contrast/sun-mode make --primary-green a
-   * BRIGHT colour (mint/neon-lime/amber) — white text on those fails
-   * contrast outright, which is exactly the kind of "white flash hides the
-   * text" bug the table-hover fix below addresses too. */
+   * FAB, the active step indicator, the brand mark). */
   --on-primary: #ffffff;
   --accent-lime: #6d9f45;
-  --accent-amber: #b7791f;
-  --accent-red: #c94a45;
+  --accent-amber: #956319;
+  --accent-red: #b9443f;
   --accent-blue: #2866a3;
   /* Legacy aliases retain meaning without decorative colour. */
   --accent-purple: #5f685f;
   --accent-cyan: #2866a3;
 
-  --text-primary: #182018;
-  --text-secondary: #3f6b49;
-  --text-muted: #5f685f;
-  --text-dim: #8a9289;
+  --text-primary: #16201a;
+  --text-secondary: #33513b;
+  --text-muted: #5c6a5f;
+  --text-dim: #6a726a;
 
   /* Semantic status */
-  --status-ok: #2f7d43;
-  --status-warning: #b7791f;
-  --status-critical: #c94a45;
+  --status-ok: #2f7c42;
+  --status-warning: #956319;
+  --status-critical: #b9443f;
   --status-info: #2866a3;
 
-  /* Chip/badge tints — were hardcoded light pastels (.chip-ok etc. below),
-   * so a status pill stayed pastel-on-white even on a black or dark-green
-   * background. Foreground stays the --status-* token above (already
-   * theme-aware); only the background needed a token of its own. */
+  /* RGB triplets for rgba(var(--x-rgb), α) call sites — see header note 3. */
+  --primary-rgb: 47, 111, 62;
+  --critical-rgb: 185, 68, 63;
+  --warning-rgb: 149, 99, 25;
+  --info-rgb: 40, 102, 163;
+  --purple-rgb: 95, 104, 95;
+
+  /* Domain tints — see header note 4. Used for an icon tile background/ink
+   * or a card's left accent rule; never a full card wash. */
+  --tint-sage-ink: #2f6f3e;
+  --tint-sage-soft: rgba(47, 111, 62, 0.1);
+  --tint-sage-border: rgba(47, 111, 62, 0.28);
+  --tint-sand-ink: #8a6a2e;
+  --tint-sand-soft: rgba(138, 106, 46, 0.1);
+  --tint-sand-border: rgba(138, 106, 46, 0.28);
+  --tint-sky-ink: #2a6690;
+  --tint-sky-soft: rgba(42, 102, 144, 0.1);
+  --tint-sky-border: rgba(42, 102, 144, 0.28);
+  --tint-straw-ink: #8c7112;
+  --tint-straw-soft: rgba(140, 113, 18, 0.12);
+  --tint-straw-border: rgba(140, 113, 18, 0.3);
+
+  /* Chip/badge tints — background only; foreground stays the theme-aware
+   * --status-* token above. */
   --chip-ok-bg: #e8f3e9;
   --chip-warning-bg: #fbf0dc;
   --chip-critical-bg: #fbe9e7;
@@ -71,17 +113,21 @@
   --chip-neutral-bg: #f0f2ee;
 
   --gradient-primary: #2f6f3e;
-  --gradient-warm: #b7791f;
-  --gradient-hero: #f7f8f5;
+  --gradient-warm: #956319;
+  --gradient-hero: #f6f7f3;
 
-  /* .farm-viewport's backdrop behind the device frame — was a hardcoded
-   * #edf0ea (a light grey), which stayed a light band around a dark-themed
-   * app instead of receding behind it. */
-  --viewport-bg: #edf0ea;
+  /* .farm-viewport's backdrop behind the device frame. */
+  --viewport-bg: #e9ece4;
 
   --nav-height: 64px;
   --bottom-nav-height: 68px;
   --radius: 0.75rem;
+
+  /* ── Radius scale — varies by hierarchy on purpose. One radius on
+   * everything is the generated-design tell this replaces. */
+  --radius-card: 18px;
+  --radius-control: 10px;
+  --radius-chip: 999px;
 
   /* ── Type scale (ui-polish-theme-weather) ──────────────────────────────────
    * Replaces ~24 distinct ad-hoc `fontSize: N` pixel values scattered across
@@ -127,51 +173,75 @@
   --radius: 0.75rem;
 }
 
-/* ── Dark Farm ── low-light view; the app's original dark-green aesthetic. */
+/* ── Dark Farm ── low-light view. Warm charcoal, not near-black; a
+ * desaturated sage green that reads as a material rather than a light
+ * source. This replaces the #0a0f0a + #4ade80 combination that is one of the
+ * most recognisable generated-design signatures there is. */
 :root[data-theme='dark-farm'] {
-  --background: #0a0f0a;
-  --surface: #0f1a0f;
-  --card: #121f12;
-  --card-hover: #17281a;
-  --border-subtle: rgba(255,255,255,0.09);
-  --border-hover: rgba(134,239,172,0.35);
+  --background: #1a1e1a;
+  --surface: #1f231f;
+  --card: #222822;
+  --card-hover: #272e27;
+  --border-subtle: rgba(255,255,255,0.08);
+  --border-hover: rgba(127,182,130,0.35);
 
-  --primary-green: #4ade80;
-  --primary-green-strong: #22c55e;
-  --on-primary: #062b0e;
-  --accent-lime: #a3e635;
-  --accent-amber: #f59e0b;
-  --accent-red: #f87171;
-  --accent-blue: #60a5fa;
-  --accent-purple: #c084fc;
-  --accent-cyan: #22d3ee;
+  --primary-green: #7fb682;
+  --primary-green-strong: #6ba06e;
+  --on-primary: #12241a;
+  --accent-lime: #a8c97e;
+  --accent-amber: #d9a552;
+  --accent-red: #e08585;
+  --accent-blue: #7fb0e0;
+  --accent-purple: #b79bd1;
+  --accent-cyan: #7fb0e0;
 
-  --text-primary: #f0fdf4;
-  --text-secondary: #86efac;
-  --text-muted: #7a9d80;
-  --text-dim: #55705a;
+  --text-primary: #e7efe6;
+  --text-secondary: #afc9af;
+  --text-muted: #8a9a88;
+  --text-dim: #6d7a6a;
 
-  --status-ok: #4ade80;
-  --status-warning: #fbbf24;
-  --status-critical: #f87171;
-  --status-info: #60a5fa;
+  --status-ok: #7fb682;
+  --status-warning: #d9a552;
+  --status-critical: #e08585;
+  --status-info: #7fb0e0;
 
-  --chip-ok-bg: rgba(74,222,128,0.15);
-  --chip-warning-bg: rgba(251,191,36,0.12);
-  --chip-critical-bg: rgba(248,113,113,0.12);
-  --chip-info-bg: rgba(96,165,250,0.12);
+  --primary-rgb: 127, 182, 130;
+  --critical-rgb: 224, 133, 133;
+  --warning-rgb: 217, 165, 82;
+  --info-rgb: 127, 176, 224;
+  --purple-rgb: 183, 155, 209;
+
+  --tint-sage-ink: #9cc89e;
+  --tint-sage-soft: rgba(127,182,130,0.15);
+  --tint-sage-border: rgba(127,182,130,0.34);
+  --tint-sand-ink: #cbb98a;
+  --tint-sand-soft: rgba(203,185,138,0.14);
+  --tint-sand-border: rgba(203,185,138,0.32);
+  --tint-sky-ink: #9cc3e8;
+  --tint-sky-soft: rgba(127,176,224,0.15);
+  --tint-sky-border: rgba(127,176,224,0.34);
+  --tint-straw-ink: #d8c179;
+  --tint-straw-soft: rgba(211,187,106,0.15);
+  --tint-straw-border: rgba(211,187,106,0.34);
+
+  --chip-ok-bg: rgba(127,182,130,0.16);
+  --chip-warning-bg: rgba(217,165,82,0.14);
+  --chip-critical-bg: rgba(224,133,133,0.14);
+  --chip-info-bg: rgba(127,176,224,0.14);
   --chip-neutral-bg: rgba(255,255,255,0.06);
 
-  --gradient-primary: #4ade80;
-  --gradient-warm: #fbbf24;
-  --gradient-hero: #0a0f0a;
-  --viewport-bg: #050805;
+  --gradient-primary: #7fb682;
+  --gradient-warm: #d9a552;
+  --gradient-hero: #1a1e1a;
+  --viewport-bg: #121512;
 }
 
 /* ── High Contrast ── black & white, maximum legibility. Accents stay
  * saturated (they carry meaning — ok/warning/critical/info must stay
  * distinguishable from each other), but every background/border/text role
- * is pure black, pure white, or a stepped grey — no muddy mid-tones. */
+ * is pure black, pure white, or a stepped grey — no muddy mid-tones. Domain
+ * tints follow the same rule: the "soft" wash stays minimal so text sitting
+ * on it never loses contrast against pure black. */
 :root[data-theme='high-contrast'] {
   --background: #000000;
   --surface: #0a0a0a;
@@ -199,6 +269,25 @@
   --status-warning: #ffd400;
   --status-critical: #ff5252;
   --status-info: #4dd2ff;
+
+  --primary-rgb: 51, 255, 51;
+  --critical-rgb: 255, 82, 82;
+  --warning-rgb: 255, 212, 0;
+  --info-rgb: 77, 210, 255;
+  --purple-rgb: 217, 179, 255;
+
+  --tint-sage-ink: #33ff33;
+  --tint-sage-soft: rgba(51,255,51,0.14);
+  --tint-sage-border: rgba(51,255,51,0.45);
+  --tint-sand-ink: #ff9d42;
+  --tint-sand-soft: rgba(255,157,66,0.14);
+  --tint-sand-border: rgba(255,157,66,0.45);
+  --tint-sky-ink: #4dd2ff;
+  --tint-sky-soft: rgba(77,210,255,0.14);
+  --tint-sky-border: rgba(77,210,255,0.45);
+  --tint-straw-ink: #ffd400;
+  --tint-straw-soft: rgba(255,212,0,0.14);
+  --tint-straw-border: rgba(255,212,0,0.45);
 
   --chip-ok-bg: rgba(51,255,51,0.2);
   --chip-warning-bg: rgba(255,212,0,0.2);
@@ -243,6 +332,25 @@
   --status-critical: #f87171;
   --status-info: #38bdf8;
 
+  --primary-rgb: 251, 191, 36;
+  --critical-rgb: 248, 113, 113;
+  --warning-rgb: 251, 191, 36;
+  --info-rgb: 56, 189, 248;
+  --purple-rgb: 252, 211, 77;
+
+  --tint-sage-ink: #9adb5c;
+  --tint-sage-soft: rgba(154,219,92,0.15);
+  --tint-sage-border: rgba(154,219,92,0.38);
+  --tint-sand-ink: #d8c08a;
+  --tint-sand-soft: rgba(216,192,138,0.15);
+  --tint-sand-border: rgba(216,192,138,0.35);
+  --tint-sky-ink: #5fc9e8;
+  --tint-sky-soft: rgba(95,201,232,0.16);
+  --tint-sky-border: rgba(95,201,232,0.38);
+  --tint-straw-ink: #e3b23c;
+  --tint-straw-soft: rgba(227,178,60,0.16);
+  --tint-straw-border: rgba(227,178,60,0.38);
+
   --chip-ok-bg: rgba(132,204,22,0.16);
   --chip-warning-bg: rgba(251,191,36,0.2);
   --chip-critical-bg: rgba(248,113,113,0.16);
@@ -256,7 +364,13 @@
 }
 
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Schibsted Grotesk, self-hosted at build time by next/font/google
+   * (app/layout.tsx sets --font-schibsted on <html>). The old value here —
+   * `ui-sans-serif, system-ui, -apple-system, 'Segoe UI'` — was the OS
+   * default and the single biggest reason the app had no typographic
+   * personality; the fallback chain below only fires before the font file
+   * is parsed or if it somehow fails to load. */
+  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'JetBrains Mono', monospace;
   --color-background: var(--background);
   --color-foreground: var(--text-primary);
@@ -293,6 +407,12 @@
     background: var(--background);
     color: var(--text-primary);
     font-family: var(--font-sans);
+    /* Tabular numerals everywhere: this app is full of money and headcounts
+     * in columns (KPI grids, GL rows, report tables, PIN pads), and
+     * proportional digits make them jitter as values change. Scoped to
+     * `body` rather than a handful of number classes so no figure anywhere
+     * is missed. */
+    font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
@@ -343,6 +463,23 @@
   position: relative;
 }
 
+/* ── Brand mark ── the app's one recurring logomark: a solid tile, never a
+ * bare icon floating on its own. Used identically on the login screen and
+ * the sidebar so the app's identity reads the same in both places — this is
+ * the single element that ties "first thing you see" to "the shell you live
+ * in" together. Depth comes from a two-stop tint gradient, not a shadow. */
+.brand-mark {
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  background: linear-gradient(155deg, var(--primary-green) 0%, var(--primary-green-strong) 100%);
+  color: var(--on-primary);
+  border-radius: 12px;
+}
+.brand-mark-lg {
+  width: 60px; height: 60px; border-radius: 18px;
+  margin: 0 auto 14px;
+}
+
 /* ── Bottom tab bar ──
  * Base rules live BEFORE the responsive overrides below: both this and the
  * @media (min-width: 768px) display:none have equal specificity, so the later
@@ -387,7 +524,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 18px 16px;
+    padding: 16px;
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
@@ -434,9 +571,22 @@
   flex-shrink: 0;
   gap: 12px;
 }
+/* Header rhythm shared by every screen: tight tracking + a firmer weight
+ * than body copy reads as a masthead rather than a bigger paragraph. One
+ * rule here reaches every TopNav title in the app (all screens share the
+ * same TopNav component in navigation.tsx). */
+.top-nav-title {
+  letter-spacing: -0.01em;
+  font-weight: 750;
+}
 
-
-/* ── Bottom tab bar items ── */
+/* ── Bottom tab bar items ──
+ * The active tab's identity is TWO deliberate, cheap devices rather than a
+ * full pill background: a short accent bar sitting on the bar's top edge
+ * (a "notch" — the one place in the whole nav where something breaks a
+ * straight line, always in the theme's real primary colour) and a soft
+ * tinted capsule behind the icon only. Both cost zero extra height, which
+ * matters in a fixed 68px bar. */
 .bottom-nav-item {
   flex: 1;
   display: flex;
@@ -450,13 +600,33 @@
   border-radius: 12px;
   position: relative;
 }
+.bottom-nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: var(--primary-green);
+}
+.bottom-nav-item .nav-icon-wrap {
+  width: 34px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+.bottom-nav-item.active .nav-icon-wrap {
+  background: rgba(var(--primary-rgb), 0.14);
+}
 .bottom-nav-item.active .nav-icon {
   color: var(--primary-green);
   filter: none;
 }
 .bottom-nav-item.active .nav-label { color: var(--primary-green); }
 .bottom-nav-item .nav-icon { color: var(--text-muted); font-size: 22px; transition: all 0.15s ease; }
-.bottom-nav-item .nav-label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.02em; transition: all 0.15s ease; }
+.bottom-nav-item .nav-label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.01em; transition: all 0.15s ease; }
 /* Keyboard-only focus ring (not :focus, so a mouse click doesn't show it).
  * outline + outline-offset instead of border/box-shadow so it never shifts
  * layout or fights the active-state border-radius. */
@@ -499,11 +669,15 @@
  * above. */
 .shell-main:has(.bottom-nav) .screen-content { padding-bottom: 24px; }
 
-/* ── Cards ── */
+/* ── Cards ──
+ * Radius moved from 10px to --radius-card (18px, see the scale above) —
+ * the single biggest lever for "does this look considered" across the app,
+ * since almost every screen is built from .farm-card. Depth stays a border
+ * colour shift on hover/active, never a shadow. */
 .farm-card {
   background: var(--card);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .farm-card:hover {
@@ -515,12 +689,41 @@
   border-color: var(--border-hover);
   box-shadow: none;
 }
+/* Domain-accent modifier — a left rule plus a slightly tinted background,
+ * NOT the full pastel-wash-plus-gradient-corner card the marketing-site
+ * reference uses. This is a dense, one-handed, outdoor phone app: colour
+ * has to carry meaning at a glance without costing vertical space, so the
+ * device is a 3px rule, not a redesign of the card. */
+.farm-card.tint-sage  { border-left: 3px solid var(--tint-sage-ink); }
+.farm-card.tint-sand  { border-left: 3px solid var(--tint-sand-ink); }
+.farm-card.tint-sky   { border-left: 3px solid var(--tint-sky-ink); }
+.farm-card.tint-straw { border-left: 3px solid var(--tint-straw-ink); }
 
-/* ── Status chips ── */
+/* ── Icon tiles ── the one recurring "icon in a soft rounded square" device
+ * used for nav destinations, report types and recommendation cards, instead
+ * of each screen inventing its own inline square. Neutral by default; a
+ * tint-* modifier gives it a domain colour (icon tinted, background a soft
+ * wash of the same ink — never a hard-coded rgba literal per call site). */
+.icon-tile {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  background: var(--card-hover);
+  color: var(--text-secondary);
+}
+.icon-tile.sm { width: 30px; height: 30px; border-radius: 9px; }
+.icon-tile.tint-sage  { background: var(--tint-sage-soft);  color: var(--tint-sage-ink); }
+.icon-tile.tint-sand  { background: var(--tint-sand-soft);  color: var(--tint-sand-ink); }
+.icon-tile.tint-sky   { background: var(--tint-sky-soft);   color: var(--tint-sky-ink); }
+.icon-tile.tint-straw { background: var(--tint-straw-soft); color: var(--tint-straw-ink); }
+
+/* ── Status chips ── pill-shaped (radius-chip), matching filter-chip/badges —
+ * the old 4px radius was the odd one out in a system that is otherwise
+ * either 18px cards or fully round pills. */
 .chip {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 7px; border-radius: 4px;
-  font-size: 12px; font-weight: 600; letter-spacing: 0;
+  padding: 2px 9px; border-radius: var(--radius-chip);
+  font-size: 12px; font-weight: 650; letter-spacing: 0;
   text-transform: none;
 }
 .chip-ok { background: var(--chip-ok-bg); color: var(--status-ok); }
@@ -543,11 +746,12 @@
   text-transform: uppercase; color: var(--text-muted);
 }
 
-/* ── Action buttons ── */
+/* ── Action buttons ── radius-control (10px) — one step down from cards,
+ * one step up from chips, matching the "controls" tier of the scale. */
 .btn-primary {
   background: var(--primary-green);
   color: var(--on-primary); font-weight: 650;
-  border-radius: 8px; border: 1px solid var(--primary-green);
+  border-radius: var(--radius-control); border: 1px solid var(--primary-green);
   padding: 11px 18px; font-size: 14px;
   cursor: pointer; transition: all 0.2s ease;
   display: inline-flex; align-items: center; gap: 8px;
@@ -557,20 +761,20 @@
   background: var(--surface);
   border: 1px solid var(--border-subtle);
   color: var(--text-primary); font-weight: 600;
-  border-radius: 8px; padding: 10px 16px;
+  border-radius: var(--radius-control); padding: 10px 16px;
   font-size: 14px; cursor: pointer; transition: all 0.2s ease;
   display: inline-flex; align-items: center; gap: 8px;
 }
 .btn-secondary:hover { background: var(--card-hover); border-color: var(--border-hover); }
 .btn-icon {
-  width: 40px; height: 40px; border-radius: 12px;
+  width: 40px; height: 40px; border-radius: var(--radius-control);
   display: flex; align-items: center; justify-content: center;
   background: var(--card); border: 1px solid var(--border-subtle);
   cursor: pointer; transition: all 0.15s ease; color: var(--text-secondary);
 }
 .btn-icon:hover { border-color: var(--border-hover); color: var(--primary-green); }
 .btn-fab {
-  width: 52px; height: 52px; border-radius: 10px;
+  width: 52px; height: 52px; border-radius: var(--radius-control);
   display: flex; align-items: center; justify-content: center;
   background: var(--primary-green); color: var(--on-primary);
   box-shadow: 0 2px 6px rgba(24,32,24,0.18);
@@ -583,12 +787,12 @@
 .farm-input {
   width: 100%; background: var(--card);
   border: 1px solid var(--border-subtle);
-  border-radius: 12px; padding: 14px 16px;
+  border-radius: var(--radius-control); padding: 14px 16px;
   font-size: 15px; color: var(--text-primary);
   transition: border-color 0.15s ease;
   outline: none;
 }
-.farm-input:focus { border-color: rgba(74,222,128,0.5); box-shadow: 0 0 0 3px rgba(74,222,128,0.08); }
+.farm-input:focus { border-color: rgba(var(--primary-rgb),0.5); box-shadow: 0 0 0 3px rgba(var(--primary-rgb),0.08); }
 .farm-input::placeholder { color: var(--text-dim); }
 
 /* ── Table ── */
@@ -610,15 +814,20 @@
 .farm-table tbody td {
   padding: 12px 12px; color: var(--text-primary);
   vertical-align: middle;
+  font-variant-numeric: tabular-nums;
 }
-.farm-table-scroll { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border-subtle); }
+.farm-table-scroll { overflow-x: auto; border-radius: var(--radius-control); border: 1px solid var(--border-subtle); }
 
-/* ── Section headers ── */
+/* ── Section headers ──
+ * Deliberately NOT tracked-out/uppercase — that combination (plus middle-dot
+ * meta strings and "→" appended to links) is a generated-design tell this
+ * revamp is reducing, not adding to. A small, muted, sentence-case label is
+ * plenty of hierarchy above a section. */
 .section-eyebrow {
-  font-size: 12px; font-weight: 600; letter-spacing: 0;
+  font-size: 12px; font-weight: 650; letter-spacing: 0;
   text-transform: none; color: var(--text-muted);
 }
-.section-title { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.section-title { font-size: 18px; font-weight: 750; color: var(--text-primary); letter-spacing: -0.005em; }
 .section-subtitle { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
 
 /* ── Progress bars ── */
@@ -651,37 +860,37 @@
   transition: all 0.2s ease;
 }
 .step-node.done { background: var(--primary-green); color: var(--on-primary); }
-.step-node.active { background: var(--gradient-primary); color: var(--on-primary); box-shadow: 0 0 0 4px rgba(74,222,128,0.2); }
+.step-node.active { background: var(--gradient-primary); color: var(--on-primary); box-shadow: 0 0 0 4px rgba(var(--primary-rgb),0.2); }
 .step-node.pending { background: var(--card); border: 1px solid var(--border-subtle); color: var(--text-muted); }
 .step-line { flex: 1; height: 2px; background: var(--border-subtle); }
 .step-line.done { background: var(--primary-green); }
 
 /* ── Heatmap density ── */
-.density-ok { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.25) !important; }
-.density-warn { background: rgba(251,191,36,0.10); border-color: rgba(251,191,36,0.3) !important; }
-.density-crit { background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.3) !important; }
+.density-ok { background: rgba(var(--primary-rgb),0.12); border-color: rgba(var(--primary-rgb),0.25) !important; }
+.density-warn { background: rgba(var(--warning-rgb),0.10); border-color: rgba(var(--warning-rgb),0.3) !important; }
+.density-crit { background: rgba(var(--critical-rgb),0.10); border-color: rgba(var(--critical-rgb),0.3) !important; }
 
 /* ── Scrollable chip row ── */
 .chip-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .chip-row::-webkit-scrollbar { display: none; }
 .filter-chip {
-  flex-shrink: 0; padding: 6px 14px; border-radius: 100px;
+  flex-shrink: 0; padding: 6px 14px; border-radius: var(--radius-chip);
   font-size: 12px; font-weight: 600; cursor: pointer;
   transition: all 0.15s ease;
   background: var(--card); border: 1px solid var(--border-subtle);
   color: var(--text-muted);
 }
 .filter-chip.active {
-  background: rgba(74,222,128,0.15);
-  border-color: rgba(74,222,128,0.4);
+  background: rgba(var(--primary-rgb),0.15);
+  border-color: rgba(var(--primary-rgb),0.4);
   color: var(--primary-green);
 }
 
 /* ── Sync badge ── */
 .sync-pill {
   display: inline-flex; align-items: center; gap: 6px;
-  background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.25);
-  border-radius: 100px; padding: 4px 12px;
+  background: rgba(var(--info-rgb),0.12); border: 1px solid rgba(var(--info-rgb),0.25);
+  border-radius: var(--radius-chip); padding: 4px 12px;
   font-size: 11px; font-weight: 600; color: var(--accent-blue);
 }
 
@@ -689,6 +898,7 @@
 .weather-temp {
   font-size: 52px; font-weight: 300;
   color: var(--text-primary); line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── GL account row ── */
@@ -698,15 +908,15 @@
 
 /* ── Approval badge ── */
 .approval-pending {
-  background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.3);
+  background: rgba(var(--warning-rgb),0.12); border: 1px solid rgba(var(--warning-rgb),0.3);
   border-radius: 12px; padding: 10px 14px;
 }
 .approval-approved {
-  background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.2);
+  background: rgba(var(--primary-rgb),0.08); border: 1px solid rgba(var(--primary-rgb),0.2);
   border-radius: 12px; padding: 10px 14px;
 }
 .approval-rejected {
-  background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2);
+  background: rgba(var(--critical-rgb),0.08); border: 1px solid rgba(var(--critical-rgb),0.2);
   border-radius: 12px; padding: 10px 14px;
 }
 
@@ -768,4 +978,23 @@ nextjs-portal { display: none !important; }
     animation: none;
     opacity: 0.6;
   }
+}
+
+/* ── One orchestrated entrance (design-system-revamp) ─────────────────────
+ * The brief for this pass was explicit: one orchestrated moment, not
+ * fade-and-slide on every section. This is that one moment — the dashboard's
+ * hero card and destination grid rise/fade in on first paint, staggered by
+ * `--stagger` (set inline per tile), and nothing else in the app animates on
+ * mount. Respects prefers-reduced-motion by disabling the animation and
+ * showing the final state immediately rather than leaving content invisible. */
+@keyframes ifms-rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.enter-rise {
+  animation: ifms-rise-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--stagger, 0ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .enter-rise { animation: none; }
 }

@@ -216,8 +216,8 @@ export function OnboardUpdateView({ token }: { token: string }) {
               {needsPin && (
                 <div style={{
                   marginTop: 14, padding: 12, borderRadius: 12,
-                  border: `1px solid ${lat && lng ? 'rgba(74,222,128,0.35)' : 'var(--status-warning, #f59e0b)'}`,
-                  background: lat && lng ? 'rgba(74,222,128,0.06)' : 'rgba(245,158,11,0.06)',
+                  border: `1px solid ${lat && lng ? 'rgba(var(--primary-rgb),0.35)' : 'var(--status-warning, #f59e0b)'}`,
+                  background: lat && lng ? 'rgba(var(--primary-rgb),0.06)' : 'rgba(245,158,11,0.06)',
                 }}>
                   <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
                     Farm GPS location {lat && lng ? '· pinned' : '· missing'}

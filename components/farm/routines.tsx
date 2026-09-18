@@ -107,7 +107,7 @@ export function RoutinesScreen() {
         </div>
 
         {loadError && (
-          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{loadError}</div>
+          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{loadError}</div>
         )}
 
         {routines === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>}
@@ -174,7 +174,7 @@ export function RoutinesScreen() {
             {canEdit && (
               <button
                 onClick={() => remove(routine)}
-                style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}
+                style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}
               >
                 <Trash2 size={11} /> Delete
               </button>

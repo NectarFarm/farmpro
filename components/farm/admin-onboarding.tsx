@@ -95,10 +95,10 @@ function toOnboardRequest(row: ApiOnboardRequest): AdminOnboardRequest {
 const ACTIONABLE = new Set<OnboardRequest['status']>(['pending', 'info-needed']);
 
 const STATUS_CONFIG: Record<OnboardRequest['status'], { color: string; bg: string; label: string }> = {
-  pending:      { color: 'var(--status-warning)', bg: 'rgba(251,191,36,0.1)', label: 'Pending' },
-  approved:     { color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.08)', label: 'Approved' },
-  rejected:     { color: 'var(--status-critical)', bg: 'rgba(248,113,113,0.08)', label: 'Rejected' },
-  'info-needed': { color: 'var(--accent-blue)', bg: 'rgba(96,165,250,0.08)', label: 'Info Needed' },
+  pending:      { color: 'var(--status-warning)', bg: 'rgba(var(--warning-rgb),0.1)', label: 'Pending' },
+  approved:     { color: 'var(--status-ok)', bg: 'rgba(var(--primary-rgb),0.08)', label: 'Approved' },
+  rejected:     { color: 'var(--status-critical)', bg: 'rgba(var(--critical-rgb),0.08)', label: 'Rejected' },
+  'info-needed': { color: 'var(--accent-blue)', bg: 'rgba(var(--info-rgb),0.08)', label: 'Info Needed' },
 };
 
 // Client-side mirror of the server's validation (server stays authoritative —
@@ -263,7 +263,7 @@ function LocationEditor({
             </div>
           )}
         </div>
-        <button onClick={() => (showLocationForm ? setShowLocationForm(false) : openForm())} style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: locationSaved ? 'rgba(74,222,128,0.1)' : 'var(--surface)', border: '1px solid var(--border-subtle)', color: locationSaved ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'pointer' }}>
+        <button onClick={() => (showLocationForm ? setShowLocationForm(false) : openForm())} style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '4px 12px', borderRadius: 8, background: locationSaved ? 'rgba(var(--primary-rgb),0.1)' : 'var(--surface)', border: '1px solid var(--border-subtle)', color: locationSaved ? 'var(--primary-green)' : 'var(--text-muted)', cursor: 'pointer' }}>
           {showLocationForm ? 'Cancel' : locationSaved ? 'Edit' : 'Set Location'}
         </button>
       </div>
@@ -355,7 +355,7 @@ function TempPasswordModal({
               if (navigator.clipboard) void navigator.clipboard.writeText(password);
               setCopied(true);
             }}
-            style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer', flexShrink: 0 }}
+            style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', cursor: 'pointer', flexShrink: 0 }}
           >
             {copied ? 'Copied' : 'Copy'}
           </button>
@@ -531,7 +531,7 @@ function RequestDetail({
           <div className="section-eyebrow" style={{ marginBottom: 8 }}>Requested Enterprises</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {enterpriseLabels.map(({ key, Icon, label }) => (
-              <span key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', padding: '5px 11px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 100, color: 'var(--primary-green)', fontWeight: 600 }}>
+              <span key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', padding: '5px 11px', background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', borderRadius: 100, color: 'var(--primary-green)', fontWeight: 600 }}>
                 <Icon size={13} aria-hidden="true" />
                 {label}
               </span>
@@ -571,7 +571,7 @@ function RequestDetail({
            this, so the fix is one scroll away; this just makes sure they know
            there is something to fix before they click Approve. */}
         {ACTIONABLE.has(req.status) && (req.lat === undefined || req.lng === undefined) && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: 10, marginBottom: 10, borderRadius: 10, border: '1px solid var(--status-warning)', background: 'rgba(251,191,36,0.08)' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: 10, marginBottom: 10, borderRadius: 10, border: '1px solid var(--status-warning)', background: 'rgba(var(--warning-rgb),0.08)' }}>
             <AlertTriangle size={13} color="var(--status-warning)" aria-hidden="true" style={{ marginTop: 1, flexShrink: 0 }} />
             <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               <strong>No GPS pin on this request.</strong> Approving as-is creates a farm with no weather forecasts — set the location above, or ask the applicant for it with &ldquo;Request Info&rdquo;.
@@ -585,14 +585,14 @@ function RequestDetail({
             <button
               disabled={saving}
               onClick={() => handle('approved')}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--status-ok)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               <Check size={14} /> Approve & Onboard
             </button>
             <button
               disabled={saving}
               onClick={() => handle('rejected')}
-              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               <X size={14} /> Reject
             </button>
@@ -602,7 +602,7 @@ function RequestDetail({
           <button
             disabled={saving}
             onClick={() => handle('info-needed')}
-            style={{ width: '100%', marginTop: 8, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-blue)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            style={{ width: '100%', marginTop: 8, padding: 11, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(var(--info-rgb),0.1)', border: '1px solid rgba(var(--info-rgb),0.3)', color: 'var(--accent-blue)', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
           >
             <MessageSquare size={14} /> Request More Info
           </button>
@@ -615,7 +615,7 @@ function RequestDetail({
            record of why a "no" is being reconsidered, which matters most
            when the very next action can provision a real tenant. */}
         {req.status === 'rejected' && (
-          <div className="farm-card" style={{ padding: 14, marginTop: 4, border: '1px solid var(--status-warning)', background: 'rgba(251,191,36,0.06)' }}>
+          <div className="farm-card" style={{ padding: 14, marginTop: 4, border: '1px solid var(--status-warning)', background: 'rgba(var(--warning-rgb),0.06)' }}>
             <div className="section-eyebrow" style={{ marginBottom: 8 }}>Reopen for Review</div>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.5 }}>
               Puts this request back to Pending so it can be approved, rejected, or sent back for info again. Requires a reason for the record.
@@ -748,9 +748,9 @@ export function AdminOnboardingScreen() {
         {/* Summary */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           {[
-            { label: 'Pending', value: requests.filter(r => r.status === 'pending').length, color: 'var(--status-warning)', bg: 'rgba(251,191,36,0.1)' },
-            { label: 'Info Needed', value: requests.filter(r => r.status === 'info-needed').length, color: 'var(--accent-blue)', bg: 'rgba(96,165,250,0.08)' },
-            { label: 'Approved', value: requests.filter(r => r.status === 'approved').length, color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.08)' },
+            { label: 'Pending', value: requests.filter(r => r.status === 'pending').length, color: 'var(--status-warning)', bg: 'rgba(var(--warning-rgb),0.1)' },
+            { label: 'Info Needed', value: requests.filter(r => r.status === 'info-needed').length, color: 'var(--accent-blue)', bg: 'rgba(var(--info-rgb),0.08)' },
+            { label: 'Approved', value: requests.filter(r => r.status === 'approved').length, color: 'var(--status-ok)', bg: 'rgba(var(--primary-rgb),0.08)' },
           ].map((s) => (
             <div key={s.label} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: '10px', textAlign: 'center', border: `1px solid ${s.color}30` }}>
               <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -794,7 +794,7 @@ export function AdminOnboardingScreen() {
                   key={req.id}
                   onClick={() => setSelected(req)}
                   className="farm-card"
-                  style={{ padding: 14, width: '100%', textAlign: 'left', cursor: 'pointer', border: req.status === 'pending' ? '1px solid rgba(251,191,36,0.25)' : '1px solid var(--border-subtle)' }}
+                  style={{ padding: 14, width: '100%', textAlign: 'left', cursor: 'pointer', border: req.status === 'pending' ? '1px solid rgba(var(--warning-rgb),0.25)' : '1px solid var(--border-subtle)' }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <div>
@@ -836,7 +836,7 @@ export function AdminOnboardingScreen() {
 
                   {/* Notes strip */}
                   {req.notes && (
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-blue)', padding: '6px 10px', background: 'rgba(96,165,250,0.06)', borderRadius: 8, marginBottom: 8, border: '1px solid rgba(96,165,250,0.15)' }}>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-blue)', padding: '6px 10px', background: 'rgba(var(--info-rgb),0.06)', borderRadius: 8, marginBottom: 8, border: '1px solid rgba(var(--info-rgb),0.15)' }}>
                       <MessageSquare size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />
                       {req.notes}
                     </div>
@@ -855,13 +855,13 @@ export function AdminOnboardingScreen() {
                     <div style={{ display: 'flex', gap: 6, marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => { e.stopPropagation(); void act(req.id, 'approved'); }}
-                        style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                        style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
                       >
                         <Check size={12} /> Approve
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); void act(req.id, 'rejected'); }}
-                        style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                        style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
                       >
                         <X size={12} /> Reject
                       </button>

@@ -176,7 +176,7 @@ export function VetHerdScreen() {
                   <button
                     type="button"
                     onClick={() => setExpanded(isOpen ? null : b.id)}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 0', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: isOpen ? 'rgba(74,222,128,0.1)' : 'var(--card)', border: '1px solid var(--border-subtle)', color: isOpen ? 'var(--primary-green)' : 'var(--text-muted)' }}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 0', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: isOpen ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)', border: '1px solid var(--border-subtle)', color: isOpen ? 'var(--primary-green)' : 'var(--text-muted)' }}
                   >
                     {isOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                     {isOpen ? 'Hide history' : 'View history'}
@@ -186,7 +186,7 @@ export function VetHerdScreen() {
                     onClick={() => setLogFor(b)}
                     disabled={!employee}
                     title={employee ? undefined : 'No linked staff record'}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 0', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: employee ? 'pointer' : 'not-allowed', opacity: employee ? 1 : 0.5, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)' }}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 0', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: employee ? 'pointer' : 'not-allowed', opacity: employee ? 1 : 0.5, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)' }}
                   >
                     <Plus size={12} /> Log mortality
                   </button>
@@ -281,7 +281,7 @@ function LogMortalitySheet({ batch, tenantId, employeeId, onClose, onSaved }: {
               key={c}
               type="button"
               onClick={() => setCause(c)}
-              style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer', background: c === cause ? 'rgba(248,113,113,0.12)' : 'var(--card)', border: c === cause ? '1px solid rgba(248,113,113,0.3)' : '1px solid var(--border-subtle)', color: c === cause ? 'var(--status-critical)' : 'var(--text-muted)' }}
+              style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer', background: c === cause ? 'rgba(var(--critical-rgb),0.12)' : 'var(--card)', border: c === cause ? '1px solid rgba(var(--critical-rgb),0.3)' : '1px solid var(--border-subtle)', color: c === cause ? 'var(--status-critical)' : 'var(--text-muted)' }}
             >
               {c}
             </button>

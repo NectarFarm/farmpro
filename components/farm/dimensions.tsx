@@ -59,7 +59,7 @@ export function DimensionsScreen() {
         </div>
 
         {error && (
-          <div className="farm-card" style={{ padding: 13, marginBottom: 14, border: '1px solid rgba(248,113,113,0.3)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{error}</div>
+          <div className="farm-card" style={{ padding: 13, marginBottom: 14, border: '1px solid rgba(var(--critical-rgb),0.3)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{error}</div>
         )}
 
         {dimensions === null && !error && (

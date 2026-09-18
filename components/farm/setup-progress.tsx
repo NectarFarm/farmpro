@@ -105,7 +105,7 @@ export function SetupStrip({ state, onNavigate }: {
     <div
       className="farm-card"
       data-tour="setup-progress"
-      style={{ padding: 14, marginBottom: 12, border: '1px solid rgba(74,222,128,0.28)' }}
+      style={{ padding: 14, marginBottom: 12, border: '1px solid rgba(var(--primary-rgb),0.28)' }}
     >
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         <ProgressRing completed={state.completed} total={state.total} />
@@ -142,7 +142,7 @@ export function SetupStrip({ state, onNavigate }: {
               onClick={() => onNavigate(next.goTo!.screen as ScreenId, next.goTo!.params)}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 11,
-                background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)',
+                background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.35)',
                 color: 'var(--primary-green)', fontWeight: 750, fontSize: 'var(--fs-sm)', cursor: 'pointer',
               }}
             >
@@ -179,7 +179,7 @@ function StepRow({ step, index, isNext, last, onNavigate }: {
   const marker = step.done ? (
     <div style={{
       width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-      background: 'rgba(74,222,128,0.14)', border: '1px solid rgba(74,222,128,0.4)',
+      background: 'rgba(var(--primary-rgb),0.14)', border: '1px solid rgba(var(--primary-rgb),0.4)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary-green)',
     }}>
       <Check size={14} aria-hidden="true" />
@@ -187,8 +187,8 @@ function StepRow({ step, index, isNext, last, onNavigate }: {
   ) : (
     <div style={{
       width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-      background: isNext ? 'rgba(74,222,128,0.12)' : 'var(--card)',
-      border: isNext ? '1px solid rgba(74,222,128,0.45)' : '1px solid var(--border-subtle)',
+      background: isNext ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)',
+      border: isNext ? '1px solid rgba(var(--primary-rgb),0.45)' : '1px solid var(--border-subtle)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: 'var(--fs-xs)', fontWeight: 700,
       color: isNext ? 'var(--primary-green)' : 'var(--text-dim)',
@@ -204,7 +204,7 @@ function StepRow({ step, index, isNext, last, onNavigate }: {
         borderBottom: last ? 'none' : '1px solid var(--border-subtle)',
         // The next step is the only one tinted. Highlighting every unfinished
         // step would make eight of nine rows shout at a brand-new owner.
-        background: isNext ? 'rgba(74,222,128,0.05)' : 'transparent',
+        background: isNext ? 'rgba(var(--primary-rgb),0.05)' : 'transparent',
       }}
     >
       {marker}
@@ -274,14 +274,14 @@ export function SetupChecklist({ state, onNavigate }: {
   return (
     <>
       {state.complete ? (
-        <div className="farm-card" style={{ padding: 14, marginBottom: 12, display: 'flex', gap: 11, alignItems: 'center', border: '1px solid rgba(74,222,128,0.28)' }}>
+        <div className="farm-card" style={{ padding: 14, marginBottom: 12, display: 'flex', gap: 11, alignItems: 'center', border: '1px solid rgba(var(--primary-rgb),0.28)' }}>
           <CheckCircle2 size={20} color="var(--primary-green)" aria-hidden="true" style={{ flexShrink: 0 }} />
           <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
             Every setup step is done. This list stays here for reference — it no longer appears on your dashboard.
           </div>
         </div>
       ) : (
-        <div className="farm-card" style={{ padding: 14, marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center', border: '1px solid rgba(74,222,128,0.28)' }}>
+        <div className="farm-card" style={{ padding: 14, marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center', border: '1px solid rgba(var(--primary-rgb),0.28)' }}>
           <ProgressRing completed={state.completed} total={state.total} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 'var(--fs-base)', fontWeight: 750, color: 'var(--text-primary)' }}>

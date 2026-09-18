@@ -34,10 +34,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const TOAST_COLORS: Record<ToastType, { bg: string; border: string; color: string; icon: React.ReactNode }> = {
-    success: { bg: 'rgba(74,222,128,0.18)', border: 'rgba(74,222,128,0.5)', color: 'var(--status-ok)',       icon: <Check size={14} /> },
-    error:   { bg: 'rgba(248,113,113,0.18)', border: 'rgba(248,113,113,0.5)', color: 'var(--status-critical)', icon: <X size={14} /> },
-    warning: { bg: 'rgba(251,191,36,0.18)', border: 'rgba(251,191,36,0.5)',  color: 'var(--accent-amber)',   icon: <AlertTriangle size={14} /> },
-    info:    { bg: 'rgba(96,165,250,0.18)', border: 'rgba(96,165,250,0.5)',  color: 'var(--accent-blue)',    icon: <Info size={14} /> },
+    success: { bg: 'rgba(var(--primary-rgb),0.18)', border: 'rgba(var(--primary-rgb),0.5)', color: 'var(--status-ok)',       icon: <Check size={14} /> },
+    error:   { bg: 'rgba(var(--critical-rgb),0.18)', border: 'rgba(var(--critical-rgb),0.5)', color: 'var(--status-critical)', icon: <X size={14} /> },
+    warning: { bg: 'rgba(var(--warning-rgb),0.18)', border: 'rgba(var(--warning-rgb),0.5)',  color: 'var(--accent-amber)',   icon: <AlertTriangle size={14} /> },
+    info:    { bg: 'rgba(var(--info-rgb),0.18)', border: 'rgba(var(--info-rgb),0.5)',  color: 'var(--accent-blue)',    icon: <Info size={14} /> },
   };
 
   return (
@@ -91,9 +91,9 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
 
   const v = pending?.variant ?? 'warning';
   const colorMap = {
-    danger:  { bg: 'rgba(248,113,113,0.12)', border: 'rgba(248,113,113,0.4)', btnBg: 'rgba(248,113,113,0.2)', btnColor: 'var(--status-critical)', btnBorder: 'rgba(248,113,113,0.5)' },
-    warning: { bg: 'rgba(251,191,36,0.1)',   border: 'rgba(251,191,36,0.3)', btnBg: 'rgba(251,191,36,0.15)', btnColor: 'var(--accent-amber)',    btnBorder: 'rgba(251,191,36,0.4)' },
-    info:    { bg: 'rgba(96,165,250,0.1)',   border: 'rgba(96,165,250,0.3)', btnBg: 'rgba(96,165,250,0.15)', btnColor: 'var(--accent-blue)',     btnBorder: 'rgba(96,165,250,0.4)' },
+    danger:  { bg: 'rgba(var(--critical-rgb),0.12)', border: 'rgba(var(--critical-rgb),0.4)', btnBg: 'rgba(var(--critical-rgb),0.2)', btnColor: 'var(--status-critical)', btnBorder: 'rgba(var(--critical-rgb),0.5)' },
+    warning: { bg: 'rgba(var(--warning-rgb),0.1)',   border: 'rgba(var(--warning-rgb),0.3)', btnBg: 'rgba(var(--warning-rgb),0.15)', btnColor: 'var(--accent-amber)',    btnBorder: 'rgba(var(--warning-rgb),0.4)' },
+    info:    { bg: 'rgba(var(--info-rgb),0.1)',   border: 'rgba(var(--info-rgb),0.3)', btnBg: 'rgba(var(--info-rgb),0.15)', btnColor: 'var(--accent-blue)',     btnBorder: 'rgba(var(--info-rgb),0.4)' },
   };
   const c = colorMap[v];
 
@@ -140,7 +140,7 @@ export function LogoutMenu({ onLogout }: { onLogout: () => void }) {
     <>
       <button
         onClick={() => setOpen(true)}
-        style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+        style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
         title="Sign out"
       >
         <LogOut size={14} color="var(--status-critical)" />
@@ -150,7 +150,7 @@ export function LogoutMenu({ onLogout }: { onLogout: () => void }) {
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', zIndex: 500 }} onClick={() => setOpen(false)}>
           <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 16, color: 'var(--text-primary)' }}>Account</div>
-            <button onClick={handleLogout} style={{ width: '100%', padding: '13px 16px', borderRadius: 14, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={handleLogout} style={{ width: '100%', padding: '13px 16px', borderRadius: 14, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
               <LogOut size={16} /> Sign Out
               <ChevronRight size={14} style={{ marginLeft: 'auto' }} />
             </button>
@@ -218,7 +218,7 @@ export function GovernanceGateBanner({ action, onRequest, onCancel }: {
   action: string; onRequest: () => void; onCancel: () => void;
 }) {
   return (
-    <div style={{ padding: 16, borderRadius: 14, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.35)', marginBottom: 14 }}>
+    <div style={{ padding: 16, borderRadius: 14, background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.35)', marginBottom: 14 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 12 }}>
         <ShieldCheck size={18} color="var(--accent-amber)" style={{ flexShrink: 0, marginTop: 1 }} />
         <div>
@@ -230,7 +230,7 @@ export function GovernanceGateBanner({ action, onRequest, onCancel }: {
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onCancel} style={{ flex: 1, padding: '9px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Cancel</button>
-        <button onClick={onRequest} style={{ flex: 2, padding: '9px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', color: 'var(--accent-amber)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <button onClick={onRequest} style={{ flex: 2, padding: '9px', borderRadius: 10, background: 'rgba(var(--warning-rgb),0.15)', border: '1px solid rgba(var(--warning-rgb),0.4)', color: 'var(--accent-amber)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           <ShieldCheck size={13} /> Send Approval Request
         </button>
       </div>

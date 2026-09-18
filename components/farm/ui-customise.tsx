@@ -147,7 +147,7 @@ export function UICustomiseScreen() {
         {/* These settings are tenant-wide (one settings record per tenant, not
            per farm) — every farm on this tenant shares the same module/branding
            configuration, so there is no per-farm switcher here. */}
-        <div style={{ padding: '9px 14px', background: 'rgba(96,165,250,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(96,165,250,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+        <div style={{ padding: '9px 14px', background: 'rgba(var(--info-rgb),0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(var(--info-rgb),0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
           Applies tenant-wide, across all farms ({farmName}{farms.length > 1 ? ` +${farms.length - 1} more` : ''}).
         </div>
 
@@ -159,8 +159,8 @@ export function UICustomiseScreen() {
               onClick={() => setTab(id as typeof tab)}
               style={{
                 flex: 1, padding: '8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
-                background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)',
-                border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+                background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
+                border: tab === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
                 color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)',
               }}
             >
@@ -216,7 +216,7 @@ export function UICustomiseScreen() {
         {/* ── LABELS TAB ── */}
         {tab === 'labels' && (
           <div style={{ paddingBottom: 80 }}>
-            <div style={{ padding: '10px 14px', background: 'rgba(96,165,250,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(96,165,250,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <div style={{ padding: '10px 14px', background: 'rgba(var(--info-rgb),0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(var(--info-rgb),0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Rename module labels to match your farm's terminology. Leave blank to use the default label.
             </div>
             {modules.map((m) => (
@@ -232,7 +232,7 @@ export function UICustomiseScreen() {
                       placeholder={m.defaultLabel}
                       autoFocus
                     />
-                    <button onClick={() => saveLabel(m.id)} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button onClick={() => saveLabel(m.id)} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--status-ok)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 4 }}>
                       <Check size={12} /> Save
                     </button>
                     <button onClick={() => setEditingModule(null)} style={{ padding: '8px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>
@@ -319,8 +319,8 @@ export function UICustomiseScreen() {
                     onClick={() => updateBranding('logoEmoji', e)}
                     style={{
                       width: 38, height: 38, borderRadius: 10, fontSize: 'var(--fs-2xl)', cursor: 'pointer',
-                      background: branding.logoEmoji === e ? 'rgba(74,222,128,0.15)' : 'var(--card)',
-                      border: branding.logoEmoji === e ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+                      background: branding.logoEmoji === e ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
+                      border: branding.logoEmoji === e ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
                     }}
                   >
                     {e}

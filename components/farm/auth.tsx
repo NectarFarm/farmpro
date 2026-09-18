@@ -57,8 +57,8 @@ export function GpsMapBlock({
         disabled={loading}
         style={{ width: '100%', padding: '10px 14px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700,
           cursor: loading ? 'wait' : 'pointer',
-          background: hasCoords ? 'rgba(74,222,128,0.12)' : 'var(--card)',
-          border: hasCoords ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+          background: hasCoords ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)',
+          border: hasCoords ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
           color: hasCoords ? 'var(--primary-green)' : 'var(--text-muted)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
         <MapPin size={13} aria-hidden="true" /> {loading ? 'Detecting…' : hasCoords ? `${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}` : 'Detect My GPS Location'}
@@ -196,8 +196,12 @@ function AuthMasthead({ eyebrow, headline }: { eyebrow: string; headline: string
 
       <div style={{ position: 'relative' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 8, background: 'var(--primary-green)', color: 'var(--on-primary)', flexShrink: 0 }}>
-            <Leaf size={15} aria-hidden="true" />
+          {/* The shared brand mark, not a one-off inline square: the same
+              class the sidebar uses, so the identity is literally the same
+              object in both places and the token pass's gradient and radius
+              come with it. */}
+          <span className="brand-mark" style={{ width: 26, height: 26, borderRadius: 9 }}>
+            <Leaf size={15} color="var(--on-primary)" aria-hidden="true" />
           </span>
           <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 750, color: 'var(--text-primary)', letterSpacing: '0.01em' }}>{eyebrow}</span>
         </div>
@@ -261,7 +265,7 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
     return (
       <div className="screen-content px-screen" style={{ paddingTop: 40, paddingBottom: 24 }}>
         <AuthHeader title="Reset Password" subtitle="Request an administrator-assisted reset" />
-        <div style={{ padding: '14px 16px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 16, marginBottom: 20 }}>
+        <div style={{ padding: '14px 16px', background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.2)', borderRadius: 16, marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 6 }}>
             <CheckCircle2 size={15} aria-hidden="true" /> Request received
           </div>
@@ -307,11 +311,11 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
       </div>
 
       {generalError && (
-        <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{generalError}</div>
+        <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{generalError}</div>
       )}
 
       <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleSubmit} disabled={busy}>
-        {busy ? 'Sending request…' : 'Request Reset →'}
+        {busy ? 'Sending request…' : <>Request Reset <ChevronRight size={15} aria-hidden="true" /></>}
       </button>
       <button onClick={onBack} style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', fontWeight: 600, cursor: 'pointer' }}>
         ← Back to Login
@@ -455,7 +459,7 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
               Forgot password?
             </button>
           </div>
-          {error && <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{error}</div>}
+          {error && <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{error}</div>}
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleEmailLogin} disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
@@ -491,15 +495,15 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
               Enter your phone number above to unlock the PIN pad.
             </div>
           )}
-          {error && <div style={{ padding: '8px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12, textAlign: 'center' }}>{error}</div>}
+          {error && <div style={{ padding: '8px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12, textAlign: 'center' }}>{error}</div>}
           {/* PIN pad — disabled (with the hint above) until a phone number is
               entered, since a PIN alone can no longer authenticate anyone. */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, opacity: phone.trim() ? 1 : 0.5 }}>
             {['1','2','3','4','5','6','7','8','9','','0','DEL'].map((d, i) => (
               <button key={i} onClick={() => d && phone.trim() && handlePinKey(d)} disabled={!phone.trim()}
                 style={{ padding: '16px 8px', borderRadius: 14, fontSize: d === 'DEL' ? 12 : 20, fontWeight: 700, cursor: d && phone.trim() ? 'pointer' : 'default',
-                  background: d === 'DEL' ? 'rgba(248,113,113,0.1)' : d ? 'var(--card)' : 'transparent',
-                  border: d === 'DEL' ? '1px solid rgba(248,113,113,0.2)' : d ? '1px solid var(--border-subtle)' : 'none',
+                  background: d === 'DEL' ? 'rgba(var(--critical-rgb),0.1)' : d ? 'var(--card)' : 'transparent',
+                  border: d === 'DEL' ? '1px solid rgba(var(--critical-rgb),0.2)' : d ? '1px solid var(--border-subtle)' : 'none',
                   color: d === 'DEL' ? 'var(--status-critical)' : 'var(--text-primary)' }}>
                 {d}
               </button>
@@ -556,7 +560,7 @@ function Step2FarmDetails({
   return (
     <div>
       <div style={{ marginBottom: 14 }}>
-        <label htmlFor="farm-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm Name *</label>
+        <label htmlFor="farm-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm name</label>
         <input
           id="farm-name" className="farm-input"
           style={errors.farmName ? { border: '1px solid var(--status-critical)' } : undefined}
@@ -589,8 +593,8 @@ function Step2FarmDetails({
          rather than something you have to read for. */}
       <div style={{
         marginBottom: 20, padding: 12, borderRadius: 12,
-        border: `1px solid ${hasPin ? 'rgba(74,222,128,0.35)' : 'var(--status-warning, #f59e0b)'}`,
-        background: hasPin ? 'rgba(74,222,128,0.06)' : 'rgba(245,158,11,0.06)',
+        border: `1px solid ${hasPin ? 'rgba(var(--primary-rgb),0.35)' : 'var(--status-warning, #f59e0b)'}`,
+        background: hasPin ? 'rgba(var(--primary-rgb),0.06)' : 'rgba(245,158,11,0.06)',
       }}>
         <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
           Farm GPS Location {hasPin
@@ -652,7 +656,7 @@ function Step2FarmDetails({
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={onBack}>← Back</button>
         <button className="btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={onNext}>
-          Next: Enterprises →
+          Continue
         </button>
       </div>
     </div>
@@ -945,7 +949,7 @@ export function RegisterScreen({ onBack }: {
             </button>
           </div>
         )}
-        <div style={{ padding: '14px 16px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 16, marginBottom: 24, textAlign: 'left' }}>
+        <div style={{ padding: '14px 16px', background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.2)', borderRadius: 16, marginBottom: 24, textAlign: 'left' }}>
           <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>What happens next</div>
           {[/* Copy matches what the backend actually does (#376 Gap 6): approval
                sends a real set-password email (PATCH /api/onboard-requests/[id]),
@@ -956,7 +960,7 @@ export function RegisterScreen({ onBack }: {
             'Set your password and start your farm',
           ].map((s, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
-              <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+              <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                 <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)' }}>{i + 1}</span>
               </div>
               <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>{s}</span>
@@ -974,15 +978,32 @@ export function RegisterScreen({ onBack }: {
 
   return (
     <div className="screen-content px-screen" style={{ paddingTop: 32, paddingBottom: 24 }}>
-      <AuthHeader title="Request Farm Access" subtitle="Join IFMS — free 14-day trial" />
+      {/* This said "Join IFMS — free 14-day trial". There is no trial: no
+          billing, no subscription and no plan exists anywhere in the schema
+          or the API (the admin screen says so itself — "Plans & packages —
+          not available yet"). It was a promise the product could not keep, on
+          the very first screen of the flow.
+          It also set the wrong expectation twice over. This is not a self-serve
+          signup — you send an application, a person reads it, and an account is
+          created for you a day or two later. "Free trial" implies you are about
+          to be let in, so the wait that follows reads as something going wrong
+          rather than the process working. */}
+      <AuthMasthead eyebrow="Apply for access" headline="Tell us about your farm." />
+      <p style={{ margin: '-14px 0 22px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.55, maxWidth: '38ch' }}>
+        A person reviews every application. If it all fits, your farm is set up and
+        you&rsquo;ll get an email to choose a password — usually within a day or two.
+      </p>
 
       {/* Steps */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 22 }}>
         {[1,2,3].map(s => (
           <div key={s} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
             <div style={{ height: 4, width: '100%', borderRadius: 100, background: step >= s ? 'var(--primary-green)' : 'var(--border-subtle)', transition: 'background 0.25s' }} />
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: step >= s ? 'var(--primary-green)' : 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              {['Your Info', 'Farm Details', 'Enterprises'][s-1]}
+            {/* Sentence case. Tracked-out all-caps micro-labels are the
+                commonest tell in generated interfaces, and at this size they
+                are also measurably harder to read. */}
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: step >= s ? 'var(--primary-green)' : 'var(--text-dim)' }}>
+              {['You', 'Your farm', 'What you farm'][s-1]}
             </span>
           </div>
         ))}
@@ -991,7 +1012,7 @@ export function RegisterScreen({ onBack }: {
       {step === 1 && (
         <div>
           <div style={{ marginBottom: 14 }}>
-            <label htmlFor="farmer-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Full Name *</label>
+            <label htmlFor="farmer-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Your name</label>
             <input
               id="farmer-name" className="farm-input"
               style={errors.farmerName ? { border: '1px solid var(--status-critical)' } : undefined}
@@ -1002,7 +1023,7 @@ export function RegisterScreen({ onBack }: {
             {errors.farmerName && <div id="farmer-name-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.farmerName}</div>}
           </div>
           <div style={{ marginBottom: 14 }}>
-            <label htmlFor="farmer-email" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email Address *</label>
+            <label htmlFor="farmer-email" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email</label>
             <div style={{ position: 'relative' }}>
               <Mail size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
@@ -1016,7 +1037,7 @@ export function RegisterScreen({ onBack }: {
             {errors.email && <div id="farmer-email-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.email}</div>}
           </div>
           <div style={{ marginBottom: 20 }}>
-            <label htmlFor="farmer-phone" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone Number *</label>
+            <label htmlFor="farmer-phone" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone</label>
             <div style={{ position: 'relative' }}>
               <Phone size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
@@ -1030,7 +1051,7 @@ export function RegisterScreen({ onBack }: {
             {errors.phone && <div id="farmer-phone-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.phone}</div>}
           </div>
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleStep1Next}>
-            Next: Farm Details →
+            Continue
           </button>
         </div>
       )}
@@ -1060,8 +1081,8 @@ export function RegisterScreen({ onBack }: {
               return (
                 <button key={e.subtype} onClick={() => toggleEnterprise(e.subtype)}
                   style={{ padding: '11px 10px', borderRadius: 14, cursor: 'pointer', textAlign: 'center',
-                    background: sel ? 'rgba(74,222,128,0.15)' : 'var(--card)',
-                    border: sel ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)' }}>
+                    background: sel ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
+                    border: sel ? '1px solid rgba(var(--primary-rgb),0.5)' : '1px solid var(--border-subtle)' }}>
                   <div style={{ marginBottom: 4, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}><e.icon size={28} aria-hidden="true" /></div>
                   <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}>{e.label}</div>
                   <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 2 }}>{e.type}</div>
@@ -1071,7 +1092,7 @@ export function RegisterScreen({ onBack }: {
             })}
           </div>
           {enterprisesMessage && (
-            <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, marginBottom: 12, fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)' }}>
+            <div style={{ padding: '8px 12px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 10, marginBottom: 12, fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)' }}>
               <AlertTriangle size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} /> {enterprisesMessage}
             </div>
           )}
@@ -1098,14 +1119,14 @@ export function RegisterScreen({ onBack }: {
               Used only to review and set up your farm account.
             </div>
             {consentMessage && (
-              <div id="consent-error" style={{ padding: '6px 10px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--accent-amber)', marginTop: 6, marginLeft: 24 }}>
+              <div id="consent-error" style={{ padding: '6px 10px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--accent-amber)', marginTop: 6, marginLeft: 24 }}>
                 {consentMessage}
               </div>
             )}
           </div>
 
           {submitError && (
-            <div style={{ padding: '10px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>
               {submitError}
             </div>
           )}
