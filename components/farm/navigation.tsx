@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback, useTransition } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X, Key, Activity, Building2 } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, DoorOpen, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X, Key, Activity, Building2 } from './icons';
 import { apiClient } from '@/lib/request';
 import type { SetupState } from '@/lib/setup-state';
 
@@ -706,7 +706,7 @@ export function RoleNoticeScreen() {
           onClick={() => { if (_globalLogout) _globalLogout(); }}
           style={{ marginTop: 22, padding: '13px 34px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700, cursor: 'pointer',
             background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <LogOut size={14} /> Sign Out
+          <DoorOpen size={14} /> Sign Out
         </button>
       </div>
     </div>
@@ -1097,10 +1097,15 @@ export function AppSidebar() {
           <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Farm management</div>
         </div>
       </div>
-      <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }} aria-label="Primary">
+      {/* Horizontal inset trimmed 12px -> 8px each side (screenshot pass,
+       * alongside the 250px -> 200/232px width cut below the >=768px
+       * media query) — hands the narrower sidebar back ~8px of usable
+       * label width so "Onboarding Requests" / "Impersonation Log" still
+       * fit on one line. */}
+      <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px' }} aria-label="Primary">
         {groups.map((group) => (
           <div key={group.label} style={{ marginBottom: 16 }}>
-            <div style={{ padding: '0 12px', margin: '8px 0 5px', fontSize: 'var(--fs-xs)', fontWeight: 650, color: 'var(--text-dim)' }}>{group.label}</div>
+            <div style={{ padding: '0 8px', margin: '8px 0 5px', fontSize: 'var(--fs-xs)', fontWeight: 650, color: 'var(--text-dim)' }}>{group.label}</div>
             {group.items.map((tab) => {
           const Icon = tab.icon;
           // A row with `params` deep-links into a SUB-tab of the screen it
@@ -1120,7 +1125,7 @@ export function AppSidebar() {
               onClick={() => navigate(tab.id, tab.params)}
               aria-current={active ? 'page' : undefined}
               data-tour={tab.dataTour ?? `nav-${tab.id}`}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px 10px 10px', marginBottom: 2,
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 8px 10px 8px', marginBottom: 2,
                 borderRadius: 10, cursor: 'pointer', textAlign: 'left', position: 'relative',
                 // Was a hardcoded #e8f0e9 / #c9ddcc pair — switched to the same
                 // rgba(primary-green) active tint the rest of this file already
@@ -1268,7 +1273,7 @@ function LogoutButton() {
         title="Sign out"
         aria-label="Sign out"
       >
-        <LogOut size={14} color="var(--status-critical)" />
+        <DoorOpen size={14} color="var(--status-critical)" />
       </button>
 
       {showMenu && (
