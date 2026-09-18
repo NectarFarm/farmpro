@@ -139,7 +139,7 @@ export function FarmConfigScreen() {
                 display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
                 padding: '8px 12px', borderRadius: 10, cursor: 'pointer',
                 fontSize: 'var(--fs-sm)', fontWeight: 700,
-                background: tab === id ? 'rgba(74,222,128,0.12)' : 'var(--card)',
+                background: tab === id ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)',
                 border: tab === id ? '1px solid var(--primary-green)' : '1px solid var(--border-subtle)',
                 color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)',
               }}
@@ -279,7 +279,7 @@ function StagesTab({ showToast }: { showToast: (m: string, t?: 'success' | 'erro
         </div>
 
         {draft.length === 0 && (
-          <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+          <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
             No stages defined for {enterpriseLabel(enterprise)}. Until you add some, batches of this enterprise
             accept any stage text — which is what lets typos through.
           </div>
@@ -337,7 +337,7 @@ function StagesTab({ showToast }: { showToast: (m: string, t?: 'success' | 'erro
       </div>
 
       {removedInUse.length > 0 && (
-        <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.25)', marginBottom: 12, display: 'flex', gap: 10 }}>
+        <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(var(--critical-rgb),0.06)', border: '1px solid rgba(var(--critical-rgb),0.25)', marginBottom: 12, display: 'flex', gap: 10 }}>
           <AlertTriangle size={16} color="var(--status-critical)" aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
             Live batches are sitting at <strong>{removedInUse.join(', ')}</strong>, which this list no longer

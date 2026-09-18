@@ -523,8 +523,8 @@ export function InventoryScreen() {
         {[['stock', 'Stock'], ['purchases', 'Purchases'], ['variance', 'Variance'], ['feedmix', 'Feed Mix']].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id as typeof tab)} style={{
             flex: 1, padding: '7px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
-            background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)',
-            border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+            background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
+            border: tab === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
             color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)',
           }}>{label}</button>
         ))}
@@ -600,7 +600,7 @@ export function InventoryScreen() {
           no physical-counts table on this branch; see lib/inventory.ts). */}
       {!loading && tab === 'variance' && (
         <div className="px-screen">
-          <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.08)', borderRadius: 12, marginBottom: 16, border: '1px solid rgba(251,191,36,0.25)' }}>
+          <div style={{ padding: '10px 14px', background: 'rgba(var(--warning-rgb),0.08)', borderRadius: 12, marginBottom: 16, border: '1px solid rgba(var(--warning-rgb),0.25)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-warning)', marginBottom: 4 }}><AlertTriangle size={13} aria-hidden="true" /> Reconciliation Review</div>
             <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>How long since each lot&apos;s on-hand figure was last confirmed (received or reason-adjusted). Lots stale past 30 days are flagged for a physical recount — there&apos;s no expected-vs-actual number to show without one.</div>
           </div>
@@ -652,7 +652,7 @@ export function InventoryScreen() {
         <div
           style={{
             position: 'fixed', left: 12, right: 12, bottom: 84, zIndex: 210,
-            background: 'var(--surface)', border: '1px solid rgba(251,191,36,0.35)',
+            background: 'var(--surface)', border: '1px solid rgba(var(--warning-rgb),0.35)',
             borderRadius: 12, padding: '12px 14px', fontSize: 'var(--fs-xs)',
             color: 'var(--text-secondary)', lineHeight: 1.5,
             maxHeight: '40vh', overflowY: 'auto',

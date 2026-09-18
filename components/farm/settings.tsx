@@ -15,7 +15,7 @@ import { useToast } from './ui-shared';
 import { requestTour } from './tour';
 import { apiClient } from '@/lib/request';
 import {
-  ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff,
+  ChevronRight, DoorOpen, Check, X, Lock, Eye, EyeOff,
   Palette,
   Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, ClipboardList, Layers,
   type LucideIcon,
@@ -515,7 +515,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
          * name, active, createdAt) — inventing a tier badge is exactly the
          * kind of thing this card was already doing. */}
         <button onClick={() => navigate('people')} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(251,191,36,0.2)', border: '2px solid rgba(251,191,36,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--accent-amber)', flexShrink: 0 }}>{initials}</div>
+          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(var(--warning-rgb),0.2)', border: '2px solid rgba(var(--warning-rgb),0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--accent-amber)', flexShrink: 0 }}>{initials}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)', color: 'var(--text-primary)' }}>{me?.name || 'Your account'}</div>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
@@ -546,7 +546,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                     if (!r.ok) showToast(r.error, 'error');
                   }}
                   style={{ padding: '10px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
-                    background: theme === t.id ? 'rgba(74,222,128,0.12)' : 'var(--surface)',
+                    background: theme === t.id ? 'rgba(var(--primary-rgb),0.12)' : 'var(--surface)',
                     border: theme === t.id ? '2px solid var(--primary-green)' : '1px solid var(--border-subtle)' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
                     <div style={{ width: 16, height: 16, borderRadius: 4, background: t.preview, border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
@@ -572,7 +572,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                       if (!r.ok) showToast(r.error, 'error');
                     }}
                     style={{ flex: 1, padding: '10px 4px', borderRadius: 10, cursor: 'pointer', border: 'none',
-                      background: fontSize === f.id ? 'rgba(74,222,128,0.15)' : 'var(--surface)',
+                      background: fontSize === f.id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--surface)',
                       outline: fontSize === f.id ? '2px solid var(--primary-green)' : '2px solid transparent' }}>
                     <span style={{ fontSize: f.size, fontWeight: 700, color: fontSize === f.id ? 'var(--primary-green)' : 'var(--text-muted)' }}>{f.label}</span>
                   </button>
@@ -586,7 +586,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
           </div>
 
           {/* Info strip */}
-          <div style={{ display: 'flex', gap: 8, padding: '10px 14px', background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 12, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          <div style={{ display: 'flex', gap: 8, padding: '10px 14px', background: 'rgba(var(--info-rgb),0.06)', border: '1px solid rgba(var(--info-rgb),0.15)', borderRadius: 12, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
             <Lightbulb size={14} color="var(--accent-blue)" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
             <span><strong>Sun Mode</strong> uses warm amber tones visible in bright outdoor sunlight. <strong>High Contrast</strong> maximises legibility for visually impaired users.</span>
           </div>
@@ -643,9 +643,9 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
 
         {/* Logout */}
         <button onClick={onLogout} style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700,
-          background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)',
+          background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)',
           color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
-          <LogOut size={16} /> Sign Out
+          <DoorOpen size={16} /> Sign Out
         </button>
       </div>
 

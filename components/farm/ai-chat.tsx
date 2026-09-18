@@ -187,7 +187,7 @@ export function AIChatScreen({ userName }: { userName?: string }) {
         title="AI Farm Assistant"
         subtitle="Answers from your recorded data"
         rightEl={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 100, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 100, background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.3)' }}>
             <Sparkles size={10} color="var(--primary-green)" aria-hidden="true" />
             <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)' }}>
               {activeFarmId === 'ALL' ? 'All farms' : 'This farm'}
@@ -209,15 +209,15 @@ export function AIChatScreen({ userName }: { userName?: string }) {
         {messages.map((msg) => (
           <div key={msg.id} style={{ marginBottom: 12, display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
             {msg.role === 'assistant' && (
-              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: 8, marginTop: 2 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: 8, marginTop: 2 }}>
                 <Bot size={14} color="var(--primary-green)" />
               </div>
             )}
             <div style={{ maxWidth: '78%' }}>
               <div style={{
                 padding: '10px 14px', borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                background: msg.role === 'user' ? 'rgba(74,222,128,0.2)' : 'var(--card)',
-                border: msg.role === 'user' ? '1px solid rgba(74,222,128,0.35)' : '1px solid var(--border-subtle)',
+                background: msg.role === 'user' ? 'rgba(var(--primary-rgb),0.2)' : 'var(--card)',
+                border: msg.role === 'user' ? '1px solid rgba(var(--primary-rgb),0.35)' : '1px solid var(--border-subtle)',
                 fontSize: 'var(--fs-base)', lineHeight: 1.55, color: 'var(--text-secondary)',
               }}>
                 {renderText(msg.text)}
@@ -225,7 +225,7 @@ export function AIChatScreen({ userName }: { userName?: string }) {
               <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 4, textAlign: msg.role === 'user' ? 'right' : 'left' }}>{msg.time}</div>
             </div>
             {msg.role === 'user' && (
-              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 8, marginTop: 2 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(var(--info-rgb),0.15)', border: '1px solid rgba(var(--info-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 8, marginTop: 2 }}>
                 <User size={14} color="var(--accent-blue)" />
               </div>
             )}
@@ -235,7 +235,7 @@ export function AIChatScreen({ userName }: { userName?: string }) {
         {/* Typing indicator */}
         {isTyping && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Bot size={14} color="var(--primary-green)" />
             </div>
             <div style={{ padding: '10px 14px', background: 'var(--card)', borderRadius: '18px 18px 18px 4px', border: '1px solid var(--border-subtle)', display: 'flex', gap: 4, alignItems: 'center' }}>
@@ -266,7 +266,7 @@ export function AIChatScreen({ userName }: { userName?: string }) {
         )}
 
         {error && (
-          <div role="alert" style={{ padding: '10px 12px', marginBottom: 12, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 12 }}>
+          <div role="alert" style={{ padding: '10px 12px', marginBottom: 12, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 12 }}>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', lineHeight: 1.5 }}>{error}</div>
             <button
               onClick={() => {
@@ -274,7 +274,7 @@ export function AIChatScreen({ userName }: { userName?: string }) {
                 const lastUser = [...messages].reverse().find((m) => m.role === 'user');
                 if (lastUser) { setMessages((m) => m.filter((x) => x.id !== lastUser.id)); sendMessage(lastUser.text); }
               }}
-              style={{ marginTop: 7, padding: '5px 12px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(248,113,113,0.14)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: 'pointer' }}
+              style={{ marginTop: 7, padding: '5px 12px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.14)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', cursor: 'pointer' }}
             >
               Try again
             </button>

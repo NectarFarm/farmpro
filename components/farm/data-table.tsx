@@ -311,7 +311,7 @@ export function DataTable<T extends Record<string, unknown>>({
           borderBottom: '1px solid var(--border-subtle)',
           borderLeft: isDragOver ? '2px solid var(--primary-green)' : '2px solid transparent',
           background: isDragOver
-            ? 'rgba(74,222,128,0.08)'
+            ? 'rgba(var(--primary-rgb),0.08)'
             : 'var(--surface)',
           position: 'sticky',
           top: 0,
@@ -360,7 +360,7 @@ export function DataTable<T extends Record<string, unknown>>({
         key={key}
         onClick={() => onRowClick?.(row, absIdx)}
         style={{ height: rowH, background: bg, cursor: onRowClick ? 'pointer' : 'default', transition: 'background 0.1s' }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(74,222,128,0.05)'; }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(var(--primary-rgb),0.05)'; }}
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
       >
         {orderedCols.map((col, ci) => (
@@ -399,7 +399,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   textAlign: col.align ?? 'left',
                   fontSize: density === 'compact' ? 10 : 11,
                   borderTop: '2px solid var(--border-subtle)',
-                  background: 'rgba(74,222,128,0.05)',
+                  background: 'rgba(var(--primary-rgb),0.05)',
                   color: 'var(--text-secondary)',
                   fontWeight: 700,
                   minWidth: col.minWidth ?? 60,
@@ -433,8 +433,8 @@ export function DataTable<T extends Record<string, unknown>>({
             <button key={d} onClick={() => setDensity(d)} style={{
               padding: '3px 7px', borderRadius: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700,
               textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer',
-              border: density === d ? '1px solid rgba(74,222,128,0.4)' : '1px solid transparent',
-              background: density === d ? 'rgba(74,222,128,0.12)' : 'transparent',
+              border: density === d ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid transparent',
+              background: density === d ? 'rgba(var(--primary-rgb),0.12)' : 'transparent',
               color: density === d ? 'var(--primary-green)' : 'var(--text-dim)',
             }}>
               {d === 'normal' ? '≡ Normal' : '⊟ Compact'}

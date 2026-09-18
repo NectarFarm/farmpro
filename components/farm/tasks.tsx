@@ -241,7 +241,7 @@ function TaskDetailSheet({
             ))}
           </div>
           {task.requiresApproval && (
-            <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(251,191,36,0.08)', borderRadius: 8, border: '1px solid rgba(251,191,36,0.25)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(var(--warning-rgb),0.08)', borderRadius: 8, border: '1px solid rgba(var(--warning-rgb),0.25)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <ShieldCheck size={12} color="var(--accent-amber)" />
               <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)', fontWeight: 600 }}>
                 {task.approverId ? `${approverName} approves this before it counts as done` : 'Needs approval before it counts as done'}
@@ -307,7 +307,7 @@ function TaskDetailSheet({
                 notes: rest,
                 farmId: task.farmId ?? '',
               })}
-              style={{ flex: 1, minWidth: 150, padding: '11px', borderRadius: 10, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, minWidth: 150, padding: '11px', borderRadius: 10, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               <RefreshCw size={13} /> Schedule again
             </button>
@@ -318,12 +318,12 @@ function TaskDetailSheet({
             </button>
           )}
           {task.status !== 'DONE' && task.status !== 'PENDING_APPROVAL' && (
-            <button onClick={() => { onDone(task); onClose(); }} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <button onClick={() => { onDone(task); onClose(); }} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <Check size={14} /> Mark Done
             </button>
           )}
           {task.status !== 'DONE' && (
-            <button onClick={() => { onDelete(task); onClose(); }} style={{ padding: '11px 14px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <button onClick={() => { onDelete(task); onClose(); }} style={{ padding: '11px 14px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
               <Trash2 size={13} />
             </button>
           )}
@@ -365,7 +365,7 @@ function TaskCard({ task, employees, onOpen }: { task: ApiTask; employees: Emplo
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
         <span style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 100, background: 'rgba(255,255,255,0.05)', color: PRIORITY_COLOR[task.priority], border: '1px solid var(--border-subtle)', textTransform: 'capitalize' }}>{task.priority}</span>
-        {task.requiresApproval && <span style={{ fontSize: 'var(--fs-2xs)', padding: '2px 6px', borderRadius: 100, background: 'rgba(251,191,36,0.1)', color: 'var(--accent-amber)', border: '1px solid rgba(251,191,36,0.3)' }}><ShieldCheck size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} />Approval</span>}
+        {task.requiresApproval && <span style={{ fontSize: 'var(--fs-2xs)', padding: '2px 6px', borderRadius: 100, background: 'rgba(var(--warning-rgb),0.1)', color: 'var(--accent-amber)', border: '1px solid rgba(var(--warning-rgb),0.3)' }}><ShieldCheck size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} />Approval</span>}
       </div>
     </div>
   );
@@ -552,7 +552,7 @@ function FilterSheet({
           <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>Status</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {['All', 'PENDING', 'OVERDUE', 'PENDING_APPROVAL', 'DONE', 'REJECTED'].map(v => (
-              <button key={v} onClick={() => setFilterStatus(v)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: filterStatus === v ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: filterStatus === v ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)', color: filterStatus === v ? 'var(--primary-green)' : 'var(--text-muted)' }}>{STATUS_LABEL[v] ?? v}</button>
+              <button key={v} onClick={() => setFilterStatus(v)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: filterStatus === v ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: filterStatus === v ? '1px solid rgba(var(--primary-rgb),0.5)' : '1px solid var(--border-subtle)', color: filterStatus === v ? 'var(--primary-green)' : 'var(--text-muted)' }}>{STATUS_LABEL[v] ?? v}</button>
             ))}
           </div>
         </div>
@@ -560,7 +560,7 @@ function FilterSheet({
           <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>Priority</div>
           <div style={{ display: 'flex', gap: 6 }}>
             {['All', 'high', 'medium', 'low'].map(v => (
-              <button key={v} onClick={() => setFilterPriority(v)} style={{ flex: 1, padding: '7px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: filterPriority === v ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: filterPriority === v ? '1px solid rgba(74,222,128,0.5)' : '1px solid var(--border-subtle)', color: filterPriority === v ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{v}</button>
+              <button key={v} onClick={() => setFilterPriority(v)} style={{ flex: 1, padding: '7px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: filterPriority === v ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: filterPriority === v ? '1px solid rgba(var(--primary-rgb),0.5)' : '1px solid var(--border-subtle)', color: filterPriority === v ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{v}</button>
             ))}
           </div>
         </div>
@@ -674,7 +674,7 @@ function TaskCalendar({ tasks, employees, month, onMonthChange, onOpenTask, onAd
               onClick={() => setSelected(selected === key ? null : key)}
               style={{
                 minHeight: 58, padding: 4, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-                background: selected === key ? 'rgba(74,222,128,0.12)' : emptyUpcoming ? 'transparent' : 'var(--card)',
+                background: selected === key ? 'rgba(var(--primary-rgb),0.12)' : emptyUpcoming ? 'transparent' : 'var(--card)',
                 border: selected === key
                   ? '1px solid var(--primary-green)'
                   : emptyUpcoming
@@ -909,16 +909,16 @@ export function TasksScreen() {
 
       <div className="px-screen" style={{ paddingTop: 12 }}>
         {loadError && (
-          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <AlertTriangle size={13} /> {loadError}
           </div>
         )}
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           {[
-            { label: 'Overdue', value: overdue, color: 'var(--status-critical)', bg: 'rgba(248,113,113,0.1)' },
-            { label: 'Pending', value: pending, color: 'var(--status-warning)', bg: 'rgba(251,191,36,0.1)' },
-            { label: 'Done', value: done, color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.1)' },
+            { label: 'Overdue', value: overdue, color: 'var(--status-critical)', bg: 'rgba(var(--critical-rgb),0.1)' },
+            { label: 'Pending', value: pending, color: 'var(--status-warning)', bg: 'rgba(var(--warning-rgb),0.1)' },
+            { label: 'Done', value: done, color: 'var(--status-ok)', bg: 'rgba(var(--primary-rgb),0.1)' },
           ].map(s => (
             <div key={s.label} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: '12px 8px', textAlign: 'center', border: `1px solid ${s.color}30` }}>
               <div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -943,8 +943,8 @@ export function TasksScreen() {
               style={{
                 flex: 1, padding: '8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                background: view === value ? 'rgba(74,222,128,0.12)' : 'var(--card)',
-                border: view === value ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+                background: view === value ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)',
+                border: view === value ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
                 color: view === value ? 'var(--primary-green)' : 'var(--text-muted)',
               }}
             >
@@ -967,14 +967,14 @@ export function TasksScreen() {
         ) : (
         <>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-          <button onClick={() => setShowFilter(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', background: activeFilters > 0 ? 'rgba(74,222,128,0.12)' : 'var(--card)', border: activeFilters > 0 ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: activeFilters > 0 ? 'var(--primary-green)' : 'var(--text-muted)', flexShrink: 0 }}>
+          <button onClick={() => setShowFilter(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', background: activeFilters > 0 ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)', border: activeFilters > 0 ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: activeFilters > 0 ? 'var(--primary-green)' : 'var(--text-muted)', flexShrink: 0 }}>
             <Filter size={13} /> Filters {activeFilters > 0 && `(${activeFilters})`}
           </button>
           <button onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
             Due {sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
           {activeFilters > 0 && (
-            <button onClick={resetFilters} style={{ flexShrink: 0, padding: '6px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>Clear</button>
+            <button onClick={resetFilters} style={{ flexShrink: 0, padding: '6px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>Clear</button>
           )}
         </div>
 
@@ -985,7 +985,7 @@ export function TasksScreen() {
             <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
               <CheckCircle2 size={32} style={{ marginBottom: 10, opacity: 0.4 }} />
               <div style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>No tasks match your filters</div>
-              <button onClick={resetFilters} style={{ marginTop: 12, padding: '8px 16px', borderRadius: 10, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Clear Filters</button>
+              <button onClick={resetFilters} style={{ marginTop: 12, padding: '8px 16px', borderRadius: 10, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Clear Filters</button>
             </div>
           ) : (
             filtered.map(t => <TaskCard key={t.id} task={t} employees={employees} onOpen={setOpenTask} />)

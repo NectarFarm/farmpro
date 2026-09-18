@@ -39,8 +39,8 @@ const ACTIVITY_ICON: Record<Activity, LucideIcon> = {
 };
 
 const URGENCY_STYLE: Record<Recommendation['urgency'], { label: string; color: string; bg: string }> = {
-  today: { label: 'Today', color: 'var(--status-critical)', bg: 'rgba(248,113,113,0.12)' },
-  soon:  { label: 'This week', color: 'var(--accent-amber)', bg: 'rgba(251,191,36,0.12)' },
+  today: { label: 'Today', color: 'var(--status-critical)', bg: 'rgba(var(--critical-rgb),0.12)' },
+  soon:  { label: 'This week', color: 'var(--accent-amber)', bg: 'rgba(var(--warning-rgb),0.12)' },
   plan:  { label: 'Plan ahead', color: 'var(--text-muted)', bg: 'var(--card)' },
 };
 
@@ -356,7 +356,7 @@ export function WeatherScreen() {
                     )}
 
                     {adviceError && (
-                      <div className="farm-card" style={{ padding: '11px 13px', display: 'flex', gap: 9, alignItems: 'flex-start', border: '1px solid rgba(251,191,36,0.3)' }}>
+                      <div className="farm-card" style={{ padding: '11px 13px', display: 'flex', gap: 9, alignItems: 'flex-start', border: '1px solid rgba(var(--warning-rgb),0.3)' }}>
                         <AlertTriangle size={14} color="var(--accent-amber)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
                         <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.55 }}>{adviceError}</div>
                       </div>

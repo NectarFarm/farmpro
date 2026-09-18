@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { ENTERPRISE_REGISTRY } from './data';
 import { apiClient } from '@/lib/request';
-import { Plus, X, Check, Upload, Package, Archive, Edit2, PawPrint, Sprout, MapPin, HelpCircle, ClipboardList, Home } from './icons';
+import { Plus, X, Check, Upload, Package, Archive, Edit2, PawPrint, Sprout, MapPin, HelpCircle, ClipboardList, Home, ChevronRight } from './icons';
 import { StatusTimeline } from './status-timeline';
 import { parseMoneyToCents, centsToMajor, majorToCents } from '@/lib/money';
 import { useToast } from './ui-shared';
@@ -268,8 +268,8 @@ function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string)
                       disabled={sent || requesting === e.subtype}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 100,
-                        background: sent ? 'rgba(74,222,128,0.1)' : 'var(--card)',
-                        border: sent ? '1px solid rgba(74,222,128,0.3)' : '1px solid var(--border-subtle)',
+                        background: sent ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
+                        border: sent ? '1px solid rgba(var(--primary-rgb),0.3)' : '1px solid var(--border-subtle)',
                         cursor: sent ? 'default' : 'pointer',
                         opacity: requesting === e.subtype ? 0.6 : 1,
                       }}
@@ -295,7 +295,7 @@ function LivestockBatchCard({ batch, navigate }: { batch: ViewBatch; navigate: (
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === batch.enterprise);
   const mort = batch.initialQty > 0 ? (((batch.initialQty - batch.qty) / batch.initialQty) * 100).toFixed(1) : '0.0';
   return (
-    <button onClick={() => navigate('batch-detail', { id: batch.id, code: batch.code })} className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer', borderLeft: `3px solid ${cfg?.type === 'crop' ? 'rgba(251,191,36,0.6)' : 'rgba(74,222,128,0.5)'}` }}>
+    <button onClick={() => navigate('batch-detail', { id: batch.id, code: batch.code })} className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer', borderLeft: `3px solid ${cfg?.type === 'crop' ? 'rgba(var(--warning-rgb),0.6)' : 'rgba(var(--primary-rgb),0.5)'}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {cfg?.icon ? <cfg.icon size={28} color="var(--text-primary)" aria-hidden="true" /> : <HelpCircle size={28} color="var(--text-muted)" aria-hidden="true" />}
@@ -732,7 +732,7 @@ export function CropsScreen() {
             ['units', MapPin, 'Units'],
             ['products', Package, 'Products'],
           ] as const).map(([id, Icon, label]) => (
-            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
               <Icon size={12} aria-hidden="true" /> {label}
             </button>
           ))}
@@ -800,7 +800,7 @@ export function CropsScreen() {
                       ? <span><strong style={{ color: 'var(--text-primary)' }}>{occupancy.toLocaleString()}</strong> across {unitBatches.length} batch{unitBatches.length === 1 ? '' : 'es'}</span>
                       : <span style={{ color: 'var(--text-dim)' }}>No active batch assigned</span>}
                   </div>
-                  <button onClick={() => setProductsUnit(u)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '5px 9px', borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
+                  <button onClick={() => setProductsUnit(u)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '5px 9px', borderRadius: 8, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
                     <Package size={11} /> Products
                   </button>
                 </div>
@@ -1515,8 +1515,8 @@ export function BatchDetailScreen() {
                     * farmer cannot tell what to change to affect every batch
                     * versus only this one. */}
                   <span style={{ flexShrink: 0, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 8px', borderRadius: 100,
-                    background: pr.inherited ? 'rgba(74,222,128,0.12)' : 'rgba(96,165,250,0.12)',
-                    border: pr.inherited ? '1px solid rgba(74,222,128,0.3)' : '1px solid rgba(96,165,250,0.3)',
+                    background: pr.inherited ? 'rgba(var(--primary-rgb),0.12)' : 'rgba(var(--info-rgb),0.12)',
+                    border: pr.inherited ? '1px solid rgba(var(--primary-rgb),0.3)' : '1px solid rgba(var(--info-rgb),0.3)',
                     color: pr.inherited ? 'var(--primary-green)' : '#60a5fa' }}>
                     {pr.inherited ? `Inherited · ${pr.sourceUnitName ?? 'unit'}` : 'This batch only'}
                   </span>
@@ -1532,7 +1532,7 @@ export function BatchDetailScreen() {
             <div className="section-eyebrow">Economics & Processes</div>
             <div style={{ display: 'flex', gap: 4 }}>
               {(['breakdown','processes'] as const).map(t => (
-                <button key={t} onClick={() => setCostTab(t)} style={{ padding: '2px 8px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: costTab === t ? 'rgba(74,222,128,0.2)' : 'transparent', border: costTab === t ? '1px solid rgba(74,222,128,0.4)' : '1px solid transparent', color: costTab === t ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{t}</button>
+                <button key={t} onClick={() => setCostTab(t)} style={{ padding: '2px 8px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: costTab === t ? 'rgba(var(--primary-rgb),0.2)' : 'transparent', border: costTab === t ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid transparent', color: costTab === t ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{t}</button>
               ))}
             </div>
           </div>
@@ -1646,8 +1646,8 @@ export function BatchDetailScreen() {
               })}
 
               {routines !== null && routines.length > 0 && (
-                <button onClick={() => navigate('routines')} style={{ marginTop: 10, background: 'none', border: 'none', color: 'var(--primary-green)', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: 700, padding: 0 }}>
-                  Edit routines →
+                <button onClick={() => navigate('routines')} style={{ marginTop: 10, background: 'none', border: 'none', color: 'var(--primary-green)', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: 700, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  Edit routines <ChevronRight size={13} aria-hidden="true" />
                 </button>
               )}
             </div>
@@ -1677,7 +1677,7 @@ export function BatchDetailScreen() {
               <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', marginBottom: 10 }}>Loading stages…</div>
             )}
             {stageOptions !== null && stageOptions.length === 0 && (
-              <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+              <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
                 No stages are set up for {batch.enterprise} yet. An owner can define them — with how long each one lasts — in Settings › Farm Configuration.
               </div>
             )}
@@ -1743,7 +1743,7 @@ export function BatchDetailScreen() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button
                 onClick={() => navigate('tasks', { batch: batch.code, unit: unit.code })}
-                style={{ flex: 1, padding: '10px 12px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.3)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                style={{ flex: 1, padding: '10px 12px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', background: 'rgba(var(--info-rgb),0.08)', border: '1px solid rgba(var(--info-rgb),0.3)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
                 <Home size={13} aria-hidden="true" /> {unit.code}
               </button>
             </div>
@@ -1947,7 +1947,7 @@ export function CropScheduleScreen() {
         </div>
 
         {/* Enterprise header */}
-        <div style={{ padding: '10px 14px', background: 'rgba(74,222,128,0.06)', borderRadius: 12, marginBottom: 14, display: 'flex', gap: 10, alignItems: 'center', border: '1px solid rgba(74,222,128,0.2)' }}>
+        <div style={{ padding: '10px 14px', background: 'rgba(var(--primary-rgb),0.06)', borderRadius: 12, marginBottom: 14, display: 'flex', gap: 10, alignItems: 'center', border: '1px solid rgba(var(--primary-rgb),0.2)' }}>
           <cfg.icon size={32} color="var(--primary-green)" aria-hidden="true" />
           <div>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', color: 'var(--text-primary)' }}>{cfg.label}</div>
@@ -2032,7 +2032,7 @@ export function CropScheduleScreen() {
                 {(employees ?? []).map((emp) => {
                   const on = selectedEmployeeIds.includes(emp.id);
                   return (
-                    <div key={emp.id} onClick={() => toggleEmployee(emp.id)} style={{ padding: '10px 12px', background: on ? 'rgba(74,222,128,0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(74,222,128,0.3)' : 'var(--border-subtle)'}`, borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                    <div key={emp.id} onClick={() => toggleEmployee(emp.id)} style={{ padding: '10px 12px', background: on ? 'rgba(var(--primary-rgb),0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(var(--primary-rgb),0.3)' : 'var(--border-subtle)'}`, borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                       <span style={{ fontSize: 'var(--fs-sm)', color: on ? 'var(--primary-green)' : 'var(--text-secondary)', fontWeight: on ? 700 : 400 }}>{emp.name}{emp.role ? ` · ${emp.role}` : ''}</span>
                       {on && <Check size={14} color="var(--primary-green)" />}
                     </div>

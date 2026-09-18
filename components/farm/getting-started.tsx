@@ -64,7 +64,7 @@ export function GettingStartedScreen() {
                   <div
                     style={{
                       width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                      background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)',
+                      background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.3)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--primary-green)',
                     }}

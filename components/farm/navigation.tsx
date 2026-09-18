@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback, useTransition } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, LogOut, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X, Key, Activity, Building2 } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, DoorOpen, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X, Key, Activity, Building2 } from './icons';
 import { apiClient } from '@/lib/request';
 import type { SetupState } from '@/lib/setup-state';
 
@@ -664,7 +664,7 @@ function RoleSelector({ role, setRole }: { role: NavContext['role']; setRole: (r
   return (
     <div style={{ position: 'fixed', top: 'calc(var(--nav-height) + 8px)', right: 8, zIndex: 200, padding: '5px 8px' }}>
       <select value={role} onChange={(e) => setRole(e.target.value as NavContext['role'])}
-        style={{ background: 'rgba(10,15,10,0.95)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', borderRadius: 8, fontSize: 'var(--fs-2xs)', padding: '3px 6px', cursor: 'pointer', fontWeight: 700 }}>
+        style={{ background: 'rgba(10,15,10,0.95)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: '#4ade80', borderRadius: 8, fontSize: 'var(--fs-2xs)', padding: '3px 6px', cursor: 'pointer', fontWeight: 700 }}>
         {/* Plain text — a native <option> can't render an icon component,
             and this dev-only selector never ships to production anyway. */}
         <option value="owner">Owner</option>
@@ -694,7 +694,7 @@ export function RoleNoticeScreen() {
   return (
     <div className="screen-content" style={{ padding: '0 20px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '72%', textAlign: 'center', paddingTop: 10 }}>
-        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-blue)', marginBottom: 18 }}>
+        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(var(--info-rgb),0.1)', border: '1px solid rgba(var(--info-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-blue)', marginBottom: 18 }}>
           {role === 'vet' ? <Stethoscope size={32} aria-hidden="true" /> : <Search size={32} aria-hidden="true" />}
         </div>
         <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Not available for your role</div>
@@ -705,8 +705,8 @@ export function RoleNoticeScreen() {
           type="button"
           onClick={() => { if (_globalLogout) _globalLogout(); }}
           style={{ marginTop: 22, padding: '13px 34px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700, cursor: 'pointer',
-            background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <LogOut size={14} /> Sign Out
+            background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DoorOpen size={14} /> Sign Out
         </button>
       </div>
     </div>
@@ -761,8 +761,8 @@ function TabMenuSheet({ menu, onClose }: { menu: { title: string; items: TabMenu
                 style={{
                   width: '100%', display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left',
                   padding: '12px 13px', marginBottom: 8, borderRadius: 14, cursor: 'pointer',
-                  background: isNext ? 'rgba(74,222,128,0.1)' : 'var(--card)',
-                  border: isNext ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)',
+                  background: isNext ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
+                  border: isNext ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
                 }}
               >
                 <div style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -831,7 +831,9 @@ export function BottomNav() {
               // whichever one that is.
               data-tour={`nav-${tab.id}`}
             >
-              <Icon className="nav-icon" size={22} />
+              <span className="nav-icon-wrap">
+                <Icon className="nav-icon" size={20} />
+              </span>
               {badge !== null && <NavBadge count={badge} tabId={tab.id} />}
               {/* The caret is the whole affordance: it is what distinguishes a
                   tab that opens a list from one that navigates, before you
@@ -1087,16 +1089,23 @@ export function AppSidebar() {
   return (
     <aside className="farm-sidebar">
       <div className="farm-sidebar-brand">
-        <Leaf size={23} color="var(--primary-green)" strokeWidth={2.2} />
+        <div className="brand-mark" style={{ width: 34, height: 34, borderRadius: 10 }}>
+          <Leaf size={17} color="var(--on-primary)" strokeWidth={2.4} />
+        </div>
         <div>
           <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: 'var(--text-primary)' }}>IFMS</div>
           <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Farm management</div>
         </div>
       </div>
-      <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }} aria-label="Primary">
+      {/* Horizontal inset trimmed 12px -> 8px each side (screenshot pass,
+       * alongside the 250px -> 200/232px width cut below the >=768px
+       * media query) — hands the narrower sidebar back ~8px of usable
+       * label width so "Onboarding Requests" / "Impersonation Log" still
+       * fit on one line. */}
+      <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px' }} aria-label="Primary">
         {groups.map((group) => (
           <div key={group.label} style={{ marginBottom: 16 }}>
-            <div style={{ padding: '0 12px', margin: '8px 0 5px', fontSize: 'var(--fs-xs)', fontWeight: 650, color: 'var(--text-dim)' }}>{group.label}</div>
+            <div style={{ padding: '0 8px', margin: '8px 0 5px', fontSize: 'var(--fs-xs)', fontWeight: 650, color: 'var(--text-dim)' }}>{group.label}</div>
             {group.items.map((tab) => {
           const Icon = tab.icon;
           // A row with `params` deep-links into a SUB-tab of the screen it
@@ -1116,14 +1125,17 @@ export function AppSidebar() {
               onClick={() => navigate(tab.id, tab.params)}
               aria-current={active ? 'page' : undefined}
               data-tour={tab.dataTour ?? `nav-${tab.id}`}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', marginBottom: 2,
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 8px 10px 8px', marginBottom: 2,
                 borderRadius: 10, cursor: 'pointer', textAlign: 'left', position: 'relative',
                 // Was a hardcoded #e8f0e9 / #c9ddcc pair — switched to the same
                 // rgba(primary-green) active tint the rest of this file already
                 // uses (farmBadge chip, LogoutButton, RoleNoticeScreen), so this
-                // no longer breaks in a dark theme.
-                background: active ? 'rgba(74,222,128,0.1)' : 'transparent',
-                border: active ? '1px solid rgba(74,222,128,0.25)' : '1px solid transparent',
+                // no longer breaks in a dark theme. The left accent bar is the
+                // desktop counterpart of the bottom nav's top "notch" — same
+                // device (a short bar of the real primary colour marking
+                // "current"), rotated 90° for a vertical list.
+                background: active ? 'rgba(var(--primary-rgb),0.1)' : 'transparent',
+                borderLeft: active ? '3px solid var(--primary-green)' : '3px solid transparent',
                 color: active ? 'var(--primary-green)' : 'var(--text-muted)', fontWeight: active ? 700 : 500, fontSize: 'var(--fs-base)' }}>
               <Icon size={18} />
               <span style={{ flex: 1 }}>{tab.label}</span>
@@ -1210,10 +1222,10 @@ export function TopNav({
         </button>
       )}
       <div style={{ flex: 1 }}>
-        <div className="top-nav-title" style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{title}</div>
+        <div className="top-nav-title" style={{ fontSize: 'var(--fs-2xl)', color: 'var(--text-primary)', lineHeight: 1.2 }}>{title}</div>
         {subtitle && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 3 }}>{subtitle}</div>}
         {farmBadge && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 100, padding: '2px 8px', marginTop: 3 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.2)', borderRadius: 100, padding: '2px 8px', marginTop: 3 }}>
             <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--primary-green)' }}>{farmBadge}</span>
           </div>
         )}
@@ -1257,11 +1269,11 @@ function LogoutButton() {
       <button
         type="button"
         onClick={() => setShowMenu(true)}
-        style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+        style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
         title="Sign out"
         aria-label="Sign out"
       >
-        <LogOut size={14} color="var(--status-critical)" />
+        <DoorOpen size={14} color="var(--status-critical)" />
       </button>
 
       {showMenu && (
@@ -1269,7 +1281,7 @@ function LogoutButton() {
           <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 4, color: 'var(--text-primary)' }}>Sign Out</div>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 16 }}>You will be returned to the login screen.</div>
-            <button type="button" onClick={doLogout} style={{ width: '100%', padding: '13px', borderRadius: 14, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer' }}>
+            <button type="button" onClick={doLogout} style={{ width: '100%', padding: '13px', borderRadius: 14, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer' }}>
               Sign Out
             </button>
             <button type="button" onClick={() => setShowMenu(false)} style={{ width: '100%', marginTop: 10, padding: '11px', borderRadius: 12, background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 'var(--fs-base)', cursor: 'pointer' }}>

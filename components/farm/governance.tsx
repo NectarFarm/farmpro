@@ -91,7 +91,7 @@ const PERM_COLOR: Record<string, string> = {
   edit: 'var(--status-ok)', view: 'var(--accent-blue)', hidden: 'var(--text-muted)',
 };
 const PERM_BG: Record<string, string> = {
-  edit: 'rgba(74,222,128,0.12)', view: 'rgba(96,165,250,0.1)', hidden: 'rgba(255,255,255,0.04)',
+  edit: 'rgba(var(--primary-rgb),0.12)', view: 'rgba(var(--info-rgb),0.1)', hidden: 'rgba(255,255,255,0.04)',
 };
 type PermLevel = 'edit' | 'view' | 'hidden';
 const ROLE_COLOR: Record<string, string> = {
@@ -162,8 +162,8 @@ function fmtTimestamp(iso: string): string {
 }
 
 function actionIcon(action: string): { icon: React.ReactNode; bg: string } {
-  if (action.endsWith('.approved')) return { icon: <Check size={13} color="var(--status-ok)" />, bg: 'rgba(74,222,128,0.15)' };
-  if (action.endsWith('.rejected')) return { icon: <X size={13} color="var(--status-critical)" />, bg: 'rgba(248,113,113,0.12)' };
+  if (action.endsWith('.approved')) return { icon: <Check size={13} color="var(--status-ok)" />, bg: 'rgba(var(--primary-rgb),0.15)' };
+  if (action.endsWith('.rejected')) return { icon: <X size={13} color="var(--status-critical)" />, bg: 'rgba(var(--critical-rgb),0.12)' };
   return { icon: <Shield size={13} color="var(--accent-purple)" />, bg: 'rgba(168,85,247,0.1)' };
 }
 
@@ -255,7 +255,7 @@ function RoleBuilderSheet({
             {ALL_MODULES.map(f => {
               const active = approvals.includes(f.key);
               return (
-                <button key={f.key} onClick={() => toggleApproval(f.key)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: active ? 'rgba(251,191,36,0.15)' : 'var(--card)', border: active ? '1px solid rgba(251,191,36,0.5)' : '1px solid var(--border-subtle)', color: active ? 'var(--accent-amber)' : 'var(--text-muted)' }}>
+                <button key={f.key} onClick={() => toggleApproval(f.key)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: active ? 'rgba(var(--warning-rgb),0.15)' : 'var(--card)', border: active ? '1px solid rgba(var(--warning-rgb),0.5)' : '1px solid var(--border-subtle)', color: active ? 'var(--accent-amber)' : 'var(--text-muted)' }}>
                   {active && <Check size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />}
                   {f.label}
                 </button>
@@ -427,15 +427,15 @@ export function GovernanceScreen() {
 
       <div className="px-screen" style={{ paddingTop: 12 }}>
         {loadError && (
-          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <AlertTriangle size={13} /> {loadError}
           </div>
         )}
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           {[
-            { label: 'Pending', value: pending, color: 'var(--status-warning)', bg: 'rgba(251,191,36,0.1)', onClick: () => setTab('approvals') },
-            { label: 'Approved', value: approvedCount, color: 'var(--status-ok)', bg: 'rgba(74,222,128,0.08)', onClick: () => setTab('approvals') },
+            { label: 'Pending', value: pending, color: 'var(--status-warning)', bg: 'rgba(var(--warning-rgb),0.1)', onClick: () => setTab('approvals') },
+            { label: 'Approved', value: approvedCount, color: 'var(--status-ok)', bg: 'rgba(var(--primary-rgb),0.08)', onClick: () => setTab('approvals') },
             { label: 'Roles', value: (roles ?? []).length, color: 'var(--accent-purple)', bg: 'rgba(168,85,247,0.08)', onClick: () => setTab('roles') },
             // Was its own "CRUD Rules" tab — a role-by-role edit sheet
             // (RoleBuilderSheet's "Modules Requiring Owner Approval" chips,
@@ -445,7 +445,7 @@ export function GovernanceScreen() {
             // ui-polish-theme-weather brief called out — removed the second
             // one rather than the data itself. This tile is still real,
             // still clickable, just points at the one editor that's left.
-            { label: 'Approval rules', value: crudRulesCount, color: 'var(--accent-amber)', bg: 'rgba(251,191,36,0.06)', onClick: () => setTab('roles') },
+            { label: 'Approval rules', value: crudRulesCount, color: 'var(--accent-amber)', bg: 'rgba(var(--warning-rgb),0.06)', onClick: () => setTab('roles') },
           ].map(s => (
             <button key={s.label} onClick={s.onClick} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: '10px 4px', textAlign: 'center', border: `1px solid ${s.color}30`, cursor: 'pointer' }}>
               <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -456,7 +456,7 @@ export function GovernanceScreen() {
 
         <div style={{ display: 'flex', gap: 5, marginBottom: 14, overflowX: 'auto', scrollbarWidth: 'none' }}>
           {[['approvals', 'Approvals'], ['roles', 'Roles'], ['audit', 'Activity Log']].map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flexShrink: 0, padding: '8px 12px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)' }}>
+            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flexShrink: 0, padding: '8px 12px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)' }}>
               {label}{id === 'approvals' && pending > 0 ? ` (${pending})` : ''}
             </button>
           ))}
@@ -470,7 +470,7 @@ export function GovernanceScreen() {
                 ['all', 'All'], ['mine', 'Waiting on me'], ['decided', 'I decided'],
                 ['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected'],
               ].map(([f, label]) => (
-                <button key={f} onClick={() => setApprovalFilter(f)} style={{ flexShrink: 0, padding: '5px 11px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: approvalFilter === f ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: approvalFilter === f ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: approvalFilter === f ? 'var(--primary-green)' : 'var(--text-muted)' }}>{label}</button>
+                <button key={f} onClick={() => setApprovalFilter(f)} style={{ flexShrink: 0, padding: '5px 11px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: approvalFilter === f ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: approvalFilter === f ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: approvalFilter === f ? 'var(--primary-green)' : 'var(--text-muted)' }}>{label}</button>
               ))}
             </div>
             {approvals === null ? (
@@ -478,7 +478,7 @@ export function GovernanceScreen() {
             ) : (
               <>
                 {filteredApprovals.map(a => (
-                  <div key={a.id} style={{ marginBottom: 12, padding: 14, borderRadius: 16, border: `1px solid ${a.status === 'pending' ? 'rgba(251,191,36,0.3)' : a.status === 'approved' ? 'rgba(74,222,128,0.25)' : 'rgba(248,113,113,0.25)'}`, background: a.status === 'pending' ? 'rgba(251,191,36,0.05)' : a.status === 'approved' ? 'rgba(74,222,128,0.04)' : 'rgba(248,113,113,0.04)' }}>
+                  <div key={a.id} style={{ marginBottom: 12, padding: 14, borderRadius: 16, border: `1px solid ${a.status === 'pending' ? 'rgba(var(--warning-rgb),0.3)' : a.status === 'approved' ? 'rgba(var(--primary-rgb),0.25)' : 'rgba(var(--critical-rgb),0.25)'}`, background: a.status === 'pending' ? 'rgba(var(--warning-rgb),0.05)' : a.status === 'approved' ? 'rgba(var(--primary-rgb),0.04)' : 'rgba(var(--critical-rgb),0.04)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                       <div>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
@@ -527,7 +527,7 @@ export function GovernanceScreen() {
                       <button
                         disabled={decidingId === a.id}
                         onClick={() => setReviewing(a)}
-                        style={{ width: '100%', padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.4)', color: 'var(--accent-amber)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                        style={{ width: '100%', padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--warning-rgb),0.12)', border: '1px solid rgba(var(--warning-rgb),0.4)', color: 'var(--accent-amber)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
                       >
                         <Eye size={13} /> Review &amp; decide
                       </button>
@@ -554,7 +554,7 @@ export function GovernanceScreen() {
               {!canEditRoles && ' Only an owner can make changes.'}
             </div>
             {canEditRoles && (
-              <button onClick={() => setEditRole('new')} style={{ width: '100%', marginBottom: 12, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, cursor: 'pointer', background: 'rgba(74,222,128,0.1)', border: '1px dashed rgba(74,222,128,0.4)', color: 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <button onClick={() => setEditRole('new')} style={{ width: '100%', marginBottom: 12, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, cursor: 'pointer', background: 'rgba(var(--primary-rgb),0.1)', border: '1px dashed rgba(var(--primary-rgb),0.4)', color: 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 <Plus size={15} /> Create New Role
               </button>
             )}
@@ -570,11 +570,11 @@ export function GovernanceScreen() {
               return (
                 <div key={r.role} style={{ marginBottom: 10, borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
                   {deleteRoleConfirm === r.role && (
-                    <div style={{ padding: '12px 14px', background: 'rgba(248,113,113,0.08)', borderBottom: '1px solid rgba(248,113,113,0.2)' }}>
+                    <div style={{ padding: '12px 14px', background: 'rgba(var(--critical-rgb),0.08)', borderBottom: '1px solid rgba(var(--critical-rgb),0.2)' }}>
                       <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-critical)', marginBottom: 8 }}>Delete &quot;{r.role}&quot;? This cannot be undone.</div>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => setDeleteRoleConfirm(null)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Cancel</button>
-                        <button onClick={() => deleteRole(r.role)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'rgba(248,113,113,0.15)', border: '1px solid rgba(248,113,113,0.4)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Delete</button>
+                        <button onClick={() => deleteRole(r.role)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'rgba(var(--critical-rgb),0.15)', border: '1px solid rgba(var(--critical-rgb),0.4)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Delete</button>
                       </div>
                     </div>
                   )}
@@ -590,7 +590,7 @@ export function GovernanceScreen() {
                     {canEditRoles && (
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <button onClick={e => { e.stopPropagation(); setEditRole(r); }} style={{ padding: '5px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>Edit</button>
-                        <button onClick={e => { e.stopPropagation(); setDeleteRoleConfirm(deleteRoleConfirm === r.role ? null : r.role); }} style={{ padding: '5px 8px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>
+                        <button onClick={e => { e.stopPropagation(); setDeleteRoleConfirm(deleteRoleConfirm === r.role ? null : r.role); }} style={{ padding: '5px 8px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>
                           <Trash2 size={11} />
                         </button>
                         {expanded ? <ChevronUp size={14} color="var(--text-muted)" /> : <ChevronDown size={14} color="var(--text-muted)" />}
@@ -621,7 +621,7 @@ export function GovernanceScreen() {
                           <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--accent-amber)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Requires Owner Approval</div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {r.approvalRequired.map(m => (
-                              <span key={m} style={{ fontSize: 'var(--fs-2xs)', padding: '3px 9px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 100, color: 'var(--accent-amber)', fontWeight: 600 }}>{m.replace(/-/g, ' ')}</span>
+                              <span key={m} style={{ fontSize: 'var(--fs-2xs)', padding: '3px 9px', background: 'rgba(var(--warning-rgb),0.1)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 100, color: 'var(--accent-amber)', fontWeight: 600 }}>{m.replace(/-/g, ' ')}</span>
                             ))}
                           </div>
                         </div>
@@ -640,7 +640,7 @@ export function GovernanceScreen() {
             <SearchBar value={activitySearch} onChange={setActivitySearch} placeholder="Search actions, users, entities…" />
             <div style={{ display: 'flex', gap: 5, marginBottom: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
               {['all', ...Object.keys(ROLE_COLOR)].map(id => (
-                <button key={id} onClick={() => setActivityRoleFilter(id)} style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: activityRoleFilter === id ? 'rgba(74,222,128,0.15)' : 'var(--card)', border: activityRoleFilter === id ? '1px solid rgba(74,222,128,0.4)' : '1px solid var(--border-subtle)', color: activityRoleFilter === id ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>
+                <button key={id} onClick={() => setActivityRoleFilter(id)} style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: activityRoleFilter === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: activityRoleFilter === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: activityRoleFilter === id ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>
                   {id === 'all' ? 'All Roles' : id}
                 </button>
               ))}
@@ -784,7 +784,7 @@ function ApprovalReviewSheet({ approval, tenantId, busy, onDecide, onClose, appr
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', padding: '10px 0' }}>Loading the full submission…</div>
           )}
           {loadFailed && (
-            <div style={{ padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
               The underlying record could not be loaded, so only the summary below is available. Decide with care — or reject and ask the worker to resubmit.
             </div>
           )}
@@ -817,16 +817,16 @@ function ApprovalReviewSheet({ approval, tenantId, busy, onDecide, onClose, appr
           )}
 
           {isOverride && (
-            <div style={{ padding: '9px 11px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
+            <div style={{ padding: '9px 11px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
               {approverName(approval.assignedApproverId)} was named to decide this. Deciding it yourself is recorded as an override.
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button disabled={busy} onClick={() => onDecide('reject')} style={{ flex: 1, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+            <button disabled={busy} onClick={() => onDecide('reject')} style={{ flex: 1, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
               <X size={13} /> Reject
             </button>
-            <button disabled={busy} onClick={() => onDecide('approve')} style={{ flex: 1, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+            <button disabled={busy} onClick={() => onDecide('approve')} style={{ flex: 1, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
               <Check size={13} /> {busy ? 'Working…' : 'Approve'}
             </button>
           </div>
