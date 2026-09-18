@@ -6,7 +6,7 @@
 // ============================================================
 
 import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
-import { X, Check, AlertTriangle, Info, LogOut, ChevronRight } from './icons';
+import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
 
 /* ─────────────────────────────────────────────
    TOAST SYSTEM
@@ -143,7 +143,7 @@ export function LogoutMenu({ onLogout }: { onLogout: () => void }) {
         style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
         title="Sign out"
       >
-        <LogOut size={14} color="var(--status-critical)" />
+        <DoorOpen size={14} color="var(--status-critical)" />
       </button>
 
       {open && (
@@ -151,7 +151,7 @@ export function LogoutMenu({ onLogout }: { onLogout: () => void }) {
           <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 16, color: 'var(--text-primary)' }}>Account</div>
             <button onClick={handleLogout} style={{ width: '100%', padding: '13px 16px', borderRadius: 14, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <LogOut size={16} /> Sign Out
+              <DoorOpen size={16} /> Sign Out
               <ChevronRight size={14} style={{ marginLeft: 'auto' }} />
             </button>
             <button onClick={() => setOpen(false)} style={{ width: '100%', marginTop: 10, padding: '11px', borderRadius: 12, background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 'var(--fs-base)', cursor: 'pointer' }}>

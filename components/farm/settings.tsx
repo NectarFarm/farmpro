@@ -15,7 +15,7 @@ import { useToast } from './ui-shared';
 import { requestTour } from './tour';
 import { apiClient } from '@/lib/request';
 import {
-  ChevronRight, LogOut, Check, X, Lock, Eye, EyeOff,
+  ChevronRight, DoorOpen, Check, X, Lock, Eye, EyeOff,
   Palette,
   Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, ClipboardList, Layers,
   type LucideIcon,
@@ -645,7 +645,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
         <button onClick={onLogout} style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700,
           background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)',
           color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
-          <LogOut size={16} /> Sign Out
+          <DoorOpen size={16} /> Sign Out
         </button>
       </div>
 
