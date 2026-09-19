@@ -1131,6 +1131,14 @@
   border: none;
 }
 .btn-fab:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(24,32,24,0.2); }
+/* Icon actions that belong together — import / export / add — sit in one
+ * cluster so they read as a family, not three stray squares. */
+.btn-cluster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-cluster .btn-icon { width: 36px; height: 36px; min-width: 36px; }
 
 /* ── Form inputs ── */
 .farm-input {

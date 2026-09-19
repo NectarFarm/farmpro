@@ -59,22 +59,22 @@ export const ONBOARDING_GUIDE_STEPS: OnboardingGuideStep[] = [
   },
   {
     id: 'units',
-    title: 'Add your production units',
-    body: 'A unit is a physical house, pen or field — the place a batch actually lives (e.g. "Layer House A"). Add one before anything else: a batch has to belong to a unit, and a product can only be attached to a unit that already exists.',
-    screen: 'Farm → Units',
+    title: 'Add your houses and fields',
+    body: 'A house, pen, paddock or field is the place a batch actually lives — a pig pen, a dairy paddock, a poultry house, a maize plot. Add one before anything else: a batch has to belong to a place, and a product can only be attached to a place that already exists.',
+    screen: 'Farm → Houses & fields',
     goTo: { screen: 'crops', params: { tab: 'units' } }
   },
   {
     id: 'batch',
-    title: 'Add a batch',
-    body: 'A batch is one cohort of animals or a planted area, living in a single unit. Production records, feeding and costs all attach to a batch, so little else in the app works until one exists.',
+    title: 'Start a batch',
+    body: 'A batch is one group you track together — a herd, a house of birds, a pond, a planted field — living in a single place. Production records, feeding and costs all attach to a batch, so little else in the app works until one exists.',
     screen: 'Farm → Livestock / Crops',
     goTo: { screen: 'crops', params: { tab: 'livestock' } }
   },
   {
     id: 'products',
     title: 'Add products, and attach them to units',
-    body: "Products are what you sell — eggs, milk, birds. Define each one once, then attach it to every unit that produces it so its batches inherit it automatically. Set each product's stock effect correctly when you create it: it can reduce a batch's head count, reduce only collected produce, or reduce nothing at all — get this wrong and a sale changes the wrong number.",
+    body: "Products are what you sell — milk, eggs, grain, live animals. Define each one once, then attach it to every house or field that produces it so its batches inherit it automatically. Set each product's stock effect correctly when you create it: it can reduce a batch's head count, reduce only collected produce, or reduce nothing at all — get this wrong and a sale changes the wrong number.",
     screen: 'Farm → Products',
     goTo: { screen: 'crops', params: { tab: 'products' } }
   },
@@ -87,8 +87,8 @@ export const ONBOARDING_GUIDE_STEPS: OnboardingGuideStep[] = [
   },
   {
     id: 'employees',
-    title: 'Add employees, then give each one a login',
-    body: "Adding an employee does not give them a way to sign in — that's a separate step people miss. Open the employee's record and use its Sign-in card to set a phone number and a 4-digit PIN; that pair is their login.",
+    title: 'Add people, then give each worker a login',
+    body: "Adding a person does not give them a way to sign in — that's a separate step people miss. Open the person, then use the Sign-in card to set a phone number and a 4-digit PIN. That pair is how they sign in. You can add someone before any batch exists; assign batches later.",
     screen: 'People',
     goTo: { screen: 'people' }
   },
@@ -96,14 +96,14 @@ export const ONBOARDING_GUIDE_STEPS: OnboardingGuideStep[] = [
     id: 'routines',
     title: 'Set up daily routines',
     body: 'A routine is the checklist your workers see for a round — feed, water check, egg collection, whatever your mornings actually involve. Without one, a worker signing in has nothing to follow.',
-    screen: 'Manage → Daily routines',
+    screen: 'Manage → Routines',
     goTo: { screen: 'routines' }
   },
   {
     id: 'approvals',
     title: 'Set who approves what',
-    body: 'Governance is where approval decisions get made. A task can name a specific approver when you create it, instead of leaving it open to anyone who can approve — worth setting up once you have employees to name.',
-    screen: 'Governance',
+    body: 'Approvals is where decisions get signed. A task can name a specific person when you create it, instead of leaving it open to anyone who can approve — worth setting up once you have people to name.',
+    screen: 'Manage → Approvals',
     goTo: { screen: 'governance' }
   },
 ]
@@ -124,11 +124,17 @@ function escapeHtml(s: string): string {
 export function renderGuideHtml(steps: OnboardingGuideStep[] = ONBOARDING_GUIDE_STEPS): string {
   const items = steps
     .map(
-      (s) =>
-        `<li style="margin-bottom:12px;"><strong>${escapeHtml(s.title)}</strong><div style="color:#444444;margin-top:2px;">${escapeHtml(s.body)}</div></li>`
+      (s, i) =>
+        `<li style="margin:0 0 16px;padding:0 0 16px 0;border-bottom:1px solid #eee6d8;list-style:none;">
+<span style="display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;border:1px solid #1c1914;border-radius:50%;font-size:12px;font-weight:700;margin-right:8px;vertical-align:top;">${i + 1}</span>
+<div style="display:inline-block;width:calc(100% - 36px);vertical-align:top;">
+<strong style="display:block;font-size:15px;color:#1c1914;">${escapeHtml(s.title)}</strong>
+<div style="color:#5c564c;margin-top:4px;font-size:14px;line-height:1.5;">${escapeHtml(s.body)}</div>
+</div>
+</li>`
     )
     .join('')
-  return `<ol style="margin:0;padding-left:20px;">${items}</ol>`
+  return `<ol style="margin:0;padding:0;">${items}</ol>`
 }
 
 // Plain-text equivalent for the text part of the email (a plain-text-only

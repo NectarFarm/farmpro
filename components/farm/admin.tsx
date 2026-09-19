@@ -1,7 +1,7 @@
 'use client';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Lock, Plus, X, Edit2, Archive, Trash2, RotateCcw, Palette, Check, Sprout } from './icons';
+import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Plus, X, Edit2, Archive, Trash2, RotateCcw, Check, Sprout } from './icons';
 import { apiClient } from '@/lib/request';
 
 // ── Real backend wiring (issue #252) ────────────────────────────────────────
@@ -847,16 +847,8 @@ export function AdminSettingsScreen() {
         {/* Honest gap: plans/packages have no backend anywhere on this branch
             (no plans table, no route) — kept separate from the working
             per-tenant settings above instead of blocking the whole tab. */}
-        <div className="farm-card" style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <Lock size={16} color="var(--text-muted)" />
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Plans & packages — not available yet</div>
-          </div>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            There is no plans/packages table anywhere in this backend, so pricing tiers and per-plan feature limits
-            can&apos;t be configured here yet. Everything else on this tab (branding, appearance, notifications) is
-            the tenant&apos;s real, persisted settings — the same store <Palette size={11} style={{ display: 'inline', verticalAlign: -1 }} /> the tenant&apos;s own UI Customise screen reads and writes.
-          </div>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', lineHeight: 1.5, padding: '4px 2px 16px' }}>
+          Plans and packages are not in this product yet — branding, appearance and notifications above are the real tenant settings.
         </div>
       </div>
     </div>

@@ -204,7 +204,7 @@ export function decodeHash(hash: string): { screen: ScreenId; params: Record<str
  *
  * These are choices, not synonyms:
  *   Houses & fields  — what you walk, not "production units"
- *   Stages           — when a flock moves, not "farm configuration"
+ *   Stages           — when a batch moves, not "farm configuration"
  *   By farm & house  — what the P&L slice does, not "dimensions"
  *   Money            — what they say, not "the books"
  *   Inventory        — everywhere, including the manager's tab (not "Stock")
@@ -244,14 +244,14 @@ export const NAV = {
 
 const OWNER_TABS = [
   { id: 'dashboard' as ScreenId, label: NAV.home, icon: Home },
-  { id: 'crops' as ScreenId, label: NAV.farm, icon: Leaf },
+  { id: 'crops' as ScreenId, label: NAV.farm, icon: Building2 },
   { id: 'finance' as ScreenId, label: NAV.finance, icon: DollarSign },
   { id: 'tasks' as ScreenId, label: NAV.tasks, icon: CheckSquare },
   { id: 'settings' as ScreenId, label: NAV.manage, icon: Settings },
 ];
 const MANAGER_TABS = [
   { id: 'dashboard' as ScreenId, label: NAV.home, icon: Home },
-  { id: 'crops' as ScreenId, label: NAV.farm, icon: Leaf },
+  { id: 'crops' as ScreenId, label: NAV.farm, icon: Building2 },
   { id: 'tasks' as ScreenId, label: NAV.tasks, icon: CheckSquare },
   { id: 'inventory' as ScreenId, label: NAV.inventory, icon: Package },
   { id: 'settings' as ScreenId, label: NAV.manage, icon: Settings },
@@ -264,7 +264,7 @@ const WORKER_TABS = [
 ];
 const ADMIN_TABS = [
   { id: 'admin-dashboard' as ScreenId, label: 'Overview', icon: BarChart3 },
-  { id: 'admin-farms' as ScreenId, label: 'Farms', icon: Leaf },
+  { id: 'admin-farms' as ScreenId, label: 'Farms', icon: Building2 },
   { id: 'admin-onboarding' as ScreenId, label: 'Requests', icon: Users },
   { id: 'admin-users' as ScreenId, label: 'Users', icon: UserCheck },
   { id: 'admin-settings' as ScreenId, label: 'Config', icon: Settings },
@@ -319,10 +319,10 @@ const TAB_MENUS: Partial<Record<ScreenId, { title: string; items: TabMenuItem[] 
   crops: {
     title: NAV.farm,
     items: [
-      { screen: 'crops', params: { tab: 'units' }, label: NAV.houses, desc: 'Pens, houses and fields a flock lives in — set these up first', icon: Warehouse },
-      { screen: 'crops', params: { tab: 'livestock' }, label: NAV.livestock, desc: 'Flocks and herds, and how each is doing', icon: PawPrint },
+      { screen: 'crops', params: { tab: 'units' }, label: NAV.houses, desc: 'The house, pen, paddock or field a batch lives in — set these up first', icon: Warehouse },
+      { screen: 'crops', params: { tab: 'livestock' }, label: NAV.livestock, desc: 'Animals you track together — pigs, cattle, goats, birds, fish', icon: PawPrint },
       { screen: 'crops', params: { tab: 'crops' }, label: NAV.crops, desc: 'Planted fields, their stage and harvest', icon: Sprout },
-      { screen: 'crops', params: { tab: 'products' }, label: NAV.products, desc: 'What you sell', icon: Leaf },
+      { screen: 'crops', params: { tab: 'products' }, label: NAV.products, desc: 'What you sell — milk, eggs, grain, live animals', icon: Package },
       { screen: 'farm-config', label: NAV.stages, desc: 'When a batch moves from one stage to the next', icon: SlidersHorizontal, ownerOnly: true },
       { screen: 'inventory', label: NAV.inventory, desc: 'Feed, medicine and stock', icon: Package },
       { screen: 'people', label: NAV.people, desc: 'Who works here, and how they sign in', icon: Users },
@@ -1101,7 +1101,7 @@ export function AppSidebar() {
       { id: 'crops' as ScreenId, label: NAV.houses, icon: Warehouse, ownerOnly: false, params: { tab: 'units' }, dataTour: 'nav-crops', indent: true },
       { id: 'crops' as ScreenId, label: NAV.livestock, icon: PawPrint, ownerOnly: false, params: { tab: 'livestock' }, dataTour: 'nav-crops-livestock', indent: true },
       { id: 'crops' as ScreenId, label: NAV.crops, icon: Sprout, ownerOnly: false, params: { tab: 'crops' }, dataTour: 'nav-crops-crops', indent: true },
-      { id: 'crops' as ScreenId, label: NAV.products, icon: Leaf, ownerOnly: false, params: { tab: 'products' }, dataTour: 'nav-crops-products', indent: true },
+      { id: 'crops' as ScreenId, label: NAV.products, icon: Package, ownerOnly: false, params: { tab: 'products' }, dataTour: 'nav-crops-products', indent: true },
       { id: 'farm-config' as ScreenId, label: NAV.stages, icon: SlidersHorizontal, ownerOnly: true, indent: true },
       { id: 'inventory' as ScreenId, label: NAV.inventory, icon: Package, ownerOnly: false },
       { id: 'people' as ScreenId, label: NAV.people, icon: Users, ownerOnly: false },
@@ -1321,10 +1321,10 @@ export function AppSidebar() {
 
 /* ── Top Nav Bar ── */
 export function TopNav({
-  title, subtitle, showBack = false, showSearch = false, showBell = false,
+  title, subtitle, showBack = false, showBell = false,
   rightEl, farmBadge,
 }: {
-  title: string; subtitle?: string; showBack?: boolean; showSearch?: boolean;
+  title: string; subtitle?: string; showBack?: boolean;
   showBell?: boolean; rightEl?: React.ReactNode; farmBadge?: string;
 }) {
   const { goBack, unreadNotifs, navigate } = useNav();
@@ -1337,7 +1337,7 @@ export function TopNav({
        * screen (a stray tap there used to sign them out). Sign-out now lives
        * in the right-hand cluster below instead. */}
       {showBack && (
-        <button type="button" className="btn-icon" onClick={goBack} style={{ width: 36, height: 36, minWidth: 36 }}>
+        <button type="button" className="btn-icon" onClick={goBack} aria-label="Back" style={{ width: 36, height: 36, minWidth: 36 }}>
           <ChevronLeft size={18} />
         </button>
       )}
@@ -1352,7 +1352,6 @@ export function TopNav({
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {rightEl}
-        {showSearch && <button type="button" className="btn-icon"><Search size={16} /></button>}
         {showBell && (
           <button type="button" className="btn-icon" style={{ position: 'relative' }} onClick={() => navigate('notifications')}>
             <Bell size={16} />

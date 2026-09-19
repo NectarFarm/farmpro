@@ -214,7 +214,7 @@ export default function Home() {
                   <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
                     <div style={{ flex: 1, overflowY: 'auto' }}>
                       <AuthShell>
-                        <AuthMasthead eyebrow="IFMS" headline="Every bird, bag and shilling accounted for." />
+                        <AuthMasthead eyebrow="IFMS" headline="Animals, harvests and money — one farm record." />
                         <div className="auth-checking">Checking…</div>
                       </AuthShell>
                     </div>

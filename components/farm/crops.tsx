@@ -1,12 +1,12 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNav, TopNav } from './navigation';
+import { useNav, TopNav, NAV } from './navigation';
 import { ENTERPRISE_REGISTRY } from './data';
 import { apiClient } from '@/lib/request';
-import { Plus, X, Check, Upload, Package, Archive, Edit2, PawPrint, Sprout, MapPin, HelpCircle, ClipboardList, Home, ChevronRight } from './icons';
+import { Plus, X, Check, Package, Archive, Edit2, PawPrint, Sprout, MapPin, HelpCircle, ClipboardList, Home, ChevronRight, Warehouse } from './icons';
 import { StatusTimeline } from './status-timeline';
 import { parseMoneyToCents, centsToMajor, majorToCents } from '@/lib/money';
-import { useToast } from './ui-shared';
+import { useToast, useConfirm } from './ui-shared';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
 // This screen used to render entirely from the batches mock array exported by
@@ -338,6 +338,7 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
   onCreated: () => void;
   onClose: () => void;
 }) {
+  const { showToast } = useToast();
   const [farmId, setFarmId] = useState(farms[0]?.id ?? '');
   const [type, setType] = useState('');
   const [name, setName] = useState('');
@@ -354,10 +355,11 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
     const res = await apiClient.post('/api/units', { tenantId, farmId, type: type.trim(), name: name.trim() });
     setSaving(false);
     if (res.success) {
+      showToast(`${name.trim()} added.`, 'success');
       onCreated();
       onClose();
     } else {
-      setError(res.error || 'Failed to create unit.');
+      setError(res.error || 'Could not add this place.');
     }
   }
 
@@ -365,7 +367,7 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
       <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Add Production Unit</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Add a house or field</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <div style={{ marginBottom: 12 }}>
@@ -376,15 +378,15 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit Type</label>
-          <input className="farm-input" placeholder="e.g. House, Pen, Field" value={type} onChange={e => setType(e.target.value)} />
+          <input className="farm-input" placeholder="house, pen, paddock, field" value={type} onChange={e => setType(e.target.value)} />
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit Name</label>
-          <input className="farm-input" placeholder="e.g. House A02" value={name} onChange={e => setName(e.target.value)} />
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Name</label>
+          <input className="farm-input" placeholder="e.g. Pen 2, House A, North field" value={name} onChange={e => setName(e.target.value)} />
         </div>
         {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
-          {saving ? 'Saving…' : 'Create Unit'}
+          {saving ? 'Saving…' : 'Add this place'}
         </button>
       </div>
     </div>
@@ -400,6 +402,7 @@ function AddProductSheet({ tenantId, onCreated, onClose }: {
   onCreated: () => void;
   onClose: () => void;
 }) {
+  const { showToast } = useToast();
   const [name, setName] = useState('');
   const [type, setType] = useState('');
   const [saleUnits, setSaleUnits] = useState('');
@@ -416,11 +419,12 @@ function AddProductSheet({ tenantId, onCreated, onClose }: {
     });
     setSaving(false);
     if (res.success) {
+      showToast(`${name.trim()} is in the catalogue.`, 'success');
       onCreated();
       onClose();
     } else {
       setErrors(res.fields ?? {});
-      setError(res.error || 'Failed to create product.');
+      setError(res.error || 'Could not add this product.');
     }
   }
 
@@ -439,7 +443,7 @@ function AddProductSheet({ tenantId, onCreated, onClose }: {
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Type *</label>
-          <input className="farm-input" placeholder="e.g. egg, livebird, produce" value={type} onChange={e => setType(e.target.value)}
+          <input className="farm-input" placeholder="e.g. milk, egg, grain, live animal" value={type} onChange={e => setType(e.target.value)}
             style={errors.type ? { border: '1px solid var(--status-critical)' } : undefined} />
           {errors.type && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.type}</div>}
         </div>
@@ -620,6 +624,8 @@ function initialCropsTab(raw: string | undefined): CropsTab {
 
 export function CropsScreen() {
   const { navigate, activeFarm, farms, tenantId, params } = useNav();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const [tab, setTab] = useState<CropsTab>(() => initialCropsTab(params.tab));
   // A second navigate() to this screen with a different tab does not remount
   // the component, so the initial state above would not re-run — this is what
@@ -687,12 +693,13 @@ export function CropsScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Farm" subtitle="Enterprises & batches" showSearch
+      <TopNav
+        title={{ livestock: NAV.livestock, crops: NAV.crops, units: NAV.houses, products: NAV.products }[tab]}
+        subtitle={{ livestock: 'Animals you track together', crops: 'Planted fields', units: 'Houses, pens, paddocks and fields', products: 'What you sell' }[tab]}
         rightEl={
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn-icon" style={{ width: 34, height: 34 }} title="Import CSV"><Upload size={14} /></button>
-            <button className="btn-fab" style={{ width: 34, height: 34, borderRadius: 9 }} onClick={() => setShowEnterpriseSelector(true)}><Plus size={15} /></button>
-          </div>
+          <button className="btn-fab" style={{ width: 34, height: 34, borderRadius: 9 }} onClick={() => tab === 'units' ? setShowAddUnit(true) : tab === 'products' ? setShowAddProduct(true) : setShowEnterpriseSelector(true)} aria-label={tab === 'units' ? 'Add a house or field' : tab === 'products' ? 'Add a product' : tab === 'livestock' ? 'Start a livestock batch' : 'Start a crop batch'}>
+            <Plus size={15} />
+          </button>
         }
       />
 
@@ -727,10 +734,10 @@ export function CropsScreen() {
         {/* Type tabs */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
           {([
-            ['livestock', PawPrint, 'Livestock'],
-            ['crops', Sprout, 'Crops'],
-            ['units', MapPin, 'Units'],
-            ['products', Package, 'Products'],
+            ['livestock', PawPrint, NAV.livestock],
+            ['crops', Sprout, NAV.crops],
+            ['units', Warehouse, NAV.houses],
+            ['products', Package, NAV.products],
           ] as const).map(([id, Icon, label]) => (
             <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
               <Icon size={12} aria-hidden="true" /> {label}
@@ -761,8 +768,15 @@ export function CropsScreen() {
                 <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}>
                   {tab === 'livestock' ? <PawPrint size={40} aria-hidden="true" /> : <Sprout size={40} aria-hidden="true" />}
                 </div>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No {tab} batches</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Tap + to add your first enterprise</div>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  {tab === 'livestock' ? 'No livestock yet' : 'No crops yet'}
+                </div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>
+                  {tab === 'livestock' ? 'A batch is one group you track together — pigs in a pen, cows in a paddock, birds in a house, fish in a pond.' : 'A crop batch is a planted field you track from planting to harvest.'}
+                </div>
+                <button type="button" className="btn-primary" onClick={() => setShowEnterpriseSelector(true)}>
+                  <Plus size={14} /> {tab === 'livestock' ? 'Start a livestock batch' : 'Start a crop batch'}
+                </button>
               </div>
             ) : displayed.map(b => (
               <LivestockBatchCard key={b.id} batch={b} navigate={navigate} />
@@ -780,9 +794,12 @@ export function CropsScreen() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
             {farmUnits.length === 0 ? (
               <div style={{ gridColumn: '1 / -1', padding: 24, textAlign: 'center' }}>
-                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><MapPin size={40} aria-hidden="true" /></div>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No production units yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Tap Add Unit below to create one</div>
+                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Warehouse size={40} aria-hidden="true" /></div>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No houses or fields yet</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>Livestock and crops both need a place — a house, pen, paddock or field. Add that first.</div>
+                <button type="button" className="btn-primary" onClick={() => setShowAddUnit(true)}>
+                  <Plus size={14} /> Add a house or field
+                </button>
               </div>
             ) : farmUnits.map(u => {
               const unitBatches = allViewBatches.filter(b => b.unitId === u.id && b.status !== 'CLOSED');
@@ -807,9 +824,11 @@ export function CropsScreen() {
               );
             })}
           </div>
+          {farmUnits.length > 0 && (
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }} onClick={() => setShowAddUnit(true)}>
-            <Plus size={14} /> Add Unit
+            <Plus size={14} /> Add a house or field
           </button>
+          )}
         </div>
       )}
 
@@ -827,7 +846,10 @@ export function CropsScreen() {
               <div style={{ padding: 24, textAlign: 'center' }}>
                 <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Package size={40} aria-hidden="true" /></div>
                 <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No products yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Add a product once, then attach it to any unit that offers it</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>What you sell — milk, eggs, grain, live animals. Add it once, then attach it to a house or field.</div>
+                <button type="button" className="btn-primary" onClick={() => setShowAddProduct(true)}>
+                  <Plus size={14} /> Add a product
+                </button>
               </div>
             ) : apiProducts.map(p => (
               <div key={p.id} className="farm-card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -838,16 +860,29 @@ export function CropsScreen() {
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button className="btn-icon" title="Edit" onClick={() => setEditingProduct(p)}><Edit2 size={13} /></button>
                   <button className="btn-icon" title="Archive"
-                    onClick={async () => { if (confirm(`Archive "${p.name}"?`)) { await apiClient.delete(`/api/products/${p.id}?tenantId=${tenantId}`); loadProducts(); } }}>
+                    onClick={async () => {
+                      const ok = await confirm({
+                        message: `Archive ${p.name}?`,
+                        detail: 'It leaves the catalogue. Batches that already use it keep it until you detach it.',
+                        variant: 'danger',
+                        confirmLabel: 'Archive',
+                      });
+                      if (!ok) return;
+                      const res = await apiClient.delete(`/api/products/${p.id}?tenantId=${tenantId}`);
+                      if (res.success) { showToast(`${p.name} archived.`, 'success'); loadProducts(); }
+                      else showToast(res.error || 'Could not archive this product.', 'error');
+                    }}>
                     <Archive size={13} />
                   </button>
                 </div>
               </div>
             ))}
           </div>
+          {apiProducts && apiProducts.length > 0 && (
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }} onClick={() => setShowAddProduct(true)}>
-            <Plus size={14} /> Add Product
+            <Plus size={14} /> Add a product
           </button>
+          )}
         </div>
       )}
 
@@ -1061,7 +1096,7 @@ function EditBatchSheet({ batch, tenantId, onClose, onSaved }: {
           {qtyChanged && (
             <>
               <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', margin: '6px 0 6px', lineHeight: 1.5 }}>
-                Changing this by hand is recorded in the batch history with your name against it. If birds died or were sold, record that instead so the reason is kept.
+                Changing this by hand is recorded in the batch history with your name against it. If animals died or were sold, record that instead so the reason is kept.
               </div>
               <input className="farm-input" value={qtyReason} onChange={(e) => setQtyReason(e.target.value)} placeholder="Why is it changing? (optional)" />
             </>
@@ -2026,7 +2061,10 @@ export function CropScheduleScreen() {
               </div>
               {employees === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading workers…</div>}
               {employees !== null && employees.length === 0 && (
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>No active workers on this farm yet.</div>
+                <div style={{ padding: 12, borderRadius: 10, border: '1px solid var(--border-subtle)', background: 'var(--card)', marginBottom: 8 }}>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 10 }}>Nobody to assign yet. You can still start the batch, then add people from People.</div>
+                  <button type="button" className="btn-secondary" onClick={() => navigate('people')}>Add a person</button>
+                </div>
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
                 {(employees ?? []).map((emp) => {

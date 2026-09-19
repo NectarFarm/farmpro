@@ -320,7 +320,7 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
 
   return (
     <AuthShell>
-      <AuthMasthead eyebrow="IFMS" headline="Every bird, bag and shilling accounted for." />
+      <AuthMasthead eyebrow="IFMS" headline="Animals, harvests and money — one farm record." />
 
       <div role="tablist" aria-label="How you sign in" className="auth-doors">
         {([

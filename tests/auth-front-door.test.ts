@@ -27,6 +27,12 @@ describe('auth is one family, 420px, not the app reading column', () => {
     expect(auth).not.toMatch(/14-day trial/)
     expect(auth).not.toMatch(/Join IFMS/)
   })
+
+  it('names a mixed farm, not a poultry house', () => {
+    expect(auth).toMatch(/Animals, harvests and money/)
+    expect(auth).not.toMatch(/Every bird, bag/)
+    expect(page).not.toMatch(/Every bird, bag/)
+  })
 })
 
 describe('login doors', () => {

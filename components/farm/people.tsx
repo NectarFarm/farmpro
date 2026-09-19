@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Plus, Key, ChevronRight, Check, X, Search, RefreshCw, List, Grid3X3, CheckCircle2 } from './icons';
+import { Plus, Key, ChevronRight, Check, X, Search, List, Grid3X3, CheckCircle2, Upload } from './icons';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef, usePersistedView } from './data-table';
 import { useToast } from './ui-shared';
@@ -212,7 +212,7 @@ export function PeopleScreen() {
     <div className="screen-content">
       <TopNav title="People" subtitle="Staff, roles & access"
         rightEl={
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div className="btn-cluster">
             {/* Card / Table toggle */}
             <div style={{ display: 'flex', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
               {(['card','table'] as const).map((m) => (
@@ -221,12 +221,12 @@ export function PeopleScreen() {
                   background: viewMode === m ? 'rgba(var(--primary-rgb),0.15)' : 'var(--surface)', border: 'none',
                   color: viewMode === m ? 'var(--primary-green)' : 'var(--text-dim)', fontSize: 'var(--fs-md)',
                 }} title={m === 'card' ? 'Card view' : 'Table view'}>
-                  {m === 'card' ? <List size={15} aria-hidden="true" /> : <Grid3X3 size={15} aria-hidden="true" />}
+                  {m === 'card' ? <Grid3X3 size={15} aria-hidden="true" /> : <List size={15} aria-hidden="true" />}
                 </button>
               ))}
             </div>
             <button onClick={() => setShowImport(true)} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Import employees CSV">
-              <RefreshCw size={13} color="var(--text-muted)" />
+              <Upload size={13} color="var(--text-muted)" />
             </button>
             <button className="btn-fab" style={{ width: 36, height: 36, borderRadius: 10 }} onClick={() => setShowAdd(true)}>
               <Plus size={16} />
@@ -296,7 +296,14 @@ export function PeopleScreen() {
           </div>
         ) : employees !== null && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 80 }}>
-            {filtered.length === 0 && <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>No staff match your search.</div>}
+            {filtered.length === 0 && list.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '28px 16px' }}>
+                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No people yet</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>Add someone before you can give them a login or assign a batch.</div>
+                <button type="button" className="btn-primary" onClick={() => setShowAdd(true)}><Plus size={14} /> Add a person</button>
+              </div>
+            )}
+            {filtered.length === 0 && list.length > 0 && <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>No one matches that search.</div>}
             {filtered.map((emp) => (
               <button key={emp.id} onClick={() => navigate('people-detail', { id: emp.id })}
                 className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer' }}>
@@ -360,7 +367,7 @@ export function PeopleScreen() {
           farms={farms}
           activeFarmId={activeFarmId}
           onClose={() => setShowAdd(false)}
-          onCreated={(emp) => { setEmployees((prev) => [...(prev ?? []), emp]); setShowAdd(false); }}
+          onCreated={(emp) => { setEmployees((prev) => [...(prev ?? []), emp]); setShowAdd(false); showToast(`${emp.name} added. Open them to give a login.`, 'success'); }}
         />
       )}
     </div>
@@ -378,6 +385,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
   onClose: () => void;
   onCreated: (emp: ApiEmployee) => void;
 }) {
+  const { navigate } = useNav();
   const [addStep, setAddStep] = useState(1);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -427,7 +435,7 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
 
         {/* Steps */}
         <div style={{ display: 'flex', gap: 0, marginBottom: 20 }}>
-          {['Identity', 'Threshold', 'Batches'].map((s, i) => (
+          {['Who', 'Pay', 'Batches'].map((s, i) => (
             <React.Fragment key={s}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                 <div className={`step-node ${i + 1 < addStep ? 'done' : i + 1 === addStep ? 'active' : 'pending'}`} style={{ width: 22, height: 22, fontSize: 'var(--fs-2xs)' }}>{i + 1 < addStep ? <Check size={11} aria-hidden="true" /> : i + 1}</div>
@@ -441,11 +449,18 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
         {addStep === 1 && (
           <div>
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
+              {farms.length === 0 ? (
+                <div style={{ padding: 12, borderRadius: 10, border: '1px solid var(--border-subtle)', background: 'var(--card)' }}>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 10 }}>A person has to belong to a farm. You do not have one yet.</div>
+                  <button type="button" className="btn-secondary" onClick={() => { onClose(); navigate('crops', { tab: 'units' }); }}>Add a house or field first</button>
+                </div>
+              ) : (
               <select className="farm-input" value={farmId} onChange={(e) => setFarmId(e.target.value)}>
                 <option value="" disabled>Select a farm…</option>
                 {farms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
+              )}
             </div>
             <div style={{ marginBottom: 10 }}>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Full Name</label>
@@ -466,11 +481,11 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
 
         {addStep === 2 && (
           <div>
-            <div style={{ padding: '10px 12px', background: 'rgba(var(--primary-rgb),0.06)', borderRadius: 10, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-              Login credentials (PIN / email &amp; password) are provisioned separately and aren&apos;t part of this form yet.
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--primary-rgb),0.06)', borderRadius: 10, marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+              You&apos;ll give a worker a phone and PIN on their page after they&apos;re added. This step is pay, not sign-in.
             </div>
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Photo Required Above (deaths)</label>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Ask for a photo when deaths exceed</label>
               <input className="farm-input" placeholder="e.g. 3" type="number" min={0} value={threshold} onChange={(e) => setThreshold(e.target.value)} />
             </div>
             <div style={{ marginBottom: 10 }}>
@@ -482,8 +497,13 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
 
         {addStep === 3 && (
           <div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 10 }}>Select batches this employee can access:</div>
-            {batches.length === 0 && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', marginBottom: 14 }}>No batches exist yet for this tenant.</div>}
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 10 }}>Which batches they can record against. Skip this and assign later from their page.</div>
+            {batches.length === 0 && (
+              <div style={{ padding: 12, borderRadius: 10, border: '1px solid var(--border-subtle)', background: 'var(--card)', marginBottom: 14 }}>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 10 }}>No batches yet. You can still add this person, then start a batch and assign them.</div>
+                <button type="button" className="btn-secondary" onClick={() => { onClose(); navigate('crops', { tab: 'livestock' }); }}>Start a livestock batch</button>
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
               {batches.map((b) => {
                 const on = selectedBatches.includes(b.id);
