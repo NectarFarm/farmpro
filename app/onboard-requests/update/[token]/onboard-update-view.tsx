@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/request';
 import { ENTERPRISE_REGISTRY } from '@/components/farm/data';
-import { AuthShell, AuthMasthead, GpsMapBlock } from '@/components/farm/auth';
+import { AuthShell, AuthMasthead, AuthStage, GpsMapBlock } from '@/components/farm/auth';
 import { detectGpsLocation } from '@/lib/geolocation';
 import Link from 'next/link';
 
@@ -150,9 +150,10 @@ export function OnboardUpdateView({ token }: { token: string }) {
   }
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', color: 'var(--text-primary)' }}>
+    <div style={{ minHeight: '100dvh', background: 'var(--background)', color: 'var(--text-primary)', overflowX: 'hidden' }}>
+      <AuthStage>
       <AuthShell>
-        <AuthMasthead eyebrow="IFMS" headline="Fix your application." lede={notes || undefined} />
+        <AuthMasthead eyebrow="IFMS" headline="Fix your application" lede={notes || undefined} />
 
           {loading && <div className="auth-checking">Checking the link…</div>}
 
@@ -255,6 +256,7 @@ export function OnboardUpdateView({ token }: { token: string }) {
             </form>
           )}
       </AuthShell>
+      </AuthStage>
     </div>
   );
 }

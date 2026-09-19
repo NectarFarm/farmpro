@@ -53,6 +53,28 @@ describe('parseApiResponse field-level errors', () => {
     expect(r.fields).toBeUndefined()
   })
 
+  it('preserves retryAfterSeconds on a 429 so the lockout can tick', async () => {
+    const r = await parseApiResponse(
+      new Response(JSON.stringify({ success: false, error: 'Too many failed attempts. Wait, then try again.', retryAfterSeconds: 707 }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '707' },
+      })
+    )
+    if (r.success) throw new Error('expected failure')
+    expect(r.retryAfterSeconds).toBe(707)
+  })
+
+  it('reads Retry-After when the body omitted the number', async () => {
+    const r = await parseApiResponse(
+      new Response(JSON.stringify({ success: false, error: 'Too many failed attempts. Wait, then try again.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '90' },
+      })
+    )
+    if (r.success) throw new Error('expected failure')
+    expect(r.retryAfterSeconds).toBe(90)
+  })
+
   it('still unwraps a successful envelope unchanged', async () => {
     const r = await parseApiResponse<{ id: string }>(res({ success: true, data: { id: 'abc' } }, 201))
     expect(r.success).toBe(true)

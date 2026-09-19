@@ -121,25 +121,32 @@ export async function POST(req: Request) {
 
   const identifier = isPinAttempt ? `phone:${storedPhone}` : `email:${email}`
 
+  // Lockout copy is deliberately minute-free. Rounding to "12 min" made a
+  // 11:01 wait feel arbitrary, and the screen could not tick it down because
+  // the number lived only in that string. retryAfterSeconds is the same
+  // figure Retry-After already carried — not a remaining-attempt count, not
+  // whether the account exists.
+  function locked(retryAfterSeconds: number) {
+    return json(
+      {
+        success: false,
+        error: 'Too many failed attempts. Wait, then try again.',
+        retryAfterSeconds,
+      },
+      429,
+      { 'Retry-After': String(retryAfterSeconds) },
+    )
+  }
+
   if (isPinAttempt) {
     const global = await checkLoginThrottle(PIN_GLOBAL_IDENTIFIER)
     if (global.locked) {
-      const mins = Math.max(1, Math.ceil(global.retryAfterSeconds / 60))
-      return json(
-        { success: false, error: `Too many failed attempts — try again in ${mins} min` },
-        429,
-        { 'Retry-After': String(global.retryAfterSeconds) },
-      )
+      return locked(global.retryAfterSeconds)
     }
   }
   const throttle = await checkLoginThrottle(identifier)
   if (throttle.locked) {
-    const mins = Math.max(1, Math.ceil(throttle.retryAfterSeconds / 60))
-    return json(
-      { success: false, error: `Too many failed attempts — try again in ${mins} min` },
-      429,
-      { 'Retry-After': String(throttle.retryAfterSeconds) },
-    )
+    return locked(throttle.retryAfterSeconds)
   }
 
   let user: typeof users.$inferSelect | null = null

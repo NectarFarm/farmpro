@@ -1150,7 +1150,7 @@
   outline: none;
 }
 .farm-input:focus { border-color: rgba(var(--primary-rgb),0.5); box-shadow: 0 0 0 3px rgba(var(--primary-rgb),0.08); }
-.farm-input::placeholder { color: var(--text-dim); }
+.farm-input::placeholder { color: var(--text-muted); opacity: 1; }
 
 /* ── Table ── */
 .farm-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; }
@@ -1322,15 +1322,73 @@
  * link are ONE family. A 420px column, left-aligned, never the 900px reading
  * measure the logged-in app uses. The headline is allowed to wrap on the
  * column, not on an arbitrary 15ch that orphaned "for." */
+.auth-stage {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 8px 0 24px;
+  overflow-x: hidden;
+}
+.auth-aside { display: none; }
+@media (min-width: 900px) {
+  .auth-stage {
+    display: grid;
+    grid-template-columns: minmax(200px, 1fr) 420px;
+    gap: 56px;
+    align-items: start;
+    padding: 48px 32px 64px;
+  }
+  .auth-aside {
+    display: block;
+    padding-top: 40px;
+  }
+  .auth-shell { margin: 0; }
+}
+.auth-aside-kicker {
+  font-size: var(--fs-sm);
+  font-weight: 750;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+.auth-aside-lede {
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--text-primary);
+  margin: 0 0 22px;
+  font-variant-numeric: proportional-nums;
+}
+.auth-aside-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.auth-aside-list li {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.auth-aside-list strong {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 750;
+  margin-bottom: 2px;
+}
 .auth-shell {
   width: 100%;
   max-width: 420px;
   margin: 0 auto;
   padding: 36px 20px 56px;
+  overflow-x: hidden;
+  min-width: 0;
 }
-.auth-masthead { position: relative; margin-bottom: 22px; padding-top: 4px; }
+.auth-masthead { position: relative; margin-bottom: 22px; padding-top: 4px; overflow: hidden; }
 .auth-masthead-horizon {
-  position: absolute; inset: -8px -24px 0 -24px;
+  position: absolute; inset: 0 0 auto 0;
+  height: 150px;
   pointer-events: none; overflow: hidden;
   mask-image: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 88%);
   -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 88%);
@@ -1341,10 +1399,15 @@
 .auth-masthead h1 {
   margin: 0;
   font-size: var(--fs-3xl);
-  line-height: 1.18;
-  letter-spacing: -0.02em;
+  line-height: 1.22;
+  letter-spacing: -0.015em;
   font-weight: 800;
   color: var(--text-primary);
+  font-variant-numeric: proportional-nums;
+  font-kerning: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
 }
 .auth-lede {
   margin: 10px 0 0;
@@ -1465,6 +1528,7 @@
   background: transparent;
   border: none;
   cursor: default;
+  pointer-events: none;
 }
 .auth-pin-key:disabled { opacity: 0.45; cursor: default; }
 .auth-gps {

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/request';
-import { AuthShell, AuthMasthead } from '@/components/farm/auth';
+import { AuthShell, AuthMasthead, AuthStage } from '@/components/farm/auth';
 import { Eye, EyeOff } from '@/components/farm/icons';
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -67,11 +67,12 @@ export function SetPasswordView({ token }: { token: string }) {
   }
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--background)', color: 'var(--text-primary)' }}>
+    <div style={{ minHeight: '100dvh', background: 'var(--background)', color: 'var(--text-primary)', overflowX: 'hidden' }}>
+      <AuthStage>
       <AuthShell>
         <AuthMasthead
           eyebrow="IFMS"
-          headline="Set your password."
+          headline="Set your password"
           lede={loading ? undefined : resolveError ? undefined : done ? undefined : `For ${name} (${email}).`}
         />
 
@@ -142,6 +143,7 @@ export function SetPasswordView({ token }: { token: string }) {
           </form>
         )}
       </AuthShell>
+      </AuthStage>
     </div>
   );
 }
