@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { formatLockRemain } from '@/components/farm/auth'
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
 const auth = read('components/farm/auth.tsx')
@@ -21,6 +22,22 @@ describe('auth is one family, 420px, not the app reading column', () => {
 
   it('does not cap the headline at 15ch', () => {
     expect(auth).not.toMatch(/maxWidth: '15ch'/)
+  })
+
+  it('clips the masthead so 375px does not grow a horizontal scroll', () => {
+    expect(css).toMatch(/\.auth-shell \{[\s\S]*overflow-x: hidden/)
+    expect(css).toMatch(/\.auth-masthead-horizon \{[\s\S]*inset: 0 0 auto 0/)
+    expect(page).toMatch(/overflowX: 'hidden'/)
+  })
+
+  it('uses proportional figures on the headline so commas do not float', () => {
+    expect(css).toMatch(/\.auth-masthead h1 \{[\s\S]*font-variant-numeric: proportional-nums/)
+  })
+
+  it('keeps a 420px form and fills the desktop with public copy, not tenant data', () => {
+    expect(auth).toMatch(/export function AuthStage/)
+    expect(css).toMatch(/\.auth-aside \{ display: none; \}/)
+    expect(auth).toMatch(/The farm record\. Animals, harvests and money/)
   })
 
   it('does not promise a trial', () => {
@@ -52,7 +69,32 @@ describe('login doors', () => {
 
   it('asks for help signing in, not a self-serve reset', () => {
     expect(auth).toMatch(/Need help signing in\?/)
-    expect(auth).toMatch(/Ask admin/)
+    expect(auth).toMatch(/Notify my admin/)
+    expect(auth).not.toMatch(/>Ask admin</)
+  })
+
+  it('pauses Sign in during lockout and ticks the wait', () => {
+    expect(auth).toMatch(/disabled=\{busy \|\| lock\.locked\}/)
+    expect(auth).toMatch(/formatLockRemain/)
+    expect(auth).toMatch(/retryAfterSeconds/)
+    expect(auth).toMatch(/Extra taps will not get you in sooner/)
+  })
+
+  it('masks the password again after a failed attempt', () => {
+    expect(auth).toMatch(/setShowPwd\(false\)/)
+  })
+
+  it('deletes the last PIN digit, and the empty pad cell is not a button', () => {
+    expect(auth).toMatch(/aria-label=\{d === 'DEL' \? 'Delete last digit' : d\}/)
+    expect(auth).toMatch(/\{d === 'DEL' \? 'Delete' : d\}/)
+    expect(auth).not.toMatch(/'Clear last digit'/)
+    expect(auth).toMatch(/<div className="auth-pin-key is-blank" aria-hidden="true" \/>/)
+  })
+
+  it('uses parallel door hints, not a who-list vs a what-list', () => {
+    expect(auth).toMatch(/hint: 'Email and password'/)
+    expect(auth).toMatch(/hint: 'Phone and PIN'/)
+    expect(auth).not.toMatch(/Owners, managers, admins/)
   })
 
   it('makes Apply for access a full-width door, not a text link', () => {
@@ -96,9 +138,18 @@ describe('apply for access', () => {
   })
 
   it('success copy is real paragraphs, not a collapsed newline', () => {
-    expect(auth).toMatch(/Application sent\./)
+    expect(auth).toMatch(/Application sent/)
     expect(auth).not.toMatch(/\{'\\n'\}/)
     expect(auth).not.toMatch(/Request Submitted!/)
+  })
+})
+
+describe('lockout clock', () => {
+  it('formats remaining seconds as m:ss, never a rounded 12 min', () => {
+    expect(formatLockRemain(12)).toBe('12s')
+    expect(formatLockRemain(60)).toBe('1:00')
+    expect(formatLockRemain(707)).toBe('11:47')
+    expect(formatLockRemain(0)).toBe('0s')
   })
 })
 

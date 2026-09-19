@@ -34,7 +34,7 @@ import { AdminUsersScreen, ImpersonationBanner, type ImpersonationInfo } from '@
 import { UICustomiseScreen } from '@/components/farm/ui-customise';
 import { AuditorReportsScreen } from '@/components/farm/auditor';
 import { VetHerdScreen } from '@/components/farm/vet';
-import { LoginScreen, RegisterScreen, ForgotPasswordScreen, AuthShell, AuthMasthead } from '@/components/farm/auth';
+import { LoginScreen, RegisterScreen, ForgotPasswordScreen, AuthShell, AuthMasthead, AuthStage } from '@/components/farm/auth';
 import { apiClient } from '@/lib/request';
 
 /* ── App-level logout context so any screen can trigger logout ── */
@@ -212,18 +212,20 @@ export default function Home() {
 
                 {authState === 'booting' && (
                   <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+                      <AuthStage>
                       <AuthShell>
-                        <AuthMasthead eyebrow="IFMS" headline="Animals, harvests and money — one farm record." />
+                        <AuthMasthead eyebrow="IFMS" headline="Animals, harvests and money — one farm record" />
                         <div className="auth-checking">Checking…</div>
                       </AuthShell>
+                      </AuthStage>
                     </div>
                   </div>
                 )}
 
                 {authState === 'login' && (
                   <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
                       <LoginScreen
                         onLogin={handleLogin}
                         onRegister={() => setAuthState('register')}
@@ -235,7 +237,7 @@ export default function Home() {
 
                 {authState === 'forgot' && (
                   <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
                       <ForgotPasswordScreen onBack={() => setAuthState('login')} />
                     </div>
                   </div>
@@ -243,7 +245,7 @@ export default function Home() {
 
                 {authState === 'register' && (
                   <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
                       <RegisterScreen
                         onBack={() => setAuthState('login')}
                       />
