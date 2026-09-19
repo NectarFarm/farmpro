@@ -1,7 +1,8 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback, useTransition } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, MessageCircle, DoorOpen, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X, Key, Activity, Building2 } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, DoorOpen, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X, Key, Activity, Building2, Warehouse, PawPrint, Sprout, PanelLeftClose, PanelLeftOpen, SlidersHorizontal } from './icons';
 import { apiClient } from '@/lib/request';
+import { useConfirm } from './ui-shared';
 import type { SetupState } from '@/lib/setup-state';
 
 /* ── Screen registry ── */
@@ -105,6 +106,10 @@ export interface NavContext {
    * has just finished a step elsewhere (adding a unit, issuing a login), so
    * progress moves without a reload. */
   refreshSetupState: () => void;
+  /* Session user's display name, from GET /api/auth/session. Empty until the
+   * shell has it — the sidebar then falls back to the role label rather than
+   * inventing a person. */
+  userName: string;
 }
 
 /* Tenant scope for /api/farms. With real sessions (issue #221) NavProvider gets
@@ -126,6 +131,7 @@ const NavCtx = createContext<NavContext>({
   pendingApprovals: 0, unreadNotifs: 0,
   openTasksCount: 0, pendingOnboardingRequests: 0,
   setupState: null, refreshSetupState: () => {},
+  userName: '',
 });
 
 export function useNav() { return useContext(NavCtx); }
@@ -158,6 +164,7 @@ const ALL_SCREENS: ScreenId[] = [
   'notification-settings',
   'ui-customise', 'security-settings', 'role-notice',
   'auditor-reports', 'vet-herd', 'about', 'routines', 'getting-started',
+  'farm-config', 'dimensions',
 ];
 const SCREEN_SET = new Set<string>(ALL_SCREENS);
 function isScreenId(s: string): s is ScreenId {
@@ -281,7 +288,7 @@ const TAB_MENUS: Partial<Record<ScreenId, { title: string; items: TabMenuItem[] 
       { screen: 'farm-config', label: 'Farm configuration', desc: 'Growth stages, products per batch, farm structure', icon: Layers, ownerOnly: true },
       // Owner-only: this decides how the ledger is analysed, which is an
       // accounting decision rather than a day-to-day operational one.
-      { screen: 'dimensions', label: 'Dimensions', desc: 'The coded levels every sale, purchase and journal line is reported by', icon: Layers, ownerOnly: true },
+      { screen: 'dimensions', label: 'Ledger codes', desc: 'The coded levels every sale, purchase and journal line is reported by', icon: Layers, ownerOnly: true },
     ],
   },
   settings: {
@@ -292,7 +299,7 @@ const TAB_MENUS: Partial<Record<ScreenId, { title: string; items: TabMenuItem[] 
       { screen: 'routines', label: 'Daily routines', desc: 'The checklist your workers follow each round', icon: Sunrise },
       { screen: 'weather', label: 'Weather', desc: 'Forecast for your farm, and what to do about it', icon: CloudSun },
       { screen: 'ai-chat', label: 'AI farm advisor', desc: 'Ask a question about your own farm’s records', icon: Bot },
-      { screen: 'governance', label: 'Governance', desc: 'Approvals, who can do what, and the audit trail', icon: Shield },
+      { screen: 'governance', label: 'Approvals', desc: 'Approvals, who can do what, and the audit trail', icon: Shield },
       { screen: 'reports', label: 'Reports', desc: 'Export production, money and mortality; share with an auditor', icon: FileText, ownerOnly: true },
       { screen: 'settings', label: 'App settings', desc: 'Your account, appearance, units, notifications and security', icon: Settings },
     ],
@@ -352,7 +359,7 @@ function guardDestination(role: Role, dest: ScreenId): ScreenId {
   return allowed.has(dest) ? dest : 'role-notice';
 }
 
-export function NavProvider({ children, initialRole = 'owner', initialTenantId }: { children: React.ReactNode; initialRole?: NavContext['role']; initialTenantId?: string }) {
+export function NavProvider({ children, initialRole = 'owner', initialTenantId, userName = '' }: { children: React.ReactNode; initialRole?: NavContext['role']; initialTenantId?: string; userName?: string }) {
   const [role, setRole] = useState<NavContext['role']>(initialRole);
   const startScreen: ScreenId = startScreenForRole(initialRole);
   const [current, setCurrent] = useState<ScreenId>(startScreen);
@@ -643,7 +650,7 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId }
   }, [tenantId, role, setupNonce]);
 
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, isNavigating, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, isNavigating, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState, userName }}>
       {/* Two pixels saying the tap landed while the next screen renders. */}
       {isNavigating && <div className="nav-progress" role="status" aria-label="Loading screen" />}
       {process.env.NODE_ENV !== 'production' && (
@@ -858,7 +865,7 @@ export function BottomNav() {
 function badgeAriaLabel(tabId: ScreenId, count: number): string {
   if (tabId === 'governance') return `${count} pending approval${count === 1 ? '' : 's'}`;
   if (tabId === 'tasks') return `${count} open task${count === 1 ? '' : 's'}`;
-  if (tabId === 'dashboard') return `${count} unread notification${count === 1 ? '' : 's'}`;
+  if (tabId === 'dashboard' || tabId === 'notifications') return `${count} unread notification${count === 1 ? '' : 's'}`;
   if (tabId === 'admin-onboarding') return `${count} pending request${count === 1 ? '' : 's'}`;
   return `${count}`;
 }
@@ -878,7 +885,12 @@ function NavBadge({ count, tabId, className = 'nav-badge' }: { count: number; ta
 export function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs: number, openTasksCount: number, pendingOnboardingRequests: number): number | null {
   if (tabId === 'governance' && pendingApprovals > 0) return pendingApprovals;
   if (tabId === 'tasks' && openTasksCount > 0) return openTasksCount;
+  // Dashboard keeps the unread count for the mobile Home tab (no Inbox tab
+  // there). The desktop sidebar has its own Notifications row and reads the
+  // same count through that id, so Home does not wear a badge that opens
+  // the wrong screen.
   if (tabId === 'dashboard' && unreadNotifs > 0) return unreadNotifs;
+  if (tabId === 'notifications' && unreadNotifs > 0) return unreadNotifs;
   if (tabId === 'admin-onboarding' && pendingOnboardingRequests > 0) return pendingOnboardingRequests;
   return null;
 }
@@ -900,24 +912,61 @@ function tabIsActive(current: ScreenId, tabId: ScreenId): boolean {
 }
 
 /* Desktop has first-class destinations that sit under mobile's "More" tab.
- * Keep their active state tied to the actual destination, not to Settings. */
-function sidebarIsActive(current: ScreenId, tabId: ScreenId): boolean {
-  const DETAIL_SCREENS: Partial<Record<ScreenId, ScreenId[]>> = {
-    // farm-config is reached from the Farm menu, so it belongs to this row.
-    crops: ['batch-detail', 'crop-schedule', 'farm-config', 'dimensions'],
-    inventory: ['inventory-detail'],
-    people: ['people-detail'],
-    // Same reasoning as tabIsActive's SUB_SCREENS above — enterprise requests
-    // has no sidebar row of its own on the super_admin's plain tab list.
-    'admin-onboarding': ['admin-enterprise-requests'],
-    // 'routines', 'getting-started' and 'ai-chat' used to fold into Settings
-    // here, because none of them had a sidebar row of its own. All three do
-    // now (see AppSidebar's groups), so folding them in would light up the
-    // wrong item.
-    settings: ['notification-settings', 'ui-customise', 'about', 'security-settings'],
-  };
-  return current === tabId || (DETAIL_SCREENS[tabId] ?? []).includes(current);
+ * Keep their active state tied to the actual destination, not to Settings.
+ *
+ * Rows that deep-link with `params` (the four Farm tabs, admin Users'
+ * sub-rows) must not all light up together. A bare row (Users, no tab) is
+ * current only when no param-sibling matches. Detail screens map to exactly
+ * one parent: batch-detail → Livestock, crop-schedule → Crops — never to
+ * every crops row, and never to Dimensions / Farm configuration, which have
+ * rows of their own. */
+const SIDEBAR_DETAIL_SCREENS: Partial<Record<ScreenId, ScreenId[]>> = {
+  inventory: ['inventory-detail'],
+  people: ['people-detail'],
+  'admin-onboarding': ['admin-enterprise-requests'],
+  settings: ['notification-settings', 'ui-customise', 'about', 'security-settings'],
+};
+
+export function sidebarRowIsActive(
+  current: ScreenId,
+  params: Record<string, string>,
+  item: { id: ScreenId; params?: Record<string, string> },
+  siblings: { id: ScreenId; params?: Record<string, string> }[],
+): boolean {
+  if (current === 'batch-detail') {
+    return item.id === 'crops' && item.params?.tab === 'livestock';
+  }
+  if (current === 'crop-schedule') {
+    return item.id === 'crops' && item.params?.tab === 'crops';
+  }
+
+  const onScreen = current === item.id || (SIDEBAR_DETAIL_SCREENS[item.id] ?? []).includes(current);
+  if (!onScreen) return false;
+
+  // `#crops` with no tab is the Livestock view (CropsScreen's own default).
+  const effective: Record<string, string> = (current === 'crops' && !params.tab)
+    ? { ...params, tab: 'livestock' }
+    : params;
+
+  if (item.params) {
+    return Object.entries(item.params).every(([k, v]) => effective[k] === v);
+  }
+
+  const paramSiblings = siblings.filter((s) => s.id === item.id && s.params);
+  if (paramSiblings.some((s) => Object.entries(s.params!).every(([k, v]) => effective[k] === v))) {
+    return false;
+  }
+  return true;
 }
+
+export const ROLE_LABEL: Record<Role, string> = {
+  owner: 'Owner',
+  manager: 'Manager',
+  worker: 'Worker',
+  vet: 'Veterinarian',
+  auditor: 'Auditor',
+  super_admin: 'Platform admin',
+};
 
 /* Shared shape for every grouped-sidebar row below (enterpriseGroups,
  * adminGroups, and the flat `tabs` fallback all render through the same
@@ -932,79 +981,109 @@ interface SidebarGroupItem {
   setupOnly?: boolean;
   params?: Record<string, string>;
   dataTour?: string;
+  indent?: boolean;
 }
 interface SidebarGroup {
   label: string;
   items: SidebarGroupItem[];
 }
 
-/* ── Desktop Sidebar (issue #220) ──
- * Same tab set BottomNav drives (getTabsForRole). Shown >=1024px via CSS, where
- * BottomNav is hidden; rendered on all sizes so the tab set lives in one place. */
+const SIDEBAR_COLLAPSE_KEY = 'ifms.sidebar.collapsed';
+
+function readSidebarCollapsed(): boolean {
+  try {
+    const stored = window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+  } catch { /* private mode, no storage */ }
+  return window.innerWidth < 1024;
+}
+
+function writeSidebarCollapsed(collapsed: boolean) {
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, collapsed ? '1' : '0');
+  } catch { /* ignore */ }
+}
+
+/* ── Desktop Sidebar (issue #220, ux-revamp) ──
+ * Shown from 768px via CSS, where BottomNav is hidden. Grouped by when a
+ * farmer needs the screen — not by which department owns it — and every
+ * destination the mobile Farm/Manage menus name has a row of its own, so
+ * nothing is reachable only by noticing a tab inside a screen. */
 export function AppSidebar() {
-  const { current, params, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarmId, farms, setActiveFarmId, setupState } = useNav();
+  const { current, params, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarmId, farms, setActiveFarmId, setupState, tenantId, userName } = useNav();
   const tabs = getTabsForRole(role);
-  /* ── Grouped by WHEN you need it, not by what department owns it ──
-   * (setup-sequence task; before this the three groups were Overview /
-   * Operations / Business.)
+  const homeScreen = startScreenForRole(role);
+
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => { setCollapsed(readSidebarCollapsed()); }, []);
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      writeSidebarCollapsed(next);
+      return next;
+    });
+  }
+
+  const [branding, setBranding] = useState<{ orgName: string; logoEmoji: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<{ orgName?: string; logoEmoji?: string }>(`/api/settings?tenantId=${tenantId}`).then((res) => {
+      if (cancelled || !res.success || !res.data) return;
+      setBranding({
+        orgName: (res.data.orgName || '').trim(),
+        logoEmoji: (res.data.logoEmoji || '').trim(),
+      });
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  const brandName = branding?.orgName
+    || (role === 'super_admin' ? 'IFMS' : (farms.find((f) => f.id === activeFarmId)?.name || farms[0]?.name || 'IFMS'));
+  const brandMeta = role === 'super_admin'
+    ? 'Platform'
+    : (activeFarmId === 'ALL' ? (farms.length > 1 ? 'All farms' : 'Farm management') : (farms.find((f) => f.id === activeFarmId)?.name || 'Farm'));
+  const brandEmoji = branding?.logoEmoji || '';
+  /* Grouped by when you need it. Headings name a moment in the farm's day,
+   * not a department. The first group has no heading — Home and Inbox are
+   * not a "Start here" ritual once the farm is running, and Finish setup
+   * is named as a job, not as a second copy of a section title.
    *
-   * The owner's complaint was that every destination looked equally like a
-   * starting point. Alphabet-soup department headings are part of why: they
-   * tell you which team owns a screen, which is not a question a farmer
-   * standing in a shed has. These four say where in the life of the farm the
-   * screen belongs, which IS the sequence — set the farm up, then run it day
-   * to day, then read the business off it.
-   *
-   * "Set up your farm" appears in the first group ONLY while setup is
-   * unfinished, and carries its real position ("4 of 9") from
-   * GET /api/setup-state. It is one row pointing at one existing screen, not a
-   * parallel menu: nothing is reachable through it that is not reachable
-   * without it.
-   *
-   * Labels changed for the same reason: "Fields & crops" named half of what
-   * that screen holds and named it wrong for a poultry farm — its four tabs
-   * are Livestock, Crops, Units and Products, which is "Units & batches".
-   * "Workers" → "People" matches the screen's own title and the guide's
-   * wording ("Add employees, then give each one a login").
-   */
+   * The four Farm destinations that used to hide behind one "Units & batches"
+   * row are listed, matching the mobile Farm menu, so a desktop user is not
+   * the only person who has to discover Livestock / Crops / Products by
+   * noticing a chip row. Farm configuration has a row of its own for the
+   * same reason Settings used to be the only door to it. */
   const enterpriseGroups: SidebarGroup[] = [
-    { label: 'Start here', items: [
-      { id: 'dashboard' as ScreenId, label: 'Dashboard', icon: Home, ownerOnly: false },
+    { label: '', items: [
+      { id: 'dashboard' as ScreenId, label: 'Home', icon: Home, ownerOnly: false },
+      { id: 'notifications' as ScreenId, label: 'Notifications', icon: Bell, ownerOnly: false },
       // Rendered only while there is something left to do — see the filter
       // below. Once setup is complete this row disappears entirely rather
       // than sitting there as a permanent tick, which is the "get out of the
       // way" half of the brief.
-      { id: 'getting-started' as ScreenId, label: 'Set up your farm', icon: ClipboardList, ownerOnly: false, setupOnly: true },
+      { id: 'getting-started' as ScreenId, label: 'Finish setup', icon: ClipboardList, ownerOnly: false, setupOnly: true },
     ] },
-    { label: 'Set up your farm', items: [
-      { id: 'crops' as ScreenId, label: 'Units & batches', icon: Leaf, ownerOnly: false },
+    { label: 'The farm', items: [
+      { id: 'crops' as ScreenId, label: 'Production units', icon: Warehouse, ownerOnly: false, params: { tab: 'units' }, dataTour: 'nav-crops', indent: true },
+      { id: 'crops' as ScreenId, label: 'Livestock', icon: PawPrint, ownerOnly: false, params: { tab: 'livestock' }, dataTour: 'nav-crops-livestock', indent: true },
+      { id: 'crops' as ScreenId, label: 'Crops', icon: Sprout, ownerOnly: false, params: { tab: 'crops' }, dataTour: 'nav-crops-crops', indent: true },
+      { id: 'crops' as ScreenId, label: 'Products', icon: Leaf, ownerOnly: false, params: { tab: 'products' }, dataTour: 'nav-crops-products', indent: true },
+      { id: 'farm-config' as ScreenId, label: 'Farm configuration', icon: SlidersHorizontal, ownerOnly: true, indent: true },
       { id: 'inventory' as ScreenId, label: 'Inventory', icon: Package, ownerOnly: false },
       { id: 'people' as ScreenId, label: 'People', icon: Users, ownerOnly: false },
     ] },
-    { label: 'Day to day', items: [
+    { label: 'Today', items: [
       { id: 'tasks' as ScreenId, label: 'Tasks', icon: CheckSquare, ownerOnly: false },
-      // Daily routines had no sidebar entry at all — it was reachable only
-      // through mobile's hub list and the dashboard tile, despite being one
-      // of the nine setup steps. A step the guide tells you to do needs a
-      // door in the shell that names it.
-      { id: 'routines' as ScreenId, label: 'Daily routines', icon: Sunrise, ownerOnly: false },
+      { id: 'routines' as ScreenId, label: 'Routines', icon: Sunrise, ownerOnly: false },
       { id: 'weather' as ScreenId, label: 'Weather', icon: CloudSun, ownerOnly: false },
-      // The advisor had no sidebar row either — it was a dashboard tile and a
-      // line inside mobile's hub list, which is precisely the "I struggle
-      // finding it when new" the owner reported. A screen people ask for by
-      // name needs a row that says its name.
       { id: 'ai-chat' as ScreenId, label: 'AI advisor', icon: Bot, ownerOnly: false },
     ] },
-    { label: 'Business', items: [
-      // 'governance' used to be dead code: tabBadge() already had a branch
-      // returning pendingApprovals for it, but no tab set and no sidebar
-      // group ever listed 'governance' as a destination, so that badge never
-      // rendered anywhere in the app. Adding it here is what makes it live.
-      { id: 'governance' as ScreenId, label: 'Governance', icon: Shield, ownerOnly: false },
+    { label: 'The books', items: [
+      { id: 'governance' as ScreenId, label: 'Approvals', icon: Shield, ownerOnly: false },
       { id: 'finance' as ScreenId, label: 'Finance', icon: DollarSign, ownerOnly: true },
-      { id: 'dimensions' as ScreenId, label: 'Dimensions', icon: Layers, ownerOnly: true },
+      { id: 'dimensions' as ScreenId, label: 'Ledger codes', icon: Layers, ownerOnly: true },
       { id: 'reports' as ScreenId, label: 'Reports', icon: FileText, ownerOnly: true },
-      { id: 'settings' as ScreenId, label: 'Settings', icon: Settings, ownerOnly: false },
     ] },
   ];
   /* ── Platform admin's sidebar (owner brief: "his navigation is so small,
@@ -1033,20 +1112,20 @@ export function AppSidebar() {
     ] },
     { label: 'Tenants', items: [
       { id: 'admin-farms' as ScreenId, label: 'Farms', icon: Building2 },
-      { id: 'admin-settings' as ScreenId, label: 'Tenant Config', icon: Settings },
+      { id: 'admin-settings' as ScreenId, label: 'Config', icon: Settings },
     ] },
     { label: 'Applications', items: [
-      { id: 'admin-onboarding' as ScreenId, label: 'Onboarding Requests', icon: ClipboardList },
+      { id: 'admin-onboarding' as ScreenId, label: 'Requests', icon: ClipboardList },
     ] },
-    { label: 'People & Access', items: [
+    { label: 'People & access', items: [
       { id: 'admin-users' as ScreenId, label: 'Users', icon: UserCheck },
       // Deep links: same screen, opened straight on the tab that used to be
       // reachable only by first landing on "Users" and noticing its own
       // chip row. Distinct data-tour ids (not the shared `nav-admin-users`
       // the row above uses) so a future tour step can target exactly one of
       // the three without ambiguity.
-      { id: 'admin-users' as ScreenId, label: 'Password Resets', icon: Key, params: { tab: 'password-resets' }, dataTour: 'nav-admin-users-password-resets' },
-      { id: 'admin-users' as ScreenId, label: 'Impersonation Log', icon: Activity, params: { tab: 'impersonation-log' }, dataTour: 'nav-admin-users-impersonation-log' },
+      { id: 'admin-users' as ScreenId, label: 'Password resets', icon: Key, params: { tab: 'password-resets' }, dataTour: 'nav-admin-users-password-resets' },
+      { id: 'admin-users' as ScreenId, label: 'Impersonation log', icon: Activity, params: { tab: 'impersonation-log' }, dataTour: 'nav-admin-users-impersonation-log' },
     ] },
   ];
   // Progress text for the setup row, e.g. "4 of 9". Absent (not "0 of 9")
@@ -1081,103 +1160,99 @@ export function AppSidebar() {
         .filter((group) => group.items.length > 0)
     : role === 'super_admin'
       ? adminGroups
-      : [{ label: 'Workspace', items: tabs }];
-  // Platform-admin screens are tenant-scoped, not farm-scoped: they carry
-  // their own tenant picker and never read activeFarmId.
-  const showFarmFilter = farms.length > 0 && !current.startsWith('admin-');
+      : [{ label: '', items: tabs }];
+  const allItems = groups.flatMap((g) => g.items);
+  // A filter with one farm (All farms vs that farm) is a distinction without
+  // a difference. Hidden on platform-admin screens: they are tenant-scoped
+  // and never read activeFarmId.
+  const showFarmFilter = farms.length > 1 && !current.startsWith('admin-');
+  const displayName = userName.trim() || ROLE_LABEL[role];
 
   return (
-    <aside className="farm-sidebar">
+    <aside className={`farm-sidebar${collapsed ? ' is-collapsed' : ''}`}>
       <div className="farm-sidebar-brand">
-        <div className="brand-mark" style={{ width: 34, height: 34, borderRadius: 10 }}>
-          <Leaf size={17} color="var(--on-primary)" strokeWidth={2.4} />
-        </div>
-        <div>
-          <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: 'var(--text-primary)' }}>IFMS</div>
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Farm management</div>
-        </div>
+        <button
+          type="button"
+          className="farm-sidebar-home"
+          onClick={() => navigate(homeScreen)}
+          aria-label={`Go to ${ROLE_LABEL[role] === 'Platform admin' ? 'overview' : 'home'}`}
+          title={brandName}
+        >
+          <div className="brand-mark farm-sidebar-mark">
+            {brandEmoji
+              ? <span aria-hidden="true" className="farm-sidebar-emoji">{brandEmoji}</span>
+              : <Leaf size={17} color="var(--on-primary)" strokeWidth={2.4} aria-hidden="true" />}
+          </div>
+          <div className="sidebar-brand-text">
+            <div className="sidebar-brand-name">{brandName}</div>
+            <div className="sidebar-brand-meta">{brandMeta}</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          className="sidebar-collapse-btn"
+          onClick={toggleCollapsed}
+          aria-pressed={collapsed}
+          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+        >
+          {collapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
+        </button>
       </div>
-      {/* Horizontal inset trimmed 12px -> 8px each side (screenshot pass,
-       * alongside the 250px -> 200/232px width cut below the >=768px
-       * media query) — hands the narrower sidebar back ~8px of usable
-       * label width so "Onboarding Requests" / "Impersonation Log" still
-       * fit on one line. */}
-      <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px' }} aria-label="Primary">
-        {groups.map((group) => (
-          <div key={group.label} style={{ marginBottom: 16 }}>
-            <div style={{ padding: '0 8px', margin: '8px 0 5px', fontSize: 'var(--fs-xs)', fontWeight: 650, color: 'var(--text-dim)' }}>{group.label}</div>
+      <nav className="farm-sidebar-nav" aria-label="Primary">
+        {groups.map((group, gi) => (
+          <div key={group.label || `g-${gi}`} className="sidebar-group">
+            {group.label ? <h2 className="sidebar-group-label">{group.label}</h2> : null}
+            <ul className="sidebar-list">
             {group.items.map((tab) => {
           const Icon = tab.icon;
-          // A row with `params` deep-links into a SUB-tab of the screen it
-          // navigates to (e.g. admin-users?tab=password-resets) — active
-          // state has to match that param too, or all three "Users" rows
-          // in People & Access would light up together the moment any one
-          // of them was current. Rows without `params` keep the existing
-          // sidebarIsActive behaviour untouched.
-          const active = tab.params
-            ? current === tab.id && Object.entries(tab.params).every(([k, v]) => params[k] === v)
-            : sidebarIsActive(current, tab.id);
-          const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
+          const active = sidebarRowIsActive(current, params, tab, allItems);
+          // Home must not wear the unread-notification badge — that number
+          // belongs on Notifications, which is the screen it opens.
+          const badge = tab.id === 'dashboard'
+            ? null
+            : tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
+          const rowKey = tab.dataTour ?? `${tab.id}:${tab.params?.tab ?? ''}`;
           return (
+            <li key={rowKey}>
             <button
-              key={tab.dataTour ?? tab.id}
               type="button"
+              className={`sidebar-row${active ? ' is-active' : ''}${tab.indent ? ' is-nested' : ''}`}
               onClick={() => navigate(tab.id, tab.params)}
               aria-current={active ? 'page' : undefined}
               data-tour={tab.dataTour ?? `nav-${tab.id}`}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 8px 10px 8px', marginBottom: 2,
-                borderRadius: 10, cursor: 'pointer', textAlign: 'left', position: 'relative',
-                // Was a hardcoded #e8f0e9 / #c9ddcc pair — switched to the same
-                // rgba(primary-green) active tint the rest of this file already
-                // uses (farmBadge chip, LogoutButton, RoleNoticeScreen), so this
-                // no longer breaks in a dark theme. The left accent bar is the
-                // desktop counterpart of the bottom nav's top "notch" — same
-                // device (a short bar of the real primary colour marking
-                // "current"), rotated 90° for a vertical list.
-                background: active ? 'rgba(var(--primary-rgb),0.1)' : 'transparent',
-                borderLeft: active ? '3px solid var(--primary-green)' : '3px solid transparent',
-                color: active ? 'var(--primary-green)' : 'var(--text-muted)', fontWeight: active ? 700 : 500, fontSize: 'var(--fs-base)' }}>
-              <Icon size={18} />
-              <span style={{ flex: 1 }}>{tab.label}</span>
+              title={collapsed ? tab.label : undefined}
+            >
+              <Icon size={18} aria-hidden="true" />
+              <span className="sidebar-row-label">{tab.label}</span>
               {/* Position, not a count. A red circle with "4" in it would read
                   as four things wrong; "4 of 9" reads as progress, which is
                   what it is. Only ever rendered from real server state. */}
               {tab.id === 'getting-started' && setupProgressLabel && (
                 <span
-                  className="chip"
+                  className="chip sidebar-progress"
                   style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--primary-green)', flexShrink: 0 }}
                 >
                   {setupProgressLabel}
                 </span>
               )}
-              {badge !== null && <NavBadge count={badge} tabId={tab.id} />}
+              {badge !== null && <NavBadge count={badge} tabId={tab.id} className="nav-badge sidebar-badge" />}
             </button>
+            </li>
           );
             })}
+            </ul>
           </div>
         ))}
       </nav>
-      <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-subtle)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {/* The farm row used to be plain, non-interactive text — the only way
-         * to switch farms was a bottom sheet inside dashboard.tsx, which the
-         * desktop shell never surfaces. A native <select> is the lowest-risk
-         * control (no custom popover to build/maintain); 'ALL' mirrors the
-         * same all-farms convention dashboard.tsx's own switcher uses.
-         *
-         * Hidden where it would do nothing: the platform admin screens are
-         * scoped by TENANT (they have their own tenant picker) and read
-         * activeFarmId nowhere, so a farm filter sitting in the sidebar there
-         * only invites the question of what it's filtering. Hidden too when
-         * the account has no farms — an owner mid-setup, or a super_admin,
-         * who would otherwise see a control offering only "All farms". */}
+      <div className="farm-sidebar-footer">
         {showFarmFilter && (
-        <label style={{ display: 'block' }} data-tour="farm-switcher">
-          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Farm</span>
+        <label className="sidebar-farm-filter" data-tour="farm-switcher">
+          <span className="sidebar-farm-label">Looking at</span>
           <select
             value={activeFarmId}
             onChange={(e) => setActiveFarmId(e.target.value)}
-            style={{ width: '100%', marginTop: 2, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)',
-              background: 'var(--card)', color: 'var(--text-primary)', fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer' }}
+            aria-label="Farm to show"
           >
             <option value="ALL">All farms</option>
             {farms.map((farm) => (
@@ -1186,14 +1261,26 @@ export function AppSidebar() {
           </select>
         </label>
         )}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'capitalize' }}>{role}</div>
-          {/* Sign-out was only reachable from the mobile TopNav before this —
-           * desktop users had no sign-out control anywhere. Reuses the same
-           * LogoutButton (and its _globalLogout mechanism/confirm sheet), not
-           * a second logout path. */}
-          <LogoutButton />
+        <div className="sidebar-user">
+          <div className="sidebar-user-text">
+            <div className="sidebar-user-name">{displayName}</div>
+            <div className="sidebar-user-role">{ROLE_LABEL[role]}</div>
+          </div>
         </div>
+        {(role === 'owner' || role === 'manager') && (
+        <button
+          type="button"
+          className={`sidebar-row${sidebarRowIsActive(current, params, { id: 'settings' }, allItems) ? ' is-active' : ''}`}
+          onClick={() => navigate('settings')}
+          aria-current={current === 'settings' || (SIDEBAR_DETAIL_SCREENS.settings ?? []).includes(current) ? 'page' : undefined}
+          data-tour="nav-settings"
+          title={collapsed ? 'Settings' : undefined}
+        >
+          <Settings size={18} aria-hidden="true" />
+          <span className="sidebar-row-label">Settings</span>
+        </button>
+        )}
+        <LogoutButton labeled />
       </div>
     </aside>
   );
@@ -1207,7 +1294,7 @@ export function TopNav({
   title: string; subtitle?: string; showBack?: boolean; showSearch?: boolean;
   showBell?: boolean; rightEl?: React.ReactNode; farmBadge?: string;
 }) {
-  const { goBack, unreadNotifs, navigate, role } = useNav();
+  const { goBack, unreadNotifs, navigate } = useNav();
 
   return (
     <div className="top-nav">
@@ -1241,7 +1328,7 @@ export function TopNav({
             )}
           </button>
         )}
-        <LogoutButton />
+        <LogoutButton className="top-nav-signout" />
       </div>
     </div>
   );
@@ -1256,40 +1343,29 @@ export function setGlobalLogout(fn: () => void) { _globalLogout = fn; }
 // page.tsx registers the handler — same lazy contract as above.
 export function requestLogout() { _globalLogout?.(); }
 
-function LogoutButton() {
-  const [showMenu, setShowMenu] = React.useState(false);
+function LogoutButton({ labeled = false, className = '' }: { labeled?: boolean; className?: string }) {
+  const { confirm } = useConfirm();
 
-  function doLogout() {
-    setShowMenu(false);
-    if (_globalLogout) _globalLogout();
+  async function onSignOut() {
+    const ok = await confirm({
+      message: 'Sign out?',
+      detail: 'You will be returned to the login screen.',
+      variant: 'danger',
+      confirmLabel: 'Sign out',
+    });
+    if (ok && _globalLogout) _globalLogout();
   }
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setShowMenu(true)}
-        style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
-        title="Sign out"
-        aria-label="Sign out"
-      >
-        <DoorOpen size={14} color="var(--status-critical)" />
-      </button>
-
-      {showMenu && (
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', zIndex: 500 }} onClick={() => setShowMenu(false)}>
-          <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 4, color: 'var(--text-primary)' }}>Sign Out</div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 16 }}>You will be returned to the login screen.</div>
-            <button type="button" onClick={doLogout} style={{ width: '100%', padding: '13px', borderRadius: 14, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer' }}>
-              Sign Out
-            </button>
-            <button type="button" onClick={() => setShowMenu(false)} style={{ width: '100%', marginTop: 10, padding: '11px', borderRadius: 12, background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 'var(--fs-base)', cursor: 'pointer' }}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </>
+    <button
+      type="button"
+      className={`${labeled ? 'sidebar-row sidebar-signout' : 'logout-icon-btn'}${className ? ` ${className}` : ''}`}
+      onClick={onSignOut}
+      title="Sign out"
+      aria-label="Sign out"
+    >
+      <DoorOpen size={labeled ? 18 : 14} color="var(--status-critical)" aria-hidden="true" />
+      {labeled && <span className="sidebar-row-label">Sign out</span>}
+    </button>
   );
 }

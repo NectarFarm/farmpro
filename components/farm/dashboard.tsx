@@ -360,13 +360,13 @@ function OperationalDashboard({
   // here would be the crowding this rebuild is removing, and it is what left
   // the owner grid with an orphan row of two.
   const destinations: { id: string; label: string; icon: LucideIcon; tour?: string; tint?: "sage" | "sand" | "sky" | "straw"; roles: readonly string[] }[] = ([
-    { id: "inventory", label: "Stock", icon: Package, tint: "straw" as const, roles: ["owner", "manager"] },
+    { id: "inventory", label: "Inventory", icon: Package, tint: "straw" as const, roles: ["owner", "manager"] },
     { id: "weather", label: "Weather", icon: CloudSun, tour: "nav-weather", tint: "sky" as const, roles: ["owner", "manager"] },
-    { id: "people", label: "Workers", icon: Users, tour: "nav-people", roles: ["owner", "manager"] },
+    { id: "people", label: "People", icon: Users, tour: "nav-people", roles: ["owner", "manager"] },
     { id: "routines", label: "Routines", icon: ClipboardList, roles: ["owner", "manager"] },
     { id: "finance", label: "Finance", icon: DollarSign, tint: "sand" as const, roles: ["owner"] },
     { id: "reports", label: "Reports", icon: FileText, roles: ["owner"] },
-    { id: "ai-chat", label: "Advisor", icon: Bot, roles: ["owner", "manager"] },
+    { id: "ai-chat", label: "AI advisor", icon: Bot, roles: ["owner", "manager"] },
     // On mobile the bottom tab for this is labelled "More", which says nothing
     // about where it goes. An explicit tile is clearer, and it squares the grid.
     { id: "settings", label: "Settings", icon: Settings, tour: "nav-settings", roles: ["owner", "manager"] },
@@ -393,15 +393,21 @@ function OperationalDashboard({
             {settings?.dashboardGreeting ?? "Good morning,"} {userName ?? ""}
           </div>
           {canSwitchFarm ? (
+            <>
             <button
               onClick={onSwitchFarm}
               data-tour="farm-switcher"
+              className="farm-switcher-in-header"
               style={{ display: "flex", alignItems: "center", gap: 6, maxWidth: "100%", background: "none", border: "none", padding: 0, marginTop: 2, cursor: "pointer", fontSize: 'var(--fs-2xl)', lineHeight: 1.2, color: "var(--text-primary)", fontWeight: 800, textAlign: "left" }}
             >
               <span aria-hidden="true">{settings?.logoEmoji ?? "🌾"}</span>
               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{farmName}</span>
-              <ChevronDown size={18} color="var(--text-muted)" aria-hidden="true" style={{ flexShrink: 0 }} />
+              <ChevronDown size={18} color="var(--text-muted)" aria-hidden="true" className="farm-switch-chevron" style={{ flexShrink: 0 }} />
             </button>
+            <h1 className="farm-name-when-sidebar" style={{ margin: "2px 0 0", fontSize: 'var(--fs-2xl)', lineHeight: 1.2, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span aria-hidden="true">{settings?.logoEmoji ?? "🌾"}</span> {farmName}
+            </h1>
+            </>
           ) : (
             <h1 style={{ margin: "2px 0 0", fontSize: 'var(--fs-2xl)', lineHeight: 1.2, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               <span aria-hidden="true">{settings?.logoEmoji ?? "🌾"}</span> {farmName}
