@@ -118,6 +118,9 @@ describe('lib/email.ts', () => {
       expect(msg.html).toContain('Line one')
       expect(msg.html).toContain('href="https://x.test/y"')
       expect(msg.html).toContain('Click me')
+      expect(msg.html).toContain('role="presentation"')
+      expect(msg.html).not.toMatch(/text-transform:uppercase/)
+      expect(msg.text).toContain('IFMS is the farm record')
     })
   })
 

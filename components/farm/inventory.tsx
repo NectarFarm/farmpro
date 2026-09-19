@@ -3,7 +3,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
-import { Plus, Search, X, RefreshCw, Download, Lock, Wheat, Syringe, Beaker, Sprout, Receipt, AlertTriangle, type LucideIcon } from './icons';
+import { Plus, Search, X, Download, Wheat, Syringe, Beaker, Sprout, Receipt, AlertTriangle, Upload, type LucideIcon } from './icons';
+import { useToast } from './ui-shared';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
 import { parseMoneyToCents, centsToMajor } from '@/lib/money';
@@ -128,6 +129,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
   const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const { showToast } = useToast();
 
   async function save() {
     const qty = Number(quantity);
@@ -178,10 +180,11 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
     });
     setSaving(false);
     if (res.success) {
+      showToast('Purchase recorded. Stock is on hand.', 'success');
       onCreated();
       onClose();
     } else {
-      setError(res.error || 'Failed to record purchase.');
+      setError(res.error || 'Could not record this purchase.');
     }
   }
 
@@ -195,10 +198,14 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
 
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
+          {farms.length === 0 ? (
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.45 }}>Stock has to land at a farm. You do not have one yet — that is set up when the application is approved.</div>
+          ) : (
           <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
             <option value="" disabled>Select a farm…</option>
             {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
+          )}
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
@@ -206,7 +213,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
-          <input className="farm-input" list="inv-item-names" placeholder="e.g. Broiler Starter Mash" value={itemName} onChange={e => setItemName(e.target.value)} />
+          <input className="farm-input" list="inv-item-names" placeholder="e.g. dairy meal, maize seed, layers mash" value={itemName} onChange={e => setItemName(e.target.value)} />
           <datalist id="inv-item-names">
             {itemNames.map(n => <option key={n} value={n} />)}
           </datalist>
@@ -339,7 +346,7 @@ const VARIANCE_COLS: ColDef<Record<string, unknown>>[] = [
 
 export function InventoryScreen() {
   const { navigate, tenantId, activeFarmId, farms } = useNav();
-  const [tab, setTab] = useState<'stock' | 'purchases' | 'variance' | 'feedmix'>('stock');
+  const [tab, setTab] = useState<'stock' | 'purchases' | 'variance'>('stock');
   const [cat, setCat] = useState('All');
   const [stockSearch, setStockSearch] = useState('');
   const [showImport, setShowImport] = useState(false);
@@ -485,16 +492,16 @@ export function InventoryScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Inventory" subtitle="Lots, stock & purchases" showSearch
+      <TopNav title="Inventory" subtitle="Lots, stock and purchases"
         rightEl={
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => setShowImport(true)} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Import inventory CSV">
-              <RefreshCw size={13} color="var(--text-muted)" />
+          <div className="btn-cluster">
+            <button type="button" className="btn-icon" onClick={() => setShowImport(true)} title="Import inventory CSV" aria-label="Import inventory CSV">
+              <Upload size={13} />
             </button>
-            <button onClick={exportStockCSV} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Export inventory CSV">
-              <Download size={14} color="var(--text-muted)" />
+            <button type="button" className="btn-icon" onClick={exportStockCSV} title="Export inventory CSV" aria-label="Export inventory CSV">
+              <Download size={14} />
             </button>
-            <button className="btn-fab" style={{ width: 36, height: 36, borderRadius: 10 }} onClick={() => setShowRecordPurchase(true)}>
+            <button type="button" className="btn-fab" style={{ width: 36, height: 36, borderRadius: 9 }} onClick={() => setShowRecordPurchase(true)} aria-label="Record a purchase">
               <Plus size={16} />
             </button>
           </div>
@@ -520,7 +527,7 @@ export function InventoryScreen() {
 
       {/* Tabs */}
       <div className="px-screen" style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
-        {[['stock', 'Stock'], ['purchases', 'Purchases'], ['variance', 'Variance'], ['feedmix', 'Feed Mix']].map(([id, label]) => (
+        {[['stock', 'Stock'], ['purchases', 'Purchases'], ['variance', 'Variance']].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id as typeof tab)} style={{
             flex: 1, padding: '7px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
             background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
@@ -545,6 +552,16 @@ export function InventoryScreen() {
               <button key={c} onClick={() => setCat(c)} className={`filter-chip ${cat === c ? 'active' : ''}`}><CategoryIcon category={c} />{c}</button>
             ))}
           </div>
+          {(items ?? []).length === 0 ? (
+            <div style={{ padding: 24, textAlign: 'center', marginBottom: 20 }}>
+              <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Wheat size={40} aria-hidden="true" /></div>
+              <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Nothing in stock yet</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.45 }}>Record a purchase to bring feed, seed or medicine in. Feeding a batch later draws down from this.</div>
+              <button type="button" className="btn-primary" onClick={() => setShowRecordPurchase(true)}>
+                <Plus size={14} /> Record a purchase
+              </button>
+            </div>
+          ) : (
           <div style={{ marginBottom: 20 }}>
             <DataTable
               rows={filteredStock as unknown as Record<string, unknown>[]}
@@ -558,6 +575,7 @@ export function InventoryScreen() {
               emptyText="No items match your filter."
             />
           </div>
+          )}
         </div>
       )}
 
@@ -569,7 +587,10 @@ export function InventoryScreen() {
               <div style={{ padding: 24, textAlign: 'center' }}>
                 <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Receipt size={40} aria-hidden="true" /></div>
                 <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No purchases yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Record one below to bring stock in</div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>A purchase is how stock arrives. Record one to put feed, seed or medicine on the shelf.</div>
+                <button type="button" className="btn-primary" onClick={() => setShowRecordPurchase(true)}>
+                  <Plus size={14} /> Record a purchase
+                </button>
               </div>
             ) : (purchases ?? []).map((p) => {
               const status = paymentStatus(p);
@@ -590,9 +611,11 @@ export function InventoryScreen() {
               );
             })}
           </div>
+          {(purchases ?? []).length > 0 && (
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 20 }} onClick={() => setShowRecordPurchase(true)}>
-            <Plus size={16} /> Record Purchase
+            <Plus size={16} /> Record a purchase
           </button>
+          )}
         </div>
       )}
 
@@ -615,20 +638,6 @@ export function InventoryScreen() {
               tableId="inventory-variance"
               emptyText="No lots recorded."
             />
-          </div>
-        </div>
-      )}
-
-      {/* FEED MIX TAB — no feed-mix backend exists on this branch. Honest
-          "not available" state per issue #236 task 4, not a silently broken form. */}
-      {!loading && tab === 'feedmix' && (
-        <div className="px-screen">
-          <div style={{ padding: 32, textAlign: 'center' }}>
-            <Lock size={28} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-            <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Feed Mix not available yet</div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', maxWidth: 260, margin: '0 auto' }}>
-              There is no feed-mix backend on this branch — no table, no route. This tab is disabled rather than wired to fake data.
-            </div>
           </div>
         </div>
       )}
@@ -684,6 +693,7 @@ export function InventoryScreen() {
 /* ── Per-lot adjust control — real PATCH /api/inventory/lots/[id], reason
  * required (the endpoint 400s without one). ── */
 function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onSaved: () => void }) {
+  const { showToast } = useToast();
   const [open, setOpen] = useState(false);
   const [qty, setQty] = useState(String(lot.qtyOnHand));
   const [reason, setReason] = useState('');
@@ -704,9 +714,10 @@ function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onS
     if (res.success) {
       setOpen(false);
       setReason('');
+      showToast(`${lot.lotNo} is now ${Math.trunc(newQty).toLocaleString()}.`, 'success');
       onSaved();
     } else {
-      setError(res.error || 'Failed to adjust quantity.');
+      setError(res.error || 'Could not adjust this lot.');
     }
   }
 
@@ -820,12 +831,9 @@ export function InventoryDetailScreen() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-          <button className="btn-primary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12 }} onClick={() => setShowRecordPurchase(true)}>Record Purchase</button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12 }} onClick={loadHistory}>{showHistory ? 'Hide History' : 'Usage History'}</button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, opacity: 0.5, cursor: 'not-allowed', gridColumn: '1 / -1' }} disabled title="Not available yet — no PATCH /api/inventory/items/[id] route exists">
-            <Lock size={12} /> Edit Item
-          </button>
+        <div className="btn-cluster" style={{ marginBottom: 20 }}>
+          <button className="btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowRecordPurchase(true)}>Record a purchase</button>
+          <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={loadHistory}>{showHistory ? 'Hide history' : 'Usage history'}</button>
         </div>
 
         {/* Lots — the merged qty above is the sum of these; adjustments are

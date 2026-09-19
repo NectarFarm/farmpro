@@ -1,6 +1,7 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
+import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange } from '@/lib/period-range';
@@ -40,11 +41,11 @@ import {
 // accent colour, currency/weight units) fetched below.
 const REPORT_TYPES: { id: string; name: string; desc: string; icon: LucideIcon; color: string }[] = [
   { id: 'pl', name: 'P&L Summary', desc: 'Revenue vs expenses by period', icon: DollarSign, color: 'var(--status-ok)' },
-  { id: 'production', name: 'Production Summary', desc: 'Eggs, meat, products collected', icon: BarChart3, color: 'var(--accent-blue)' },
+  { id: 'production', name: 'Production Summary', desc: 'What you harvested and collected', icon: BarChart3, color: 'var(--accent-blue)' },
   { id: 'mortality', name: 'Mortality Report', desc: 'Deaths by batch, cause, date', icon: ClipboardList, color: 'var(--status-warning)' },
-  { id: 'vaccination', name: 'Vaccination / Treatment Log', desc: 'Treatments filed, birds treated', icon: Syringe, color: 'var(--accent-purple)' },
+  { id: 'vaccination', name: 'Vaccination / Treatment Log', desc: 'Treatments filed, animals treated', icon: Syringe, color: 'var(--accent-purple)' },
   { id: 'feed', name: 'Feed Consumption', desc: 'Feed per batch, FCR analysis', icon: Wheat, color: 'var(--accent-cyan)' },
-  { id: 'labour', name: 'Labour & Task Cost', desc: 'Hours, payroll, task completion', icon: Users, color: 'var(--accent-amber)' },
+  { id: 'labour', name: 'Labour & Task Cost', desc: 'Hours per batch — not recorded yet', icon: Users, color: 'var(--accent-amber)' },
   { id: 'batch-pl', name: 'Batch P&L', desc: 'Per-batch economics & margin', icon: PieChart, color: 'var(--primary-green)' },
   { id: 'fcr', name: 'FCR & Efficiency', desc: 'Feed conversion by species', icon: Scale, color: 'var(--accent-blue)' },
 ];
@@ -84,6 +85,7 @@ function fmtExpiry(iso: string): string {
 
 export function ReportsScreen() {
   const { tenantId, role, activeFarmId, farms } = useNav();
+  const { showToast } = useToast();
   /* The default report window is the CURRENT month, computed at mount.
    *
    * It used to be a hardcoded '2026-08-01' → '2026-08-31' — the last surviving
@@ -166,8 +168,8 @@ export function ReportsScreen() {
     setAuditorError('');
     apiClient.post<AuditorLink>('/api/auditor-link', {}).then((res) => {
       setAuditorBusy(false);
-      if (res.success) { setAuditorLink(res.data); setCopied(false); }
-      else setAuditorError(res.error || 'Failed to generate link.');
+      if (res.success) { setAuditorLink(res.data); setCopied(false); showToast('Auditor link is live for about 8 hours.', 'success'); }
+      else { setAuditorError(res.error || 'Could not generate the link.'); showToast(res.error || 'Could not generate the link.', 'error'); }
     });
   }
 
@@ -176,8 +178,8 @@ export function ReportsScreen() {
     setAuditorError('');
     apiClient.delete('/api/auditor-link').then((res) => {
       setAuditorBusy(false);
-      if (res.success) setAuditorLink(null);
-      else setAuditorError(res.error || 'Failed to revoke link.');
+      if (res.success) { setAuditorLink(null); showToast('Auditor link revoked.', 'success'); }
+      else { setAuditorError(res.error || 'Could not revoke the link.'); showToast(res.error || 'Could not revoke the link.', 'error'); }
     });
   }
 
@@ -186,6 +188,7 @@ export function ReportsScreen() {
     const url = `${window.location.origin}/auditor/${auditorLink.token}`;
     navigator.clipboard?.writeText(url).then(() => {
       setCopied(true);
+      showToast('Link copied.', 'success');
       setTimeout(() => setCopied(false), 2000);
     });
   }
@@ -214,6 +217,7 @@ export function ReportsScreen() {
     const filename = `${reportType.id}-${dateFrom}_to_${dateTo}.csv`;
     downloadReportCsv(report, filename, fullExportOpts);
     setRecentExports((prev) => [{ name: `${reportType.name} – ${dateFrom} to ${dateTo}`, generated: fmtTimestamp(new Date()), format: 'CSV' as const }, ...prev].slice(0, 8));
+    showToast('CSV downloaded.', 'success');
   }
 
   async function handleExportPdf() {
@@ -221,6 +225,7 @@ export function ReportsScreen() {
     const filename = `${reportType.id}-${dateFrom}_to_${dateTo}.pdf`;
     await downloadReportPdf(report, filename, fullExportOpts);
     setRecentExports((prev) => [{ name: `${reportType.name} – ${dateFrom} to ${dateTo}`, generated: fmtTimestamp(new Date()), format: 'PDF' as const }, ...prev].slice(0, 8));
+    showToast('PDF downloaded.', 'success');
   }
 
   const isRealType = selected ? Boolean(REPORT_ENDPOINTS[selected]) : false;
@@ -267,7 +272,12 @@ export function ReportsScreen() {
                 </span>
                 <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: isSel ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.2, marginBottom: 3 }}>{r.name}</div>
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</div>
-                {isSel && (
+                {r.id === 'labour' && (
+                  <div style={{ marginTop: 6 }}>
+                    <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Not yet</span>
+                  </div>
+                )}
+                {isSel && r.id !== 'labour' && (
                   <div style={{ marginTop: 6, display: 'flex', gap: 4 }}>
                     <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Selected</span>
                   </div>

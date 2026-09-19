@@ -44,7 +44,7 @@ const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 const DEFAULT_FROM = 'IFMS <marlon.gmx1@gmail.com>'
 
 const APP_NAME = 'IFMS'
-const FOOTER_TEXT = `This is an automated message from ${APP_NAME}. If you weren't expecting it, you can ignore it.`
+const FOOTER_TEXT = `${APP_NAME} is the farm record. You received this because of an action on your account.`
 
 export type EmailTemplate =
   | 'onboarding-info-needed'
@@ -75,6 +75,16 @@ export interface ComposedMessage {
   html: string
 }
 
+type EmailTone = 'ok' | 'need' | 'no' | 'notice' | 'removed'
+
+const TONE_BAR: Record<EmailTone, string> = {
+  ok: '#2f6b3a',
+  need: '#b45309',
+  no: '#6b6458',
+  notice: '#1c1914',
+  removed: '#7f1d1d',
+}
+
 interface ComposeOptions {
   subject: string
   // Plain paragraphs — rendered as blank-line-separated text and as <p> tags
@@ -91,6 +101,10 @@ interface ComposeOptions {
   // rule above) — the caller renders both the HTML and the text form and
   // this just places them.
   extra?: { heading?: string; html: string; text: string }
+  // Visual identity of the letter. Approved is green, "we need something"
+  // is amber, a refusal is quiet grey — three different letters, not one
+  // wrapper with different words. Default is a notice.
+  tone?: EmailTone
 }
 
 function escapeHtml(s: string): string {
@@ -115,23 +129,36 @@ export function composeMessage(opts: ComposeOptions): ComposedMessage {
   textParts.push('—', FOOTER_TEXT)
   const text = textParts.join('\n\n')
 
+  const bar = TONE_BAR[opts.tone ?? 'notice']
   const htmlParagraphs = opts.paragraphs
-    .map((p) => `<p style="margin:0 0 16px;color:#1a1a1a;font-size:15px;line-height:1.5;">${escapeHtml(p)}</p>`)
+    .map((p) => `<p style="margin:0 0 16px;color:#1c1914;font-size:16px;line-height:1.55;font-family:Georgia,'Times New Roman',serif;">${escapeHtml(p)}</p>`)
     .join('\n')
   const htmlCta = opts.cta
-    ? `<p style="margin:0 0 20px;"><a href="${escapeHtml(opts.cta.url)}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;">${escapeHtml(opts.cta.label)}</a></p>`
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;"><tr><td style="background:${bar};">
+<a href="${escapeHtml(opts.cta.url)}" style="display:inline-block;color:#ffffff;text-decoration:none;padding:12px 22px;font-size:15px;font-weight:700;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">${escapeHtml(opts.cta.label)}</a>
+</td></tr></table>`
     : ''
   const htmlExtra = opts.extra
-    ? `${opts.extra.heading ? `<div style="font-size:13px;font-weight:700;color:#1a1a1a;margin:4px 0 12px;">${escapeHtml(opts.extra.heading)}</div>` : ''}<div style="margin:0 0 20px;font-size:14px;line-height:1.5;">${opts.extra.html}</div>`
+    ? `${opts.extra.heading ? `<p style="margin:8px 0 12px;font-size:13px;font-weight:700;color:#1c1914;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">${escapeHtml(opts.extra.heading)}</p>` : ''}<div style="margin:0 0 8px;font-size:14px;line-height:1.5;">${opts.extra.html}</div>`
     : ''
-  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-<div style="font-size:13px;font-weight:700;letter-spacing:0.5px;color:#16a34a;text-transform:uppercase;margin-bottom:12px;">${APP_NAME}</div>
+  // Table layout, not a 480px div: Outlook still drops CSS max-width, and a
+  // letter that reflows into a ragged column on a farm owner's phone is not
+  // a designed letter. Paper background, ink bar, serif body — a farm ledger,
+  // not a SaaS receipt.
+  const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3efe6;margin:0;padding:0;">
+<tr><td align="center" style="padding:28px 12px;">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e4ddd0;max-width:560px;width:100%;">
+<tr><td style="height:6px;background:${bar};font-size:0;line-height:0;">&nbsp;</td></tr>
+<tr><td style="padding:28px 28px 8px;font-family:Georgia,'Times New Roman',serif;font-size:22px;color:#1c1914;letter-spacing:0.02em;">${APP_NAME}</td></tr>
+<tr><td style="padding:8px 28px 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 ${htmlParagraphs}
 ${htmlCta}
 ${htmlExtra}
-<hr style="border:none;border-top:1px solid #e5e5e5;margin:20px 0;" />
-<p style="margin:0;color:#888888;font-size:12px;line-height:1.5;">${escapeHtml(FOOTER_TEXT)}</p>
-</div>`
+<p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #eee6d8;color:#6b6458;font-size:12px;line-height:1.5;">${escapeHtml(FOOTER_TEXT)}</p>
+</td></tr>
+</table>
+</td></tr>
+</table>`
 
   return { subject: opts.subject, text, html }
 }
@@ -228,14 +255,15 @@ export async function sendOnboardingInfoNeededEmail(opts: {
 }): Promise<EmailResult> {
   const paragraphs = [
     `Hi ${opts.farmerName},`,
-    `Thanks for applying to join ${APP_NAME} with ${opts.farmName}. We need a bit more information before we can approve your request.`,
-    ...(opts.notes ? [`What's missing: ${opts.notes}`] : []),
-    'Use the link below to review and update your request, then resubmit it for review.',
+    `We have your application for ${opts.farmName}. It is not approved yet — we still need something from you.`,
+    ...(opts.notes ? [`What we need: ${opts.notes}`] : []),
+    'Open the link, fix what is missing, and send it back. We will look at it again.',
   ]
   const message = composeMessage({
-    subject: `${APP_NAME}: more information needed for your application`,
+    subject: `${opts.farmName}: we need a bit more to continue`,
     paragraphs,
     cta: { label: 'Update your request', url: opts.updateUrl },
+    tone: 'need',
   })
   return sendEmail({ to: opts.to, template: 'onboarding-info-needed', message })
 }
@@ -253,17 +281,15 @@ export async function sendOnboardingApprovedEmail(opts: {
 }): Promise<EmailResult> {
   const paragraphs = [
     `Hi ${opts.farmerName},`,
-    `Good news — your application for ${opts.farmName} has been approved. Use the link below to set your password and sign in.`,
-    'This link can only be used once and expires in 48 hours. If it expires before you use it, or if you ever forget your password later, use the "Forgot password" link on the sign-in screen — your farm administrator will be notified to help you reset it.',
+    `${opts.farmName} is on IFMS. Set your password with the link below, then sign in.`,
+    'The link works once, and it expires in 48 hours. If it expires, or you forget the password later, use "Need help signing in?" on the sign-in screen — do not wait for a new approval email.',
   ]
   const message = composeMessage({
-    subject: `${APP_NAME}: your application was approved — set your password`,
+    subject: `${opts.farmName} is ready — set your password`,
     paragraphs,
     cta: { label: 'Set your password', url: opts.setPasswordUrl },
-    // lib/onboarding-guide.ts is the one place this list is written — see
-    // that file's header for why the email and the in-app "Getting Started"
-    // page both render it instead of keeping separate copy.
-    extra: { heading: 'Getting started', html: renderGuideHtml(), text: renderGuideText() },
+    tone: 'ok',
+    extra: { heading: 'Once you are in, do these in order', html: renderGuideHtml(), text: renderGuideText() },
   })
   return sendEmail({ to: opts.to, template: 'onboarding-approved', message })
 }
@@ -282,13 +308,14 @@ export async function sendOnboardingGuideEmail(opts: {
 }): Promise<EmailResult> {
   const paragraphs = [
     `Hi ${opts.farmerName},`,
-    `Here's the getting-started guide for ${opts.farmName} again.`,
-    'If you need to sign in and don\'t remember your password, use "Forgot password" on the sign-in screen — the one-time link from your approval email has already been used or has expired.',
+    `Here is how to set ${opts.farmName} up, in the order that actually gets a farm running.`,
+    'If you cannot sign in, use "Need help signing in?" on the sign-in screen. The one-time link from the approval email has already been used or has expired.',
   ]
   const message = composeMessage({
-    subject: `${APP_NAME}: your getting-started guide`,
+    subject: `${opts.farmName}: how to set the farm up`,
     paragraphs,
-    extra: { heading: 'Getting started', html: renderGuideHtml(), text: renderGuideText() },
+    tone: 'notice',
+    extra: { heading: 'Do these in order', html: renderGuideHtml(), text: renderGuideText() },
   })
   return sendEmail({ to: opts.to, template: 'onboarding-guide', message })
 }
@@ -302,12 +329,14 @@ export async function sendOnboardingRejectedEmail(opts: {
 }): Promise<EmailResult> {
   const paragraphs = [
     `Hi ${opts.farmerName},`,
-    `We're not able to approve your application for ${opts.farmName} at this time.`,
-    ...(opts.notes ? [`Reason: ${opts.notes}`] : []),
+    `We are not approving the application for ${opts.farmName}.`,
+    ...(opts.notes ? [`Why: ${opts.notes}`] : []),
+    'There is nothing to click. If you think this is wrong, reply to this message.',
   ]
   const message = composeMessage({
-    subject: `${APP_NAME}: your application was not approved`,
+    subject: `${opts.farmName}: we could not approve this application`,
     paragraphs,
+    tone: 'no',
   })
   return sendEmail({ to: opts.to, template: 'onboarding-rejected', message })
 }
@@ -323,6 +352,7 @@ export async function sendNotificationEmail(opts: {
   const message = composeMessage({
     subject: `${APP_NAME}: ${opts.title}`,
     paragraphs,
+    tone: 'notice',
   })
   return sendEmail({ to: opts.to, template: 'notification', message })
 }
@@ -373,8 +403,9 @@ export async function sendFarmDeletedEmail(opts: {
     'If you were not expecting this, reply to this message and an administrator will look into it.',
   ]
   const message = composeMessage({
-    subject: `${APP_NAME}: the farm "${opts.farmName}" was removed from your account`,
+    subject: `${opts.farmName} was removed from your account`,
     paragraphs,
+    tone: 'removed',
   })
   return sendEmail({ to: opts.to, template: 'farm-deleted', message })
 }

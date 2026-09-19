@@ -480,7 +480,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
-          <input className="farm-input" list="finance-item-names" placeholder="e.g. Broiler Starter Mash" value={itemName} onChange={e => setItemName(e.target.value)} />
+          <input className="farm-input" list="finance-item-names" placeholder="e.g. dairy meal, maize seed" value={itemName} onChange={e => setItemName(e.target.value)} />
           <datalist id="finance-item-names">
             {itemNames.map(n => <option key={n} value={n} />)}
           </datalist>

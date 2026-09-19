@@ -26,7 +26,7 @@
 
 'use client';
 
-import { Drumstick, Egg, Ham, Milk, PawPrint, Fish, Wheat, Salad, Carrot, Apple, type LucideIcon } from './icons';
+import { Bird, Egg, Ham, Milk, PawPrint, Fish, Wheat, Salad, Carrot, Apple, type LucideIcon } from './icons';
 
 /* ── Auto-code generator ── */
 const _counters: Record<string, number> = {};
@@ -91,7 +91,7 @@ export interface ProcessTemplate {
 
 export const ENTERPRISE_REGISTRY: EnterpriseConfig[] = [
   {
-    type: 'livestock', subtype: 'broiler', icon: Drumstick, label: 'Broilers',
+    type: 'livestock', subtype: 'broiler', icon: Bird, label: 'Broilers',
     unitName: 'House', batchPrefix: 'BRO', unitPrefix: 'HSE',
     metrics: ['head count', 'age (days)', 'FCR', 'mortality %', 'weight (kg)'],
     harvestable: true, harvestUnit: 'birds',

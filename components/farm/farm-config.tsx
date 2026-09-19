@@ -506,7 +506,7 @@ function ProductsTab({ showToast }: { showToast: (m: string, t?: 'success' | 'er
  * one file. */
 function StructureTab({ navigate }: { navigate: (to: 'crops' | 'routines' | 'people' | 'governance') => void }) {
   const rows: { label: string; desc: string; to: 'crops' | 'routines' | 'people' | 'governance' }[] = [
-    { label: 'Houses & fields', desc: 'Pens, houses and fields a flock lives in — and the products each one yields', to: 'crops' },
+    { label: 'Houses & fields', desc: 'The house, pen, paddock or field a batch lives in — and the products each one yields', to: 'crops' },
     { label: 'Routines', desc: 'The round your workers walk each day', to: 'routines' },
     { label: 'People', desc: 'Who works here, and which batches they are assigned to', to: 'people' },
     { label: 'Approvals', desc: 'What each role may do, and what needs signing off first', to: 'governance' },
