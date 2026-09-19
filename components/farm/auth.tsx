@@ -15,14 +15,14 @@
 import React, { useState, useEffect } from 'react';
 import { ENTERPRISE_REGISTRY } from './data';
 import {
-  Eye, EyeOff, Check, ChevronRight, AlertTriangle, Phone, Mail,
+  Eye, EyeOff, Check, AlertTriangle, Phone, Mail,
   MapPin, Leaf, Hash,
-  CheckCircle2,
 } from './icons';
 import { type Role } from './navigation';
 import { apiClient } from '@/lib/request';
 import { detectGpsLocation } from '@/lib/geolocation';
 import { gpsRequirementError, GPS_REQUIRED_MESSAGE } from '@/lib/validation';
+import { useConfirm } from './ui-shared';
 
 /* ── Shared GPS + Map block ──────────────────────────────────────────────── */
 export function GpsMapBlock({
@@ -53,54 +53,25 @@ export function GpsMapBlock({
     <div>
       {/* Detect button */}
       <button
+        type="button"
+        className="btn-secondary"
         onClick={onDetect}
         disabled={loading}
-        style={{ width: '100%', padding: '10px 14px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700,
-          cursor: loading ? 'wait' : 'pointer',
-          background: hasCoords ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)',
-          border: hasCoords ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
-          color: hasCoords ? 'var(--primary-green)' : 'var(--text-muted)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
-        <MapPin size={13} aria-hidden="true" /> {loading ? 'Detecting…' : hasCoords ? `${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}` : 'Detect My GPS Location'}
+        style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }}
+      >
+        <MapPin size={13} aria-hidden="true" /> {loading ? 'Finding farm…' : hasCoords ? 'Update pin' : 'Pin this farm'}
       </button>
 
       {error && <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 6 }}><AlertTriangle size={11} aria-hidden="true" /> {error}</div>}
 
-      {/* Manual lat/lng */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-        <div>
-          <label htmlFor="gps-lat" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontWeight: 600, display: 'block', marginBottom: 3 }}>Latitude</label>
-          <input
-            id="gps-lat" className="farm-input"
-            style={{ fontSize: 'var(--fs-sm)', ...(latError ? { border: '1px solid var(--status-critical)' } : {}) }}
-            value={lat} onChange={e => onLatChange(e.target.value)} placeholder="-0.2802" type="number" step="any"
-            aria-invalid={!!latError} aria-describedby={latError ? 'gps-lat-error' : undefined}
-          />
-          {latError && <div id="gps-lat-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 3 }}>{latError}</div>}
+      {hasCoords && (
+        <div className="auth-hint" style={{ marginBottom: 8 }}>
+          {parseFloat(lat).toFixed(4)}, {parseFloat(lng).toFixed(4)}
         </div>
-        <div>
-          <label htmlFor="gps-lng" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontWeight: 600, display: 'block', marginBottom: 3 }}>Longitude</label>
-          <input
-            id="gps-lng" className="farm-input"
-            style={{ fontSize: 'var(--fs-sm)', ...(lngError ? { border: '1px solid var(--status-critical)' } : {}) }}
-            value={lng} onChange={e => onLngChange(e.target.value)} placeholder="36.0665" type="number" step="any"
-            aria-invalid={!!lngError} aria-describedby={lngError ? 'gps-lng-error' : undefined}
-          />
-          {lngError && <div id="gps-lng-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 3 }}>{lngError}</div>}
-        </div>
-      </div>
+      )}
 
-      {/* Address field — prefilled by reverse-geocode, editable */}
-      <div style={{ marginBottom: hasCoords ? 8 : 0 }}>
-        <label style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontWeight: 600, display: 'block', marginBottom: 3 }}>
-          Address <span style={{ fontWeight: 400, color: 'var(--text-dim)' }}>(auto-filled · editable)</span>
-        </label>
-        <input className="farm-input" style={{ fontSize: 'var(--fs-sm)' }} value={address} onChange={e => onAddressChange(e.target.value)} placeholder="Reverse-geocoded from coordinates…" />
-      </div>
-
-      {/* OSM map preview */}
       {hasCoords && mapSrc && (
-        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)', height: 160, marginTop: 4 }}>
+        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)', height: 160, marginBottom: 8 }}>
           <iframe
             src={mapSrc}
             width="100%" height="160"
@@ -111,9 +82,37 @@ export function GpsMapBlock({
         </div>
       )}
 
-      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 4 }}>
-        Tap &quot;Detect&quot; to auto-fill from your device. Coordinates and address can be updated anytime.
-      </div>
+      <details className="auth-gps-manual">
+        <summary>Type coordinates instead</summary>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+          <div>
+            <label htmlFor="gps-lat" className="auth-label">Latitude</label>
+            <input
+              id="gps-lat" className="farm-input"
+              style={{ fontSize: 'var(--fs-sm)', ...(latError ? { border: '1px solid var(--status-critical)' } : {}) }}
+              value={lat} onChange={e => onLatChange(e.target.value)} placeholder="-0.2802" type="number" step="any"
+              aria-invalid={!!latError} aria-describedby={latError ? 'gps-lat-error' : undefined}
+            />
+            {latError && <div id="gps-lat-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 3 }}>{latError}</div>}
+          </div>
+          <div>
+            <label htmlFor="gps-lng" className="auth-label">Longitude</label>
+            <input
+              id="gps-lng" className="farm-input"
+              style={{ fontSize: 'var(--fs-sm)', ...(lngError ? { border: '1px solid var(--status-critical)' } : {}) }}
+              value={lng} onChange={e => onLngChange(e.target.value)} placeholder="36.0665" type="number" step="any"
+              aria-invalid={!!lngError} aria-describedby={lngError ? 'gps-lng-error' : undefined}
+            />
+            {lngError && <div id="gps-lng-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 3 }}>{lngError}</div>}
+          </div>
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <label htmlFor="gps-address" className="auth-label">Address</label>
+          <input id="gps-address" className="farm-input" style={{ fontSize: 'var(--fs-sm)' }} value={address} onChange={e => onAddressChange(e.target.value)} placeholder="Looked up from the pin" />
+        </div>
+      </details>
+
+      <p className="auth-hint">Used for weather. Pinning looks up the address.</p>
     </div>
   );
 }
@@ -139,48 +138,14 @@ export function useReverseGeocode(lat: string, lng: string, onResult: (addr: str
   }, [lat, lng]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-/* ── Shared gradient header ── */
-function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
-  return <AuthMasthead eyebrow={title} headline={subtitle} />;
+export function AuthShell({ children }: { children: React.ReactNode }) {
+  return <div className="auth-shell">{children}</div>;
 }
 
-/* ── The first thing anyone sees ───────────────────────────────────────────
- * This is the whole of a demo's first impression, so it is the one place in
- * the app that gets to be a composition rather than a form.
- *
- * What it replaced: a centred leaf icon over "IFMS" over "Integrated Farm
- * Management System" over a pill toggle — the default SaaS sign-in, and an
- * acronym plus its own expansion, which tells a farmer nothing about what the
- * thing does.
- *
- * Three deliberate choices:
- *
- * 1. LEFT-ALIGNED, not centred. Centred-logo-over-centred-form is what every
- *    generated sign-in looks like. Ranging left gives the type somewhere to
- *    start and lets the headline carry the page.
- *
- * 2. THE HEADLINE SAYS WHAT IT DOES. "Every bird, bag and shilling accounted
- *    for" is the product's actual promise in the farmer's own units. An
- *    acronym is not a value proposition.
- *
- * 3. THE HORIZON IS DRAWN, NOT PHOTOGRAPHED. No image asset: a stock photo
- *    would be generic, a generated one would look generated, and either costs
- *    bytes an APK has to carry and a field connection has to load. Contour
- *    lines are how farmland is actually drawn on a map, they cost nothing, and
- *    they scale to any screen. Pure CSS, no file. */
-function AuthMasthead({ eyebrow, headline }: { eyebrow: string; headline: string }) {
+export function AuthMasthead({ eyebrow, headline, lede }: { eyebrow: string; headline: string; lede?: string }) {
   return (
-    <div style={{ position: 'relative', marginBottom: 26, paddingTop: 4 }}>
-      {/* Contour lines — land, drawn the way land is drawn. Sits behind the
-          type at low contrast so it never competes with it. */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'absolute', inset: '-8px -24px 0 -24px', pointerEvents: 'none', overflow: 'hidden',
-          maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 88%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 88%)',
-        }}
-      >
+    <div className="auth-masthead">
+      <div className="auth-masthead-horizon" aria-hidden="true">
         <svg width="100%" height="150" viewBox="0 0 400 150" preserveAspectRatio="none" fill="none">
           {[0, 1, 2, 3, 4].map((i) => (
             <path
@@ -193,22 +158,15 @@ function AuthMasthead({ eyebrow, headline }: { eyebrow: string; headline: string
           ))}
         </svg>
       </div>
-
       <div style={{ position: 'relative' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          {/* The shared brand mark, not a one-off inline square: the same
-              class the sidebar uses, so the identity is literally the same
-              object in both places and the token pass's gradient and radius
-              come with it. */}
+        <div className="auth-masthead-row">
           <span className="brand-mark" style={{ width: 26, height: 26, borderRadius: 9 }}>
             <Leaf size={15} color="var(--on-primary)" aria-hidden="true" />
           </span>
-          <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 750, color: 'var(--text-primary)', letterSpacing: '0.01em' }}>{eyebrow}</span>
+          <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 750, color: 'var(--text-primary)' }}>{eyebrow}</span>
         </div>
-
-        <h1 style={{ margin: 0, fontSize: 'var(--fs-3xl)', lineHeight: 1.12, letterSpacing: '-0.025em', fontWeight: 800, color: 'var(--text-primary)', maxWidth: '15ch' }}>
-          {headline}
-        </h1>
+        <h1>{headline}</h1>
+        {lede ? <p className="auth-lede">{lede}</p> : null}
       </div>
     </div>
   );
@@ -263,64 +221,53 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
 
   if (ack) {
     return (
-      <div className="screen-content px-screen" style={{ paddingTop: 40, paddingBottom: 24 }}>
-        <AuthHeader title="Reset Password" subtitle="Request an administrator-assisted reset" />
-        <div style={{ padding: '14px 16px', background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.2)', borderRadius: 16, marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 6 }}>
-            <CheckCircle2 size={15} aria-hidden="true" /> Request received
-          </div>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.55 }}>{ack}</div>
-        </div>
-        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 20 }}>
-          Your farm administrator reviews reset requests and will contact you out of band. For security, we cannot confirm here whether the details matched an account.
-        </div>
-        <button onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>← Back to Login</button>
-      </div>
+      <AuthShell>
+        <AuthMasthead eyebrow="IFMS" headline="Ask sent." lede="If those details match an account, your admin has the request." />
+        <div className="auth-lede" style={{ marginBottom: 20 }}>{ack}</div>
+        <button type="button" onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>Back to sign in</button>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="screen-content px-screen" style={{ paddingTop: 32, paddingBottom: 24 }}>
-      <AuthHeader title="Reset Password" subtitle="We'll ask your farm administrator to help" />
-      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 18 }}>
-        Password resets are handled by your farm administrator. Provide BOTH the account&apos;s email and its registered phone so they can verify you — you&apos;ll get a confirmation here either way.
-      </div>
-
-      <div style={{ marginBottom: 14 }}>
-        <label htmlFor="fp-email" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email</label>
-        <input
-          id="fp-email" className="farm-input"
-          style={fieldErrors.email ? { border: '1px solid var(--status-critical)' } : undefined}
-          value={email} onChange={e => setEmail(e.target.value)}
-          placeholder="your@email.com" type="email" autoComplete="email"
-          aria-invalid={!!fieldErrors.email} aria-describedby={fieldErrors.email ? 'fp-email-error' : undefined}
-        />
-        {fieldErrors.email && <div id="fp-email-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{fieldErrors.email}</div>}
-      </div>
-
-      <div style={{ marginBottom: 18 }}>
-        <label htmlFor="fp-phone" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Registered Phone Number</label>
-        <input
-          id="fp-phone" className="farm-input"
-          style={fieldErrors.phone ? { border: '1px solid var(--status-critical)' } : undefined}
-          value={phone} onChange={e => setPhone(e.target.value)}
-          placeholder="+254-7XX-XXX-XXX" type="tel" inputMode="tel" autoComplete="tel"
-          aria-invalid={!!fieldErrors.phone} aria-describedby={fieldErrors.phone ? 'fp-phone-error' : undefined}
-        />
-        {fieldErrors.phone && <div id="fp-phone-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{fieldErrors.phone}</div>}
-      </div>
-
-      {generalError && (
-        <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{generalError}</div>
-      )}
-
-      <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleSubmit} disabled={busy}>
-        {busy ? 'Sending request…' : <>Request Reset <ChevronRight size={15} aria-hidden="true" /></>}
+    <AuthShell>
+      <AuthMasthead
+        eyebrow="IFMS"
+        headline="Need help signing in?"
+        lede="Your admin resets the password. Give the email and the phone on the account — you get the same confirmation either way, so this page never says whether an account exists."
+      />
+      <form onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }}>
+        <div className="auth-field">
+          <label htmlFor="fp-email" className="auth-label">Email</label>
+          <input
+            id="fp-email" className="farm-input"
+            style={fieldErrors.email ? { border: '1px solid var(--status-critical)' } : undefined}
+            value={email} onChange={e => setEmail(e.target.value)}
+            placeholder="you@email.com" type="email" autoComplete="email"
+            aria-invalid={!!fieldErrors.email} aria-describedby={fieldErrors.email ? 'fp-email-error' : undefined}
+          />
+          {fieldErrors.email && <div id="fp-email-error" className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.email}</div>}
+        </div>
+        <div className="auth-field">
+          <label htmlFor="fp-phone" className="auth-label">Phone on the account</label>
+          <input
+            id="fp-phone" className="farm-input"
+            style={fieldErrors.phone ? { border: '1px solid var(--status-critical)' } : undefined}
+            value={phone} onChange={e => setPhone(e.target.value)}
+            placeholder="07XXXXXXXX" type="tel" inputMode="tel" autoComplete="tel"
+            aria-invalid={!!fieldErrors.phone} aria-describedby={fieldErrors.phone ? 'fp-phone-error' : undefined}
+          />
+          {fieldErrors.phone && <div id="fp-phone-error" className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.phone}</div>}
+        </div>
+        {generalError && <div className="auth-error">{generalError}</div>}
+        <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
+          {busy ? 'Sending…' : 'Ask admin'}
+        </button>
+      </form>
+      <button type="button" onClick={onBack} style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer' }}>
+        Back to sign in
       </button>
-      <button onClick={onBack} style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', fontWeight: 600, cursor: 'pointer' }}>
-        ← Back to Login
-      </button>
-    </div>
+    </AuthShell>
   );
 }
 
@@ -359,168 +306,131 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
   // visible reason, not a silently dead keypad — until both a valid-looking
   // phone AND all 4 PIN digits are present.
   function handlePinKey(digit: string) {
-    if (digit === 'DEL') { setPin(p => p.slice(0, -1)); return; }
-    const next = pin + digit;
-    if (next.length <= 4) {
-      setPin(next);
-      if (next.length === 4) {
-        const phoneErr = validatePhone(phone);
-        if (phoneErr) {
-          setPhoneError(phoneErr);
-          setError('Enter your phone number to sign in.');
-          setTimeout(() => setPin(''), 600);
-          return;
-        }
-        setError('');
-        void doLogin({ phone: phone.trim(), pin: next });
-      }
-    }
+    if (digit === 'DEL') { setPin((p) => p.slice(0, -1)); return; }
+    setPin((p) => (p.length < 4 ? p + digit : p));
+  }
+
+  function handlePinLogin() {
+    const phoneErr = validatePhone(phone);
+    if (phoneErr) { setPhoneError(phoneErr); return; }
+    if (pin.length !== 4) { setError('Enter your 4-digit PIN.'); return; }
+    setError('');
+    void doLogin({ phone: phone.trim(), pin });
   }
 
   return (
-    <div className="screen-content px-screen" style={{ paddingTop: 40, paddingBottom: 24 }}>
+    <AuthShell>
       <AuthMasthead eyebrow="IFMS" headline="Every bird, bag and shilling accounted for." />
 
-      {/* ── Two ways in, because there are two kinds of person ──────────────
-          This was a pill toggle reading "Email / Password" and "Worker PIN" —
-          the mechanism, not the person. But the choice here is genuinely "who
-          are you": an owner signing in from an office, or a worker signing in
-          at the door of a poultry house with one hand. That duality is the
-          most characteristic thing about this product, so it gets stated
-          plainly instead of being hidden behind jargon about credentials.
-
-          Kept as a switch rather than promoted to a full role-chooser screen:
-          a returning user should never have to answer a question they have
-          already answered, and an extra tap every morning is a real cost to
-          someone doing this in the rain. */}
-      <div role="tablist" aria-label="How you sign in" style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+      <div role="tablist" aria-label="How you sign in" className="auth-doors">
         {([
-          { id: 'email' as const, label: 'I run the farm', hint: 'Email & password', icon: Mail },
-          { id: 'pin' as const, label: 'I work here', hint: 'Phone & PIN', icon: Hash },
+          { id: 'email' as const, label: 'Email', hint: 'Owners, managers, admins', icon: Mail },
+          { id: 'pin' as const, label: 'Worker', hint: 'Phone & PIN', icon: Hash },
         ]).map((opt) => {
           const active = tab === opt.id;
           return (
             <button
               key={opt.id}
+              type="button"
               role="tab"
               aria-selected={active}
+              className={`auth-door${active ? ' is-on' : ''}`}
               onClick={() => { setTab(opt.id); setError(''); setPhoneError(''); }}
-              style={{
-                flex: 1, minWidth: 0, textAlign: 'left', cursor: 'pointer',
-                padding: '11px 12px', borderRadius: 14,
-                background: active ? 'var(--card)' : 'transparent',
-                border: active ? '1px solid var(--border-hover)' : '1px solid var(--border-subtle)',
-                // The selected card lifts a hair rather than glowing. Depth by
-                // material, not by light — see the masthead note.
-                boxShadow: active ? '0 1px 0 var(--border-subtle)' : 'none',
-              }}
             >
               <opt.icon size={15} color={active ? 'var(--primary-green)' : 'var(--text-dim)'} aria-hidden="true" />
-              <span style={{ display: 'block', marginTop: 7, fontSize: 'var(--fs-sm)', fontWeight: 750, color: active ? 'var(--text-primary)' : 'var(--text-muted)', lineHeight: 1.2 }}>
-                {opt.label}
-              </span>
-              <span style={{ display: 'block', marginTop: 2, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.3 }}>
-                {opt.hint}
-              </span>
+              <span className="auth-door-label">{opt.label}</span>
+              <span className="auth-door-hint">{opt.hint}</span>
             </button>
           );
         })}
       </div>
 
       {tab === 'email' ? (
-        <div>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email</label>
+        <form onSubmit={(e) => { e.preventDefault(); handleEmailLogin(); }}>
+          <div className="auth-field">
+            <label htmlFor="login-email" className="auth-label">Email</label>
             <div style={{ position: 'relative' }}>
-              <Mail size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input className="farm-input" style={{ paddingLeft: 34 }} value={email} onChange={e => setEmail(e.target.value)}
-                placeholder="your@email.com" type="email" autoComplete="email" />
+              <Mail size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} aria-hidden="true" />
+              <input id="login-email" className="farm-input" style={{ paddingLeft: 34 }} value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="you@email.com" type="email" autoComplete="email" />
             </div>
           </div>
-          <div style={{ marginBottom: 6 }}>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Password</label>
+          <div className="auth-field" style={{ marginBottom: 6 }}>
+            <label htmlFor="login-password" className="auth-label">Password</label>
             <div style={{ position: 'relative' }}>
-              <input className="farm-input" style={{ paddingRight: 40 }} value={password} onChange={e => setPassword(e.target.value)}
-                type={showPwd ? 'text' : 'password'} placeholder="••••••••"
-                onKeyDown={e => e.key === 'Enter' && handleEmailLogin()} />
-              <button onClick={() => setShowPwd(s => !s)}
-                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
-                {showPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+              <input id="login-password" className="farm-input" style={{ paddingRight: 40 }} value={password} onChange={e => setPassword(e.target.value)}
+                type={showPwd ? 'text' : 'password'} placeholder="Your password" autoComplete="current-password" />
+              <button
+                type="button"
+                onClick={() => setShowPwd((s) => !s)}
+                aria-label={showPwd ? 'Hide password' : 'Show password'}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                {showPwd ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
               </button>
             </div>
           </div>
-          {/* Real flow (issue #376 Gap 2): POST /api/auth/forgot-password
-              files a reset request in the admins' queue. The old disabled
-              link sat on a stale "no email infrastructure" premise — the
-              endpoint exists and even emails the admins. */}
           <div style={{ marginBottom: 16 }}>
-            <button onClick={onForgotPassword}
+            <button type="button" onClick={onForgotPassword}
               style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
-              Forgot password?
+              Need help signing in?
             </button>
           </div>
-          {error && <div style={{ padding: '10px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{error}</div>}
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleEmailLogin} disabled={busy}>
+          {error && <div className="auth-error">{error}</div>}
+          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
-        </div>
+        </form>
       ) : (
-        <div>
-          {/* Phone first, then PIN — "who are you", then "prove it" */}
-          <div style={{ marginBottom: 18 }}>
-            <label htmlFor="login-phone" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Phone Number</label>
+        <form onSubmit={(e) => { e.preventDefault(); handlePinLogin(); }}>
+          <div className="auth-field">
+            <label htmlFor="login-phone" className="auth-label">Phone</label>
             <div style={{ position: 'relative' }}>
-              <Phone size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <Phone size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} aria-hidden="true" />
               <input
                 id="login-phone" className="farm-input"
                 style={{ paddingLeft: 34, ...(phoneError ? { border: '1px solid var(--status-critical)' } : {}) }}
                 value={phone} onChange={e => { setPhone(e.target.value); setPhoneError(''); }}
-                placeholder="+254-7XX-XXX-XXX" type="tel" inputMode="tel" autoComplete="tel"
+                placeholder="07XXXXXXXX" type="tel" inputMode="tel" autoComplete="tel"
                 aria-invalid={!!phoneError} aria-describedby={phoneError ? 'login-phone-error' : undefined}
               />
             </div>
-            {phoneError && <div id="login-phone-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{phoneError}</div>}
+            {phoneError && <div id="login-phone-error" className="auth-hint" style={{ color: 'var(--status-critical)' }}>{phoneError}</div>}
           </div>
-          {/* PIN dots */}
-          <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginBottom: 20 }}>
-            {[0,1,2,3].map(i => (
-              <div key={i} style={{ width: 18, height: 18, borderRadius: '50%',
-                background: i < pin.length ? 'var(--primary-green)' : 'var(--border-subtle)',
-                border: `2px solid ${i < pin.length ? 'var(--primary-green)' : 'rgba(255,255,255,0.15)'}`,
-                transition: 'all 0.15s' }} />
+          <div className="auth-label">PIN</div>
+          <div className="auth-pin-dots" aria-hidden="true">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className={`auth-pin-dot${i < pin.length ? ' is-on' : ''}`} />
             ))}
           </div>
-          {!phone.trim() && (
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', textAlign: 'center', marginBottom: 12 }}>
-              Enter your phone number above to unlock the PIN pad.
-            </div>
-          )}
-          {error && <div style={{ padding: '8px 12px', background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12, textAlign: 'center' }}>{error}</div>}
-          {/* PIN pad — disabled (with the hint above) until a phone number is
-              entered, since a PIN alone can no longer authenticate anyone. */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, opacity: phone.trim() ? 1 : 0.5 }}>
-            {['1','2','3','4','5','6','7','8','9','','0','DEL'].map((d, i) => (
-              <button key={i} onClick={() => d && phone.trim() && handlePinKey(d)} disabled={!phone.trim()}
-                style={{ padding: '16px 8px', borderRadius: 14, fontSize: d === 'DEL' ? 12 : 20, fontWeight: 700, cursor: d && phone.trim() ? 'pointer' : 'default',
-                  background: d === 'DEL' ? 'rgba(var(--critical-rgb),0.1)' : d ? 'var(--card)' : 'transparent',
-                  border: d === 'DEL' ? '1px solid rgba(var(--critical-rgb),0.2)' : d ? '1px solid var(--border-subtle)' : 'none',
-                  color: d === 'DEL' ? 'var(--status-critical)' : 'var(--text-primary)' }}>
-                {d}
+          {error && <div className="auth-error">{error}</div>}
+          <div className="auth-pin-pad">
+            {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'DEL'].map((d, i) => (
+              <button
+                key={i}
+                type="button"
+                className={`auth-pin-key${d === 'DEL' ? ' is-clear' : ''}${d === '' ? ' is-blank' : ''}`}
+                onClick={() => d && handlePinKey(d)}
+                disabled={!d || busy}
+                aria-label={d === 'DEL' ? 'Clear last digit' : undefined}
+              >
+                {d === 'DEL' ? 'Clear' : d}
               </button>
             ))}
           </div>
-        </div>
+          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} disabled={busy}>
+            {busy ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
       )}
 
-      {/* Register link */}
-      <div style={{ textAlign: 'center', marginTop: 20 }}>
-        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>No account yet? </span>
-        <button style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer' }}
-          onClick={onRegister}>
+      <div className="auth-apply">
+        <div className="auth-hint" style={{ marginBottom: 10 }}>No account yet?</div>
+        <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={onRegister}>
           Apply for access
         </button>
       </div>
-    </div>
+    </AuthShell>
   );
 }
 
@@ -560,7 +470,7 @@ function Step2FarmDetails({
   return (
     <div>
       <div style={{ marginBottom: 14 }}>
-        <label htmlFor="farm-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm name</label>
+        <label htmlFor="farm-name" className="auth-label">Farm name</label>
         <input
           id="farm-name" className="farm-input"
           style={errors.farmName ? { border: '1px solid var(--status-critical)' } : undefined}
@@ -572,7 +482,7 @@ function Step2FarmDetails({
       </div>
 
       <div style={{ marginBottom: 14 }}>
-        <label htmlFor="farm-location" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Area / Region *</label>
+        <label htmlFor="farm-location" className="auth-label">Area</label>
         <input
           id="farm-location" className="farm-input"
           style={errors.location ? { border: '1px solid var(--status-critical)' } : undefined}
@@ -591,23 +501,10 @@ function Step2FarmDetails({
          bordered, tinted panel that changes state once a pin exists, so
          "there is something here I haven't done" is visible at a glance
          rather than something you have to read for. */}
-      <div style={{
-        marginBottom: 20, padding: 12, borderRadius: 12,
-        border: `1px solid ${hasPin ? 'rgba(var(--primary-rgb),0.35)' : 'var(--status-warning, #f59e0b)'}`,
-        background: hasPin ? 'rgba(var(--primary-rgb),0.06)' : 'rgba(245,158,11,0.06)',
-      }}>
-        <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
-          Farm GPS Location {hasPin
-            ? <span style={{ fontWeight: 400, color: 'var(--primary-green)' }}>· pinned</span>
-            : <span style={{ fontWeight: 400, color: 'var(--status-warning, #f59e0b)' }}>· required</span>}
+      <div className={`auth-gps${hasPin ? ' is-pinned' : ''}`}>
+        <label className="auth-label">
+          Farm pin {hasPin ? <span style={{ fontWeight: 400, color: 'var(--primary-green)' }}>· pinned</span> : null}
         </label>
-        {/* Point-of-collection notice (not a modal) — the browser's own permission
-           prompt says only whether location is shared, never why, and it never
-           mentions that useReverseGeocode hands the coordinates to a third
-           party (Nominatim) to turn them into an address. */}
-        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
-          Your farm&apos;s pin is what weather forecasts are calculated from, and it&apos;s how the reviewing admin finds you. If you detect or enter coordinates, we look up the matching address using OpenStreetMap&apos;s Nominatim service, which receives those coordinates directly.
-        </div>
         <GpsMapBlock
           lat={lat} lng={lng} address={address}
           onLatChange={v => { setLat(v); clearFieldError('latitude'); clearFieldError('longitude'); }}
@@ -654,8 +551,8 @@ function Step2FarmDetails({
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={onBack}>← Back</button>
-        <button className="btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={onNext}>
+        <button type="button" className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={onBack}>Back</button>
+        <button type="button" className="btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={onNext}>
           Continue
         </button>
       </div>
@@ -767,9 +664,12 @@ const FIELD_STEP: Record<string, number> = {
 };
 
 /* ── REGISTER / SELF-ONBOARDING SCREEN ── */
+const APPLY_DRAFT_KEY = 'ifms.apply.draft';
+
 export function RegisterScreen({ onBack }: {
   onBack: () => void;
 }) {
+  const { confirm } = useConfirm();
   const [step, setStep] = useState(1);
   const [farmerName, setFarmerName] = useState('');
   const [email, setEmail] = useState('');
@@ -795,6 +695,49 @@ export function RegisterScreen({ onBack }: {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [draftReady, setDraftReady] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(APPLY_DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw) as Record<string, unknown>;
+        if (typeof d.farmerName === 'string') setFarmerName(d.farmerName);
+        if (typeof d.email === 'string') setEmail(d.email);
+        if (typeof d.phone === 'string') setPhone(d.phone);
+        if (typeof d.farmName === 'string') setFarmName(d.farmName);
+        if (typeof d.location === 'string') setLocation(d.location);
+        if (typeof d.address === 'string') setAddress(d.address);
+        if (typeof d.lat === 'string') setLat(d.lat);
+        if (typeof d.lng === 'string') setLng(d.lng);
+        if (typeof d.locationSkipped === 'boolean') setLocationSkipped(d.locationSkipped);
+        if (Array.isArray(d.selectedEnterprises)) setSelectedEnterprises(d.selectedEnterprises.filter((x): x is string => typeof x === 'string'));
+        if (typeof d.step === 'number' && d.step >= 1 && d.step <= 3) setStep(d.step);
+      }
+    } catch { /* ignore */ }
+    setDraftReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    try {
+      window.localStorage.setItem(APPLY_DRAFT_KEY, JSON.stringify({
+        farmerName, email, phone, farmName, location, address, lat, lng, locationSkipped, selectedEnterprises, step,
+      }));
+    } catch { /* ignore */ }
+  }, [draftReady, farmerName, email, phone, farmName, location, address, lat, lng, locationSkipped, selectedEnterprises, step]);
+
+  async function leave() {
+    const dirty = !!(farmerName || email || phone || farmName || location || selectedEnterprises.length);
+    if (!dirty) { onBack(); return; }
+    const ok = await confirm({
+      message: 'Leave this application?',
+      detail: 'What you typed stays on this phone. Come back here to finish.',
+      confirmLabel: 'Leave',
+      variant: 'warning',
+    });
+    if (ok) onBack();
+  }
 
   function clearFieldError(field: string) {
     setErrors(prev => {
@@ -836,13 +779,8 @@ export function RegisterScreen({ onBack }: {
   }
 
   const hasLocationData = lat.trim() !== '' && lng.trim() !== '';
-  const canSubmit = selectedEnterprises.length > 0 && consentGiven && !submitting;
-  // Step 3's Submit button is disabled (not just click-validated like the
-  // Next buttons on steps 1/2) whenever these two conditions aren't met, so a
-  // click can never happen to surface an error — these messages have to show
-  // live instead, or the disabled button would be a silent no-op.
-  const enterprisesMessage = errors.enterprises ?? (selectedEnterprises.length === 0 ? 'Select at least one enterprise type' : undefined);
-  const consentMessage = errors.consentGiven ?? (!consentGiven ? 'You must consent to share this information to submit your request.' : undefined);
+  const enterprisesMessage = errors.enterprises;
+  const consentMessage = errors.consentGiven;
 
   function detectGPS() {
     setGpsLoading(true); setGpsError('');
@@ -903,10 +841,9 @@ export function RegisterScreen({ onBack }: {
     const res = await apiClient.post<{ id: string }>('/api/onboard-requests', body);
     setSubmitting(false);
     if (res.success) {
-      // Issue #376 Gap 6: keep the request id so the applicant leaves with a
-      // reference to quote — previously it was discarded here.
       setReferenceId(res.data?.id ?? null);
       setSubmitted(true);
+      try { window.localStorage.removeItem(APPLY_DRAFT_KEY); } catch { /* ignore */ }
       return;
     }
 
@@ -922,89 +859,59 @@ export function RegisterScreen({ onBack }: {
   }
 
   if (submitted) {
-    // Issue #376 Gap 6: short reference code from the request id, so the
-    // applicant has something concrete to quote when contacting the admin
-    // team during the review wait.
-    const refCode = referenceId ? referenceId.slice(-6).toUpperCase() : null;
+    const refCode = referenceId ? `IFMS-${referenceId.slice(-8).toUpperCase()}` : null;
     return (
-      <div className="screen-content px-screen" style={{ paddingTop: 60, textAlign: 'center' }}>
-        <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--primary-green)', marginBottom: 16 }}>
-          <CheckCircle2 size={48} aria-hidden="true" />
-        </div>
-        <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 800, color: 'var(--primary-green)', marginBottom: 8 }}>Request Submitted!</div>
-        <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 16 }}>
-          Your onboarding request has been sent to the IFMS admin team.{'\n'}Expect a response within 1–2 business days — by email.
-        </div>
+      <AuthShell>
+        <AuthMasthead
+          eyebrow="Apply for access"
+          headline="Application sent."
+          lede="A person reads every one. Watch the email you gave us — usually within a day or two."
+        />
         {refCode && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 24 }}>
-            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Your reference</span>
+          <div style={{ marginBottom: 20 }}>
+            <div className="auth-label">Your reference</div>
             <button
+              type="button"
               onClick={() => {
-                navigator.clipboard?.writeText(refCode).then(() => { setRefCopied(true); setTimeout(() => setRefCopied(false), 2000); }); }}
-              title="Copy reference code"
+                const text = refCode;
+                if (navigator.clipboard?.writeText) {
+                  navigator.clipboard.writeText(text).then(() => { setRefCopied(true); setTimeout(() => setRefCopied(false), 2000); }).catch(() => {});
+                }
+              }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 12, background: 'var(--card)', border: '1px dashed var(--border-subtle)', cursor: 'pointer' }}
             >
-              <span style={{ fontFamily: 'monospace', fontSize: 'var(--fs-lg)', fontWeight: 800, letterSpacing: '0.12em', color: 'var(--text-primary)' }}>{refCode}</span>
-              <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: refCopied ? 'var(--primary-green)' : 'var(--text-muted)' }}>{refCopied ? 'Copied!' : 'Tap to copy'}</span>
+              <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 'var(--fs-md)', fontWeight: 800, letterSpacing: '0.06em' }}>{refCode}</span>
+              <span className="auth-hint" style={{ margin: 0, color: refCopied ? 'var(--primary-green)' : 'var(--text-muted)' }}>{refCopied ? 'Copied' : 'Copy'}</span>
             </button>
+            <p className="auth-hint">Quote this if you write to us. Check spam if the email is quiet.</p>
           </div>
         )}
-        <div style={{ padding: '14px 16px', background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.2)', borderRadius: 16, marginBottom: 24, textAlign: 'left' }}>
-          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>What happens next</div>
-          {[/* Copy matches what the backend actually does (#376 Gap 6): approval
-               sends a real set-password email (PATCH /api/onboard-requests/[id]),
-               and an unclear application gets an info-needed link instead —
-               both arrive by email, which is why the steps below say so. */
-            'Admin reviews your application (1–2 days)',
-            'You get an EMAIL — a set-password link if approved, or a link to fix details if something needs clarifying',
-            'Set your password and start your farm',
-          ].map((s, i) => (
-            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
-              <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
-                <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)' }}>{i + 1}</span>
-              </div>
-              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>{s}</span>
-            </div>
-          ))}
-          {/* (#376 Gap 6: the "Automatic email notifications — coming soon"
-              footnote that lived here was DELETED — it was false. Approval,
-              set-password and getting-started guide emails all send today via
-              lib/email.ts / lib/notification-email.ts.) */}
-        </div>
-        <button onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>← Back to Login</button>
-      </div>
+        <ol style={{ margin: '0 0 24px', paddingLeft: 20, color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', lineHeight: 1.55 }}>
+          <li>Someone reviews the application.</li>
+          <li>You get an email: a link to set a password, or a link to fix a detail.</li>
+          <li>Set the password and sign in.</li>
+        </ol>
+        <button type="button" onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>Back to sign in</button>
+      </AuthShell>
     );
   }
 
-  return (
-    <div className="screen-content px-screen" style={{ paddingTop: 32, paddingBottom: 24 }}>
-      {/* This said "Join IFMS — free 14-day trial". There is no trial: no
-          billing, no subscription and no plan exists anywhere in the schema
-          or the API (the admin screen says so itself — "Plans & packages —
-          not available yet"). It was a promise the product could not keep, on
-          the very first screen of the flow.
-          It also set the wrong expectation twice over. This is not a self-serve
-          signup — you send an application, a person reads it, and an account is
-          created for you a day or two later. "Free trial" implies you are about
-          to be let in, so the wait that follows reads as something going wrong
-          rather than the process working. */}
-      <AuthMasthead eyebrow="Apply for access" headline="Tell us about your farm." />
-      <p style={{ margin: '-14px 0 22px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.55, maxWidth: '38ch' }}>
-        A person reviews every application. If it all fits, your farm is set up and
-        you&rsquo;ll get an email to choose a password — usually within a day or two.
-      </p>
+  const livestock = ENTERPRISE_REGISTRY.filter((e) => e.type === 'livestock');
+  const crops = ENTERPRISE_REGISTRY.filter((e) => e.type === 'crop');
 
-      {/* Steps */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 22 }}>
-        {[1,2,3].map(s => (
-          <div key={s} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
-            <div style={{ height: 4, width: '100%', borderRadius: 100, background: step >= s ? 'var(--primary-green)' : 'var(--border-subtle)', transition: 'background 0.25s' }} />
-            {/* Sentence case. Tracked-out all-caps micro-labels are the
-                commonest tell in generated interfaces, and at this size they
-                are also measurably harder to read. */}
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: step >= s ? 'var(--primary-green)' : 'var(--text-dim)' }}>
-              {['You', 'Your farm', 'What you farm'][s-1]}
-            </span>
+  return (
+    <AuthShell>
+      <AuthMasthead
+        eyebrow="Apply for access"
+        headline="Tell us about your farm."
+        lede="A person reads every application. If it fits, you get an email to choose a password — usually within a day or two."
+      />
+
+      <div className="auth-steps" aria-label="Application steps">
+        {[1, 2, 3].map((s) => (
+          <div key={s} className={`auth-step${step >= s ? ' is-on' : ''}`}>
+            <div className="auth-step-bar" />
+            <span className="auth-step-label">{['You', 'Your farm', 'What you farm'][s - 1]}</span>
           </div>
         ))}
       </div>
@@ -1044,13 +951,13 @@ export function RegisterScreen({ onBack }: {
                 id="farmer-phone" className="farm-input"
                 style={{ paddingLeft: 34, ...(errors.phone ? { border: '1px solid var(--status-critical)' } : {}) }}
                 value={phone} onChange={e => { setPhone(e.target.value); clearFieldError('phone'); }}
-                placeholder="+254-7XX-XXX-XXX" type="tel"
+                placeholder="07XXXXXXXX" type="tel"
                 aria-invalid={!!errors.phone} aria-describedby={errors.phone ? 'farmer-phone-error' : undefined}
               />
             </div>
             {errors.phone && <div id="farmer-phone-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.phone}</div>}
           </div>
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleStep1Next}>
+          <button type="button" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={handleStep1Next}>
             Continue
           </button>
         </div>
@@ -1072,25 +979,24 @@ export function RegisterScreen({ onBack }: {
 
       {step === 3 && (
         <div>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
-            Select what you farm. This helps us configure the right tools for you.
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 18 }}>
-            {ENTERPRISE_REGISTRY.map(e => {
-              const sel = selectedEnterprises.includes(e.subtype);
-              return (
-                <button key={e.subtype} onClick={() => toggleEnterprise(e.subtype)}
-                  style={{ padding: '11px 10px', borderRadius: 14, cursor: 'pointer', textAlign: 'center',
-                    background: sel ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
-                    border: sel ? '1px solid rgba(var(--primary-rgb),0.5)' : '1px solid var(--border-subtle)' }}>
-                  <div style={{ marginBottom: 4, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}><e.icon size={28} aria-hidden="true" /></div>
-                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}>{e.label}</div>
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 2 }}>{e.type}</div>
-                  {sel && <Check size={12} color="var(--primary-green)" style={{ marginTop: 4 }} />}
-                </button>
-              );
-            })}
-          </div>
+          <p className="auth-lede" style={{ marginBottom: 14 }}>What do you farm?</p>
+          {([{ title: 'Animals', items: livestock }, { title: 'Crops', items: crops }]).map((group) => (
+            <div key={group.title} style={{ marginBottom: 14 }}>
+              <div className="auth-group-label">{group.title}</div>
+              <div className="auth-enterprises">
+                {group.items.map((e) => {
+                  const sel = selectedEnterprises.includes(e.subtype);
+                  return (
+                    <button type="button" key={e.subtype} className={`auth-ent${sel ? ' is-on' : ''}`} onClick={() => toggleEnterprise(e.subtype)}>
+                      <div style={{ marginBottom: 4, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}><e.icon size={28} aria-hidden="true" /></div>
+                      <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: sel ? 'var(--primary-green)' : 'var(--text-muted)' }}>{e.label}</div>
+                      {sel && <Check size={12} color="var(--primary-green)" style={{ marginTop: 4 }} aria-hidden="true" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
           {enterprisesMessage && (
             <div style={{ padding: '8px 12px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 10, marginBottom: 12, fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)' }}>
               <AlertTriangle size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} /> {enterprisesMessage}
@@ -1131,25 +1037,19 @@ export function RegisterScreen({ onBack }: {
             </div>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setStep(2)}>← Back</button>
-            <button
-              onClick={handleSubmit}
-              disabled={!canSubmit}
-              style={{ flex: 2, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, cursor: canSubmit ? 'pointer' : 'not-allowed',
-                background: canSubmit ? 'var(--primary-green)' : 'var(--border-subtle)',
-                border: 'none', color: canSubmit ? '#0a0f0a' : 'var(--text-muted)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Check size={14} /> {submitting ? 'Submitting…' : 'Submit Request'}
+            <button type="button" className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setStep(2)}>Back</button>
+            <button type="button" className="btn-primary" onClick={handleSubmit} disabled={submitting} style={{ flex: 2, justifyContent: 'center' }}>
+              <Check size={14} aria-hidden="true" /> {submitting ? 'Sending…' : 'Send application'}
             </button>
           </div>
         </div>
       )}
 
       <div style={{ textAlign: 'center', marginTop: 18 }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>
+        <button type="button" onClick={() => void leave()} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>
           Already have an account? Sign in
         </button>
       </div>
-    </div>
+    </AuthShell>
   );
 }
