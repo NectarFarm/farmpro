@@ -44,6 +44,11 @@ describe('tabBadge() (issue #298)', () => {
     expect(tabBadge('dashboard', 0, 7, 0, 0)).toBe(7)
   })
 
+  it('shows the same unread count on the desktop Notifications row', () => {
+    expect(tabBadge('notifications', 0, 0, 0, 0)).toBeNull()
+    expect(tabBadge('notifications', 0, 7, 0, 0)).toBe(7)
+  })
+
   it('returns null for a tab with no badge concept', () => {
     expect(tabBadge('crops', 9, 9, 9, 9)).toBeNull()
   })

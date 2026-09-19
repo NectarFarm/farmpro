@@ -23,6 +23,7 @@ import {
   ShieldCheck, ShieldAlert, ShieldOff,
   SlidersHorizontal, ToggleLeft, ToggleRight,
   Maximize2, Minimize2, ExternalLink,
+  PanelLeftClose, PanelLeftOpen,
   Moon,
   // New icons for AI chat, onboarding, customise
   MessageSquare, MessageCircle,
@@ -66,6 +67,7 @@ export {
   ShieldCheck, ShieldAlert, ShieldOff,
   SlidersHorizontal, ToggleLeft, ToggleRight,
   Maximize2, Minimize2, ExternalLink,
+  PanelLeftClose, PanelLeftOpen,
   Moon,
   MessageSquare, MessageCircle,
   Send, Bot,

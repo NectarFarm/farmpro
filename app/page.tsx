@@ -253,7 +253,7 @@ export default function Home() {
                 )}
 
                 {authState === 'app' && (
-                  <NavProvider initialRole={role} initialTenantId={tenantId ?? undefined}>
+                  <NavProvider initialRole={role} initialTenantId={tenantId ?? undefined} userName={userName}>
                     <ScreenRouter onLogout={handleLogout} userName={userName} />
                     {/* Mounted inside the shell so the controls it points at
                        exist by the time it looks for them. */}

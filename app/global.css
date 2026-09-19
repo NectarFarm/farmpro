@@ -447,6 +447,7 @@
   min-height: 0;
 }
 .farm-sidebar { display: none; }
+.farm-name-when-sidebar { display: none; }
 .shell-main {
   display: flex;
   flex-direction: column;
@@ -533,13 +534,246 @@
   .farm-sidebar-brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 16px 12px;
+    gap: 6px;
+    padding: 12px 10px 12px 12px;
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
   .bottom-nav { display: none; }
+  .top-nav-signout { display: none; }
+  .farm-switcher-in-header { display: none !important; }
+  .farm-name-when-sidebar { display: block; }
 }
+
+/* ── Sidebar internals (ux-revamp) ──
+ * The rail is a farm-office corkboard, not a stack of SaaS pills: identity
+ * at the top (tenant name, clickable home), a left accent bar for "you are
+ * here", sentence-case group labels, Settings and Sign out pinned to the
+ * floor. Collapse is a real control, persisted, defaulting to the icon rail
+ * under 1024px so a tablet does not spend a third of the screen on nav. */
+.farm-sidebar-home {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+.farm-sidebar-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+.farm-sidebar-emoji {
+  font-size: 18px;
+  line-height: 1;
+}
+.sidebar-brand-text { min-width: 0; }
+.sidebar-brand-name {
+  font-size: var(--fs-md);
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-brand-meta {
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-collapse-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sidebar-collapse-btn:hover {
+  background: var(--card-hover);
+  color: var(--text-primary);
+}
+.farm-sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 8px 12px;
+  scrollbar-width: thin;
+}
+.sidebar-group { margin-bottom: 14px; }
+.sidebar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sidebar-group-label {
+  margin: 0;
+  padding: 10px 10px 5px;
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  color: var(--text-dim);
+  letter-spacing: 0.01em;
+}
+.sidebar-row {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 11px;
+  margin-bottom: 1px;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: var(--fs-base);
+}
+.sidebar-row.is-nested { padding-left: 18px; }
+.sidebar-row:hover {
+  background: var(--card-hover);
+  color: var(--text-primary);
+}
+.sidebar-row.is-active {
+  background: rgba(var(--primary-rgb), 0.1);
+  border-left-color: var(--primary-green);
+  color: var(--primary-green);
+  font-weight: 700;
+}
+.sidebar-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-badge.nav-badge,
+.farm-sidebar .sidebar-badge {
+  position: static;
+  background: var(--accent-red);
+  color: var(--on-primary);
+  font-size: 10px;
+  font-weight: 800;
+  border-radius: var(--radius-chip);
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+.sidebar-progress { flex-shrink: 0; }
+.farm-sidebar-footer {
+  padding: 10px 10px 12px;
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sidebar-farm-filter { display: block; padding: 0 2px; }
+.sidebar-farm-label {
+  display: block;
+  font-size: var(--fs-2xs);
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+.sidebar-farm-filter select {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 8px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle);
+  background: var(--card);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.sidebar-user { padding: 4px 10px 2px; min-width: 0; }
+.sidebar-user-name {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-user-role {
+  font-size: var(--fs-2xs);
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+.sidebar-signout { color: var(--status-critical); }
+.sidebar-signout:hover {
+  background: rgba(var(--critical-rgb), 0.08);
+  color: var(--status-critical);
+}
+.logout-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(var(--critical-rgb), 0.08);
+  border: 1px solid rgba(var(--critical-rgb), 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.farm-sidebar {
+  transition: width 0.18s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .farm-sidebar { transition: none; }
+}
+
+.farm-sidebar.is-collapsed {
+  width: 68px;
+}
+.farm-sidebar.is-collapsed .sidebar-brand-text,
+.farm-sidebar.is-collapsed .sidebar-group-label,
+.farm-sidebar.is-collapsed .sidebar-row-label,
+.farm-sidebar.is-collapsed .sidebar-progress,
+.farm-sidebar.is-collapsed .sidebar-badge,
+.farm-sidebar.is-collapsed .sidebar-farm-filter,
+.farm-sidebar.is-collapsed .sidebar-user {
+  display: none;
+}
+.farm-sidebar.is-collapsed .farm-sidebar-brand {
+  flex-direction: column;
+  padding: 12px 8px;
+  gap: 8px;
+}
+.farm-sidebar.is-collapsed .farm-sidebar-home { justify-content: center; }
+.farm-sidebar.is-collapsed .sidebar-row {
+  justify-content: center;
+  padding-left: 8px;
+  padding-right: 8px;
+  gap: 0;
+}
+.farm-sidebar.is-collapsed .sidebar-row.is-nested { padding-left: 8px; }
 
 /* (.settings-hub-mobile-only was here. It hid the Settings screen's
  * "Farm Management" list on desktop, where the sidebar already lists those
