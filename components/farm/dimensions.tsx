@@ -46,7 +46,7 @@ export function DimensionsScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Dimensions" subtitle="How the ledger is analysed" />
+      <TopNav title="By farm & house" subtitle="How the ledger is analysed" />
       <div className="px-screen" style={{ paddingTop: 14 }}>
 
         <div className="farm-card" style={{ padding: '12px 14px', marginBottom: 14, display: 'flex', gap: 10, alignItems: 'flex-start' }}>

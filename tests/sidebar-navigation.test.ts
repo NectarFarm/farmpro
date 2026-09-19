@@ -4,48 +4,73 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { sidebarRowIsActive, ROLE_LABEL, tabBadge } from '@/components/farm/navigation'
+import { sidebarRowIsActive, ROLE_LABEL, tabBadge, NAV, tabMenuFor } from '@/components/farm/navigation'
 import type { ScreenId } from '@/components/farm/navigation'
 
 const navigation = readFileSync(join(process.cwd(), 'components/farm/navigation.tsx'), 'utf8')
 const css = readFileSync(join(process.cwd(), 'app/global.css'), 'utf8')
 const dashboard = readFileSync(join(process.cwd(), 'components/farm/dashboard.tsx'), 'utf8')
 
-describe('sidebar names each farm destination', () => {
-  it('lists the four Farm tabs instead of one Units & batches row', () => {
-    expect(navigation).toMatch(/label: 'Production units'/)
-    expect(navigation).toMatch(/label: 'Livestock'/)
-    expect(navigation).toMatch(/params: \{ tab: 'crops' \}/)
-    expect(navigation).toMatch(/label: 'Products'/)
-    expect(navigation).not.toMatch(/label: 'Units & batches'/)
+describe('one vocabulary for both shells', () => {
+  it('uses farmer words, not schema names', () => {
+    expect(NAV.houses).toBe('Houses & fields')
+    expect(NAV.stages).toBe('Stages')
+    expect(NAV.byFarm).toBe('By farm & house')
+    expect(NAV.money).toBe('Money')
+    expect(NAV.inventory).toBe('Inventory')
+    expect(NAV.advisor).toBe('AI advisor')
+    expect(NAV.approvals).toBe('Approvals')
+    expect(NAV.manage).toBe('Manage')
   })
 
-  it('gives Farm configuration a row of its own', () => {
-    expect(navigation).toMatch(/id: 'farm-config' as ScreenId, label: 'Farm configuration'/)
+  it('sidebar and the Farm sheet read the same labels', () => {
+    expect(navigation).toMatch(/label: NAV.houses/)
+    expect(navigation).toMatch(/label: NAV.livestock/)
+    expect(navigation).toMatch(/label: NAV.crops/)
+    expect(navigation).toMatch(/label: NAV.products/)
+    expect(navigation).toMatch(/label: NAV.stages/)
+    expect(navigation).not.toMatch(/label: 'Units & batches'/)
+    expect(navigation).not.toMatch(/label: 'Production units'/)
+    expect(navigation).not.toMatch(/label: 'Livestock batches'/)
+    expect(navigation).not.toMatch(/label: 'Stock'/)
+  })
+})
+
+describe('sidebar names each farm destination', () => {
+  it('lists the four Farm tabs instead of one Units & batches row', () => {
+    expect(navigation).toMatch(/params: \{ tab: 'crops' \}/)
+    expect(navigation).toMatch(/params: \{ tab: 'units' \}/)
+    expect(navigation).toMatch(/params: \{ tab: 'livestock' \}/)
+    expect(navigation).toMatch(/params: \{ tab: 'products' \}/)
+  })
+
+  it('gives Stages a row of its own', () => {
+    expect(navigation).toMatch(/id: 'farm-config' as ScreenId, label: NAV.stages/)
   })
 
   it('gives Notifications a row, and does not park the unread count on Home', () => {
-    expect(navigation).toMatch(/id: 'notifications' as ScreenId, label: 'Notifications'/)
+    expect(navigation).toMatch(/id: 'notifications' as ScreenId, label: NAV.notifications/)
     expect(navigation).toMatch(/tab\.id === 'dashboard'\s*\n\s*\? null/)
   })
 
-  it('names Approvals and Ledger codes, not Governance and Dimensions', () => {
-    expect(navigation).toMatch(/id: 'governance' as ScreenId, label: 'Approvals'/)
-    expect(navigation).toMatch(/id: 'dimensions' as ScreenId, label: 'Ledger codes'/)
+  it('names Approvals and By farm & house, not Governance and Dimensions', () => {
+    expect(navigation).toMatch(/id: 'governance' as ScreenId, label: NAV.approvals/)
+    expect(navigation).toMatch(/id: 'dimensions' as ScreenId, label: NAV.byFarm/)
   })
 
   it('calls the setup row Finish setup, not the same words as a group heading', () => {
-    expect(navigation).toMatch(/id: 'getting-started' as ScreenId, label: 'Finish setup'/)
+    expect(navigation).toMatch(/id: 'getting-started' as ScreenId, label: NAV.finishSetup/)
     expect(navigation).not.toMatch(/label: 'Set up your farm'/)
     expect(navigation).not.toMatch(/label: 'Start here'/)
-    expect(navigation).toMatch(/label: 'The farm'/)
-    expect(navigation).toMatch(/label: 'Today'/)
-    expect(navigation).toMatch(/label: 'The books'/)
+    expect(navigation).toMatch(/label: NAV.theFarm/)
+    expect(navigation).toMatch(/label: NAV.today/)
+    expect(navigation).toMatch(/label: NAV.money/)
   })
 
-  it('keeps Settings in the footer, not under The books', () => {
-    expect(navigation).toMatch(/sidebar-row-label">Settings</)
+  it('keeps Settings in the footer, not under Money', () => {
+    expect(navigation).toMatch(/sidebar-row-label">\{NAV\.settings\}</)
     expect(navigation).not.toMatch(/label: 'Business'/)
+    expect(navigation).not.toMatch(/label: 'The books'/)
   })
 
   it('still hides the setup row once the farm is running', () => {
@@ -131,7 +156,7 @@ describe('sidebarRowIsActive — exactly one row is current', () => {
     expect(current).toEqual([false, true, false, false, false, false])
   })
 
-  it('lights only Production units when that tab is open', () => {
+  it('lights only Houses & fields when that tab is open', () => {
     const current = farmRows.map((row) => sidebarRowIsActive('crops', { tab: 'units' }, row, farmRows))
     expect(current).toEqual([true, false, false, false, false, false])
   })
@@ -175,5 +200,43 @@ describe('unread count belongs on Notifications in the sidebar', () => {
   it('still feeds the mobile Home tab, and also the desktop Notifications row', () => {
     expect(tabBadge('dashboard', 0, 4, 0, 0)).toBe(4)
     expect(tabBadge('notifications', 0, 4, 0, 0)).toBe(4)
+  })
+})
+
+describe('android bottom bar', () => {
+  it('keeps the tab bar tappable while a sheet is open', () => {
+    expect(css).toMatch(/\.tab-menu-overlay \{/)
+    expect(css).toMatch(/z-index: 40/)
+    expect(css).toMatch(/padding-bottom: calc\(var\(--bottom-nav-height\)/)
+    expect(navigation).toMatch(/setOpenMenu\(\(open\) => \(open === tab\.id \? null : tab\.id\)\)/)
+  })
+
+  it('sizes sheet rows and tab labels for a thumb in the yard', () => {
+    expect(css).toMatch(/\.tab-menu-row \{[\s\S]*min-height: 52px/)
+    expect(css).toMatch(/\.bottom-nav-item \.nav-label \{[\s\S]*font-size: var\(--fs-xs\)/)
+  })
+
+  it('Farm sheet is the place and the people; Manage is the office', () => {
+    const farm = tabMenuFor('crops', 'owner')
+    const manage = tabMenuFor('settings', 'owner')
+    expect(farm?.items.map((i) => i.screen)).toEqual([
+      'crops', 'crops', 'crops', 'crops', 'farm-config', 'inventory', 'people',
+    ])
+    expect(manage?.items[0].screen).toBe('ai-chat')
+    expect(manage?.items[0].label).toBe(NAV.advisor)
+    expect(manage?.items.map((i) => i.screen)).toEqual([
+      'ai-chat', 'governance', 'routines', 'weather', 'dimensions', 'reports', 'settings',
+    ])
+  })
+
+  it('does not put Inventory in the Farm sheet when Inventory is already a tab', () => {
+    const farm = tabMenuFor('crops', 'manager')
+    expect(farm?.items.some((i) => i.screen === 'inventory')).toBe(false)
+    expect(farm?.items.some((i) => i.screen === 'people')).toBe(true)
+  })
+
+  it('manager tab is Inventory, not Stock', () => {
+    expect(NAV.inventory).toBe('Inventory')
+    expect(navigation).toMatch(/id: 'inventory' as ScreenId, label: NAV.inventory/)
   })
 })

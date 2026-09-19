@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback, useTransition } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, DoorOpen, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronRight, X, Key, Activity, Building2, Warehouse, PawPrint, Sprout, PanelLeftClose, PanelLeftOpen, SlidersHorizontal } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, DoorOpen, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronDown, ChevronRight, X, Key, Activity, Building2, Warehouse, PawPrint, Sprout, PanelLeftClose, PanelLeftOpen, SlidersHorizontal } from './icons';
 import { apiClient } from '@/lib/request';
 import { useConfirm } from './ui-shared';
 import type { SetupState } from '@/lib/setup-state';
@@ -197,26 +197,64 @@ export function decodeHash(hash: string): { screen: ScreenId; params: Record<str
   return { screen: screenPart, params };
 }
 
-/* ── Tab bar config per role ──
- * "More" is gone as a label (owner's words: it "tells a user nothing about
- * what's behind it"). The screen behind it is a hub — Inventory, Weather,
- * People, Routines, Governance, Reports on a phone, plus every app setting —
- * so "Manage" names what it is for. The tab ID is UNCHANGED ('settings'), so
- * every `data-tour="nav-settings"` anchor, deep link hash and sub-screen
- * mapping keeps working; only the word a user reads changed. */
+/* ── One word per destination ──────────────────────────────────────────────
+ * Sidebar and the Android bar read the SAME list. A farmer who learns
+ * "Houses & fields" on the phone must see those words on the desktop rail,
+ * not "Production units" there and "Livestock batches" in a sheet.
+ *
+ * These are choices, not synonyms:
+ *   Houses & fields  — what you walk, not "production units"
+ *   Stages           — when a flock moves, not "farm configuration"
+ *   By farm & house  — what the P&L slice does, not "dimensions"
+ *   Money            — what they say, not "the books"
+ *   Inventory        — everywhere, including the manager's tab (not "Stock")
+ *   AI advisor       — the name they ask for
+ *   Approvals        — the badge is pending decisions, not "governance"
+ *   Manage           — the phone's fifth tab is the office drawer; "More"
+ *                      told them nothing (owner's words) and this still
+ *                      names the job. Settings is a row inside it, and a
+ *                      footer row on desktop — never the name of the drawer.
+ */
+export const NAV = {
+  home: 'Home',
+  notifications: 'Notifications',
+  finishSetup: 'Finish setup',
+  houses: 'Houses & fields',
+  livestock: 'Livestock',
+  crops: 'Crops',
+  products: 'Products',
+  stages: 'Stages',
+  inventory: 'Inventory',
+  people: 'People',
+  tasks: 'Tasks',
+  routines: 'Routines',
+  weather: 'Weather',
+  advisor: 'AI advisor',
+  approvals: 'Approvals',
+  finance: 'Finance',
+  byFarm: 'By farm & house',
+  reports: 'Reports',
+  settings: 'Settings',
+  farm: 'Farm',
+  manage: 'Manage',
+  money: 'Money',
+  today: 'Today',
+  theFarm: 'The farm',
+} as const;
+
 const OWNER_TABS = [
-  { id: 'dashboard' as ScreenId, label: 'Home', icon: Home },
-  { id: 'crops' as ScreenId, label: 'Farm', icon: Leaf },
-  { id: 'finance' as ScreenId, label: 'Finance', icon: DollarSign },
-  { id: 'tasks' as ScreenId, label: 'Tasks', icon: CheckSquare },
-  { id: 'settings' as ScreenId, label: 'Manage', icon: Settings },
+  { id: 'dashboard' as ScreenId, label: NAV.home, icon: Home },
+  { id: 'crops' as ScreenId, label: NAV.farm, icon: Leaf },
+  { id: 'finance' as ScreenId, label: NAV.finance, icon: DollarSign },
+  { id: 'tasks' as ScreenId, label: NAV.tasks, icon: CheckSquare },
+  { id: 'settings' as ScreenId, label: NAV.manage, icon: Settings },
 ];
 const MANAGER_TABS = [
-  { id: 'dashboard' as ScreenId, label: 'Home', icon: Home },
-  { id: 'crops' as ScreenId, label: 'Farm', icon: Leaf },
-  { id: 'tasks' as ScreenId, label: 'Tasks', icon: CheckSquare },
-  { id: 'inventory' as ScreenId, label: 'Stock', icon: Package },
-  { id: 'settings' as ScreenId, label: 'Manage', icon: Settings },
+  { id: 'dashboard' as ScreenId, label: NAV.home, icon: Home },
+  { id: 'crops' as ScreenId, label: NAV.farm, icon: Leaf },
+  { id: 'tasks' as ScreenId, label: NAV.tasks, icon: CheckSquare },
+  { id: 'inventory' as ScreenId, label: NAV.inventory, icon: Package },
+  { id: 'settings' as ScreenId, label: NAV.manage, icon: Settings },
 ];
 const WORKER_TABS = [
   { id: 'worker-home' as ScreenId, label: 'Home', icon: Home },
@@ -279,29 +317,29 @@ interface TabMenuItem {
 
 const TAB_MENUS: Partial<Record<ScreenId, { title: string; items: TabMenuItem[] }>> = {
   crops: {
-    title: 'Farm',
+    title: NAV.farm,
     items: [
-      { screen: 'crops', params: { tab: 'units' }, label: 'Production units', desc: 'The houses, pens and fields a batch lives in — set these up first', icon: Home },
-      { screen: 'crops', params: { tab: 'livestock' }, label: 'Livestock batches', desc: 'Flocks and herds, their headcount and how each is doing', icon: Heart },
-      { screen: 'crops', params: { tab: 'crops' }, label: 'Crop batches', desc: 'Planted areas, their stage and expected harvest', icon: Leaf },
-      { screen: 'crops', params: { tab: 'products' }, label: 'Products', desc: 'What you sell, and which units produce it', icon: Package },
-      { screen: 'farm-config', label: 'Farm configuration', desc: 'Growth stages, products per batch, farm structure', icon: Layers, ownerOnly: true },
-      // Owner-only: this decides how the ledger is analysed, which is an
-      // accounting decision rather than a day-to-day operational one.
-      { screen: 'dimensions', label: 'Ledger codes', desc: 'The coded levels every sale, purchase and journal line is reported by', icon: Layers, ownerOnly: true },
+      { screen: 'crops', params: { tab: 'units' }, label: NAV.houses, desc: 'Pens, houses and fields a flock lives in — set these up first', icon: Warehouse },
+      { screen: 'crops', params: { tab: 'livestock' }, label: NAV.livestock, desc: 'Flocks and herds, and how each is doing', icon: PawPrint },
+      { screen: 'crops', params: { tab: 'crops' }, label: NAV.crops, desc: 'Planted fields, their stage and harvest', icon: Sprout },
+      { screen: 'crops', params: { tab: 'products' }, label: NAV.products, desc: 'What you sell', icon: Leaf },
+      { screen: 'farm-config', label: NAV.stages, desc: 'When a batch moves from one stage to the next', icon: SlidersHorizontal, ownerOnly: true },
+      { screen: 'inventory', label: NAV.inventory, desc: 'Feed, medicine and stock', icon: Package },
+      { screen: 'people', label: NAV.people, desc: 'Who works here, and how they sign in', icon: Users },
     ],
   },
   settings: {
-    title: 'Manage',
+    title: NAV.manage,
     items: [
-      { screen: 'inventory', label: 'Inventory', desc: 'Feed and supplies, stock lots and purchases', icon: Package },
-      { screen: 'people', label: 'People', desc: 'Employees, their pay, and the logins they sign in with', icon: Users },
-      { screen: 'routines', label: 'Daily routines', desc: 'The checklist your workers follow each round', icon: Sunrise },
-      { screen: 'weather', label: 'Weather', desc: 'Forecast for your farm, and what to do about it', icon: CloudSun },
-      { screen: 'ai-chat', label: 'AI farm advisor', desc: 'Ask a question about your own farm’s records', icon: Bot },
-      { screen: 'governance', label: 'Approvals', desc: 'Approvals, who can do what, and the audit trail', icon: Shield },
-      { screen: 'reports', label: 'Reports', desc: 'Export production, money and mortality; share with an auditor', icon: FileText, ownerOnly: true },
-      { screen: 'settings', label: 'App settings', desc: 'Your account, appearance, units, notifications and security', icon: Settings },
+      // AI advisor leads this list on purpose: the owner said they cannot
+      // find it when new. Findability beats "logical" grouping here.
+      { screen: 'ai-chat', label: NAV.advisor, desc: 'Ask about your own records', icon: Bot },
+      { screen: 'governance', label: NAV.approvals, desc: 'What is waiting on you', icon: Shield },
+      { screen: 'routines', label: NAV.routines, desc: 'The round your workers walk each day', icon: Sunrise },
+      { screen: 'weather', label: NAV.weather, desc: 'Forecast for this farm', icon: CloudSun },
+      { screen: 'dimensions', label: NAV.byFarm, desc: 'See money per farm, house or batch', icon: Layers, ownerOnly: true },
+      { screen: 'reports', label: NAV.reports, desc: 'Export, and share with an auditor', icon: FileText, ownerOnly: true },
+      { screen: 'settings', label: NAV.settings, desc: 'Account, appearance, sign-in', icon: Settings },
     ],
   },
 };
@@ -313,7 +351,15 @@ export function tabMenuFor(tabId: ScreenId, role: Role): { title: string; items:
   const menu = TAB_MENUS[tabId];
   if (!menu) return null;
   if (role !== 'owner' && role !== 'manager') return null;
-  const items = menu.items.filter((item) => role === 'owner' || !item.ownerOnly);
+  // A destination that already has its own tab (manager's Inventory) does
+  // not also appear inside Farm — two doors to the same room on a 360px
+  // bar is clutter, not convenience.
+  const tabIds = new Set(getTabsForRole(role).map((t) => t.id));
+  const items = menu.items.filter((item) => {
+    if (item.ownerOnly && role !== 'owner') return false;
+    if (!item.params && item.screen !== tabId && tabIds.has(item.screen)) return false;
+    return true;
+  });
   // One item left after filtering is not a menu — it is a redirect with an
   // extra tap in front of it.
   return items.length > 1 ? { title: menu.title, items } : null;
@@ -720,80 +766,59 @@ export function RoleNoticeScreen() {
   );
 }
 
-/* The sheet a tab with several destinations opens. Deliberately the same
- * bottom-sheet shape the farm switcher and the sign-out confirm already use,
- * so it reads as part of the app rather than a new kind of thing. */
+/* The sheet a tab with several destinations opens.
+ * It sits ABOVE the tab bar, not over it: the bar stays tappable so the
+ * same thumb that opened Farm can close it. Overlay z-index is below the
+ * bar on purpose. */
 function TabMenuSheet({ menu, onClose }: { menu: { title: string; items: TabMenuItem[] }; onClose: () => void }) {
-  const { navigate, setupState, pendingApprovals } = useNav();
-  // The one step the setup card is currently pointing at, so the same "you are
-  // here" thread runs through the menu: if the next thing to do is behind this
-  // tab, the row that leads to it says so. Null once setup is complete, or
-  // whenever setup state hasn't loaded — never guessed.
+  const { navigate, current, params, setupState, pendingApprovals } = useNav();
   const nextStep = setupState && !setupState.complete
     ? setupState.steps.find((s) => s.id === setupState.nextStepId) ?? null
     : null;
 
   return (
-    <div
-      style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', zIndex: 400 }}
-      onClick={onClose}
-    >
+    <div className="tab-menu-overlay" onClick={onClose}>
       <div
-        style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '78%', display: 'flex', flexDirection: 'column' }}
+        className="tab-menu-sheet"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={`${menu.title} destinations`}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px 10px', flexShrink: 0 }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 'var(--fs-lg)', color: 'var(--text-primary)' }}>{menu.title}</div>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>What you can do here</div>
-          </div>
+        <div className="tab-menu-handle" aria-hidden="true" />
+        <div className="tab-menu-head">
+          <div className="tab-menu-title">{menu.title}</div>
           <button type="button" className="btn-icon" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
-        <div style={{ overflowY: 'auto', padding: '0 14px 18px' }}>
+        <div className="tab-menu-list">
           {menu.items.map((item) => {
             const Icon = item.icon;
-            // Matches on screen AND the tab param, so "Production units"
-            // highlights only when the next step is actually the units step,
-            // not merely something else on the same screen.
             const isNext = !!nextStep?.goTo
               && nextStep.goTo.screen === item.screen
               && (nextStep.goTo.params?.tab ?? null) === (item.params?.tab ?? null);
+            const isCurrent = current === item.screen && (
+              !item.params || Object.entries(item.params).every(([k, v]) => params[k] === v)
+            );
             return (
               <button
                 key={`${item.screen}:${item.params?.tab ?? ''}`}
                 type="button"
+                className={`tab-menu-row${isNext ? ' is-next' : ''}${isCurrent ? ' is-current' : ''}`}
                 onClick={() => { onClose(); navigate(item.screen, item.params); }}
-                style={{
-                  width: '100%', display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left',
-                  padding: '12px 13px', marginBottom: 8, borderRadius: 14, cursor: 'pointer',
-                  background: isNext ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
-                  border: isNext ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
-                }}
               >
-                <div style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon size={17} color={isNext ? 'var(--primary-green)' : 'var(--text-muted)'} aria-hidden="true" />
+                <div className="tab-menu-icon">
+                  <Icon size={18} color={isNext || isCurrent ? 'var(--primary-green)' : 'var(--text-muted)'} aria-hidden="true" />
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', gap: 7, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{item.label}</span>
-                    {isNext && (
-                      <span className="chip" style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--primary-green)' }}>Next step</span>
-                    )}
-                    {/* The Settings screen's mobile hub carried this badge
-                        before that list was replaced by this menu. Same real
-                        count from the same NavContext value (GET /api/approvals
-                        ?status=pending), and still no badge at zero — an
-                        explicit "0 pending" is the fake number this codebase
-                        keeps deleting. */}
+                <div className="tab-menu-copy">
+                  <div className="tab-menu-row-title">
+                    <span>{item.label}</span>
+                    {isNext && <span className="chip" style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--primary-green)' }}>Next step</span>}
                     {item.screen === 'governance' && pendingApprovals > 0 && (
                       <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{pendingApprovals} pending</span>
                     )}
                   </div>
-                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>{item.desc}</div>
+                  <div className="tab-menu-desc">{item.desc}</div>
                 </div>
-                <ChevronRight size={16} color="var(--text-dim)" aria-hidden="true" style={{ flexShrink: 0 }} />
+                <ChevronRight size={16} color="var(--text-dim)" aria-hidden="true" />
               </button>
             );
           })}
@@ -818,17 +843,23 @@ export function BottomNav() {
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = tabIsActive(current, tab.id);
-          const badge = tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
+          const badge = tab.id === 'settings' && pendingApprovals > 0
+            ? pendingApprovals
+            : tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
           const hasMenu = tabMenuFor(tab.id, role) !== null;
           return (
             <button
               key={tab.id}
               type="button"
-              className={`bottom-nav-item ${isActive ? 'active' : ''}`}
+              className={`bottom-nav-item ${isActive ? 'active' : ''}${hasMenu && openMenu === tab.id ? ' is-open' : ''}`}
               // A tab with several destinations shows them; a tab with one goes
-              // straight there. Same control, no long-press, no double-tap —
-              // nothing a first-time user has to be told about.
-              onClick={() => (hasMenu ? setOpenMenu(tab.id) : navigate(tab.id))}
+              // straight there. Tapping the same tab again closes the sheet —
+              // the bar stays visible above it, so the thumb that opened Farm
+              // can close Farm. No long-press, no double-tap.
+              onClick={() => {
+                if (!hasMenu) navigate(tab.id);
+                else setOpenMenu((open) => (open === tab.id ? null : tab.id));
+              }}
               aria-current={isActive ? 'page' : undefined}
               aria-haspopup={hasMenu ? 'menu' : undefined}
               aria-expanded={hasMenu ? openMenu === tab.id : undefined}
@@ -841,14 +872,16 @@ export function BottomNav() {
               <span className="nav-icon-wrap">
                 <Icon className="nav-icon" size={20} />
               </span>
-              {badge !== null && <NavBadge count={badge} tabId={tab.id} />}
+              {badge !== null && <NavBadge count={badge} tabId={tab.id === 'settings' ? 'governance' : tab.id} />}
               {/* The caret is the whole affordance: it is what distinguishes a
                   tab that opens a list from one that navigates, before you
-                  have tapped either. 9px and inline with the label so it costs
-                  no vertical space in a 68px bar. */}
-              <span className="nav-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  have tapped either. Points up (sheet rises) when closed,
+                  down when that sheet is open. */}
+              <span className="nav-label">
                 {tab.label}
-                {hasMenu && <ChevronUp size={9} aria-hidden="true" />}
+                {hasMenu && (openMenu === tab.id
+                  ? <ChevronDown size={11} aria-hidden="true" />
+                  : <ChevronUp size={11} aria-hidden="true" />)}
               </span>
             </button>
           );
@@ -1052,38 +1085,38 @@ export function AppSidebar() {
    * The four Farm destinations that used to hide behind one "Units & batches"
    * row are listed, matching the mobile Farm menu, so a desktop user is not
    * the only person who has to discover Livestock / Crops / Products by
-   * noticing a chip row. Farm configuration has a row of its own for the
-   * same reason Settings used to be the only door to it. */
+   * noticing a chip row. Stages has a row of its own for the same reason
+   * Settings used to be the only door to it. */
   const enterpriseGroups: SidebarGroup[] = [
     { label: '', items: [
-      { id: 'dashboard' as ScreenId, label: 'Home', icon: Home, ownerOnly: false },
-      { id: 'notifications' as ScreenId, label: 'Notifications', icon: Bell, ownerOnly: false },
+      { id: 'dashboard' as ScreenId, label: NAV.home, icon: Home, ownerOnly: false },
+      { id: 'notifications' as ScreenId, label: NAV.notifications, icon: Bell, ownerOnly: false },
       // Rendered only while there is something left to do — see the filter
       // below. Once setup is complete this row disappears entirely rather
       // than sitting there as a permanent tick, which is the "get out of the
       // way" half of the brief.
-      { id: 'getting-started' as ScreenId, label: 'Finish setup', icon: ClipboardList, ownerOnly: false, setupOnly: true },
+      { id: 'getting-started' as ScreenId, label: NAV.finishSetup, icon: ClipboardList, ownerOnly: false, setupOnly: true },
     ] },
-    { label: 'The farm', items: [
-      { id: 'crops' as ScreenId, label: 'Production units', icon: Warehouse, ownerOnly: false, params: { tab: 'units' }, dataTour: 'nav-crops', indent: true },
-      { id: 'crops' as ScreenId, label: 'Livestock', icon: PawPrint, ownerOnly: false, params: { tab: 'livestock' }, dataTour: 'nav-crops-livestock', indent: true },
-      { id: 'crops' as ScreenId, label: 'Crops', icon: Sprout, ownerOnly: false, params: { tab: 'crops' }, dataTour: 'nav-crops-crops', indent: true },
-      { id: 'crops' as ScreenId, label: 'Products', icon: Leaf, ownerOnly: false, params: { tab: 'products' }, dataTour: 'nav-crops-products', indent: true },
-      { id: 'farm-config' as ScreenId, label: 'Farm configuration', icon: SlidersHorizontal, ownerOnly: true, indent: true },
-      { id: 'inventory' as ScreenId, label: 'Inventory', icon: Package, ownerOnly: false },
-      { id: 'people' as ScreenId, label: 'People', icon: Users, ownerOnly: false },
+    { label: NAV.theFarm, items: [
+      { id: 'crops' as ScreenId, label: NAV.houses, icon: Warehouse, ownerOnly: false, params: { tab: 'units' }, dataTour: 'nav-crops', indent: true },
+      { id: 'crops' as ScreenId, label: NAV.livestock, icon: PawPrint, ownerOnly: false, params: { tab: 'livestock' }, dataTour: 'nav-crops-livestock', indent: true },
+      { id: 'crops' as ScreenId, label: NAV.crops, icon: Sprout, ownerOnly: false, params: { tab: 'crops' }, dataTour: 'nav-crops-crops', indent: true },
+      { id: 'crops' as ScreenId, label: NAV.products, icon: Leaf, ownerOnly: false, params: { tab: 'products' }, dataTour: 'nav-crops-products', indent: true },
+      { id: 'farm-config' as ScreenId, label: NAV.stages, icon: SlidersHorizontal, ownerOnly: true, indent: true },
+      { id: 'inventory' as ScreenId, label: NAV.inventory, icon: Package, ownerOnly: false },
+      { id: 'people' as ScreenId, label: NAV.people, icon: Users, ownerOnly: false },
     ] },
-    { label: 'Today', items: [
-      { id: 'tasks' as ScreenId, label: 'Tasks', icon: CheckSquare, ownerOnly: false },
-      { id: 'routines' as ScreenId, label: 'Routines', icon: Sunrise, ownerOnly: false },
-      { id: 'weather' as ScreenId, label: 'Weather', icon: CloudSun, ownerOnly: false },
-      { id: 'ai-chat' as ScreenId, label: 'AI advisor', icon: Bot, ownerOnly: false },
+    { label: NAV.today, items: [
+      { id: 'tasks' as ScreenId, label: NAV.tasks, icon: CheckSquare, ownerOnly: false },
+      { id: 'routines' as ScreenId, label: NAV.routines, icon: Sunrise, ownerOnly: false },
+      { id: 'weather' as ScreenId, label: NAV.weather, icon: CloudSun, ownerOnly: false },
+      { id: 'ai-chat' as ScreenId, label: NAV.advisor, icon: Bot, ownerOnly: false },
     ] },
-    { label: 'The books', items: [
-      { id: 'governance' as ScreenId, label: 'Approvals', icon: Shield, ownerOnly: false },
-      { id: 'finance' as ScreenId, label: 'Finance', icon: DollarSign, ownerOnly: true },
-      { id: 'dimensions' as ScreenId, label: 'Ledger codes', icon: Layers, ownerOnly: true },
-      { id: 'reports' as ScreenId, label: 'Reports', icon: FileText, ownerOnly: true },
+    { label: NAV.money, items: [
+      { id: 'governance' as ScreenId, label: NAV.approvals, icon: Shield, ownerOnly: false },
+      { id: 'finance' as ScreenId, label: NAV.finance, icon: DollarSign, ownerOnly: true },
+      { id: 'dimensions' as ScreenId, label: NAV.byFarm, icon: Layers, ownerOnly: true },
+      { id: 'reports' as ScreenId, label: NAV.reports, icon: FileText, ownerOnly: true },
     ] },
   ];
   /* ── Platform admin's sidebar (owner brief: "his navigation is so small,
@@ -1248,7 +1281,7 @@ export function AppSidebar() {
       <div className="farm-sidebar-footer">
         {showFarmFilter && (
         <label className="sidebar-farm-filter" data-tour="farm-switcher">
-          <span className="sidebar-farm-label">Looking at</span>
+          <span className="sidebar-farm-label">{NAV.farm}</span>
           <select
             value={activeFarmId}
             onChange={(e) => setActiveFarmId(e.target.value)}
@@ -1277,7 +1310,7 @@ export function AppSidebar() {
           title={collapsed ? 'Settings' : undefined}
         >
           <Settings size={18} aria-hidden="true" />
-          <span className="sidebar-row-label">Settings</span>
+          <span className="sidebar-row-label">{NAV.settings}</span>
         </button>
         )}
         <LogoutButton labeled />
