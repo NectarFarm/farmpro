@@ -29,13 +29,12 @@ import {
 } from '@/components/farm/admin';
 import { AdminEnterpriseRequestsScreen } from '@/components/farm/admin-enterprise-requests';
 import { AIChatScreen } from '@/components/farm/ai-chat';
-import { Leaf } from '@/components/farm/icons';
 import { AdminOnboardingScreen } from '@/components/farm/admin-onboarding';
 import { AdminUsersScreen, ImpersonationBanner, type ImpersonationInfo } from '@/components/farm/admin-users';
 import { UICustomiseScreen } from '@/components/farm/ui-customise';
 import { AuditorReportsScreen } from '@/components/farm/auditor';
 import { VetHerdScreen } from '@/components/farm/vet';
-import { LoginScreen, RegisterScreen, ForgotPasswordScreen } from '@/components/farm/auth';
+import { LoginScreen, RegisterScreen, ForgotPasswordScreen, AuthShell, AuthMasthead } from '@/components/farm/auth';
 import { apiClient } from '@/lib/request';
 
 /* ── App-level logout context so any screen can trigger logout ── */
@@ -212,12 +211,12 @@ export default function Home() {
                 <ImpersonationBanner info={impersonation} onReturned={() => window.location.reload()} />
 
                 {authState === 'booting' && (
-                  <div className="farm-shell">
-                    <div className="shell-main">
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-                        <Leaf size={40} color="var(--primary-green)" aria-hidden="true" />
-                        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading your session…</div>
-                      </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                      <AuthShell>
+                        <AuthMasthead eyebrow="IFMS" headline="Every bird, bag and shilling accounted for." />
+                        <div className="auth-checking">Checking…</div>
+                      </AuthShell>
                     </div>
                   </div>
                 )}

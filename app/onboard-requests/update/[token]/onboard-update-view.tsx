@@ -2,8 +2,9 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/request';
 import { ENTERPRISE_REGISTRY } from '@/components/farm/data';
-import { GpsMapBlock } from '@/components/farm/auth';
+import { AuthShell, AuthMasthead, GpsMapBlock } from '@/components/farm/auth';
 import { detectGpsLocation } from '@/lib/geolocation';
+import Link from 'next/link';
 
 // Public, token-gated "fix and resubmit your application" form — no
 // session, no app shell. Same minimal self-contained styling approach as
@@ -148,83 +149,58 @@ export function OnboardUpdateView({ token }: { token: string }) {
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '10px 12px',
-    borderRadius: 10,
-    border: '1px solid var(--border-subtle)',
-    background: 'var(--card-bg)',
-    color: 'var(--text-primary)',
-    marginBottom: 4,
-    fontSize: 'var(--fs-base)' as unknown as string,
-  };
-  const labelStyle: React.CSSProperties = { display: 'block', fontSize: 'var(--fs-xs)' as unknown as string, color: 'var(--text-muted)', margin: '12px 0 4px' };
-  const errStyle: React.CSSProperties = { fontSize: 'var(--fs-2xs)' as unknown as string, color: 'var(--status-critical)', marginBottom: 4 };
-
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--background)', color: 'var(--text-primary)' }}>
-      <div style={{ maxWidth: 480, margin: '0 auto', padding: '40px 16px 60px' }}>
-        <div style={{ marginBottom: 4, fontSize: 'var(--fs-xs)', fontWeight: 700, letterSpacing: 0.5, color: 'var(--accent-purple)', textTransform: 'uppercase' }}>
-          IFMS
-        </div>
-        <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 800, marginBottom: 20 }}>Update your application</div>
+    <div style={{ minHeight: '100dvh', background: 'var(--background)', color: 'var(--text-primary)' }}>
+      <AuthShell>
+        <AuthMasthead eyebrow="IFMS" headline="Fix your application." lede={notes || undefined} />
 
-        <div className="farm-card" style={{ padding: 18 }}>
-          {loading && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading…</div>}
+          {loading && <div className="auth-checking">Checking the link…</div>}
 
           {!loading && resolveError && (
-            <div style={{ fontSize: 'var(--fs-base)', color: 'var(--status-critical)', fontWeight: 600 }}>{resolveError}</div>
+            <>
+              <div className="auth-error">{resolveError}</div>
+              <Link href="/" className="btn-primary" style={{ display: 'flex', width: '100%', justifyContent: 'center', textDecoration: 'none' }}>Back to sign in</Link>
+            </>
           )}
 
           {!loading && !resolveError && done && (
-            <div>
-              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, marginBottom: 6 }}>Resubmitted</div>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                Thanks — your updated application has been sent back for review.
-              </div>
-            </div>
+            <>
+              <p className="auth-lede" style={{ marginBottom: 20 }}>Sent back for review. Watch your email.</p>
+              <Link href="/" className="btn-primary" style={{ display: 'flex', width: '100%', justifyContent: 'center', textDecoration: 'none' }}>Back to sign in</Link>
+            </>
           )}
 
           {!loading && !resolveError && !done && (
             <form onSubmit={handleSubmit}>
-              {notes && (
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', background: 'var(--card-hover)', borderRadius: 10, padding: 10, marginBottom: 12, lineHeight: 1.5 }}>
-                  <strong>What&apos;s missing:</strong> {notes}
-                </div>
-              )}
-
-              <label style={labelStyle}>Your name</label>
-              <input style={inputStyle} value={farmerName} onChange={(e) => setFarmerName(e.target.value)} />
-              {fieldErrors.farmerName && <div style={errStyle}>{fieldErrors.farmerName}</div>}
-
-              <label style={labelStyle}>Email</label>
-              <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              {fieldErrors.email && <div style={errStyle}>{fieldErrors.email}</div>}
-
-              <label style={labelStyle}>Phone</label>
-              <input style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} />
-              {fieldErrors.phone && <div style={errStyle}>{fieldErrors.phone}</div>}
-
-              <label style={labelStyle}>Farm name</label>
-              <input style={inputStyle} value={farmName} onChange={(e) => setFarmName(e.target.value)} />
-              {fieldErrors.farmName && <div style={errStyle}>{fieldErrors.farmName}</div>}
-
-              <label style={labelStyle}>Location</label>
-              <input style={inputStyle} value={location} onChange={(e) => setLocation(e.target.value)} />
-              {fieldErrors.location && <div style={errStyle}>{fieldErrors.location}</div>}
+              <div className="auth-field">
+                <label htmlFor="upd-name" className="auth-label">Your name</label>
+                <input id="upd-name" className="farm-input" value={farmerName} onChange={(e) => setFarmerName(e.target.value)} />
+                {fieldErrors.farmerName && <div className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.farmerName}</div>}
+              </div>
+              <div className="auth-field">
+                <label htmlFor="upd-email" className="auth-label">Email</label>
+                <input id="upd-email" className="farm-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                {fieldErrors.email && <div className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.email}</div>}
+              </div>
+              <div className="auth-field">
+                <label htmlFor="upd-phone" className="auth-label">Phone</label>
+                <input id="upd-phone" className="farm-input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07XXXXXXXX" />
+                {fieldErrors.phone && <div className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.phone}</div>}
+              </div>
+              <div className="auth-field">
+                <label htmlFor="upd-farm" className="auth-label">Farm name</label>
+                <input id="upd-farm" className="farm-input" value={farmName} onChange={(e) => setFarmName(e.target.value)} />
+                {fieldErrors.farmName && <div className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.farmName}</div>}
+              </div>
+              <div className="auth-field">
+                <label htmlFor="upd-location" className="auth-label">Area</label>
+                <input id="upd-location" className="farm-input" value={location} onChange={(e) => setLocation(e.target.value)} />
+                {fieldErrors.location && <div className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.location}</div>}
+              </div>
 
               {needsPin && (
-                <div style={{
-                  marginTop: 14, padding: 12, borderRadius: 12,
-                  border: `1px solid ${lat && lng ? 'rgba(var(--primary-rgb),0.35)' : 'var(--status-warning, #f59e0b)'}`,
-                  background: lat && lng ? 'rgba(var(--primary-rgb),0.06)' : 'rgba(245,158,11,0.06)',
-                }}>
-                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    Farm GPS location {lat && lng ? '· pinned' : '· missing'}
-                  </div>
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
-                    Your application has no map pin. It&apos;s what weather forecasts are calculated from, and how the reviewing admin finds your farm. Detecting or typing coordinates sends them to OpenStreetMap&apos;s Nominatim service to look up the matching address.
-                  </div>
+                <div className={`auth-gps${lat && lng ? ' is-pinned' : ''}`}>
+                  <div className="auth-label">Farm pin {lat && lng ? '· pinned' : ''}</div>
                   <GpsMapBlock
                     lat={lat} lng={lng} address={address}
                     onLatChange={setLat} onLngChange={setLng} onAddressChange={setAddress}
@@ -237,18 +213,18 @@ export function OnboardUpdateView({ token }: { token: string }) {
                         onChange={(e) => setLocationSkipped(e.target.checked)}
                         style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }}
                       />
-                      <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        I can&apos;t add GPS coordinates right now — I understand this farm will have no weather forecasts until I add them.
+                      <span className="auth-hint" style={{ margin: 0 }}>
+                        I can&apos;t pin the farm right now. No weather until I add it later.
                       </span>
                     </label>
                   )}
-                  {fieldErrors.latitude && <div style={{ ...errStyle, marginTop: 8 }}>{fieldErrors.latitude}</div>}
-                  {fieldErrors.longitude && <div style={{ ...errStyle, marginTop: 4 }}>{fieldErrors.longitude}</div>}
+                  {fieldErrors.latitude && <div className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.latitude}</div>}
+                  {fieldErrors.longitude && <div className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.longitude}</div>}
                 </div>
               )}
 
-              <label style={labelStyle}>Enterprises</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+              <div className="auth-label">What you farm</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
                 {ENTERPRISE_OPTIONS.map(([subtype, label]) => (
                   <button
                     type="button"
@@ -261,7 +237,7 @@ export function OnboardUpdateView({ token }: { token: string }) {
                   </button>
                 ))}
               </div>
-              {fieldErrors.enterprises && <div style={errStyle}>{fieldErrors.enterprises}</div>}
+              {fieldErrors.enterprises && <div className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.enterprises}</div>}
 
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, cursor: 'pointer' }}>
                 <input type="checkbox" checked={consentGiven} onChange={(e) => setConsentGiven(e.target.checked)} />
@@ -269,24 +245,16 @@ export function OnboardUpdateView({ token }: { token: string }) {
                   I confirm the information above is accurate.
                 </span>
               </label>
-              {fieldErrors.consentGiven && <div style={errStyle}>{fieldErrors.consentGiven}</div>}
+              {fieldErrors.consentGiven && <div className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.consentGiven}</div>}
 
-              {submitError && (
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', margin: '12px 0' }}>{submitError}</div>
-              )}
+              {submitError && <div className="auth-error">{submitError}</div>}
 
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={submitting}
-                style={{ width: '100%', justifyContent: 'center', borderRadius: 12, padding: 12, marginTop: 16, opacity: submitting ? 0.7 : 1 }}
-              >
-                {submitting ? 'Resubmitting…' : 'Resubmit for review'}
+              <button type="submit" className="btn-primary" disabled={submitting} style={{ width: '100%', justifyContent: 'center', marginTop: 16 }}>
+                {submitting ? 'Sending…' : 'Send again'}
               </button>
             </form>
           )}
-        </div>
-      </div>
+      </AuthShell>
     </div>
   );
 }
