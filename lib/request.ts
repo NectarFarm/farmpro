@@ -53,12 +53,26 @@ function errorFields(payload: unknown): Record<string, string> | undefined {
   return Object.keys(out).length ? out : undefined
 }
 
-function failure(payload: unknown, fallback: string): ApiResponse<never> {
+function retryAfterSeconds(payload: unknown, response: Response): number | undefined {
+  if (isRecord(payload) && typeof payload.retryAfterSeconds === 'number' && Number.isFinite(payload.retryAfterSeconds) && payload.retryAfterSeconds > 0) {
+    return Math.ceil(payload.retryAfterSeconds)
+  }
+  const header = response.headers.get('Retry-After')
+  if (header && /^\d+$/.test(header.trim())) {
+    const n = Number(header.trim())
+    if (n > 0) return n
+  }
+  return undefined
+}
+
+function failure(payload: unknown, fallback: string, response?: Response): ApiResponse<never> {
   const fields = errorFields(payload)
+  const retry = response ? retryAfterSeconds(payload, response) : undefined
   return {
     success: false,
     error: errorMessage(payload, fallback),
     ...(fields ? { fields } : {}),
+    ...(retry ? { retryAfterSeconds: retry } : {}),
   }
 }
 
@@ -87,7 +101,7 @@ export async function parseApiResponse<T>(
   // of wrapping it again as { success: true, data: envelope }.
   if (isApiEnvelope(payload)) {
     if (!response.ok || !payload.success) {
-      return failure(payload, fallback)
+      return failure(payload, fallback, response)
     }
     return {
       success: true,
@@ -96,7 +110,7 @@ export async function parseApiResponse<T>(
   }
 
   if (!response.ok) {
-    return failure(payload, fallback)
+    return failure(payload, fallback, response)
   }
 
   // Compatibility for existing routes that still return a bare success value.

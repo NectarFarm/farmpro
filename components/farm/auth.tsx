@@ -142,6 +142,59 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   return <div className="auth-shell">{children}</div>;
 }
 
+/* Wide screens: the form stays 420px. The empty sea around it was a
+ * wireframe. This rail is public copy — no tenant data, no "who is
+ * registered" leak — so the desktop has something to read without widening
+ * the form into the logged-in app's measure. Hidden below 900px. */
+export function AuthStage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="auth-stage">
+      <aside className="auth-aside">
+        <div className="auth-aside-kicker">IFMS</div>
+        <p className="auth-aside-lede">The farm record. Animals, harvests and money in one place.</p>
+        <ul className="auth-aside-list">
+          <li><strong>Stock</strong> What came onto the farm.</li>
+          <li><strong>Harvest</strong> What left — milk, grain, animals.</li>
+          <li><strong>Money</strong> What it cost, and what it made.</li>
+        </ul>
+      </aside>
+      {children}
+    </div>
+  );
+}
+
+export function formatLockRemain(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  if (m <= 0) return `${r}s`;
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+function useLockout() {
+  const [lockUntil, setLockUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!lockUntil) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [lockUntil]);
+
+  const remain = lockUntil ? Math.max(0, Math.ceil((lockUntil - now) / 1000)) : 0;
+  useEffect(() => {
+    if (lockUntil && remain <= 0) setLockUntil(null);
+  }, [lockUntil, remain]);
+
+  function armFrom(retryAfterSeconds?: number) {
+    if (retryAfterSeconds && retryAfterSeconds > 0) {
+      setLockUntil(Date.now() + retryAfterSeconds * 1000);
+    }
+  }
+
+  return { locked: remain > 0, remain, armFrom };
+}
+
 export function AuthMasthead({ eyebrow, headline, lede }: { eyebrow: string; headline: string; lede?: string }) {
   return (
     <div className="auth-masthead">
@@ -188,11 +241,13 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState('');
   const [busy, setBusy] = useState(false);
+  const { locked, remain, armFrom } = useLockout();
   // Set once submitted — from then on we show ONLY the server's generic ack,
   // regardless of what actually matched.
   const [ack, setAck] = useState<string | null>(null);
 
   async function handleSubmit() {
+    if (locked) return;
     const errs: Record<string, string> = {};
     if (!email.trim()) errs.email = 'Email is required';
     if (!phone.trim()) errs.phone = 'Phone number is required';
@@ -215,26 +270,31 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
       setFieldErrors(res.fields);
     } else {
       // 429 lockout or transport failure — the two shapes allowed to differ.
+      if (!res.success) armFrom(res.retryAfterSeconds);
       setGeneralError(res.error || 'Could not submit your request — please try again.');
     }
   }
 
   if (ack) {
     return (
+      <AuthStage>
       <AuthShell>
-        <AuthMasthead eyebrow="IFMS" headline="Ask sent." lede="If those details match an account, your admin has the request." />
-        <div className="auth-lede" style={{ marginBottom: 20 }}>{ack}</div>
+        <AuthMasthead eyebrow="IFMS" headline="Request sent" lede="If those details match an account, your admin has it. You see this same page either way — this form never says whether an email is registered." />
+        <div className="auth-lede" style={{ marginBottom: 12 }}>{ack}</div>
+        <p className="auth-hint" style={{ marginBottom: 20 }}>It usually takes a working day. There is nothing more to tap here.</p>
         <button type="button" onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>Back to sign in</button>
       </AuthShell>
+      </AuthStage>
     );
   }
 
   return (
+    <AuthStage>
     <AuthShell>
       <AuthMasthead
         eyebrow="IFMS"
         headline="Need help signing in?"
-        lede="Your admin resets the password. Give the email and the phone on the account — you get the same confirmation either way, so this page never says whether an account exists."
+        lede="Your admin resets the password. Give the email and the phone on the account. You get the same confirmation either way, so this page never says whether an account exists."
       />
       <form onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }}>
         <div className="auth-field">
@@ -259,15 +319,22 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
           />
           {fieldErrors.phone && <div id="fp-phone-error" className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.phone}</div>}
         </div>
-        {generalError && <div className="auth-error">{generalError}</div>}
-        <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
-          {busy ? 'Sending…' : 'Ask admin'}
+        {locked && (
+          <div className="auth-error" role="status" aria-live="polite">
+            Too many attempts. Try again in {formatLockRemain(remain)}. Extra taps will not get this through sooner.
+          </div>
+        )}
+        {generalError && !locked && <div className="auth-error">{generalError}</div>}
+        <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy || locked}>
+          {busy ? 'Sending…' : locked ? `Wait ${formatLockRemain(remain)}` : 'Notify my admin'}
         </button>
       </form>
+      <p className="auth-hint" style={{ marginTop: 12 }}>They will see this under Password resets. We do not email you a reset link — a person has to do it.</p>
       <button type="button" onClick={onBack} style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer' }}>
         Back to sign in
       </button>
     </AuthShell>
+    </AuthStage>
   );
 }
 
@@ -282,20 +349,33 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // Separate lock clocks: email and PIN throttle on different identifiers.
+  // Locking one must not block the other on a shared tablet.
+  const emailLock = useLockout();
+  const pinLock = useLockout();
+  const lock = tab === 'email' ? emailLock : pinLock;
 
   async function doLogin(payload: { email?: string; password?: string; phone?: string; pin?: string }) {
+    if (payload.email && emailLock.locked) return;
+    if (payload.pin && pinLock.locked) return;
     setBusy(true); setError('');
     const res = await apiClient.post<{ role: Role; tenantId: string | null; name?: string }>('/api/auth/login', payload);
     setBusy(false);
     if (res.success && res.data?.role) {
       onLogin(res.data.role, res.data.tenantId, res.data.name ?? '');
-    } else {
-      setError(res.success ? 'Sign-in failed — check your credentials.' : (res.error || 'Sign-in failed'));
-      if (payload.pin) setTimeout(() => setPin(''), 600);
+      return;
     }
+    setShowPwd(false);
+    if (!res.success) {
+      if (payload.email) emailLock.armFrom(res.retryAfterSeconds);
+      if (payload.pin) pinLock.armFrom(res.retryAfterSeconds);
+    }
+    setError(res.success ? 'Sign-in failed — check your credentials.' : (res.error || 'Sign-in failed'));
+    if (payload.pin) setTimeout(() => setPin(''), 600);
   }
 
   function handleEmailLogin() {
+    if (emailLock.locked) return;
     if (!email.trim() || !password) { setError('Enter your email and password.'); return; }
     void doLogin({ email: email.trim(), password });
   }
@@ -311,6 +391,7 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
   }
 
   function handlePinLogin() {
+    if (pinLock.locked) return;
     const phoneErr = validatePhone(phone);
     if (phoneErr) { setPhoneError(phoneErr); return; }
     if (pin.length !== 4) { setError('Enter your 4-digit PIN.'); return; }
@@ -319,13 +400,14 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
   }
 
   return (
+    <AuthStage>
     <AuthShell>
-      <AuthMasthead eyebrow="IFMS" headline="Animals, harvests and money — one farm record." />
+      <AuthMasthead eyebrow="IFMS" headline="Animals, harvests and money — one farm record" />
 
       <div role="tablist" aria-label="How you sign in" className="auth-doors">
         {([
-          { id: 'email' as const, label: 'Email', hint: 'Owners, managers, admins', icon: Mail },
-          { id: 'pin' as const, label: 'Worker', hint: 'Phone & PIN', icon: Hash },
+          { id: 'email' as const, label: 'Email', hint: 'Email and password', icon: Mail },
+          { id: 'pin' as const, label: 'Worker', hint: 'Phone and PIN', icon: Hash },
         ]).map((opt) => {
           const active = tab === opt.id;
           return (
@@ -376,9 +458,14 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
               Need help signing in?
             </button>
           </div>
-          {error && <div className="auth-error">{error}</div>}
-          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
-            {busy ? 'Signing in…' : 'Sign in'}
+          {lock.locked && (
+            <div className="auth-error" role="status" aria-live="polite">
+              Too many failed attempts. Try again in {formatLockRemain(lock.remain)}. Extra taps will not get you in sooner.
+            </div>
+          )}
+          {error && !lock.locked && <div className="auth-error">{error}</div>}
+          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy || lock.locked}>
+            {busy ? 'Signing in…' : lock.locked ? `Wait ${formatLockRemain(lock.remain)}` : 'Sign in'}
           </button>
         </form>
       ) : (
@@ -397,29 +484,35 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
             </div>
             {phoneError && <div id="login-phone-error" className="auth-hint" style={{ color: 'var(--status-critical)' }}>{phoneError}</div>}
           </div>
-          <div className="auth-label">PIN</div>
-          <div className="auth-pin-dots" aria-hidden="true">
+          <div className="auth-label" id="login-pin-label">PIN</div>
+          <div className="auth-pin-dots" role="img" aria-labelledby="login-pin-label" aria-label={`${pin.length} of 4 digits entered`}>
             {[0, 1, 2, 3].map((i) => (
               <div key={i} className={`auth-pin-dot${i < pin.length ? ' is-on' : ''}`} />
             ))}
           </div>
-          {error && <div className="auth-error">{error}</div>}
+          {lock.locked && (
+            <div className="auth-error" role="status" aria-live="polite">
+              Too many failed attempts. Try again in {formatLockRemain(lock.remain)}. Extra taps will not get you in sooner.
+            </div>
+          )}
+          {error && !lock.locked && <div className="auth-error">{error}</div>}
           <div className="auth-pin-pad">
-            {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'DEL'].map((d, i) => (
+            {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'DEL', '0'].map((d) => (
               <button
-                key={i}
+                key={d}
                 type="button"
-                className={`auth-pin-key${d === 'DEL' ? ' is-clear' : ''}${d === '' ? ' is-blank' : ''}`}
-                onClick={() => d && handlePinKey(d)}
-                disabled={!d || busy}
-                aria-label={d === 'DEL' ? 'Clear last digit' : undefined}
+                className={`auth-pin-key${d === 'DEL' ? ' is-clear' : ''}`}
+                onClick={() => handlePinKey(d)}
+                disabled={busy || lock.locked}
+                aria-label={d === 'DEL' ? 'Delete last digit' : d}
               >
-                {d === 'DEL' ? 'Clear' : d}
+                {d === 'DEL' ? 'Delete' : d}
               </button>
             ))}
+            <div className="auth-pin-key is-blank" aria-hidden="true" />
           </div>
-          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} disabled={busy}>
-            {busy ? 'Signing in…' : 'Sign in'}
+          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} disabled={busy || lock.locked}>
+            {busy ? 'Signing in…' : lock.locked ? `Wait ${formatLockRemain(lock.remain)}` : 'Sign in'}
           </button>
         </form>
       )}
@@ -431,6 +524,7 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
         </button>
       </div>
     </AuthShell>
+    </AuthStage>
   );
 }
 
@@ -475,7 +569,7 @@ function Step2FarmDetails({
           id="farm-name" className="farm-input"
           style={errors.farmName ? { border: '1px solid var(--status-critical)' } : undefined}
           value={farmName} onChange={e => { setFarmName(e.target.value); clearFieldError('farmName'); }}
-          placeholder="e.g. Rift Valley Poultry Farm"
+          placeholder="e.g. Wanjiku Farm"
           aria-invalid={!!errors.farmName} aria-describedby={errors.farmName ? 'farm-name-error' : undefined}
         />
         {errors.farmName && <div id="farm-name-error" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.farmName}</div>}
@@ -861,10 +955,11 @@ export function RegisterScreen({ onBack }: {
   if (submitted) {
     const refCode = referenceId ? `IFMS-${referenceId.slice(-8).toUpperCase()}` : null;
     return (
+      <AuthStage>
       <AuthShell>
         <AuthMasthead
           eyebrow="Apply for access"
-          headline="Application sent."
+          headline="Application sent"
           lede="A person reads every one. Watch the email you gave us — usually within a day or two."
         />
         {refCode && (
@@ -893,6 +988,7 @@ export function RegisterScreen({ onBack }: {
         </ol>
         <button type="button" onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>Back to sign in</button>
       </AuthShell>
+      </AuthStage>
     );
   }
 
@@ -900,10 +996,11 @@ export function RegisterScreen({ onBack }: {
   const crops = ENTERPRISE_REGISTRY.filter((e) => e.type === 'crop');
 
   return (
+    <AuthStage>
     <AuthShell>
       <AuthMasthead
         eyebrow="Apply for access"
-        headline="Tell us about your farm."
+        headline="Tell us about your farm"
         lede="A person reads every application. If it fits, you get an email to choose a password — usually within a day or two."
       />
 
@@ -1051,5 +1148,6 @@ export function RegisterScreen({ onBack }: {
         </button>
       </div>
     </AuthShell>
+    </AuthStage>
   );
 }

@@ -14,6 +14,12 @@ export type ApiFailure = {
   // blame. `error` always carries a human-readable summary, so callers that
   // ignore `fields` keep working unchanged.
   fields?: Record<string, string>
+  // Seconds until a 429 lockout lifts. Same number the route already puts on
+  // the Retry-After header — the client needs it in the envelope because
+  // parseApiResponse used to drop headers, so the login screen could only
+  // print the rounded "12 min" string and never tick it down. Optional: only
+  // throttle responses send it. Never a remaining-attempt count.
+  retryAfterSeconds?: number
 }
 
 export type ApiResponse<T> = ApiSuccess<T> | ApiFailure

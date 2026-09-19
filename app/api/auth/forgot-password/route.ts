@@ -89,10 +89,13 @@ export async function POST(req: Request) {
   const identifier = `forgot:${email}`
   const throttle = await checkLoginThrottle(identifier)
   if (throttle.locked) {
-    const mins = Math.max(1, Math.ceil(throttle.retryAfterSeconds / 60))
     return NextResponse.json(
-      { success: false, error: `Too many attempts — try again in ${mins} min` },
-      { status: 429, headers: { 'Retry-After': String(throttle.retryAfterSeconds) } }
+      {
+        success: false,
+        error: 'Too many attempts. Wait, then try again.',
+        retryAfterSeconds: throttle.retryAfterSeconds,
+      },
+      { status: 429, headers: { 'Retry-After': String(throttle.retryAfterSeconds) } },
     )
   }
 
