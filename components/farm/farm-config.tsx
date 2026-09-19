@@ -103,7 +103,7 @@ export function FarmConfigScreen() {
     // the Settings screen.
     return (
       <div className="screen-content">
-        <TopNav title="Farm Configuration" showBack />
+        <TopNav title="Stages" showBack />
         <div className="px-screen" style={{ paddingTop: 16 }}>
           <div className="farm-card" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
             <Lock size={18} color="var(--text-dim)" aria-hidden="true" />
@@ -124,7 +124,7 @@ export function FarmConfigScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Farm Configuration" subtitle="The permanent setup — stages, products, structure" showBack />
+      <TopNav title="Stages" subtitle="When a batch moves, and what each house is for" showBack />
       <div className="px-screen" style={{ paddingTop: 14 }}>
         <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto' }}>
           {([
@@ -506,10 +506,10 @@ function ProductsTab({ showToast }: { showToast: (m: string, t?: 'success' | 'er
  * one file. */
 function StructureTab({ navigate }: { navigate: (to: 'crops' | 'routines' | 'people' | 'governance') => void }) {
   const rows: { label: string; desc: string; to: 'crops' | 'routines' | 'people' | 'governance' }[] = [
-    { label: 'Production units', desc: 'Houses, pens, paddocks and plots — and the products each one yields', to: 'crops' },
-    { label: 'Daily routines', desc: 'The steps a worker is asked to complete on each round', to: 'routines' },
-    { label: 'People & roles', desc: 'Who works here, and which batches they are assigned to', to: 'people' },
-    { label: 'Permissions & approvals', desc: 'What each role may do, and what needs signing off first', to: 'governance' },
+    { label: 'Houses & fields', desc: 'Pens, houses and fields a flock lives in — and the products each one yields', to: 'crops' },
+    { label: 'Routines', desc: 'The round your workers walk each day', to: 'routines' },
+    { label: 'People', desc: 'Who works here, and which batches they are assigned to', to: 'people' },
+    { label: 'Approvals', desc: 'What each role may do, and what needs signing off first', to: 'governance' },
   ];
   return (
     <div>

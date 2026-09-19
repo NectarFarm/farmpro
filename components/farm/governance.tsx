@@ -423,7 +423,7 @@ export function GovernanceScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Governance" subtitle="Roles, CRUD rules & audit" />
+      <TopNav title="Approvals" subtitle="Roles, who can do what, and the audit trail" />
 
       <div className="px-screen" style={{ paddingTop: 12 }}>
         {loadError && (

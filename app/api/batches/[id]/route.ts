@@ -158,7 +158,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         return badRequest(
           `"${requested}" is not one of this farm's stages for ${existing.enterprise}. `
           + `Configured stages: ${check.configured.join(', ')}. `
-          + 'Add it in Settings › Farm Configuration first.'
+          + 'Add it in Settings › Stages first.'
         )
       }
     }

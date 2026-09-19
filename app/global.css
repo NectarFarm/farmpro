@@ -870,7 +870,112 @@
 }
 .bottom-nav-item.active .nav-label { color: var(--primary-green); }
 .bottom-nav-item .nav-icon { color: var(--text-muted); font-size: 22px; transition: all 0.15s ease; }
-.bottom-nav-item .nav-label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.01em; transition: all 0.15s ease; }
+.bottom-nav-item .nav-label {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.bottom-nav-item:active { background: rgba(var(--primary-rgb), 0.08); }
+
+/* Tab sheet sits above the bar (padding-bottom = bar height). Overlay is
+ * behind the bar (z-index 40 vs .bottom-nav's 50) so the thumb that opened
+ * Farm can tap Farm again to close it. */
+.tab-menu-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  z-index: 40;
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+}
+.tab-menu-sheet {
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  max-height: 72%;
+  display: flex;
+  flex-direction: column;
+}
+.tab-menu-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--border-hover);
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+.tab-menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px 8px;
+  flex-shrink: 0;
+}
+.tab-menu-title {
+  font-weight: 800;
+  font-size: var(--fs-lg);
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+}
+.tab-menu-list {
+  overflow-y: auto;
+  padding: 0 12px 14px;
+}
+.tab-menu-row {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  cursor: pointer;
+  background: var(--card);
+  border: 1px solid var(--border-subtle);
+  color: inherit;
+}
+.tab-menu-row.is-next,
+.tab-menu-row.is-current {
+  background: rgba(var(--primary-rgb), 0.1);
+  border-color: rgba(var(--primary-rgb), 0.4);
+}
+.tab-menu-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  flex-shrink: 0;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tab-menu-copy { flex: 1; min-width: 0; }
+.tab-menu-row-title {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.tab-menu-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.4;
+}
 /* Keyboard-only focus ring (not :focus, so a mouse click doesn't show it).
  * outline + outline-offset instead of border/box-shadow so it never shifts
  * layout or fights the active-state border-radius. */

@@ -1678,7 +1678,7 @@ export function BatchDetailScreen() {
             )}
             {stageOptions !== null && stageOptions.length === 0 && (
               <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
-                No stages are set up for {batch.enterprise} yet. An owner can define them — with how long each one lasts — in Settings › Farm Configuration.
+                No stages are set up for {batch.enterprise} yet. An owner can define them — with how long each one lasts — in Settings › Stages.
               </div>
             )}
             {stageOptions !== null && stageOptions.length > 0 && (
