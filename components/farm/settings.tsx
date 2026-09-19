@@ -372,7 +372,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     ...(role === 'super_admin' || role === 'owner' ? [{
       label: 'Farm Setup',
       items: [
-        { label: 'Farm Configuration', icon: Layers, desc: 'Stages & stage life, products per batch, farm structure', action: () => navigate('farm-config') },
+        { label: 'Stages', icon: Layers, desc: 'When a batch moves from one stage to the next', action: () => navigate('farm-config') },
         { label: 'UI Customise', icon: Palette, desc: 'Module toggles & farm branding', action: () => navigate('ui-customise') },
       ],
     }] : []),

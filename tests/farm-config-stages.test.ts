@@ -177,7 +177,7 @@ describe('components/farm/crops.tsx — the free-text stage input is gone', () =
   })
 
   it('says where to go when the enterprise has no stages yet', () => {
-    expect(source).toMatch(/Settings › Farm Configuration/)
+    expect(source).toMatch(/Settings › Stages/)
   })
 })
 
@@ -216,8 +216,8 @@ describe('components/farm/farm-config.tsx — the screen that was missing', () =
   })
 
   it('links out to units and routines instead of duplicating their editors', () => {
-    expect(source).toMatch(/Production units/)
-    expect(source).toMatch(/Daily routines/)
+    expect(source).toMatch(/Houses & fields/)
+    expect(source).toMatch(/Routines/)
   })
 
   it('is registered as a screen and reachable from Settings', () => {

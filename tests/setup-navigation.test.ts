@@ -87,7 +87,7 @@ describe('the tabs say what is behind them', () => {
     // Anchored to the tab definition, not to prose: the comment above it
     // quotes the old label deliberately.
     expect(navigation).not.toMatch(/label: 'More'/)
-    expect(navigation).toMatch(/id: 'settings' as ScreenId, label: 'Manage'/)
+    expect(navigation).toMatch(/id: 'settings' as ScreenId, label: NAV.manage/)
   })
 
   it('keeps the tab IDs, so every data-tour anchor and deep link still works', () => {
@@ -99,7 +99,8 @@ describe('the tabs say what is behind them', () => {
   })
 
   it('opens a menu for a tab with several destinations and navigates for one with a single one', () => {
-    expect(navigation).toMatch(/hasMenu \? setOpenMenu\(tab\.id\) : navigate\(tab\.id\)/)
+    expect(navigation).toMatch(/if \(!hasMenu\) navigate\(tab\.id\);/)
+    expect(navigation).toMatch(/setOpenMenu\(\(open\) => \(open === tab\.id \? null : tab\.id\)\)/)
     // A menu is only offered when there is more than one thing in it.
     expect(navigation).toMatch(/return items\.length > 1 \?/)
   })
@@ -107,8 +108,8 @@ describe('the tabs say what is behind them', () => {
   it('puts the AI advisor somewhere it can be found by name', () => {
     // The owner's report: "for the ai advisor alone I struggle finding it when
     // new". It now has both a sidebar row and a row in the Manage menu.
-    expect(navigation).toMatch(/id: 'ai-chat' as ScreenId, label: 'AI advisor'/)
-    expect(navigation).toMatch(/screen: 'ai-chat', label: 'AI farm advisor'/)
+    expect(navigation).toMatch(/id: 'ai-chat' as ScreenId, label: NAV.advisor/)
+    expect(navigation).toMatch(/screen: 'ai-chat', label: NAV.advisor/)
   })
 })
 
