@@ -9,7 +9,7 @@
 // is always something on the record saying why.
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { and, eq, inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
 

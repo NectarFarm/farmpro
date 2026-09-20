@@ -5,7 +5,7 @@
 // Used across all screens for consistent feedback patterns
 // ============================================================
 
-import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
+import React, { useState, useCallback, createContext, useContext, useRef } from 'react';
 import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
 
 /* ─────────────────────────────────────────────
