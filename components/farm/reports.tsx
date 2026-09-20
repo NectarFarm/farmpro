@@ -11,7 +11,7 @@ import {
   textColorFor, HEADER_META_KEYS, type ExportOptions,
 } from '@/lib/report-export';
 import {
-  FileText, Download, AlertTriangle,
+  FileText, Download,
   DollarSign, BarChart3, ClipboardList, Syringe, Wheat, Users, PieChart, Scale,
   type LucideIcon,
 } from './icons';
@@ -256,11 +256,23 @@ export function ReportsScreen() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
           {REPORT_TYPES.map((r) => {
             const isSel = selected === r.id;
+            // owner-roast finding #7: 'labour' used to be selectable exactly
+            // like every real report — tapping it just moved `selected` to a
+            // dead end that only THEN told you it doesn't work. A report with
+            // no real endpoint (REPORT_ENDPOINTS) is now a dead door you can
+            // see is closed, not one that opens onto disappointment.
+            const isUnavailable = !REPORT_ENDPOINTS[r.id];
             return (
-              <button key={r.id} onClick={() => setSelected(isSel ? null : r.id)}
+              <button key={r.id}
+                type="button"
+                disabled={isUnavailable}
+                aria-disabled={isUnavailable}
+                onClick={() => { if (!isUnavailable) setSelected(isSel ? null : r.id); }}
                 className="farm-card"
                 style={{
-                  padding: 12, textAlign: 'left', cursor: 'pointer',
+                  padding: 12, textAlign: 'left',
+                  cursor: isUnavailable ? 'not-allowed' : 'pointer',
+                  opacity: isUnavailable ? 0.55 : 1,
                   borderLeft: `3px solid ${r.color}`,
                   background: isSel ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
                   borderTop: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
@@ -272,12 +284,15 @@ export function ReportsScreen() {
                 </span>
                 <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: isSel ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.2, marginBottom: 3 }}>{r.name}</div>
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</div>
-                {r.id === 'labour' && (
+                {isUnavailable && (
                   <div style={{ marginTop: 6 }}>
-                    <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Not yet</span>
+                    <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Not available</span>
+                    {NOT_AVAILABLE_REASONS[r.id] && (
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.4, marginTop: 4 }}>{NOT_AVAILABLE_REASONS[r.id]}</div>
+                    )}
                   </div>
                 )}
-                {isSel && r.id !== 'labour' && (
+                {isSel && !isUnavailable && (
                   <div style={{ marginTop: 6, display: 'flex', gap: 4 }}>
                     <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Selected</span>
                   </div>
@@ -287,22 +302,11 @@ export function ReportsScreen() {
           })}
         </div>
 
-        {/* Not-available state — `labour` is the only report type left with no
-            real data source (see NOT_AVAILABLE_REASONS). */}
-        {selected && !isRealType && (
-          <div className="farm-card" style={{ padding: 14, marginBottom: 16, border: '1px solid rgba(var(--critical-rgb),0.3)' }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-              <AlertTriangle size={18} color="var(--status-warning)" style={{ flexShrink: 0, marginTop: 2 }} />
-              <div>
-                <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Not available yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  {NOT_AVAILABLE_REASONS[selected] ?? 'This report has no real data source on this branch yet.'}
-                  {' '}No export is offered for it — a placeholder or empty file would misrepresent this as real data.
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* owner-roast finding #7: the "Not available yet" explanation used
+            to live in a panel that only appeared after selecting an
+            unavailable report — but that selection is no longer possible
+            (the card itself is disabled above, reason and all), so there is
+            nothing left that can reach this state. */}
 
         {/* Real report: loading / error / document preview + export */}
         {selected && isRealType && (
