@@ -71,6 +71,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (dimension.isSystem) {
     return badRequest(`${dimension.name} is a system dimension — its values are kept in step with the real farms/units/batches, not created by hand here`)
   }
+  if (dimension.archived) {
+    return badRequest(`${dimension.name} is archived — restore it before adding new values`)
+  }
 
   const code = typeof b.code === 'string' ? b.code.trim() : ''
   const name = typeof b.name === 'string' ? b.name.trim() : ''

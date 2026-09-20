@@ -28,7 +28,7 @@ import type { PgTransaction } from 'drizzle-orm/pg-core'
 import { db } from '@/db'
 import {
   dimensions, dimensionLevels, dimensionValues, defaultDimensions, documentDimensions,
-  journalLineDimensions, accounts, farms, productionUnits, batches, employees,
+  journalLineDimensions, accounts, farms, productionUnits, batches, employees, journalEntries, journalLines,
 } from '@/db/schemas'
 
 type Tx = PgTransaction<any, any, any>
@@ -83,7 +83,14 @@ const SYSTEM_DIMENSIONS: { code: string; name: string; sortOrder: number }[] = [
 export async function ensureSystemDimensions(tenantId: string, dbOrTx: DbOrTx = db): Promise<Map<string, string>> {
   await dbOrTx
     .insert(dimensions)
-    .values(SYSTEM_DIMENSIONS.map((d) => ({ id: randomUUID(), tenantId, code: d.code, name: d.name, levelCount: 1, isSystem: true, sortOrder: d.sortOrder })))
+    .values(SYSTEM_DIMENSIONS.map((d) => ({
+      id: randomUUID(), tenantId, code: d.code, name: d.name, levelCount: 1, isSystem: true, sortOrder: d.sortOrder,
+      // Register fields (dimensions-operable task): a system dimension's
+      // short name is just its code (already short and self-describing),
+      // and it carries no budget policy — the register still needs to show
+      // something other than a blank column for these four.
+      shortName: d.code, separator: '-', budgetCheck: false, budgetControl: false,
+    })))
     .onConflictDoNothing({ target: [dimensions.tenantId, dimensions.code] })
 
   const rows = await dbOrTx
@@ -260,6 +267,78 @@ export async function reconcileSystemDimensions(tenantId: string, dbOrTx: DbOrTx
   for (const b of batchRows) await projectBatch(dbOrTx, tenantId, b)
 }
 
+// ── Editing / archiving a user-defined dimension (dimensions-operable task) ─
+// A system dimension (UNIT/FARM/BATCH/ENTERPRISE) is never editable or
+// archivable through this path — its name/levels are load-bearing for the
+// app's own farm-scoping story, and its values are kept in step with the
+// real farm/unit/batch tables, not hand-edited. Callers (the PATCH route)
+// must check `isSystem` and refuse before calling this; these two functions
+// re-check anyway so a future call site can't skip the guard by accident.
+export class SystemDimensionEditError extends Error {}
+
+export async function updateDimension(
+  dbOrTx: DbOrTx, tenantId: string, id: string,
+  patch: { name?: string; shortName?: string; separator?: string; budgetCheck?: boolean; budgetControl?: boolean },
+): Promise<typeof dimensions.$inferSelect> {
+  const rows = await dbOrTx.select().from(dimensions).where(and(eq(dimensions.id, id), eq(dimensions.tenantId, tenantId))).limit(1)
+  const row = rows[0]
+  if (!row) throw new DimensionNotFoundError(`No dimension ${id} for this tenant`)
+  if (row.isSystem) throw new SystemDimensionEditError(`${row.name} is a system dimension and cannot be edited`)
+  const updated = await dbOrTx.update(dimensions).set(patch).where(eq(dimensions.id, id)).returning()
+  return updated[0]
+}
+
+export async function archiveDimension(dbOrTx: DbOrTx, tenantId: string, id: string, archived: boolean): Promise<typeof dimensions.$inferSelect> {
+  const rows = await dbOrTx.select().from(dimensions).where(and(eq(dimensions.id, id), eq(dimensions.tenantId, tenantId))).limit(1)
+  const row = rows[0]
+  if (!row) throw new DimensionNotFoundError(`No dimension ${id} for this tenant`)
+  if (row.isSystem) throw new SystemDimensionEditError(`${row.name} is a system dimension and cannot be archived`)
+  const updated = await dbOrTx.update(dimensions).set({ archived }).where(eq(dimensions.id, id)).returning()
+  return updated[0]
+}
+
+// A projected value (sourceType 'farm' | 'unit' | 'batch', or the
+// system-managed ENTERPRISE value with sourceType null under an isSystem
+// dimension) mirrors a real operational row or is otherwise system-written —
+// see db/schemas/dimensions.ts's header on why a second place to rename one
+// is how a ledger and a farm stop agreeing. Only a value with no source at
+// all, under a user-defined (non-system) dimension, is hand-editable.
+export async function updateDimensionValue(
+  dbOrTx: DbOrTx, tenantId: string, dimensionId: string, valueId: string, patch: { name?: string },
+): Promise<typeof dimensionValues.$inferSelect> {
+  const rows = await dbOrTx
+    .select({ value: dimensionValues, dimension: dimensions })
+    .from(dimensionValues)
+    .innerJoin(dimensions, eq(dimensionValues.dimensionId, dimensions.id))
+    .where(and(eq(dimensionValues.id, valueId), eq(dimensionValues.dimensionId, dimensionId), eq(dimensionValues.tenantId, tenantId)))
+    .limit(1)
+  const row = rows[0]
+  if (!row) throw new DimensionNotFoundError(`No value ${valueId} on this dimension for this tenant`)
+  if (row.dimension.isSystem || row.value.sourceType) {
+    throw new SystemDimensionEditError('This value follows a real farm/unit/batch and cannot be renamed here')
+  }
+  const updated = await dbOrTx.update(dimensionValues).set(patch).where(eq(dimensionValues.id, valueId)).returning()
+  return updated[0]
+}
+
+export async function archiveDimensionValue(
+  dbOrTx: DbOrTx, tenantId: string, dimensionId: string, valueId: string, archived: boolean,
+): Promise<typeof dimensionValues.$inferSelect> {
+  const rows = await dbOrTx
+    .select({ value: dimensionValues, dimension: dimensions })
+    .from(dimensionValues)
+    .innerJoin(dimensions, eq(dimensionValues.dimensionId, dimensions.id))
+    .where(and(eq(dimensionValues.id, valueId), eq(dimensionValues.dimensionId, dimensionId), eq(dimensionValues.tenantId, tenantId)))
+    .limit(1)
+  const row = rows[0]
+  if (!row) throw new DimensionNotFoundError(`No value ${valueId} on this dimension for this tenant`)
+  if (row.dimension.isSystem || row.value.sourceType) {
+    throw new SystemDimensionEditError('This value follows a real farm/unit/batch — archive the farm/unit/batch itself instead')
+  }
+  const updated = await dbOrTx.update(dimensionValues).set({ archived }).where(eq(dimensionValues.id, valueId)).returning()
+  return updated[0]
+}
+
 // ── Reporting support (lib/reports.ts's computeDimensionPlReport) ──────────
 export async function dimensionByCode(tenantId: string, code: string, dbOrTx: DbOrTx = db) {
   const rows = await dbOrTx.select().from(dimensions).where(and(eq(dimensions.tenantId, tenantId), eq(dimensions.code, code))).limit(1)
@@ -334,17 +413,27 @@ export async function resolveMasterDimensions(
   for (const [code, valueCode] of Object.entries(explicit)) {
     const dim = dims.get(code)
     if (!dim) throw new DimensionValidationError(`Unknown dimension code "${code}"`)
+    if (dim.archived) throw new DimensionValidationError(`Dimension "${code}" is archived and cannot be posted to`)
     const value = await findValueByCode(dbOrTx, dim.id, tenantId, valueCode)
     if (!value) throw new DimensionValidationError(`Unknown value "${valueCode}" for dimension "${code}"`)
     if (value.archived) throw new DimensionValidationError(`Dimension value "${valueCode}" for "${code}" is archived and cannot be posted to`)
     resolved.set(dim.id, value.id)
   }
 
+  // Keyed by id too (dims above is keyed by code) so the master-chain loop
+  // below can skip an ARCHIVED dimension (dimensions-operable task item 4) —
+  // once a user-defined dimension is archived it should stop being applied
+  // to new postings, same as an archived VALUE already refuses at the
+  // explicit-map check above; already-posted journal_line_dimensions rows
+  // keep pointing at it regardless (see db/schemas/dimensions.ts's header).
+  const dimsById = new Map([...dims.values()].map((d) => [d.id, d]))
+
   const chain = await masterChain(dbOrTx, tenantId, sourceMaster)
   for (const master of chain) {
     const rows = await defaultDimensionRowsFor(dbOrTx, tenantId, master.masterType, master.masterId)
     for (const row of rows) {
       if (resolved.has(row.dimensionId)) continue // a more specific master (or explicit) already won
+      if (dimsById.get(row.dimensionId)?.archived) continue
       if (row.dimensionValueId) resolved.set(row.dimensionId, row.dimensionValueId)
     }
   }
@@ -369,6 +458,9 @@ export async function applyAccountRules(
   const requiredMissing: RequiredMissing[] = []
 
   for (const row of accountRows) {
+    // An archived dimension's account rule is inert — see
+    // resolveMasterDimensions' matching guard above for why.
+    if (dims.get(row.dimensionId)?.archived) continue
     if (row.requirement === 'blocked') {
       // An account explicitly not analysed by this dimension — drop it even
       // if a more specific master supplied one (e.g. Owner's Equity has no
@@ -418,4 +510,123 @@ export async function attachDocumentDimensions(
   await dbOrTx.insert(documentDimensions).values(
     [...input.base].map(([dimensionId, valueId]) => ({ id: randomUUID(), tenantId: input.tenantId, docType: input.docType, docId: input.docId, dimensionId, valueId })),
   )
+}
+
+// ── Preview, before a form submits (dimensions-operable task) ──────────────
+// A sale/purchase/payroll form should show the dimensions a posting will
+// carry — most already derivable through the real batch -> unit -> farm
+// chain — and ask for anything a target account marks `required` that
+// nothing in that chain supplied, BEFORE the user submits and hits
+// DimensionRequirementError blind. This reuses the exact same
+// resolveMasterDimensions/applyAccountRules the real posting path runs
+// (lib/finance.ts's captureDimensions) — a preview that used different logic
+// could show "all good" and then have the real post refuse anyway.
+export type ResolvedDimensionView = { dimensionId: string; dimensionCode: string; dimensionName: string; valueId: string; valueCode: string; valueName: string }
+
+async function describeResolved(dbOrTx: DbOrTx, tenantId: string, resolved: Map<string, string>): Promise<ResolvedDimensionView[]> {
+  if (resolved.size === 0) return []
+  const dims = await dimensionsById(dbOrTx, tenantId)
+  const valueRows = await dbOrTx.select().from(dimensionValues).where(inArray(dimensionValues.id, [...resolved.values()]))
+  const valuesById = new Map(valueRows.map((v) => [v.id, v]))
+  const out: ResolvedDimensionView[] = []
+  for (const [dimensionId, valueId] of resolved) {
+    const dim = dims.get(dimensionId)
+    const value = valuesById.get(valueId)
+    if (!dim || !value) continue
+    out.push({ dimensionId, dimensionCode: dim.code, dimensionName: dim.name, valueId, valueCode: value.code, valueName: value.name })
+  }
+  return out
+}
+
+export type AccountDimensionPreview = {
+  accountId: string; accountCode: string; accountName: string
+  resolved: ResolvedDimensionView[]
+  requiredMissing: RequiredMissing[]
+}
+
+// `accountsToCheck` is deliberately passed in by the caller (the route),
+// which already knows which account(s) a sale/purchase/payroll_run posts to
+// (lib/finance.ts's ACCOUNT_CODES) — this module stays agnostic of which
+// document type maps to which account so it doesn't have to be kept in sync
+// with lib/finance.ts's posting rules from two directions.
+export async function previewDocumentDimensions(
+  dbOrTx: DbOrTx, tenantId: string, sourceMaster: MasterRef | null, explicit: Record<string, string>,
+  accountsToCheck: { id: string; code: string; name: string }[],
+): Promise<{ base: ResolvedDimensionView[]; perAccount: AccountDimensionPreview[] }> {
+  const base = await resolveMasterDimensions(dbOrTx, tenantId, sourceMaster, explicit)
+  const baseView = await describeResolved(dbOrTx, tenantId, base)
+  const perAccount: AccountDimensionPreview[] = []
+  for (const account of accountsToCheck) {
+    const { resolved, requiredMissing } = await applyAccountRules(dbOrTx, tenantId, account.id, base)
+    const resolvedView = await describeResolved(dbOrTx, tenantId, resolved)
+    perAccount.push({ accountId: account.id, accountCode: account.code, accountName: account.name, resolved: resolvedView, requiredMissing })
+  }
+  return { base: baseView, perAccount }
+}
+
+// ── Reading dimensions back (dimensions-operable task) ──────────────────────
+// `journal_line_dimensions`/`document_dimensions` have been populated since
+// the original dimensions-on-gl task — nothing has read them back until now.
+// This is what a sale/purchase detail view or a journal-entry view calls to
+// show how a posting was actually analysed. `docType`/`docId` name the
+// SOURCE document (a sale, a purchase, a payroll run) — its journal entry is
+// found via `journal_entries.sourceType`/`sourceId`, same lookup
+// lib/finance.ts's posting functions use in reverse.
+export type JournalLineDimensionView = {
+  lineId: string; accountId: string; accountCode: string; accountName: string
+  debitCents: number; creditCents: number; dimensions: ResolvedDimensionView[]
+}
+export type DocumentDimensionsView = {
+  document: ResolvedDimensionView[]
+  entry: { id: string; memo: string; entryDate: Date; lines: JournalLineDimensionView[] } | null
+}
+
+export async function getDocumentDimensions(
+  dbOrTx: DbOrTx, tenantId: string, docType: 'sale' | 'purchase' | 'payroll_run', docId: string,
+): Promise<DocumentDimensionsView> {
+  const docRows = await dbOrTx
+    .select({ dimensionId: documentDimensions.dimensionId, valueId: documentDimensions.valueId })
+    .from(documentDimensions)
+    .where(and(eq(documentDimensions.tenantId, tenantId), eq(documentDimensions.docType, docType), eq(documentDimensions.docId, docId)))
+  const document = await describeResolved(dbOrTx, tenantId, new Map(docRows.map((r) => [r.dimensionId, r.valueId])))
+
+  const entryRows = await dbOrTx
+    .select()
+    .from(journalEntries)
+    .where(and(eq(journalEntries.tenantId, tenantId), eq(journalEntries.sourceType, docType), eq(journalEntries.sourceId, docId)))
+    .limit(1)
+  const entry = entryRows[0]
+  if (!entry) return { document, entry: null }
+
+  const lineRows = await dbOrTx
+    .select({ line: journalLines, account: accounts })
+    .from(journalLines)
+    .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
+    .where(eq(journalLines.entryId, entry.id))
+  const lineIds = lineRows.map((r) => r.line.id)
+  const lineDimRows = lineIds.length > 0
+    ? await dbOrTx.select().from(journalLineDimensions).where(inArray(journalLineDimensions.lineId, lineIds))
+    : []
+  const dims = await dimensionsById(dbOrTx, tenantId)
+  const valueRows = lineDimRows.length > 0
+    ? await dbOrTx.select().from(dimensionValues).where(inArray(dimensionValues.id, lineDimRows.map((r) => r.valueId)))
+    : []
+  const valuesById = new Map(valueRows.map((v) => [v.id, v]))
+
+  const lines: JournalLineDimensionView[] = lineRows.map(({ line, account }) => ({
+    lineId: line.id, accountId: account.id, accountCode: account.code, accountName: account.name,
+    debitCents: line.debitCents, creditCents: line.creditCents,
+    dimensions: lineDimRows
+      .filter((d) => d.lineId === line.id)
+      .map((d) => {
+        const dim = dims.get(d.dimensionId)
+        const value = valuesById.get(d.valueId)
+        return dim && value
+          ? { dimensionId: d.dimensionId, dimensionCode: dim.code, dimensionName: dim.name, valueId: d.valueId, valueCode: value.code, valueName: value.name }
+          : null
+      })
+      .filter((v): v is ResolvedDimensionView => v !== null),
+  }))
+
+  return { document, entry: { id: entry.id, memo: entry.memo, entryDate: entry.entryDate, lines } }
 }

@@ -97,6 +97,41 @@ export const dimensions = pgTable('dimensions', {
   // the next free numbers as they're created, so they sort after the system
   // set by default rather than interleaving with it.
   sortOrder: integer('sort_order').notNull().default(100),
+  // ── Analysis Dimensions register fields (dimensions-operable task) ───────
+  // The owner's own ERP shows a register with these columns; `code` above IS
+  // their "Dimension ID" (kept as UNIT/FARM/BATCH/ENTERPRISE rather than
+  // renumbered to AD01 — see migration 0041's header) and `levelCount` above
+  // IS their "Segments" (dimension_levels already stores a name per ordinal,
+  // richer than a bare count — no duplicate column). These four are net-new:
+  //   shortName    — a short label distinct from the full `name` (register's
+  //                  "Short Name" column). Defaults to `code` — a dimension's
+  //                  code is already short, so a tenant that never sets one
+  //                  gets a sensible value instead of a blank column.
+  //   separator    — the character used when a multi-level coded value is
+  //                  displayed/typed as one string (e.g. "BATCH-01"). Purely
+  //                  a display/parsing convention; lib/dimensions.ts does not
+  //                  use it internally (values are already related via
+  //                  dimensionValues.parentValueId, not by re-parsing a
+  //                  separator-joined string).
+  //   budgetCheck  / budgetControl — the register's own budget-warning /
+  //                  budget-enforcement toggles. No budget feature exists yet
+  //                  in this schema (no `budgets` table) — these are stored
+  //                  now so the register matches the owner's ERP shape and so
+  //                  a future budget feature has somewhere to read its
+  //                  per-dimension policy from, without a second migration.
+  //                  They do nothing enforcement-wise today; the UI must not
+  //                  imply otherwise.
+  shortName: text('short_name').notNull().default(''),
+  separator: text('separator').notNull().default('-'),
+  budgetCheck: boolean('budget_check').notNull().default(false),
+  budgetControl: boolean('budget_control').notNull().default(false),
+  // A user-defined dimension a tenant no longer wants to post against or see
+  // in pickers — never set on a system dimension (UNIT/FARM/BATCH/ENTERPRISE
+  // are load-bearing for the app's own farm-scoping story; see `isSystem`
+  // above). Mirrors `dimensionValues.archived`'s "never hard-delete, keep
+  // history readable" convention: an archived dimension's already-posted
+  // journal_line_dimensions/document_dimensions rows are untouched.
+  archived: boolean('archived').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (t) => [
   index('idx_dimensions_tenant').on(t.tenantId),
