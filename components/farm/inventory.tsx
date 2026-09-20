@@ -102,9 +102,17 @@ function paymentStatus(p: ApiPurchase): 'paid' | 'partial' | 'unpaid' {
 
 /* ── Record Purchase sheet — real POST /api/purchases. Used from both the
  * Purchases tab (blank) and the item detail screen (prefilled). ── */
-function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId, onCreated, onClose }: {
+function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, paymentMethods, prefill, farms, activeFarmId, onCreated, onClose }: {
   tenantId: string;
   itemNames: string[];
+  // Suggestions only — every one of these is a combobox (input + datalist),
+  // not a hard select, so a genuinely new supplier/category/unit/method is
+  // still recorded verbatim. Built from this tenant's own purchases/items
+  // (see InventoryScreen/InventoryDetailScreen), not invented.
+  supplierNames: string[];
+  categories: string[];
+  units: string[];
+  paymentMethods: string[];
   prefill?: { itemName?: string; unit?: string; category?: string };
   // farm-scoped-data task: both purchases.farmId and the inventoryLots.farmId
   // it creates need a farm — see lib/inventory.ts's recordPurchase. Defaults
@@ -209,7 +217,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
-          <input className="farm-input" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)} />
+          <input className="farm-input" list="inv-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)} />
+          <datalist id="inv-supplier-names">
+            {supplierNames.map(n => <option key={n} value={n} />)}
+          </datalist>
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
@@ -221,11 +232,17 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
-            <input className="farm-input" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+            <input className="farm-input" list="inv-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+            <datalist id="inv-categories">
+              {categories.map(c => <option key={c} value={c} />)}
+            </datalist>
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
-            <input className="farm-input" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)} />
+            <input className="farm-input" list="inv-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)} />
+            <datalist id="inv-units">
+              {units.map(u => <option key={u} value={u} />)}
+            </datalist>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -251,7 +268,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, prefill, farms, activeFarmId
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Payment Method</label>
-            <input className="farm-input" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
+            <input className="farm-input" list="inv-payment-methods" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
+            <datalist id="inv-payment-methods">
+              {paymentMethods.map(m => <option key={m} value={m} />)}
+            </datalist>
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
@@ -490,6 +510,15 @@ export function InventoryScreen() {
 
   const itemNameById = new Map((items ?? []).map(i => [i.id, i.name] as const));
 
+  // Picker suggestions for RecordPurchaseSheet, sourced from this tenant's
+  // own items/purchases rather than invented (issue: free-text fields that
+  // should be pickers). Every field stays a combobox, so a value not in this
+  // list yet is still recorded verbatim.
+  const supplierNames = Array.from(new Set((purchases ?? []).map(p => p.supplier).filter(Boolean))).sort();
+  const categoryNames = Array.from(new Set((items ?? []).map(i => i.category).filter(Boolean))).sort();
+  const unitNames = Array.from(new Set((items ?? []).map(i => i.unit).filter(Boolean))).sort();
+  const paymentMethodNames = Array.from(new Set((purchases ?? []).map(p => p.paymentMethod).filter(Boolean))).sort();
+
   return (
     <div className="screen-content">
       <TopNav title="Inventory" subtitle="Lots, stock and purchases"
@@ -680,6 +709,10 @@ export function InventoryScreen() {
         <RecordPurchaseSheet
           tenantId={tenantId}
           itemNames={(items ?? []).map(i => i.name)}
+          supplierNames={supplierNames}
+          categories={categoryNames}
+          units={unitNames}
+          paymentMethods={paymentMethodNames}
           farms={farms}
           activeFarmId={activeFarmId}
           onCreated={loadAll}
@@ -761,6 +794,10 @@ export function InventoryDetailScreen() {
   const { params, tenantId, activeFarmId, farms } = useNav();
   const id = params.id;
   const [items, setItems] = useState<ApiInventoryItem[] | null>(null);
+  // Purchase history, fetched tenant-wide (not just this item's) purely to
+  // seed the Record Purchase sheet's Supplier/Payment Method suggestions —
+  // same real-data-not-invented sourcing as InventoryScreen's Purchases tab.
+  const [purchases, setPurchases] = useState<ApiPurchase[] | null>(null);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<ApiPurchase[] | null>(null);
@@ -768,6 +805,9 @@ export function InventoryDetailScreen() {
   const load = useCallback(() => {
     apiClient.get<ApiInventoryItem[]>(`/api/inventory/items?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
       if (res.success) setItems(res.data);
+    });
+    apiClient.get<ApiPurchase[]>(`/api/purchases?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
+      if (res.success) setPurchases(res.data);
     });
   }, [tenantId, activeFarmId]);
 
@@ -812,6 +852,13 @@ export function InventoryDetailScreen() {
   const cost = avgUnitCostCents(item);
   const expiry = nearestExpiry(item);
   const isLow = item.qtyOnHand < item.lowStockThreshold;
+
+  // Picker suggestions for RecordPurchaseSheet — same real-data sourcing as
+  // InventoryScreen.
+  const supplierNames = Array.from(new Set((purchases ?? []).map(p => p.supplier).filter(Boolean))).sort();
+  const categoryNames = Array.from(new Set(items.map(i => i.category).filter(Boolean))).sort();
+  const unitNames = Array.from(new Set(items.map(i => i.unit).filter(Boolean))).sort();
+  const paymentMethodNames = Array.from(new Set((purchases ?? []).map(p => p.paymentMethod).filter(Boolean))).sort();
 
   return (
     <div className="screen-content">
@@ -878,6 +925,10 @@ export function InventoryDetailScreen() {
         <RecordPurchaseSheet
           tenantId={tenantId}
           itemNames={items.map(i => i.name)}
+          supplierNames={supplierNames}
+          categories={categoryNames}
+          units={unitNames}
+          paymentMethods={paymentMethodNames}
           prefill={{ itemName: item.name, unit: item.unit, category: item.category }}
           farms={farms}
           activeFarmId={activeFarmId}
