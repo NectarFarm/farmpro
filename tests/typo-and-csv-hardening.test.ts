@@ -288,6 +288,26 @@ describe('components/farm/settings.tsx — controls that tell the truth', () => 
   })
 })
 
+describe('nav badge vs screen notification counts agree (owner-roast finding #5)', () => {
+  const nav = read('components/farm/navigation.tsx')
+  const dashboard = read('components/farm/dashboard.tsx')
+
+  it('NavProvider exposes a refreshBadges that re-runs the badge-count effect', () => {
+    expect(nav).toMatch(/refreshBadges: \(\) => void/)
+    expect(nav).toMatch(/const refreshBadges = useCallback\(\(\) => \{ setBadgesNonce\(\(n\) => n \+ 1\); \}, \[\]\)/)
+    expect(nav).toMatch(/\}, \[tenantId, activeFarmId, role, badgesNonce\]\)/)
+    expect(nav).toMatch(/refreshBadges,\s*userName \}\}>/)
+  })
+
+  it('marking a notification read (one or all) calls refreshBadges so the nav badge cannot go stale', () => {
+    const screen = dashboard.slice(dashboard.indexOf('export function NotificationsScreen'))
+    const markReadBlock = screen.slice(screen.indexOf('const markRead'), screen.indexOf('function markAllRead'))
+    expect(markReadBlock).toMatch(/refreshBadges\(\);/)
+    const markAllBlock = screen.slice(screen.indexOf('function markAllRead'), screen.indexOf('function handleNotifTap'))
+    expect(markAllBlock).toMatch(/refreshBadges\(\);/)
+  })
+})
+
 describe('components/farm/finance.tsx — nothing recorded is not the same as losing money (owner-roast finding #3)', () => {
   const source = read('components/farm/finance.tsx')
 
