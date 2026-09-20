@@ -279,3 +279,20 @@ describe('components/farm/settings.tsx — controls that tell the truth', () => 
     expect(source).toMatch(/disabled=\{!!item\.readOnly\}/)
   })
 })
+
+describe('components/farm/finance.tsx — nothing recorded is not the same as losing money (owner-roast finding #3)', () => {
+  const source = read('components/farm/finance.tsx')
+
+  it('treats a period with zero sales/purchases/payroll as genuinely empty, not a zeroed Net tile', () => {
+    // transactionCount is the real row count behind the period (lib/reports.ts's
+    // computePlReport), not a re-derivation of revenue/expense being zero.
+    expect(source).toMatch(/const periodTransactionCount = Number\(budgetReport\?\.meta\.transactionCount \?\? 0\)/)
+    expect(source).toMatch(/const hasFinanceActivity = budgetReport !== null && periodTransactionCount > 0/)
+    expect(source).toMatch(/Nothing recorded for \{periodLabel\} yet/)
+  })
+
+  it('explains a real negative net instead of leaving a bare red number', () => {
+    expect(source).toMatch(/\{margin < 0 && \(/)
+    expect(source).toMatch(/You spent more than you took in for \{periodLabel\}/)
+  })
+})

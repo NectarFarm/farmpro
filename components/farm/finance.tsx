@@ -987,6 +987,16 @@ export function FinanceScreen() {
   const totalRevenue = Number(budgetReport?.meta.periodRevenue ?? 0);
   const totalExpenses = Number(budgetReport?.meta.periodExpense ?? 0);
   const margin = totalRevenue - totalExpenses;
+  // owner-roast finding #3: "recorded nothing yet" and "you are losing
+  // money" used to render as the same three-tile grid — a period with zero
+  // sales AND zero purchases showed "Net KSh 0K" exactly like a period with
+  // real expenses and no revenue showed "Net -KSh 10K", with nothing telling
+  // the two apart except doing the subtraction yourself. `transactionCount`
+  // (lib/reports.ts's computePlReport meta) is the real count of sales +
+  // purchases + payroll rows in the period — 0 means nothing was recorded at
+  // all, not just that revenue happened to net to zero.
+  const periodTransactionCount = Number(budgetReport?.meta.transactionCount ?? 0);
+  const hasFinanceActivity = budgetReport !== null && periodTransactionCount > 0;
   // (`budgetTotal = totalRevenue + totalExpenses` used to sit here, feeding a
   // progress bar and a "Revenue N% / Expenses N%" pair under a heading that
   // says "Budget". There is no budget, target or forecast anywhere in this
@@ -1073,29 +1083,46 @@ export function FinanceScreen() {
                 the bar beneath it read as attainment. */}
             <div className="section-eyebrow" style={{ marginBottom: 10 }}>Money in and out — {periodLabel}</div>
             {budgetError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{budgetError}</div>}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(totalRevenue/1000).toFixed(0)}K</div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Revenue</div>
+            {!budgetError && !hasFinanceActivity ? (
+              // Honest empty state (owner-roast finding #3) — no sales,
+              // purchases or payroll runs at all in this period, distinct
+              // from a real negative net below.
+              <div style={{ textAlign: 'center', padding: '18px 0' }}>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 4 }}>Nothing recorded for {periodLabel} yet</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>Record a sale or a purchase and this will show real revenue, expenses and net.</div>
               </div>
-              <div>
-                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(totalExpenses/1000).toFixed(0)}K</div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Expenses</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: margin > 0 ? 'var(--primary-green)' : 'var(--status-critical)' }}>
-                  {margin > 0 ? '+' : ''}KSh {(margin/1000).toFixed(0)}K
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(totalRevenue/1000).toFixed(0)}K</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Revenue</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(totalExpenses/1000).toFixed(0)}K</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Expenses</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: margin > 0 ? 'var(--primary-green)' : 'var(--status-critical)' }}>
+                      {margin > 0 ? '+' : ''}KSh {(margin/1000).toFixed(0)}K
+                    </div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Net</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Net</div>
-              </div>
-            </div>
-            {/* No bar here on purpose — see the note where budgetTotal used
-                to be computed. This line says what the three figures are and
-                what they are not, which is the same "state your basis" rule
-                the reports and the weather advice already follow. */}
-            <div style={{ marginTop: 12, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.5 }}>
-              Actuals for {periodLabel}, from your recorded sales and purchases. You haven&rsquo;t set a budget to compare them against — this app has nowhere to enter one yet.
-            </div>
+                {margin < 0 && (
+                  <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', lineHeight: 1.5 }}>
+                    You spent more than you took in for {periodLabel}: KSh {(totalExpenses/1000).toFixed(0)}K recorded against KSh {(totalRevenue/1000).toFixed(0)}K in sales.
+                  </div>
+                )}
+                {/* No bar here on purpose — see the note where budgetTotal used
+                    to be computed. This line says what the three figures are and
+                    what they are not, which is the same "state your basis" rule
+                    the reports and the weather advice already follow. */}
+                <div style={{ marginTop: 12, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                  Actuals for {periodLabel}, from your recorded sales and purchases. You haven&rsquo;t set a budget to compare them against — this app has nowhere to enter one yet.
+                </div>
+              </>
+            )}
           </div>
 
           <div className="section-eyebrow" style={{ marginBottom: 10 }}>Batch P&amp;L</div>
