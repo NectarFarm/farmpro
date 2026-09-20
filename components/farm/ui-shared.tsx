@@ -5,7 +5,7 @@
 // Used across all screens for consistent feedback patterns
 // ============================================================
 
-import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
+import React, { useState, useCallback, createContext, useContext, useRef } from 'react';
 import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
 
 /* ─────────────────────────────────────────────
@@ -236,4 +236,24 @@ export function GovernanceGateBanner({ action, onRequest, onCancel }: {
       </div>
     </div>
   );
+}
+
+/* ─────────────────────────────────────────────
+   PER-FIELD VALIDATION (owner-roast findings #9/#10/#11)
+   components/farm/auth.tsx's Help form already gets this right: a red
+   border on the field that is actually wrong, plus a message under it
+   ("Email is required") — not one banner blaming "Farm, type, and name"
+   when only one of the three was actually empty. Every form below used to
+   hand-roll its own version of this (a single `error` string, or its own
+   inline style object repeated per field); these two primitives are the one
+   shared mechanism so a form only has to build a `Record<string, string>`
+   of field -> message and use them everywhere it renders a field.
+────────────────────────────────────────────── */
+export function fieldErrorStyle(hasError: boolean): React.CSSProperties | undefined {
+  return hasError ? { border: '1px solid var(--status-critical)' } : undefined;
+}
+
+export function FieldError({ id, message }: { id?: string; message?: string }) {
+  if (!message) return null;
+  return <div id={id} style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{message}</div>;
 }

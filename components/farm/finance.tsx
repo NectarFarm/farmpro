@@ -8,6 +8,7 @@ import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
+import { fieldErrorStyle, FieldError } from './ui-shared';
 
 // ── Real-data wiring (issue #240) ───────────────────────────────────────────
 // This screen used to render entirely from hardcoded mock data (a sales
@@ -103,6 +104,7 @@ interface ApiInventoryItemLite {
   id: string;
   name: string;
   category: string;
+  unit: string;
 }
 interface ApiBatchLite {
   id: string;
@@ -164,6 +166,16 @@ interface ApiPayslip {
   employeeName: string;
   amountCents: number;
 }
+// owner-roast finding #2: POST /api/payroll/runs { dryRun: true } — the
+// exact same eligibility/overlap/total computation the real run uses,
+// stopped before anything is written.
+interface PayrollPreview {
+  periodStart: string;
+  periodEnd: string;
+  totalAmountCents: number;
+  employeeCount: number;
+  employees: { id: string; name: string; amountCents: number }[];
+}
 
 function fmtDate(d?: string | null): string {
   return d ? d.slice(0, 10) : '—';
@@ -190,7 +202,11 @@ const catChipClass = (cat: string) =>
  * option, because an ad-hoc sale (a service, a one-off) is real and the route
  * still accepts `item` alone.
  */
-const SALE_METHODS = ['M-Pesa', 'Cash', 'Bank transfer', 'Cheque', 'Credit'];
+// Starter suggestions shown before any payment method has actually been
+// recorded for this tenant. Once sales/purchases exist, the datalist below
+// is built from those real values instead (see FinanceScreen's
+// `paymentMethodNames`) — this is only the seed for a brand-new tenant.
+const PAYMENT_METHOD_SEED = ['M-Pesa', 'Cash', 'Bank transfer', 'Cheque', 'Credit'];
 
 interface ApiProductLite {
   id: string;
@@ -198,24 +214,30 @@ interface ApiProductLite {
   stockEffect: string;
 }
 
-function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
+function RecordSaleSheet({ tenantId, batches, paymentMethods, onCreated, onClose }: {
   tenantId: string;
   batches: ApiBatchLite[];
+  paymentMethods: string[];
   onCreated: () => void;
   onClose: () => void;
 }) {
+  const { navigate } = useNav();
   const [products, setProducts] = useState<ApiProductLite[] | null>(null);
   const [productId, setProductId] = useState('');
   const [item, setItem] = useState('');
   const [qty, setQty] = useState('');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('');
-  const [methodIsOther, setMethodIsOther] = useState(false);
   const [status, setStatus] = useState<'paid' | 'pending'>('paid');
   const [batchId, setBatchId] = useState('');
   const [soldAt, setSoldAt] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // owner-roast finding #11: a 0 amount was already refused on save, but as
+  // a generic banner with no mark on the field itself — the input still
+  // looked exactly as submittable as a valid one. Per-field, same mechanism
+  // as ui-shared.tsx's fieldErrorStyle/FieldError.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     apiClient.get<ApiProductLite[]>('/api/products').then((res) => {
@@ -235,19 +257,25 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
   async function save() {
     const amountCents = parseMoneyToCents(amount);
     const label = productId ? (product?.name ?? '') : item.trim();
-    if (!label) { setError('Choose a product, or name what was sold.'); return; }
-    if (amountCents === null || amountCents <= 0) { setError('Amount must be a positive number.'); return; }
-
     const qtyNum = qty.trim() === '' ? null : Number(qty);
+
+    const errs: Record<string, string> = {};
+    if (!label) errs.item = 'Choose a product, or name what was sold';
+    // Explicit: a 0 (or blank, or negative) amount is rejected here, not
+    // just by the server after a round trip.
+    if (amountCents === null || amountCents <= 0) errs.amount = 'Amount must be a positive number — 0 is not a sale';
     if (qtyNum !== null && (!Number.isFinite(qtyNum) || qtyNum <= 0 || !Number.isInteger(qtyNum))) {
-      setError('Quantity must be a whole number greater than zero.');
+      errs.qty = 'Quantity must be a whole number greater than zero';
+    } else if (needsQty && qtyNum === null) {
+      errs.qty = `${product?.name} comes out of the batch when sold — enter how many`;
+    }
+    if (soldAt && soldAt > todayIso) errs.soldAt = 'A sale cannot be dated in the future';
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      setError('');
       return;
     }
-    if (needsQty && qtyNum === null) {
-      setError(`${product?.name} comes out of the batch when sold — enter how many.`);
-      return;
-    }
-    if (soldAt && soldAt > todayIso) { setError('A sale cannot be dated in the future.'); return; }
+    setFieldErrors({});
 
     setSaving(true);
     setError('');
@@ -281,30 +309,54 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
 
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>What was sold *</label>
-          <select
-            className="farm-input"
-            value={productId}
-            onChange={e => { setProductId(e.target.value); if (e.target.value) setItem(''); }}
-            style={{ marginBottom: productId ? 0 : 8 }}
-          >
-            <option value="">{products === null ? 'Loading products…' : 'Not in the catalogue — type it below'}</option>
-            {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          {products !== null && products.length === 0 ? (
+            // ── Honest empty state, not a fake picker ──────────────────────
+            // A dropdown whose only option is "Not in the catalogue" when the
+            // catalogue has zero products isn't a picker at all — it quietly
+            // admits Products setup never happened while still looking like
+            // the feature works. Say that plainly and point at Products,
+            // rather than routing straight to free text as if this were the
+            // normal path.
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', borderRadius: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
+                No products set up yet, so sales cannot draw down stock. Set up products first, or record this as a one-off below.
+              </div>
+              <button type="button" className="btn-secondary" style={{ fontSize: 'var(--fs-xs)' }} onClick={() => { onClose(); navigate('crops', { tab: 'products' }); }}>
+                Set up Products
+              </button>
+            </div>
+          ) : (
+            <select
+              className="farm-input"
+              value={productId}
+              onChange={e => { setProductId(e.target.value); if (e.target.value) setItem(''); }}
+              style={{ marginBottom: productId ? 0 : 8 }}
+            >
+              <option value="">{products === null ? 'Loading products…' : 'Not in the catalogue — type it below'}</option>
+              {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
           {/* The escape hatch, and the only path that leaves stock untouched.
               Kept because an ad-hoc sale — a service, a one-off — is real. */}
           {!productId && (
-            <input className="farm-input" placeholder="e.g. Tray eggs (30) × 120" value={item} onChange={e => setItem(e.target.value)} />
+            <input className="farm-input" placeholder="e.g. Tray eggs (30) × 120" value={item} onChange={e => setItem(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.item)}
+              aria-invalid={!!fieldErrors.item} aria-describedby={fieldErrors.item ? 'sale-item-error' : undefined} />
           )}
           {products !== null && products.length === 0 && (
             <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
               No products in the catalogue yet, so this sale cannot move stock. Add products to have sales draw down birds or produce.
             </div>
           )}
+          <FieldError id="sale-item-error" message={fieldErrors.item} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount (KSh) *</label>
-            <input className="farm-input" type="number" min="0" step="0.01" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
+            <input className="farm-input" type="number" min="0.01" step="0.01" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.amount)}
+              aria-invalid={!!fieldErrors.amount} aria-describedby={fieldErrors.amount ? 'sale-amount-error' : undefined} />
+            <FieldError id="sale-amount-error" message={fieldErrors.amount} />
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
@@ -314,7 +366,10 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
               className="farm-input" type="number" inputMode="numeric" min="1" step="1"
               placeholder={needsQty ? 'Required' : 'Optional'}
               value={qty} onChange={e => setQty(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.qty)}
+              aria-invalid={!!fieldErrors.qty} aria-describedby={fieldErrors.qty ? 'sale-qty-error' : undefined}
             />
+            <FieldError id="sale-qty-error" message={fieldErrors.qty} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -330,32 +385,25 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
             {/* Capped at today: a future-dated sale drops out of every P&L
                 period while staying in the trial balance, and the two can then
                 never be reconciled. */}
-            <input className="farm-input" type="date" max={todayIso} value={soldAt} onChange={e => setSoldAt(e.target.value)} />
+            <input className="farm-input" type="date" max={todayIso} value={soldAt} onChange={e => setSoldAt(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.soldAt)}
+              aria-invalid={!!fieldErrors.soldAt} aria-describedby={fieldErrors.soldAt ? 'sale-solddate-error' : undefined} />
+            <FieldError id="sale-solddate-error" message={fieldErrors.soldAt} />
           </div>
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Method</label>
           {/* Was free text ("e.g. Mpesa"), which produced Mpesa / M-Pesa /
               mpesa / MPESA as four payment methods in every report that
-              groups by it. No table exists for these, so it is a curated
-              list with a free-text escape — same pattern as
-              lib/record-vocabulary.ts. */}
-          <select
-            className="farm-input"
-            value={methodIsOther ? '__other' : method}
-            onChange={e => {
-              if (e.target.value === '__other') { setMethodIsOther(true); setMethod(''); return; }
-              setMethodIsOther(false);
-              setMethod(e.target.value);
-            }}
-          >
-            <option value="">Not recorded</option>
-            {SALE_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-            <option value="__other">Other…</option>
-          </select>
-          {methodIsOther && (
-            <input className="farm-input" value={method} onChange={e => setMethod(e.target.value)} placeholder="Name the method" style={{ marginTop: 8 }} autoFocus />
-          )}
+              groups by it. Payment method has no backing table, but it IS
+              a value this tenant has already typed consistently in past
+              sales/purchases (see FinanceScreen's paymentMethods) — so this
+              is the same suggest-from-real-data combobox as Supplier/
+              Category/Unit/Item below, not a hardcoded curated list. */}
+          <input className="farm-input" list="sale-payment-methods" placeholder="Not recorded" value={method} onChange={e => setMethod(e.target.value)} />
+          <datalist id="sale-payment-methods">
+            {paymentMethods.map(m => <option key={m} value={m} />)}
+          </datalist>
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
@@ -384,9 +432,19 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
  * Inventory's Purchases tab uses; there is no expense-only concept in the
  * backend separate from a stock purchase). No edit/PATCH UI — GET/POST are
  * the only verbs the route supports. ── */
-function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreated, onClose }: {
+function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, paymentMethods, farms, activeFarmId, onCreated, onClose }: {
   tenantId: string;
   itemNames: string[];
+  // Suggestions only — every one of these is a combobox (input + datalist),
+  // not a hard select, so a new supplier/category/unit/method a farmer
+  // genuinely hasn't used before still gets recorded verbatim. Built from
+  // this tenant's own purchase/inventory history (see FinanceScreen), not
+  // invented — an empty list here degrades to a plain text field for free,
+  // since an empty <datalist> shows no suggestions at all.
+  supplierNames: string[];
+  categories: string[];
+  units: string[];
+  paymentMethods: string[];
   // farm-scoped-data task — see components/farm/inventory.tsx's
   // RecordPurchaseSheet for the identical rationale: a purchase and the lot
   // it creates always land at the same farm, so this can never be optional
@@ -404,34 +462,47 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
   const [unitCost, setUnitCost] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
-  const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
+  // owner-roast finding #10: with a single farm and the shell's filter on
+  // 'ALL', this used to stay '' — a disabled "Select a farm…" placeholder
+  // with nothing else it could sanely be, forcing a selection that has only
+  // one honest answer. Multiple farms still start blank on purpose (see the
+  // inventory sheet's identical comment): guessing which of several farms
+  // this stock landed at would be worse than asking.
+  const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : (farms.length === 1 ? farms[0].id : ''));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // owner-roast finding #10: the banner used to say "Supplier, item, and
+  // unit are required" while silently skipping farm — the checks returned
+  // one at a time instead of being collected together. Per-field, same
+  // mechanism as ui-shared.tsx's fieldErrorStyle/FieldError.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   async function save() {
     const qty = Number(quantity);
     const unitCostCents = parseMoneyToCents(unitCost);
-    if (!supplier.trim() || !itemName.trim() || !unit.trim()) {
-      setError('Supplier, item, and unit are required.');
-      return;
-    }
-    if (!Number.isFinite(qty) || qty <= 0) { setError('Quantity must be a positive number.'); return; }
+    const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
+
+    const errs: Record<string, string> = {};
+    if (!farmId) errs.farmId = 'Select which farm this stock is for';
+    if (!supplier.trim()) errs.supplier = 'Supplier is required';
+    if (!itemName.trim()) errs.itemName = 'Item is required';
+    if (!unit.trim()) errs.unit = 'Unit is required';
+    if (!Number.isFinite(qty) || qty <= 0) errs.quantity = 'Quantity must be a positive number';
     // Same rule as the inventory sheet and the server: an `integer` column
     // cannot hold a fraction, and truncating it silently erased the money.
-    if (!Number.isInteger(qty)) {
-      setError(`Quantity must be a whole number of ${unit.trim() || 'units'}.`);
+    else if (!Number.isInteger(qty)) errs.quantity = `Quantity must be a whole number of ${unit.trim() || 'units'}`;
+    if (unitCostCents === null || unitCostCents < 0) errs.unitCost = 'Cost per unit must be a non-negative number';
+    if (amountPaid && amountPaidCents === null) errs.amountPaid = 'Amount paid must be a number';
+    else if (amountPaidCents !== null && amountPaidCents < 0) errs.amountPaid = 'Amount paid cannot be negative';
+    else if (amountPaidCents !== null && unitCostCents !== null && amountPaidCents > qty * unitCostCents) {
+      errs.amountPaid = 'Amount paid is more than the purchase total';
+    }
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      setError('');
       return;
     }
-    if (unitCostCents === null || unitCostCents < 0) { setError('Cost per unit must be a non-negative number.'); return; }
-    if (!farmId) { setError('Select which farm this stock is for.'); return; }
-
-    const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
-    if (amountPaid && amountPaidCents === null) { setError('Amount paid must be a number.'); return; }
-    if (amountPaidCents !== null && amountPaidCents < 0) { setError('Amount paid cannot be negative.'); return; }
-    if (amountPaidCents !== null && amountPaidCents > qty * unitCostCents) {
-      setError('Amount paid is more than the purchase total.');
-      return;
-    }
+    setFieldErrors({});
 
     setSaving(true);
     setError('');
@@ -469,50 +540,83 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
 
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
-          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
+          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}
+            style={fieldErrorStyle(!!fieldErrors.farmId)}
+            aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'purchase-farm-error' : undefined}>
             <option value="" disabled>Select a farm…</option>
             {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
+          <FieldError id="purchase-farm-error" message={fieldErrors.farmId} />
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
-          <input className="farm-input" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)} />
+          <input className="farm-input" list="finance-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
+            style={fieldErrorStyle(!!fieldErrors.supplier)}
+            aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'purchase-supplier-error' : undefined} />
+          <datalist id="finance-supplier-names">
+            {supplierNames.map(n => <option key={n} value={n} />)}
+          </datalist>
+          <FieldError id="purchase-supplier-error" message={fieldErrors.supplier} />
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
-          <input className="farm-input" list="finance-item-names" placeholder="e.g. dairy meal, maize seed" value={itemName} onChange={e => setItemName(e.target.value)} />
+          <input className="farm-input" list="finance-item-names" placeholder="e.g. dairy meal, maize seed" value={itemName} onChange={e => setItemName(e.target.value)}
+            style={fieldErrorStyle(!!fieldErrors.itemName)}
+            aria-invalid={!!fieldErrors.itemName} aria-describedby={fieldErrors.itemName ? 'purchase-item-error' : undefined} />
           <datalist id="finance-item-names">
             {itemNames.map(n => <option key={n} value={n} />)}
           </datalist>
+          <FieldError id="purchase-item-error" message={fieldErrors.itemName} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
-            <input className="farm-input" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+            <input className="farm-input" list="finance-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+            <datalist id="finance-categories">
+              {categories.map(c => <option key={c} value={c} />)}
+            </datalist>
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
-            <input className="farm-input" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)} />
+            <input className="farm-input" list="finance-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.unit)}
+              aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'purchase-unit-error' : undefined} />
+            <datalist id="finance-units">
+              {units.map(u => <option key={u} value={u} />)}
+            </datalist>
+            <FieldError id="purchase-unit-error" message={fieldErrors.unit} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Quantity *</label>
-            <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)} />
+            <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.quantity)}
+              aria-invalid={!!fieldErrors.quantity} aria-describedby={fieldErrors.quantity ? 'purchase-qty-error' : undefined} />
+            <FieldError id="purchase-qty-error" message={fieldErrors.quantity} />
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Cost/unit (KSh) *</label>
-            <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)} />
+            <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.unitCost)}
+              aria-invalid={!!fieldErrors.unitCost} aria-describedby={fieldErrors.unitCost ? 'purchase-unitcost-error' : undefined} />
+            <FieldError id="purchase-unitcost-error" message={fieldErrors.unitCost} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Payment Method</label>
-            <input className="farm-input" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
+            <input className="farm-input" list="finance-payment-methods" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
+            <datalist id="finance-payment-methods">
+              {paymentMethods.map(m => <option key={m} value={m} />)}
+            </datalist>
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
-            <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} />
+            <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.amountPaid)}
+              aria-invalid={!!fieldErrors.amountPaid} aria-describedby={fieldErrors.amountPaid ? 'purchase-amountpaid-error' : undefined} />
+            <FieldError id="purchase-amountpaid-error" message={fieldErrors.amountPaid} />
           </div>
         </div>
 
@@ -636,7 +740,14 @@ const GL_COLS: ColDef<Record<string, unknown>>[] = [
  * amount entry here, deliberately (see db/schemas/people.ts's comment on
  * why this app has no attendance data to compute anything finer-grained
  * from). A 403 here (a non-owner role) is shown as a plain inline error,
- * same as every other sheet on this screen. ── */
+ * same as every other sheet on this screen.
+ *
+ * owner-roast finding #2: this used to be one click straight from the date
+ * picker to a posted, unreversible ledger entry — no list of who was about
+ * to be paid, no amount total, no confirmation beyond the button itself.
+ * It's now three steps: form -> preview (a real dry-run against the API, so
+ * it can never drift from what the run actually does) -> a typed
+ * confirmation before the real POST fires. ── */
 function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   tenantId: string;
   onCreated: () => void;
@@ -650,10 +761,27 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   const [memo, setMemo] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [preview, setPreview] = useState<PayrollPreview | null>(null);
+  const [confirmText, setConfirmText] = useState('');
   const [result, setResult] = useState<{ run: ApiPayrollRun; payslips: ApiPayslip[] } | null>(null);
 
-  async function run() {
+  const CONFIRM_WORD = 'PAY';
+
+  async function loadPreview() {
     if (!periodStart || !periodEnd) { setError('Select a period start and end date.'); return; }
+    setSaving(true);
+    setError('');
+    const res = await apiClient.post<PayrollPreview>('/api/payroll/runs', {
+      tenantId, periodStart, periodEnd, memo: memo.trim() || undefined, dryRun: true,
+    });
+    setSaving(false);
+    if (!res.success) { setError(res.error || 'Could not preview this payroll run.'); return; }
+    setPreview(res.data);
+    setConfirmText('');
+  }
+
+  async function run() {
+    if (!preview) return;
     setSaving(true);
     setError('');
     const res = await apiClient.post<{ run: ApiPayrollRun; payslips: ApiPayslip[] }>('/api/payroll/runs', {
@@ -690,6 +818,40 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
             </div>
             <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={onClose}>Done</button>
           </div>
+        ) : preview ? (
+          <>
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.08)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.25)', marginBottom: 12, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              This is a preview — nothing has been paid yet. Confirming below posts a Payroll Expense entry to the ledger and cannot be undone from here.
+            </div>
+            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 10, maxHeight: 220, overflowY: 'auto' }}>
+              {preview.employees.map((e, i, arr) => (
+                <div key={e.id} style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>{e.name}</span>
+                  <span style={{ fontWeight: 700 }}>{formatMoney(e.amountCents)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 4px', marginBottom: 14 }}>
+              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} · {fmtDate(preview.periodStart)} – {fmtDate(preview.periodEnd)}</span>
+              <span style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>{formatMoney(preview.totalAmountCents)}</span>
+            </div>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
+              Type {CONFIRM_WORD} to confirm you want to pay {preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} {formatMoney(preview.totalAmountCents)}
+            </label>
+            <input className="farm-input" value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder={CONFIRM_WORD} style={{ marginBottom: 14 }} />
+            {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setPreview(null); setError(''); }}>Back</button>
+              <button
+                className="btn-primary"
+                style={{ flex: 2, justifyContent: 'center' }}
+                disabled={saving || confirmText.trim().toUpperCase() !== CONFIRM_WORD}
+                onClick={run}
+              >
+                {saving ? 'Running…' : `Confirm & pay ${formatMoney(preview.totalAmountCents)}`}
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -707,11 +869,11 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
               <input className="farm-input" placeholder="e.g. August 2026 salaries" value={memo} onChange={e => setMemo(e.target.value)} />
             </div>
             <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-              Every active employee with a monthly salary set is paid their full rate for this period — gross pay only, no tax or statutory deductions. This posts a Payroll Expense entry to the ledger and cannot be undone from here.
+              Every active employee with a monthly salary set is paid their full rate for this period — gross pay only, no tax or statutory deductions. The next step shows exactly who and how much before anything is posted.
             </div>
             {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={run}>
-              {saving ? 'Running…' : 'Run Payroll'}
+            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={loadPreview}>
+              {saving ? 'Loading…' : 'Preview payroll'}
             </button>
           </>
         )}
@@ -868,6 +1030,33 @@ export function FinanceScreen() {
   const itemCategoryById = useMemo(() => new Map(items.map((i) => [i.id, i.category] as const)), [items]);
   const batchLabelById = useMemo(() => new Map((batches ?? []).map((b) => [b.id, b.code] as const)), [batches]);
 
+  // ── Picker suggestions, sourced from this tenant's own data (issue: free-
+  // text fields that should be pickers) ─────────────────────────────────────
+  // Supplier/category/unit come from the real inventory catalogue and this
+  // tenant's own purchase history — not invented — so "Unga Ltd" / "unga
+  // ltd" / "Unga limited" stop being three suppliers. Payment method has no
+  // backing table, but a tenant's own past sales+purchases are real
+  // observations too; PAYMENT_METHOD_SEED only fills in before any exist.
+  const supplierNames = useMemo(
+    () => Array.from(new Set((purchases ?? []).map((p) => p.supplier).filter(Boolean))).sort(),
+    [purchases]
+  );
+  const categoryNames = useMemo(
+    () => Array.from(new Set(items.map((i) => i.category).filter(Boolean))).sort(),
+    [items]
+  );
+  const unitNames = useMemo(
+    () => Array.from(new Set(items.map((i) => i.unit).filter(Boolean))).sort(),
+    [items]
+  );
+  const paymentMethodNames = useMemo(() => {
+    const observed = [
+      ...(purchases ?? []).map((p) => p.paymentMethod),
+      ...(sales ?? []).map((s) => s.method),
+    ].filter(Boolean);
+    return Array.from(new Set([...PAYMENT_METHOD_SEED, ...observed])).sort();
+  }, [purchases, sales]);
+
   const salesRows = useMemo(() => (sales ?? []).map((s) => ({
     id: s.id,
     item: s.item,
@@ -919,6 +1108,16 @@ export function FinanceScreen() {
   const totalRevenue = Number(budgetReport?.meta.periodRevenue ?? 0);
   const totalExpenses = Number(budgetReport?.meta.periodExpense ?? 0);
   const margin = totalRevenue - totalExpenses;
+  // owner-roast finding #3: "recorded nothing yet" and "you are losing
+  // money" used to render as the same three-tile grid — a period with zero
+  // sales AND zero purchases showed "Net KSh 0K" exactly like a period with
+  // real expenses and no revenue showed "Net -KSh 10K", with nothing telling
+  // the two apart except doing the subtraction yourself. `transactionCount`
+  // (lib/reports.ts's computePlReport meta) is the real count of sales +
+  // purchases + payroll rows in the period — 0 means nothing was recorded at
+  // all, not just that revenue happened to net to zero.
+  const periodTransactionCount = Number(budgetReport?.meta.transactionCount ?? 0);
+  const hasFinanceActivity = budgetReport !== null && periodTransactionCount > 0;
   // (`budgetTotal = totalRevenue + totalExpenses` used to sit here, feeding a
   // progress bar and a "Revenue N% / Expenses N%" pair under a heading that
   // says "Budget". There is no budget, target or forecast anywhere in this
@@ -1005,29 +1204,46 @@ export function FinanceScreen() {
                 the bar beneath it read as attainment. */}
             <div className="section-eyebrow" style={{ marginBottom: 10 }}>Money in and out — {periodLabel}</div>
             {budgetError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{budgetError}</div>}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(totalRevenue/1000).toFixed(0)}K</div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Revenue</div>
+            {!budgetError && !hasFinanceActivity ? (
+              // Honest empty state (owner-roast finding #3) — no sales,
+              // purchases or payroll runs at all in this period, distinct
+              // from a real negative net below.
+              <div style={{ textAlign: 'center', padding: '18px 0' }}>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 4 }}>Nothing recorded for {periodLabel} yet</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>Record a sale or a purchase and this will show real revenue, expenses and net.</div>
               </div>
-              <div>
-                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(totalExpenses/1000).toFixed(0)}K</div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Expenses</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: margin > 0 ? 'var(--primary-green)' : 'var(--status-critical)' }}>
-                  {margin > 0 ? '+' : ''}KSh {(margin/1000).toFixed(0)}K
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(totalRevenue/1000).toFixed(0)}K</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Revenue</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(totalExpenses/1000).toFixed(0)}K</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Expenses</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: margin > 0 ? 'var(--primary-green)' : 'var(--status-critical)' }}>
+                      {margin > 0 ? '+' : ''}KSh {(margin/1000).toFixed(0)}K
+                    </div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Net</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Net</div>
-              </div>
-            </div>
-            {/* No bar here on purpose — see the note where budgetTotal used
-                to be computed. This line says what the three figures are and
-                what they are not, which is the same "state your basis" rule
-                the reports and the weather advice already follow. */}
-            <div style={{ marginTop: 12, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.5 }}>
-              Actuals for {periodLabel}, from your recorded sales and purchases. You haven&rsquo;t set a budget to compare them against — this app has nowhere to enter one yet.
-            </div>
+                {margin < 0 && (
+                  <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', lineHeight: 1.5 }}>
+                    You spent more than you took in for {periodLabel}: KSh {(totalExpenses/1000).toFixed(0)}K recorded against KSh {(totalRevenue/1000).toFixed(0)}K in sales.
+                  </div>
+                )}
+                {/* No bar here on purpose — see the note where budgetTotal used
+                    to be computed. This line says what the three figures are and
+                    what they are not, which is the same "state your basis" rule
+                    the reports and the weather advice already follow. */}
+                <div style={{ marginTop: 12, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                  Actuals for {periodLabel}, from your recorded sales and purchases. You haven&rsquo;t set a budget to compare them against — this app has nowhere to enter one yet.
+                </div>
+              </>
+            )}
           </div>
 
           <div className="section-eyebrow" style={{ marginBottom: 10 }}>Batch P&amp;L</div>
@@ -1232,6 +1448,7 @@ export function FinanceScreen() {
         <RecordSaleSheet
           tenantId={tenantId}
           batches={batches ?? []}
+          paymentMethods={paymentMethodNames}
           onCreated={() => { loadSales(); loadGL(); }}
           onClose={() => setShowRecordSale(false)}
         />
@@ -1240,6 +1457,10 @@ export function FinanceScreen() {
         <RecordPurchaseSheet
           tenantId={tenantId}
           itemNames={items.map((i) => i.name)}
+          supplierNames={supplierNames}
+          categories={categoryNames}
+          units={unitNames}
+          paymentMethods={paymentMethodNames}
           farms={farms}
           activeFarmId={activeFarmId}
           onCreated={() => { loadPurchases(); loadGL(); }}

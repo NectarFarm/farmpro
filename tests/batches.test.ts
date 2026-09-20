@@ -239,6 +239,10 @@ run('batches: CRUD + code generation + cost-breakdown (issue #231)', () => {
         patchRequest(`http://localhost/api/batches/${created.id}`, {
           stage: 'Grower',
           currentQty: 790,
+          // A decrease must say what happened now (owner-roast finding #1) —
+          // see PATCH /api/batches/[id]'s qtyChangeReason.
+          qtyChangeReason: 'deaths',
+          reason: 'Mortality count before advancing stage',
         }),
         { params: Promise.resolve({ id: created.id }) }
       )

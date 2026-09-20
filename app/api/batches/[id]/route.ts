@@ -4,7 +4,7 @@ import { batches, productionUnits } from '@/db/schemas'
 import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
-import { applyMovement, BatchLedgerError } from '@/lib/batch-ledger'
+import { applyMovement, BatchLedgerError, mortalityQtyForBatch } from '@/lib/batch-ledger'
 import { checkStage } from '@/lib/stages'
 import { projectBatch } from '@/lib/dimensions'
 import { logger } from '@/lib/logger'
@@ -43,7 +43,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     .from(batches)
     .where(and(eq(batches.id, id), eq(batches.tenantId, tenantId)))
   if (rows.length === 0) return notFound()
-  return ok(rows[0])
+  const mortalityQty = await mortalityQtyForBatch(tenantId, id)
+  return ok({ ...rows[0], mortalityQty })
 }
 
 // PATCH /api/batches/[id] — partial update. Every field is optional; only
@@ -190,12 +191,63 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       // (batch-ledger task). An owner correcting a number is a legitimate
       // thing to do — silently is not, because the next person to ask why the
       // count changed has nothing to read.
+      //
+      // owner-roast finding #1: a DECREASE used to write a bare
+      // 'manual_adjustment' / "Edited by hand" no matter how large, which is
+      // indistinguishable from a real death in the ledger and invisible to
+      // anything that reads mortality from real 'mortality' movements (see
+      // lib/batch-ledger.ts's mortalityQtyForBatches). So a decrease must now
+      // say what it is: real deaths (written as a 'mortality' movement, the
+      // same type a worker's own mortality report writes) or a correction to
+      // a wrong count (still 'manual_adjustment', but with a real reason —
+      // "Edited by hand" is exactly the silence this is fixing). An INCREASE
+      // carries no such risk (nothing died) and keeps the old lenient path.
       if (requestedQty !== null && requestedQty !== current[0].currentQty) {
+        const delta = requestedQty - current[0].currentQty
+
+        if (delta < 0) {
+          const classification = typeof b.qtyChangeReason === 'string' ? b.qtyChangeReason.trim() : ''
+          if (classification !== 'deaths' && classification !== 'correction') {
+            throw new BatchLedgerError(
+              'A drop in head count needs to say what happened: were these deaths, or a correction to a wrong count? '
+              + 'Set qtyChangeReason to "deaths" or "correction".'
+            )
+          }
+          if (classification === 'deaths') {
+            const updated = await applyMovement(tx, {
+              tenantId,
+              batchId: id,
+              type: 'mortality',
+              qtyDelta: delta,
+              reason: typeof b.reason === 'string' && b.reason.trim() ? b.reason.trim() : 'Deaths recorded via manual edit',
+              sourceType: 'user',
+              sourceId: session.id,
+              actor: session.email,
+            })
+            return [updated]
+          }
+          const correctionReason = typeof b.reason === 'string' ? b.reason.trim() : ''
+          if (!correctionReason) {
+            throw new BatchLedgerError('A count correction needs a reason — say what was wrong with the old number.')
+          }
+          const updated = await applyMovement(tx, {
+            tenantId,
+            batchId: id,
+            type: 'manual_adjustment',
+            qtyDelta: delta,
+            reason: correctionReason,
+            sourceType: 'user',
+            sourceId: session.id,
+            actor: session.email,
+          })
+          return [updated]
+        }
+
         const updated = await applyMovement(tx, {
           tenantId,
           batchId: id,
           type: 'manual_adjustment',
-          qtyDelta: requestedQty - current[0].currentQty,
+          qtyDelta: delta,
           reason: typeof b.reason === 'string' && b.reason.trim() ? b.reason.trim() : 'Edited by hand',
           sourceType: 'user',
           sourceId: session.id,
@@ -226,5 +278,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
-  return ok(rows[0])
+  const mortalityQty = await mortalityQtyForBatch(tenantId, rows[0].id)
+  return ok({ ...rows[0], mortalityQty })
 }

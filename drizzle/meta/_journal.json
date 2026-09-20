@@ -288,6 +288,13 @@
       "when": 1789552021981,
       "tag": "0040_analytical_dimensions",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789863842750,
+      "tag": "0041_dimensions_register_fields",
+      "breakpoints": true
     }
   ]
 }

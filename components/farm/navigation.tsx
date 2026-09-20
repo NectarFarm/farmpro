@@ -106,6 +106,16 @@ export interface NavContext {
    * has just finished a step elsewhere (adding a unit, issuing a login), so
    * progress moves without a reload. */
   refreshSetupState: () => void;
+  /* owner-roast finding #5: re-read pendingApprovals/unreadNotifs/openTasksCount.
+   * These used to be fetched once per NavProvider mount (it wraps the whole
+   * app and outlives screen switches) while a screen like Notifications or
+   * Dashboard re-fetches the SAME underlying counts on every one of ITS OWN
+   * mounts — so marking a notification read on one screen left the nav
+   * badge (sidebar/bottom-nav) showing the old, higher number until a farm
+   * switch happened to force a re-fetch. Same fix shape as
+   * refreshSetupState: called by whatever screen just changed one of these
+   * counts, so the badge and the screen agree immediately. */
+  refreshBadges: () => void;
   /* Session user's display name, from GET /api/auth/session. Empty until the
    * shell has it — the sidebar then falls back to the role label rather than
    * inventing a person. */
@@ -131,6 +141,7 @@ const NavCtx = createContext<NavContext>({
   pendingApprovals: 0, unreadNotifs: 0,
   openTasksCount: 0, pendingOnboardingRequests: 0,
   setupState: null, refreshSetupState: () => {},
+  refreshBadges: () => {},
   userName: '',
 });
 
@@ -621,6 +632,10 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId, 
   // route) rather than re-deriving the same DONE_STATUSES filter a second time
   // client-side.
   const [openTasksCount, setOpenTasksCount] = useState(0);
+  // Bumped by refreshBadges() to re-run the effect below — same plain-counter
+  // shape as setupNonce/refreshSetupState just above.
+  const [badgesNonce, setBadgesNonce] = useState(0);
+  const refreshBadges = useCallback(() => { setBadgesNonce((n) => n + 1); }, []);
   useEffect(() => {
     let cancelled = false;
     // Scoped the same way the governance queue is (see its loadApprovals):
@@ -643,8 +658,9 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId, 
     return () => { cancelled = true; };
     // `role` is in here because the approvals badge is scoped by it — an
     // impersonation switch that changed role without refetching would show
-    // the previous role's count.
-  }, [tenantId, activeFarmId, role]);
+    // the previous role's count. `badgesNonce` is here purely so
+    // refreshBadges() can force a re-run without changing any real scope.
+  }, [tenantId, activeFarmId, role, badgesNonce]);
 
   // issue #298: admin-onboarding tab badge — real count of `onboard_requests`
   // rows with status 'pending' (issue #251/#252). GET /api/onboard-requests is
@@ -696,7 +712,7 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId, 
   }, [tenantId, role, setupNonce]);
 
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, isNavigating, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState, userName }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, isNavigating, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState, refreshBadges, userName }}>
       {/* Two pixels saying the tap landed while the next screen renders. */}
       {isNavigating && <div className="nav-progress" role="status" aria-label="Loading screen" />}
       {process.env.NODE_ENV !== 'production' && (

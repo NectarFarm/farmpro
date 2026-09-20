@@ -66,9 +66,17 @@ describe('dead doors stay shut', () => {
     expect(inventory).not.toMatch(/tab === 'feedmix'/)
   })
 
-  it('labour report is marked Not yet on the card', () => {
-    expect(reports).toMatch(/Not yet/)
+  it('labour report is a shut door, not a selectable card that only disappoints after the tap', () => {
+    // owner-roast finding #7: it used to say "Not yet" but stayed clickable
+    // like every real report, so tapping it moved `selected` onto a card
+    // with no export — a dead door disguised as a live one. It is now
+    // genuinely disabled, and the reason renders on the card itself, not
+    // behind a tap.
     expect(reports).toMatch(/Hours per batch — not recorded yet/)
+    expect(reports).toMatch(/const isUnavailable = !REPORT_ENDPOINTS\[r\.id\]/)
+    expect(reports).toMatch(/disabled=\{isUnavailable\}/)
+    expect(reports).toMatch(/onClick=\{\(\) => \{ if \(!isUnavailable\) setSelected\(isSel \? null : r\.id\); \}\}/)
+    expect(reports).toMatch(/Payroll totals already exist in the system \(payslips\)/)
   })
 
   it('product archive uses the in-app confirm, not window.confirm', () => {

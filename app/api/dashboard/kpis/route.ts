@@ -6,6 +6,7 @@ import { syncTaskNotifications, DONE_STATUSES } from '@/app/api/notifications/ro
 import { batchEnterpriseType } from '@/lib/codes'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession } from '@/lib/api-auth'
+import { mortalityQtyForBatches } from '@/lib/batch-ledger'
 
 // ── GET /api/dashboard/kpis (issue #228, revisited #292, #296) ──────────────
 // Built in #228 before `batches` (#231/#232), `sales` (#239) and
@@ -23,14 +24,26 @@ import { requireTenantSession } from '@/lib/api-auth'
 //   - productCount         — tenant's tracked product/price rows
 //   - activeBatches        — count of the tenant's `batches` rows with
 //                            status = 'ACTIVE'.
-//   - mortalityPct         — aggregated across those same active batches:
-//                            (sum(initialQty) - sum(currentQty)) / sum(initialQty),
-//                            i.e. the same per-batch formula
-//                            components/farm/crops.tsx already renders
-//                            (issue #232: `(initialQty - currentQty) / initialQty`),
-//                            applied to the pooled totals rather than averaged
-//                            per-batch percentages. Rounded to 1 decimal place
-//                            to match that screen's `toFixed(1)` display.
+//   - mortalityPct         — owner-roast finding #1: this USED to be
+//                            (sum(initialQty) - sum(currentQty)) / sum(initialQty)
+//                            — a raw headcount deficit that counted a SALE, a
+//                            TRANSFER, or a hand-corrected count exactly like
+//                            a death, and that a later correction back up
+//                            erased from the number with no trace (a batch
+//                            edited -2000 then +2000 read back as 0.0%
+//                            mortality even though the ledger shows 2000
+//                            birds vanishing and reappearing). It is now the
+//                            sum of only the movements actually classified as
+//                            deaths (lib/batch-ledger.ts's
+//                            mortalityQtyForBatches — every 'mortality'
+//                            movement, whether from a worker's report or a
+//                            classified manual edit, see PATCH
+//                            /api/batches/[id]'s qtyChangeReason), as a
+//                            percentage of pooled initialQty across active
+//                            batches. Rounded to 1 decimal place to match
+//                            components/farm/crops.tsx's `toFixed(1)` display,
+//                            which reads the same per-batch figure from each
+//                            batch's own `mortalityQty`.
 //                            `null` (not 0) when there are no active batches or
 //                            every active batch has initialQty 0 — there is no
 //                            honest percentage to report in that case.
@@ -328,14 +341,17 @@ export async function GET(req: Request) {
   const activeBatchRows = batchRows.filter((b) => b.status === 'ACTIVE')
   const activeBatches = activeBatchRows.length
 
-  // Pooled mortality across all active batches — see file header for why this
-  // sums initialQty/currentQty across batches rather than averaging each
-  // batch's own percentage. `null` when there's nothing to divide by (no
-  // active batches, or every active batch has initialQty 0).
+  // Pooled mortality across all active batches — see file header for why
+  // this sums real recorded deaths (batch_movements rows of type
+  // 'mortality'), not a raw initialQty/currentQty deficit, and sums those
+  // deaths across batches rather than averaging each batch's own percentage.
+  // `null` when there's nothing to divide by (no active batches, or every
+  // active batch has initialQty 0).
   const totalInitialQty = activeBatchRows.reduce((s, b) => s + b.initialQty, 0)
-  const totalCurrentQty = activeBatchRows.reduce((s, b) => s + b.currentQty, 0)
+  const mortalityByBatch = await mortalityQtyForBatches(tenantId, activeBatchRows.map((b) => b.id))
+  const totalMortalityQty = [...mortalityByBatch.values()].reduce((s, v) => s + v, 0)
   const mortalityPct = totalInitialQty > 0
-    ? Math.round(((totalInitialQty - totalCurrentQty) / totalInitialQty) * 1000) / 10
+    ? Math.round((totalMortalityQty / totalInitialQty) * 1000) / 10
     : null
 
   // Livestock Units / Crop Batches groups — see file header for why this

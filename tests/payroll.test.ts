@@ -164,6 +164,29 @@ run('payroll v1 (payroll-and-gps task)', () => {
       expect(totalDebit).toBe(3000000 + 2500000)
     })
 
+    // owner-roast finding #2: payroll needs a preview before it commits to
+    // anything. `dryRun` runs the exact same guards/eligibility query the
+    // real POST does and must write nothing at all.
+    it('dryRun previews exactly what a real run would pay, and writes nothing', async () => {
+      mockCookie = ownerSession
+      const { status, payload } = await readJson(
+        await runsPOST(jsonRequest('http://localhost/api/payroll/runs', 'POST', {
+          tenantId, periodStart: '2026-04-01', periodEnd: '2026-04-30', dryRun: true,
+        }))
+      )
+      expect(status).toBe(200)
+      expect(payload.success).toBe(true)
+      expect(payload.data.totalAmountCents).toBe(3000000 + 2500000)
+      expect(payload.data.employeeCount).toBe(2)
+      expect(payload.data.employees.some((e: { id: string }) => e.id === empUnpaidId)).toBe(false)
+      const slipA = payload.data.employees.find((e: { id: string }) => e.id === empAId)
+      expect(slipA.amountCents).toBe(3000000)
+
+      // Nothing was actually posted for this period.
+      const runs = await db.select().from(payrollRuns).where(eq(payrollRuns.tenantId, tenantId))
+      expect(runs.some((r) => r.periodStart.toISOString().slice(0, 10) === '2026-04-01')).toBe(false)
+    })
+
     it('refuses to create a run for the exact same period twice', async () => {
       mockCookie = ownerSession
       const { status, payload } = await readJson(

@@ -744,7 +744,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
 
 /* ── Notifications Screen ── */
 export function NotificationsScreen() {
-  const { navigate, tenantId } = useNav();
+  const { navigate, tenantId, refreshBadges } = useNav();
   const [notifs, setNotifs] = useState<NotificationRow[] | null>(null);
 
   useEffect(() => {
@@ -763,15 +763,23 @@ export function NotificationsScreen() {
   const typeIcon: Record<string, LucideIcon> = { task: ClipboardList, alert: AlertTriangle, approval: CheckCircle2 };
   const typeColor: Record<string, string> = { task: "var(--primary-green)", alert: "var(--status-critical)", approval: "var(--status-warning)" };
 
+  // owner-roast finding #5: the nav badge (sidebar/bottom-nav) fetches
+  // unreadNotifs once per NavProvider mount, not once per screen visit — so
+  // marking something read here used to leave the badge showing the old,
+  // higher count until a farm switch happened to force it to re-fetch.
+  // refreshBadges() (same shape as refreshSetupState) makes it re-read
+  // immediately, so this screen and the badge can never disagree.
   const markRead = useCallback((id: string) => {
     setNotifs(ns => ns ? ns.map(n => n.id === id ? { ...n, read: true } : n) : ns);
     apiClient.patch(`/api/notifications/${id}?tenantId=${tenantId}`, { read: true });
-  }, [tenantId]);
+    refreshBadges();
+  }, [tenantId, refreshBadges]);
 
   function markAllRead() {
     const unreadIds = (notifs ?? []).filter(n => !n.read).map(n => n.id);
     setNotifs(ns => ns ? ns.map(n => ({ ...n, read: true })) : ns);
     unreadIds.forEach(id => apiClient.patch(`/api/notifications/${id}?tenantId=${tenantId}`, { read: true }));
+    refreshBadges();
   }
 
   function handleNotifTap(n: NotificationRow) {
