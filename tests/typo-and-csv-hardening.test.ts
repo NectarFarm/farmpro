@@ -278,6 +278,14 @@ describe('components/farm/settings.tsx — controls that tell the truth', () => 
     expect(source).toMatch(/const ownerOnlyNote = role === 'owner' \|\| role === 'super_admin'/)
     expect(source).toMatch(/disabled=\{!!item\.readOnly\}/)
   })
+
+  it('the account card opens Security & access, not the whole People roster (owner-roast finding #4)', () => {
+    const cardStart = source.indexOf('farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: \'flex\', gap: 12')
+    expect(cardStart).toBeGreaterThan(-1)
+    const card = source.slice(Math.max(0, cardStart - 120), cardStart + 40)
+    expect(card).toMatch(/navigate\('security-settings'\)/)
+    expect(card).not.toMatch(/navigate\('people'\)/)
+  })
 })
 
 describe('components/farm/finance.tsx — nothing recorded is not the same as losing money (owner-roast finding #3)', () => {

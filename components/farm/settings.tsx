@@ -514,7 +514,12 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
          * tier anywhere in the schema (db/schemas/auth.ts's `tenants` is id,
          * name, active, createdAt) — inventing a tier badge is exactly the
          * kind of thing this card was already doing. */}
-        <button onClick={() => navigate('people')} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
+        {/* owner-roast finding #4: this used to open 'people' — the whole
+         * team's roster — which is not "your account" by any reading. It
+         * now opens the same Security & access screen the list row below
+         * links to (sessions, password/PIN, backup) — the actual account
+         * and security surface this card's own heading implies. */}
+        <button onClick={() => navigate('security-settings')} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
           <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(var(--warning-rgb),0.2)', border: '2px solid rgba(var(--warning-rgb),0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--accent-amber)', flexShrink: 0 }}>{initials}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)', color: 'var(--text-primary)' }}>{me?.name || 'Your account'}</div>
