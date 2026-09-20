@@ -5,7 +5,7 @@
 // caller's transaction.
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, sum } from 'drizzle-orm'
 import { db } from '@/db'
 import { batchMovements, batches } from '@/db/schemas'
 
@@ -153,4 +153,42 @@ export async function movementsForBatch(tenantId: string, batchId: string, limit
     .where(and(eq(batchMovements.tenantId, tenantId), eq(batchMovements.batchId, batchId)))
     .orderBy(desc(batchMovements.createdAt), desc(batchMovements.id))
     .limit(limit)
+}
+
+// ── How many, of THIS batch, actually died (owner-roast finding #1) ────────
+// Mortality % used to be `(initialQty - currentQty) / initialQty` — a raw
+// headcount deficit that counted a SALE, a TRANSFER off the batch, or a hand
+// correction exactly like a death, and that a later correction back up could
+// erase from the number entirely with no trace. `qtyDelta` is signed and the
+// `type` column already distinguishes why a count moved (see this file's
+// header) — this sums only the movements actually classified as deaths, so
+// selling half a flock never reads as "50% mortality", and a batch's real
+// death toll survives an unrelated correction to the count.
+//
+// Returns a Map so a caller can `.get(batchId) ?? 0` for every batch it
+// cares about in one query, instead of one query per batch.
+export async function mortalityQtyForBatches(tenantId: string, batchIds: string[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
+  if (batchIds.length === 0) return result
+  const rows = await db
+    .select({ batchId: batchMovements.batchId, total: sum(batchMovements.qtyDelta) })
+    .from(batchMovements)
+    .where(and(
+      eq(batchMovements.tenantId, tenantId),
+      eq(batchMovements.type, 'mortality'),
+      inArray(batchMovements.batchId, batchIds),
+    ))
+    .groupBy(batchMovements.batchId)
+  for (const r of rows) {
+    // qtyDelta is negative for a death; the deaths COUNT is its magnitude.
+    result.set(r.batchId, Math.abs(Number(r.total ?? 0)))
+  }
+  return result
+}
+
+// Convenience single-batch form of the above, for routes that only ever look
+// at one batch at a time (GET/PATCH /api/batches/[id]).
+export async function mortalityQtyForBatch(tenantId: string, batchId: string): Promise<number> {
+  const map = await mortalityQtyForBatches(tenantId, [batchId])
+  return map.get(batchId) ?? 0
 }

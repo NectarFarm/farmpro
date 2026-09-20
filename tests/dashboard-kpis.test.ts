@@ -24,7 +24,7 @@ vi.mock('next/headers', () => ({
 import { GET as kpisGET } from '@/app/api/dashboard/kpis/route'
 import { GET as productionGET } from '@/app/api/charts/production/route'
 import { db } from '@/db'
-import { tenants, users, sessions, products, tasks, notifications, farms, productionUnits, batches, sales, approvalRequests } from '@/db/schemas'
+import { tenants, users, sessions, products, tasks, notifications, farms, productionUnits, batches, sales, approvalRequests, batchMovements } from '@/db/schemas'
 import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
@@ -198,9 +198,11 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
 
       try {
         // Two ACTIVE batches — same mortality formula components/farm/crops.tsx
-        // renders per-batch (issue #232): (initialQty - currentQty) / initialQty.
-        //   Batch 1: 900 -> 872  => 28 lost / 900 initial
-        //   Batch 2: 500 -> 494  =>  6 lost / 500 initial
+        // renders per-batch: sum of real 'mortality' movements / initialQty
+        // (owner-roast finding #1 — a raw initialQty/currentQty deficit used
+        // to double as this and counted sales/corrections as deaths too).
+        //   Batch 1: 900 initial, 28 recorded deaths
+        //   Batch 2: 500 initial,  6 recorded deaths
         // Pooled across both active batches: (28 + 6) / (900 + 500) = 34/1400
         // = 2.428...% -> rounds to 2.4, matching this route's 1-decimal rounding.
         await db.insert(batches).values([
@@ -224,6 +226,22 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
             id: closedBatchId, tenantId, unitId, code: 'BRD-KMU-003', name: 'Broiler Batch 3 (closed)',
             enterprise: 'broiler', status: 'CLOSED', initialQty: 300, currentQty: 100,
             acquisitionCostCents: 200_000, // 2,000 KSh
+          },
+        ])
+
+        // Real 'mortality' movements are what mortalityPct now sums (owner-roast
+        // finding #1) — the closed batch's own deficit (300 -> 100) is
+        // deliberately left with NO movement row, proving it plays no part
+        // (excluded from the pool entirely since it isn't ACTIVE, but also
+        // proving this isn't just re-deriving the qty deficit).
+        await db.insert(batchMovements).values([
+          {
+            id: randomUUID(), tenantId, batchId: activeBatch1Id, type: 'mortality',
+            qtyDelta: -28, qtyAfter: 872, reason: 'Test deaths', actor: 'test',
+          },
+          {
+            id: randomUUID(), tenantId, batchId: activeBatch2Id, type: 'mortality',
+            qtyDelta: -6, qtyAfter: 494, reason: 'Test deaths', actor: 'test',
           },
         ])
 
@@ -267,6 +285,7 @@ run('GET /api/dashboard/kpis + GET /api/charts/production (issue #228)', () => {
         // rounding convention as mortalityPct.
         expect(payload.data.marginPct).toBeCloseTo(70.4, 1)
       } finally {
+        await db.delete(batchMovements).where(inArray(batchMovements.tenantId, [tenantId]))
         await db.delete(sales).where(inArray(sales.tenantId, [tenantId]))
         await db.delete(batches).where(inArray(batches.tenantId, [tenantId]))
         await db.delete(productionUnits).where(inArray(productionUnits.tenantId, [tenantId]))

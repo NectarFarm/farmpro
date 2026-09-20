@@ -61,7 +61,7 @@ import { GET as kpisGET } from '@/app/api/dashboard/kpis/route'
 import { db } from '@/db'
 import {
   tenants, farms, productionUnits, batches, sales, employees, approvalRequests, records,
-  tasks, purchases, inventoryItems, inventoryLots, users, sessions,
+  tasks, purchases, inventoryItems, inventoryLots, users, sessions, batchMovements,
 } from '@/db/schemas'
 import { createSession, hashSecret } from '@/lib/auth'
 
@@ -147,10 +147,16 @@ run('farm-scoped data (farm-scoped-data task)', () => {
       { id: unitYId, tenantId, farmId: farmYId, type: 'house', name: 'Unit Y', code: 'HSE-Y-001', status: 'ACTIVE' },
     ])
     // batchX: 100 -> 80 (20 deaths, 20% mortality). batchY: 50 -> 45 (5
-    // deaths, 10% mortality). Pooled (ALL): (25/150) = 16.7%.
+    // deaths, 10% mortality). Pooled (ALL): (25/150) = 16.7%. mortalityPct
+    // now sums real 'mortality' movements, not the raw qty deficit
+    // (owner-roast finding #1) — so both need an actual movement row.
     await db.insert(batches).values([
       { id: batchXId, tenantId, unitId: unitXId, code: 'BAT-X-001', name: 'Batch X', enterprise: 'broiler', status: 'ACTIVE', initialQty: 100, currentQty: 80 },
       { id: batchYId, tenantId, unitId: unitYId, code: 'BAT-Y-001', name: 'Batch Y', enterprise: 'broiler', status: 'ACTIVE', initialQty: 50, currentQty: 45 },
+    ])
+    await db.insert(batchMovements).values([
+      { id: randomUUID(), tenantId, batchId: batchXId, type: 'mortality', qtyDelta: -20, qtyAfter: 80, reason: 'Test deaths', actor: 'test' },
+      { id: randomUUID(), tenantId, batchId: batchYId, type: 'mortality', qtyDelta: -5, qtyAfter: 45, reason: 'Test deaths', actor: 'test' },
     ])
     await db.insert(sales).values([
       { id: saleXId, tenantId, batchId: batchXId, item: 'Eggs X', amountCents: 100000, status: 'paid' },
@@ -195,6 +201,7 @@ run('farm-scoped data (farm-scoped-data task)', () => {
     await db.delete(tasks).where(inArray(tasks.tenantId, allTenantIds))
     await db.delete(sales).where(inArray(sales.id, [saleXId, saleYId, saleNoBatchId]))
     await db.delete(employees).where(inArray(employees.id, [empXId, empYId, empLegacyId]))
+    await db.delete(batchMovements).where(inArray(batchMovements.batchId, [batchXId, batchYId]))
     await db.delete(batches).where(inArray(batches.id, [batchXId, batchYId]))
     await db.delete(productionUnits).where(inArray(productionUnits.id, [unitXId, unitYId]))
     await db.delete(farms).where(inArray(farms.id, allFarmIds))

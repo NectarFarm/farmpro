@@ -19,7 +19,7 @@ vi.mock('next/headers', () => ({
 }))
 
 import { POST as recordsPOST } from '@/app/api/records/route'
-import { PATCH as batchPATCH } from '@/app/api/batches/[id]/route'
+import { GET as batchGET, PATCH as batchPATCH } from '@/app/api/batches/[id]/route'
 import { GET as movementsGET } from '@/app/api/batches/[id]/movements/route'
 import { POST as salesPOST } from '@/app/api/data/sales/route'
 import { POST as approvePOST } from '@/app/api/approvals/[id]/approve/route'
@@ -277,7 +277,7 @@ run('batch head count is a ledger', () => {
   it('records a hand-edited head count as a movement with a reason', async () => {
     mockCookie = ownerSession
     const res = await readJson(await batchPATCH(
-      jsonRequest(`http://localhost/api/batches/${batchId}`, 'PATCH', { tenantId, currentQty: 460, reason: 'Recount after transfer' }),
+      jsonRequest(`http://localhost/api/batches/${batchId}`, 'PATCH', { tenantId, currentQty: 460, qtyChangeReason: 'correction', reason: 'Recount after transfer' }),
       { params: Promise.resolve({ id: batchId }) }
     ))
     mockCookie = undefined
@@ -289,6 +289,90 @@ run('batch head count is a ledger', () => {
     expect(move.qtyDelta).toBe(-40)
     expect(move.reason).toBe('Recount after transfer')
     expect(move.actor).toBeTruthy()
+  })
+
+  // ── owner-roast finding #1: a hand-edit must say what it is ──────────────
+  // Before this, ANY decrease — however large — saved as a bare
+  // 'manual_adjustment' / "Edited by hand", indistinguishable in the ledger
+  // from a real death, and invisible to anything (dashboard KPI, per-batch
+  // mortality) that reads mortality from real 'mortality' movements.
+  it('refuses a hand-edited decrease with no classification', async () => {
+    mockCookie = ownerSession
+    const res = await readJson(await batchPATCH(
+      jsonRequest(`http://localhost/api/batches/${batchId}`, 'PATCH', { tenantId, currentQty: 460 }),
+      { params: Promise.resolve({ id: batchId }) }
+    ))
+    mockCookie = undefined
+    expect(res.status).toBe(400)
+    expect(String(res.payload.error)).toContain('deaths')
+    expect(await currentQty()).toBe(500)
+    const moves = await db.select().from(batchMovements).where(eq(batchMovements.batchId, batchId))
+    expect(moves.length).toBe(0)
+  })
+
+  it('refuses a "correction" decrease with no reason', async () => {
+    mockCookie = ownerSession
+    const res = await readJson(await batchPATCH(
+      jsonRequest(`http://localhost/api/batches/${batchId}`, 'PATCH', { tenantId, currentQty: 460, qtyChangeReason: 'correction' }),
+      { params: Promise.resolve({ id: batchId }) }
+    ))
+    mockCookie = undefined
+    expect(res.status).toBe(400)
+    expect(await currentQty()).toBe(500)
+  })
+
+  it('a hand-edit classified as deaths writes a real mortality movement, not a manual adjustment', async () => {
+    mockCookie = ownerSession
+    const res = await readJson(await batchPATCH(
+      jsonRequest(`http://localhost/api/batches/${batchId}`, 'PATCH', {
+        tenantId, currentQty: 0, qtyChangeReason: 'deaths', reason: 'Disease outbreak',
+      }),
+      { params: Promise.resolve({ id: batchId }) }
+    ))
+    mockCookie = undefined
+    expect(res.status).toBe(200)
+    expect(await currentQty()).toBe(0)
+
+    const [move] = await db.select().from(batchMovements).where(eq(batchMovements.batchId, batchId))
+    expect(move.type).toBe('mortality')
+    expect(move.qtyDelta).toBe(-500)
+    expect(move.reason).toBe('Disease outbreak')
+  })
+
+  it('a death recorded by hand survives a later correction back up — the KPI cannot be reset to 0%', async () => {
+    // The exact owner-observed sequence: -2000 "Edited by hand" then +2000,
+    // and the Mortality % KPI reading 0.0% throughout as if nothing had
+    // happened. Deaths are now summed from real 'mortality' movements, which
+    // an unrelated correction upward does not erase.
+    mockCookie = ownerSession
+    const down = await readJson(await batchPATCH(
+      jsonRequest(`http://localhost/api/batches/${batchId}`, 'PATCH', {
+        tenantId, currentQty: 0, qtyChangeReason: 'deaths', reason: 'Mass die-off',
+      }),
+      { params: Promise.resolve({ id: batchId }) }
+    ))
+    expect(down.status).toBe(200)
+
+    // Restocked / corrected back up — an increase carries no classification
+    // requirement (nothing died going up).
+    const up = await readJson(await batchPATCH(
+      jsonRequest(`http://localhost/api/batches/${batchId}`, 'PATCH', { tenantId, currentQty: 500 }),
+      { params: Promise.resolve({ id: batchId }) }
+    ))
+    expect(up.status).toBe(200)
+    expect(await currentQty()).toBe(500)
+
+    // Headcount is back to where it started, but the death is still on the
+    // record — GET /api/batches/[id] and GET /api/batches both expose it as
+    // `mortalityQty`, which is what the dashboard and Crops screen now read
+    // instead of the old initialQty/currentQty deficit.
+    const getRes = await readJson(await batchGET(
+      new Request(`http://localhost/api/batches/${batchId}?tenantId=${tenantId}`),
+      { params: Promise.resolve({ id: batchId }) }
+    ))
+    mockCookie = undefined
+    expect(getRes.payload.data.currentQty).toBe(500)
+    expect(getRes.payload.data.mortalityQty).toBe(500)
   })
 
   it('serves the history newest first, and refuses another tenant’s batch', async () => {

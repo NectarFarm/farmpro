@@ -39,6 +39,10 @@ interface ApiBatch {
   status: string;
   initialQty: number;
   currentQty: number;
+  // owner-roast finding #1: real recorded deaths (sum of 'mortality'
+  // batch_movements), not a currentQty/initialQty guess — see
+  // lib/batch-ledger.ts's mortalityQtyForBatches and GET /api/batches.
+  mortalityQty: number;
   acquisitionCostCents: number;
   startDate: string | null;
   endDate: string | null;
@@ -125,6 +129,7 @@ interface ViewBatch {
   unitCode: string;
   qty: number;
   initialQty: number;
+  mortalityQty: number;
   startDate: string;
   endDate?: string;
   harvestDate?: string;
@@ -151,6 +156,7 @@ function toViewBatch(b: ApiBatch, units: ApiUnit[], farms: { id: string; code: s
     unitCode: unit?.code ?? '',
     qty: b.currentQty,
     initialQty: b.initialQty,
+    mortalityQty: b.mortalityQty,
     startDate: fmtDate(b.startDate) ?? '',
     endDate: fmtDate(b.endDate),
     harvestDate: fmtDate(b.harvestDate),
@@ -293,7 +299,9 @@ function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string)
 /* ── Enterprise card (livestock) ── */
 function LivestockBatchCard({ batch, navigate }: { batch: ViewBatch; navigate: (id: 'batch-detail', p: Record<string,string>) => void }) {
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === batch.enterprise);
-  const mort = batch.initialQty > 0 ? (((batch.initialQty - batch.qty) / batch.initialQty) * 100).toFixed(1) : '0.0';
+  // owner-roast finding #1: real recorded deaths / initialQty, not a raw
+  // headcount deficit — see ApiBatch.mortalityQty's header.
+  const mort = batch.initialQty > 0 ? ((batch.mortalityQty / batch.initialQty) * 100).toFixed(1) : '0.0';
   return (
     <button onClick={() => navigate('batch-detail', { id: batch.id, code: batch.code })} className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer', borderLeft: `3px solid ${cfg?.type === 'crop' ? 'rgba(var(--warning-rgb),0.6)' : 'rgba(var(--primary-rgb),0.5)'}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -1042,6 +1050,13 @@ function EditBatchSheet({ batch, tenantId, onClose, onSaved }: {
   const [status, setStatus] = useState(batch.status ?? 'ACTIVE');
   const [currentQty, setCurrentQty] = useState(String(batch.currentQty));
   const [qtyReason, setQtyReason] = useState('');
+  // owner-roast finding #1: a decrease used to save silently as
+  // "Edited by hand" no matter how large, which reads exactly like a
+  // correction whether or not the animals actually died. The API now
+  // requires this classification for any decrease (PATCH
+  // /api/batches/[id]'s qtyChangeReason) — the picker below is what lets a
+  // person actually answer it instead of hitting a 400.
+  const [qtyClassification, setQtyClassification] = useState<'' | 'deaths' | 'correction'>('');
   const [acquisitionCost, setAcquisitionCost] = useState(String(centsToMajor(batch.acquisitionCostCents ?? 0)));
   const [harvestDate, setHarvestDate] = useState(batch.harvestDate ? String(batch.harvestDate).slice(0, 10) : '');
   const [endDate, setEndDate] = useState(batch.endDate ? String(batch.endDate).slice(0, 10) : '');
@@ -1049,17 +1064,23 @@ function EditBatchSheet({ batch, tenantId, onClose, onSaved }: {
   const [error, setError] = useState('');
 
   const qtyChanged = Number(currentQty) !== batch.currentQty;
+  const qtyDecreased = Number(currentQty) < batch.currentQty;
 
   async function save() {
     if (!name.trim()) { setError('A batch needs a name'); return; }
     const qty = Math.trunc(Number(currentQty));
     if (!Number.isFinite(qty) || qty < 0) { setError('Head count must be zero or more'); return; }
+    if (qtyChanged && qty < batch.currentQty) {
+      if (!qtyClassification) { setError('Say whether these animals died, or this is a count correction.'); return; }
+      if (qtyClassification === 'correction' && !qtyReason.trim()) { setError('A count correction needs a reason.'); return; }
+    }
     setSaving(true); setError('');
     const res = await apiClient.patch(`/api/batches/${batch.id}?tenantId=${tenantId}`, {
       name: name.trim(),
       species: species.trim(),
       status,
       currentQty: qty,
+      qtyChangeReason: (qtyChanged && qty < batch.currentQty) ? qtyClassification : undefined,
       reason: qtyReason.trim() || undefined,
       acquisitionCostCents: majorToCents(Number(acquisitionCost) || 0),
       harvestDate,
@@ -1092,13 +1113,49 @@ function EditBatchSheet({ batch, tenantId, onClose, onSaved }: {
 
         <div style={{ padding: 12, borderRadius: 12, border: '1px solid var(--border-subtle)', background: 'var(--card)', marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Head count</label>
-          <input className="farm-input" type="number" value={currentQty} onChange={(e) => setCurrentQty(e.target.value)} />
-          {qtyChanged && (
+          <input className="farm-input" type="number" value={currentQty} onChange={(e) => { setCurrentQty(e.target.value); setQtyClassification(''); }} />
+          {qtyChanged && !qtyDecreased && (
             <>
               <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', margin: '6px 0 6px', lineHeight: 1.5 }}>
-                Changing this by hand is recorded in the batch history with your name against it. If animals died or were sold, record that instead so the reason is kept.
+                Changing this by hand is recorded in the batch history with your name against it.
               </div>
               <input className="farm-input" value={qtyReason} onChange={(e) => setQtyReason(e.target.value)} placeholder="Why is it changing? (optional)" />
+            </>
+          )}
+          {qtyChanged && qtyDecreased && (
+            <>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', margin: '6px 0 6px', lineHeight: 1.5 }}>
+                The count is going down. Say what happened — this is recorded in the batch history with your name against it.
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  className={qtyClassification === 'deaths' ? 'btn-primary' : 'btn-secondary'}
+                  style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-xs)' }}
+                  onClick={() => setQtyClassification('deaths')}
+                >
+                  Animals died
+                </button>
+                <button
+                  type="button"
+                  className={qtyClassification === 'correction' ? 'btn-primary' : 'btn-secondary'}
+                  style={{ flex: 1, justifyContent: 'center', fontSize: 'var(--fs-xs)' }}
+                  onClick={() => setQtyClassification('correction')}
+                >
+                  Count correction
+                </button>
+              </div>
+              <input
+                className="farm-input"
+                value={qtyReason}
+                onChange={(e) => setQtyReason(e.target.value)}
+                placeholder={qtyClassification === 'correction' ? 'What was wrong with the old count? (required)' : 'Cause, if known (optional)'}
+              />
+              {qtyClassification === 'deaths' && (
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
+                  This is recorded as a mortality movement, the same as a worker's own death report — it will count toward Mortality % and stay counted even if the headcount is corrected back up later.
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1371,7 +1428,10 @@ export function BatchDetailScreen() {
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === batch.enterprise);
   const unit = units.find(u => u.id === batch.unitId);
   const farm = unit ? farms.find(f => f.id === unit.farmId) : undefined;
-  const mort = batch.initialQty > 0 ? (((batch.initialQty - batch.currentQty) / batch.initialQty) * 100).toFixed(1) : '0.0';
+  // owner-roast finding #1: real recorded deaths / initialQty, not a raw
+  // headcount deficit that would count a sale, transfer or hand correction
+  // as if it were mortality — see ApiBatch.mortalityQty's header.
+  const mort = batch.initialQty > 0 ? ((batch.mortalityQty / batch.initialQty) * 100).toFixed(1) : '0.0';
   const costKsh = centsToMajor(batch.acquisitionCostCents);
 
   const transferCandidates = units.filter(u => u.id !== batch.unitId && (!unit || u.farmId === unit.farmId));

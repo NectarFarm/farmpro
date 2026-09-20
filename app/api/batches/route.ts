@@ -8,6 +8,7 @@ import { farmNotFoundResponse, resolveFarmFilter, unitIdsForFarm } from '@/lib/f
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { projectBatch } from '@/lib/dimensions'
+import { mortalityQtyForBatches } from '@/lib/batch-ledger'
 import { logger } from '@/lib/logger'
 
 // ── GET/POST /api/batches (issue #231; auth fix: fix/authenticate-all-apis) ─
@@ -76,7 +77,13 @@ export async function GET(req: Request) {
     .where(and(...conditions))
     .orderBy(asc(batches.createdAt), asc(batches.id))
 
-  return ok(rows)
+  // Mortality % (owner-roast finding #1) is real recorded deaths, not a raw
+  // headcount deficit — see lib/batch-ledger.ts's mortalityQtyForBatches
+  // header. One grouped query for the whole page, not one per batch.
+  const mortalityByBatch = await mortalityQtyForBatches(tenantId, rows.map((b) => b.id))
+  const withMortality = rows.map((b) => ({ ...b, mortalityQty: mortalityByBatch.get(b.id) ?? 0 }))
+
+  return ok(withMortality)
 }
 
 // POST /api/batches — create a batch under a production unit.
