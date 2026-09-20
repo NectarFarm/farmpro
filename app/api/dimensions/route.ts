@@ -63,6 +63,13 @@ export async function POST(req: Request) {
   const code = typeof b.code === 'string' ? b.code.trim().toUpperCase() : ''
   const name = typeof b.name === 'string' ? b.name.trim() : ''
   const levelNames = Array.isArray(b.levels) ? b.levels.filter((l): l is string => typeof l === 'string' && l.trim().length > 0).map((l) => l.trim()) : []
+  // Register fields (dimensions-operable task) — all optional at creation,
+  // same "sensible default rather than a blank column" convention as the
+  // 0041 migration's backfill: shortName falls back to code.
+  const shortName = typeof b.shortName === 'string' && b.shortName.trim() ? b.shortName.trim() : code
+  const separator = typeof b.separator === 'string' && b.separator.trim() ? b.separator.trim() : '-'
+  const budgetCheck = b.budgetCheck === true
+  const budgetControl = b.budgetControl === true
 
   const fields: Record<string, string> = {}
   if (!code) fields.code = 'code is required'
@@ -73,7 +80,7 @@ export async function POST(req: Request) {
   const id = randomUUID()
   try {
     await db.transaction(async (tx) => {
-      await tx.insert(dimensions).values({ id, tenantId, code, name, levelCount: levelNames.length, isSystem: false, sortOrder: 100 })
+      await tx.insert(dimensions).values({ id, tenantId, code, name, levelCount: levelNames.length, isSystem: false, sortOrder: 100, shortName, separator, budgetCheck, budgetControl })
       await tx.insert(dimensionLevels).values(levelNames.map((levelName, i) => ({ id: randomUUID(), dimensionId: id, ordinal: i + 1, name: levelName })))
     })
   } catch (err) {
