@@ -146,6 +146,19 @@ export async function POST(req: Request) {
 
   const totalAmountCents = eligible.reduce((sum, e) => sum + e.monthlySalaryCents, 0)
 
+  // ── owner-roast finding #2: payroll used to be one irreversible click —
+  // no preview of who gets paid or how much, no confirmation beyond the
+  // button itself. `dryRun` runs every guard above (period parsing, the
+  // overlap check, the eligibility filter) and stops here, before anything
+  // is written, so the UI's preview is guaranteed to match what a real run
+  // would actually do rather than being a second, driftable calculation.
+  if (b.dryRun === true) {
+    return ok({
+      periodStart, periodEnd, totalAmountCents, employeeCount: eligible.length,
+      employees: eligible.map((e) => ({ id: e.id, name: e.name, amountCents: e.monthlySalaryCents })),
+    })
+  }
+
   // ── One farm's worth of dimension analysis, or none (dimensions-on-gl task)
   // postPayrollJournal posts ONE aggregate entry for the whole run, so it can
   // only carry a Farm dimension when every eligible employee actually shares

@@ -164,6 +164,16 @@ interface ApiPayslip {
   employeeName: string;
   amountCents: number;
 }
+// owner-roast finding #2: POST /api/payroll/runs { dryRun: true } — the
+// exact same eligibility/overlap/total computation the real run uses,
+// stopped before anything is written.
+interface PayrollPreview {
+  periodStart: string;
+  periodEnd: string;
+  totalAmountCents: number;
+  employeeCount: number;
+  employees: { id: string; name: string; amountCents: number }[];
+}
 
 function fmtDate(d?: string | null): string {
   return d ? d.slice(0, 10) : '—';
@@ -636,7 +646,14 @@ const GL_COLS: ColDef<Record<string, unknown>>[] = [
  * amount entry here, deliberately (see db/schemas/people.ts's comment on
  * why this app has no attendance data to compute anything finer-grained
  * from). A 403 here (a non-owner role) is shown as a plain inline error,
- * same as every other sheet on this screen. ── */
+ * same as every other sheet on this screen.
+ *
+ * owner-roast finding #2: this used to be one click straight from the date
+ * picker to a posted, unreversible ledger entry — no list of who was about
+ * to be paid, no amount total, no confirmation beyond the button itself.
+ * It's now three steps: form -> preview (a real dry-run against the API, so
+ * it can never drift from what the run actually does) -> a typed
+ * confirmation before the real POST fires. ── */
 function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   tenantId: string;
   onCreated: () => void;
@@ -650,10 +667,27 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   const [memo, setMemo] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [preview, setPreview] = useState<PayrollPreview | null>(null);
+  const [confirmText, setConfirmText] = useState('');
   const [result, setResult] = useState<{ run: ApiPayrollRun; payslips: ApiPayslip[] } | null>(null);
 
-  async function run() {
+  const CONFIRM_WORD = 'PAY';
+
+  async function loadPreview() {
     if (!periodStart || !periodEnd) { setError('Select a period start and end date.'); return; }
+    setSaving(true);
+    setError('');
+    const res = await apiClient.post<PayrollPreview>('/api/payroll/runs', {
+      tenantId, periodStart, periodEnd, memo: memo.trim() || undefined, dryRun: true,
+    });
+    setSaving(false);
+    if (!res.success) { setError(res.error || 'Could not preview this payroll run.'); return; }
+    setPreview(res.data);
+    setConfirmText('');
+  }
+
+  async function run() {
+    if (!preview) return;
     setSaving(true);
     setError('');
     const res = await apiClient.post<{ run: ApiPayrollRun; payslips: ApiPayslip[] }>('/api/payroll/runs', {
@@ -690,6 +724,40 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
             </div>
             <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={onClose}>Done</button>
           </div>
+        ) : preview ? (
+          <>
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.08)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.25)', marginBottom: 12, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              This is a preview — nothing has been paid yet. Confirming below posts a Payroll Expense entry to the ledger and cannot be undone from here.
+            </div>
+            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 10, maxHeight: 220, overflowY: 'auto' }}>
+              {preview.employees.map((e, i, arr) => (
+                <div key={e.id} style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>{e.name}</span>
+                  <span style={{ fontWeight: 700 }}>{formatMoney(e.amountCents)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 4px', marginBottom: 14 }}>
+              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} · {fmtDate(preview.periodStart)} – {fmtDate(preview.periodEnd)}</span>
+              <span style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>{formatMoney(preview.totalAmountCents)}</span>
+            </div>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
+              Type {CONFIRM_WORD} to confirm you want to pay {preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} {formatMoney(preview.totalAmountCents)}
+            </label>
+            <input className="farm-input" value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder={CONFIRM_WORD} style={{ marginBottom: 14 }} />
+            {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setPreview(null); setError(''); }}>Back</button>
+              <button
+                className="btn-primary"
+                style={{ flex: 2, justifyContent: 'center' }}
+                disabled={saving || confirmText.trim().toUpperCase() !== CONFIRM_WORD}
+                onClick={run}
+              >
+                {saving ? 'Running…' : `Confirm & pay ${formatMoney(preview.totalAmountCents)}`}
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -707,11 +775,11 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
               <input className="farm-input" placeholder="e.g. August 2026 salaries" value={memo} onChange={e => setMemo(e.target.value)} />
             </div>
             <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-              Every active employee with a monthly salary set is paid their full rate for this period — gross pay only, no tax or statutory deductions. This posts a Payroll Expense entry to the ledger and cannot be undone from here.
+              Every active employee with a monthly salary set is paid their full rate for this period — gross pay only, no tax or statutory deductions. The next step shows exactly who and how much before anything is posted.
             </div>
             {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={run}>
-              {saving ? 'Running…' : 'Run Payroll'}
+            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={loadPreview}>
+              {saving ? 'Loading…' : 'Preview payroll'}
             </button>
           </>
         )}
