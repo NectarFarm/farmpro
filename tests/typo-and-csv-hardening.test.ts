@@ -144,8 +144,19 @@ describe('components/farm/finance.tsx — a sale that can actually move stock', 
   })
 
   it('offers payment methods as a list rather than free text', () => {
+    // A hard <select> was the original ask, but a closed dropdown for
+    // payment method has the same failure mode a hard dropdown for supplier
+    // would: a farmer's genuinely new payment method (a new bank, a new
+    // agent till) becomes unrecordable rather than mistyped. The datalist
+    // pattern already used for supplier/category/unit is used here too —
+    // known values suggested from this tenant's own real sales/purchases,
+    // typing a new one still works. Anchored to the actual mechanism (the
+    // <input list=...> + <datalist> pair and the real-data source), not to
+    // string literals that would also match this file's own comments.
+    expect(source).toMatch(/list="finance-payment-methods"/)
+    expect(source).toMatch(/<datalist id="finance-payment-methods">/)
+    expect(source).toMatch(/paymentMethodNames/)
     expect(source).not.toMatch(/placeholder="e\.g\. Mpesa"/)
-    expect(source).toMatch(/SALE_METHODS\.map/)
   })
 
   it('quotes its CSV export', () => {
