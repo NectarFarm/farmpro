@@ -6,7 +6,7 @@ import { apiClient } from '@/lib/request';
 import { Plus, X, Check, Package, Archive, Edit2, PawPrint, Sprout, MapPin, HelpCircle, ClipboardList, Home, ChevronRight, Warehouse } from './icons';
 import { StatusTimeline } from './status-timeline';
 import { parseMoneyToCents, centsToMajor, majorToCents } from '@/lib/money';
-import { useToast, useConfirm } from './ui-shared';
+import { useToast, useConfirm, fieldErrorStyle, FieldError } from './ui-shared';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
 // This screen used to render entirely from the batches mock array exported by
@@ -352,12 +352,22 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // owner-roast finding #9: this used to be one banner — "Farm, type, and
+  // name are required" — even when a farm was already selected. Per-field,
+  // same mechanism as ui-shared.tsx's fieldErrorStyle/FieldError.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   async function save() {
-    if (!farmId || !type.trim() || !name.trim()) {
-      setError('Farm, type, and name are required.');
+    const errs: Record<string, string> = {};
+    if (!farmId) errs.farmId = 'Select a farm';
+    if (!type.trim()) errs.type = 'Unit type is required';
+    if (!name.trim()) errs.name = 'Name is required';
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      setError('');
       return;
     }
+    setFieldErrors({});
     setSaving(true);
     setError('');
     const res = await apiClient.post('/api/units', { tenantId, farmId, type: type.trim(), name: name.trim() });
@@ -380,17 +390,26 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
-          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
+          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}
+            style={fieldErrorStyle(!!fieldErrors.farmId)}
+            aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'add-unit-farm-error' : undefined}>
             {farms.map(f => <option key={f.id} value={f.id}>{f.name} ({f.code})</option>)}
           </select>
+          <FieldError id="add-unit-farm-error" message={fieldErrors.farmId} />
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit Type</label>
-          <input className="farm-input" placeholder="house, pen, paddock, field" value={type} onChange={e => setType(e.target.value)} />
+          <input className="farm-input" placeholder="house, pen, paddock, field" value={type} onChange={e => setType(e.target.value)}
+            style={fieldErrorStyle(!!fieldErrors.type)}
+            aria-invalid={!!fieldErrors.type} aria-describedby={fieldErrors.type ? 'add-unit-type-error' : undefined} />
+          <FieldError id="add-unit-type-error" message={fieldErrors.type} />
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Name</label>
-          <input className="farm-input" placeholder="e.g. Pen 2, House A, North field" value={name} onChange={e => setName(e.target.value)} />
+          <input className="farm-input" placeholder="e.g. Pen 2, House A, North field" value={name} onChange={e => setName(e.target.value)}
+            style={fieldErrorStyle(!!fieldErrors.name)}
+            aria-invalid={!!fieldErrors.name} aria-describedby={fieldErrors.name ? 'add-unit-name-error' : undefined} />
+          <FieldError id="add-unit-name-error" message={fieldErrors.name} />
         </div>
         {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
         <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
@@ -1153,7 +1172,7 @@ function EditBatchSheet({ batch, tenantId, onClose, onSaved }: {
               />
               {qtyClassification === 'deaths' && (
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
-                  This is recorded as a mortality movement, the same as a worker's own death report — it will count toward Mortality % and stay counted even if the headcount is corrected back up later.
+                  This is recorded as a mortality movement, the same as a worker&apos;s own death report — it will count toward Mortality % and stay counted even if the headcount is corrected back up later.
                 </div>
               )}
             </>

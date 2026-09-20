@@ -8,6 +8,7 @@ import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
+import { fieldErrorStyle, FieldError } from './ui-shared';
 
 // ── Real-data wiring (issue #240) ───────────────────────────────────────────
 // This screen used to render entirely from hardcoded mock data (a sales
@@ -226,6 +227,11 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
   const [soldAt, setSoldAt] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // owner-roast finding #11: a 0 amount was already refused on save, but as
+  // a generic banner with no mark on the field itself — the input still
+  // looked exactly as submittable as a valid one. Per-field, same mechanism
+  // as ui-shared.tsx's fieldErrorStyle/FieldError.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     apiClient.get<ApiProductLite[]>('/api/products').then((res) => {
@@ -245,19 +251,25 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
   async function save() {
     const amountCents = parseMoneyToCents(amount);
     const label = productId ? (product?.name ?? '') : item.trim();
-    if (!label) { setError('Choose a product, or name what was sold.'); return; }
-    if (amountCents === null || amountCents <= 0) { setError('Amount must be a positive number.'); return; }
-
     const qtyNum = qty.trim() === '' ? null : Number(qty);
+
+    const errs: Record<string, string> = {};
+    if (!label) errs.item = 'Choose a product, or name what was sold';
+    // Explicit: a 0 (or blank, or negative) amount is rejected here, not
+    // just by the server after a round trip.
+    if (amountCents === null || amountCents <= 0) errs.amount = 'Amount must be a positive number — 0 is not a sale';
     if (qtyNum !== null && (!Number.isFinite(qtyNum) || qtyNum <= 0 || !Number.isInteger(qtyNum))) {
-      setError('Quantity must be a whole number greater than zero.');
+      errs.qty = 'Quantity must be a whole number greater than zero';
+    } else if (needsQty && qtyNum === null) {
+      errs.qty = `${product?.name} comes out of the batch when sold — enter how many`;
+    }
+    if (soldAt && soldAt > todayIso) errs.soldAt = 'A sale cannot be dated in the future';
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      setError('');
       return;
     }
-    if (needsQty && qtyNum === null) {
-      setError(`${product?.name} comes out of the batch when sold — enter how many.`);
-      return;
-    }
-    if (soldAt && soldAt > todayIso) { setError('A sale cannot be dated in the future.'); return; }
+    setFieldErrors({});
 
     setSaving(true);
     setError('');
@@ -303,18 +315,24 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
           {/* The escape hatch, and the only path that leaves stock untouched.
               Kept because an ad-hoc sale — a service, a one-off — is real. */}
           {!productId && (
-            <input className="farm-input" placeholder="e.g. Tray eggs (30) × 120" value={item} onChange={e => setItem(e.target.value)} />
+            <input className="farm-input" placeholder="e.g. Tray eggs (30) × 120" value={item} onChange={e => setItem(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.item)}
+              aria-invalid={!!fieldErrors.item} aria-describedby={fieldErrors.item ? 'sale-item-error' : undefined} />
           )}
           {products !== null && products.length === 0 && (
             <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
               No products in the catalogue yet, so this sale cannot move stock. Add products to have sales draw down birds or produce.
             </div>
           )}
+          <FieldError id="sale-item-error" message={fieldErrors.item} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount (KSh) *</label>
-            <input className="farm-input" type="number" min="0" step="0.01" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
+            <input className="farm-input" type="number" min="0.01" step="0.01" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.amount)}
+              aria-invalid={!!fieldErrors.amount} aria-describedby={fieldErrors.amount ? 'sale-amount-error' : undefined} />
+            <FieldError id="sale-amount-error" message={fieldErrors.amount} />
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
@@ -324,7 +342,10 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
               className="farm-input" type="number" inputMode="numeric" min="1" step="1"
               placeholder={needsQty ? 'Required' : 'Optional'}
               value={qty} onChange={e => setQty(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.qty)}
+              aria-invalid={!!fieldErrors.qty} aria-describedby={fieldErrors.qty ? 'sale-qty-error' : undefined}
             />
+            <FieldError id="sale-qty-error" message={fieldErrors.qty} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -340,7 +361,10 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
             {/* Capped at today: a future-dated sale drops out of every P&L
                 period while staying in the trial balance, and the two can then
                 never be reconciled. */}
-            <input className="farm-input" type="date" max={todayIso} value={soldAt} onChange={e => setSoldAt(e.target.value)} />
+            <input className="farm-input" type="date" max={todayIso} value={soldAt} onChange={e => setSoldAt(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.soldAt)}
+              aria-invalid={!!fieldErrors.soldAt} aria-describedby={fieldErrors.soldAt ? 'sale-solddate-error' : undefined} />
+            <FieldError id="sale-solddate-error" message={fieldErrors.soldAt} />
           </div>
         </div>
         <div style={{ marginBottom: 12 }}>
@@ -414,34 +438,47 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
   const [unitCost, setUnitCost] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
-  const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : '');
+  // owner-roast finding #10: with a single farm and the shell's filter on
+  // 'ALL', this used to stay '' — a disabled "Select a farm…" placeholder
+  // with nothing else it could sanely be, forcing a selection that has only
+  // one honest answer. Multiple farms still start blank on purpose (see the
+  // inventory sheet's identical comment): guessing which of several farms
+  // this stock landed at would be worse than asking.
+  const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : (farms.length === 1 ? farms[0].id : ''));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // owner-roast finding #10: the banner used to say "Supplier, item, and
+  // unit are required" while silently skipping farm — the checks returned
+  // one at a time instead of being collected together. Per-field, same
+  // mechanism as ui-shared.tsx's fieldErrorStyle/FieldError.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   async function save() {
     const qty = Number(quantity);
     const unitCostCents = parseMoneyToCents(unitCost);
-    if (!supplier.trim() || !itemName.trim() || !unit.trim()) {
-      setError('Supplier, item, and unit are required.');
-      return;
-    }
-    if (!Number.isFinite(qty) || qty <= 0) { setError('Quantity must be a positive number.'); return; }
+    const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
+
+    const errs: Record<string, string> = {};
+    if (!farmId) errs.farmId = 'Select which farm this stock is for';
+    if (!supplier.trim()) errs.supplier = 'Supplier is required';
+    if (!itemName.trim()) errs.itemName = 'Item is required';
+    if (!unit.trim()) errs.unit = 'Unit is required';
+    if (!Number.isFinite(qty) || qty <= 0) errs.quantity = 'Quantity must be a positive number';
     // Same rule as the inventory sheet and the server: an `integer` column
     // cannot hold a fraction, and truncating it silently erased the money.
-    if (!Number.isInteger(qty)) {
-      setError(`Quantity must be a whole number of ${unit.trim() || 'units'}.`);
+    else if (!Number.isInteger(qty)) errs.quantity = `Quantity must be a whole number of ${unit.trim() || 'units'}`;
+    if (unitCostCents === null || unitCostCents < 0) errs.unitCost = 'Cost per unit must be a non-negative number';
+    if (amountPaid && amountPaidCents === null) errs.amountPaid = 'Amount paid must be a number';
+    else if (amountPaidCents !== null && amountPaidCents < 0) errs.amountPaid = 'Amount paid cannot be negative';
+    else if (amountPaidCents !== null && unitCostCents !== null && amountPaidCents > qty * unitCostCents) {
+      errs.amountPaid = 'Amount paid is more than the purchase total';
+    }
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      setError('');
       return;
     }
-    if (unitCostCents === null || unitCostCents < 0) { setError('Cost per unit must be a non-negative number.'); return; }
-    if (!farmId) { setError('Select which farm this stock is for.'); return; }
-
-    const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
-    if (amountPaid && amountPaidCents === null) { setError('Amount paid must be a number.'); return; }
-    if (amountPaidCents !== null && amountPaidCents < 0) { setError('Amount paid cannot be negative.'); return; }
-    if (amountPaidCents !== null && amountPaidCents > qty * unitCostCents) {
-      setError('Amount paid is more than the purchase total.');
-      return;
-    }
+    setFieldErrors({});
 
     setSaving(true);
     setError('');
@@ -479,21 +516,30 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
 
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
-          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
+          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}
+            style={fieldErrorStyle(!!fieldErrors.farmId)}
+            aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'purchase-farm-error' : undefined}>
             <option value="" disabled>Select a farm…</option>
             {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
+          <FieldError id="purchase-farm-error" message={fieldErrors.farmId} />
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
-          <input className="farm-input" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)} />
+          <input className="farm-input" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
+            style={fieldErrorStyle(!!fieldErrors.supplier)}
+            aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'purchase-supplier-error' : undefined} />
+          <FieldError id="purchase-supplier-error" message={fieldErrors.supplier} />
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
-          <input className="farm-input" list="finance-item-names" placeholder="e.g. dairy meal, maize seed" value={itemName} onChange={e => setItemName(e.target.value)} />
+          <input className="farm-input" list="finance-item-names" placeholder="e.g. dairy meal, maize seed" value={itemName} onChange={e => setItemName(e.target.value)}
+            style={fieldErrorStyle(!!fieldErrors.itemName)}
+            aria-invalid={!!fieldErrors.itemName} aria-describedby={fieldErrors.itemName ? 'purchase-item-error' : undefined} />
           <datalist id="finance-item-names">
             {itemNames.map(n => <option key={n} value={n} />)}
           </datalist>
+          <FieldError id="purchase-item-error" message={fieldErrors.itemName} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
@@ -502,17 +548,26 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
-            <input className="farm-input" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)} />
+            <input className="farm-input" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.unit)}
+              aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'purchase-unit-error' : undefined} />
+            <FieldError id="purchase-unit-error" message={fieldErrors.unit} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Quantity *</label>
-            <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)} />
+            <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.quantity)}
+              aria-invalid={!!fieldErrors.quantity} aria-describedby={fieldErrors.quantity ? 'purchase-qty-error' : undefined} />
+            <FieldError id="purchase-qty-error" message={fieldErrors.quantity} />
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Cost/unit (KSh) *</label>
-            <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)} />
+            <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.unitCost)}
+              aria-invalid={!!fieldErrors.unitCost} aria-describedby={fieldErrors.unitCost ? 'purchase-unitcost-error' : undefined} />
+            <FieldError id="purchase-unitcost-error" message={fieldErrors.unitCost} />
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -522,7 +577,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
-            <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} />
+            <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.amountPaid)}
+              aria-invalid={!!fieldErrors.amountPaid} aria-describedby={fieldErrors.amountPaid ? 'purchase-amountpaid-error' : undefined} />
+            <FieldError id="purchase-amountpaid-error" message={fieldErrors.amountPaid} />
           </div>
         </div>
 
