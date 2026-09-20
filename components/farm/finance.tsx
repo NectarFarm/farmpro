@@ -104,6 +104,7 @@ interface ApiInventoryItemLite {
   id: string;
   name: string;
   category: string;
+  unit: string;
 }
 interface ApiBatchLite {
   id: string;
@@ -201,7 +202,11 @@ const catChipClass = (cat: string) =>
  * option, because an ad-hoc sale (a service, a one-off) is real and the route
  * still accepts `item` alone.
  */
-const SALE_METHODS = ['M-Pesa', 'Cash', 'Bank transfer', 'Cheque', 'Credit'];
+// Starter suggestions shown before any payment method has actually been
+// recorded for this tenant. Once sales/purchases exist, the datalist below
+// is built from those real values instead (see FinanceScreen's
+// `paymentMethodNames`) — this is only the seed for a brand-new tenant.
+const PAYMENT_METHOD_SEED = ['M-Pesa', 'Cash', 'Bank transfer', 'Cheque', 'Credit'];
 
 interface ApiProductLite {
   id: string;
@@ -209,19 +214,20 @@ interface ApiProductLite {
   stockEffect: string;
 }
 
-function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
+function RecordSaleSheet({ tenantId, batches, paymentMethods, onCreated, onClose }: {
   tenantId: string;
   batches: ApiBatchLite[];
+  paymentMethods: string[];
   onCreated: () => void;
   onClose: () => void;
 }) {
+  const { navigate } = useNav();
   const [products, setProducts] = useState<ApiProductLite[] | null>(null);
   const [productId, setProductId] = useState('');
   const [item, setItem] = useState('');
   const [qty, setQty] = useState('');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('');
-  const [methodIsOther, setMethodIsOther] = useState(false);
   const [status, setStatus] = useState<'paid' | 'pending'>('paid');
   const [batchId, setBatchId] = useState('');
   const [soldAt, setSoldAt] = useState('');
@@ -303,15 +309,33 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
 
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>What was sold *</label>
-          <select
-            className="farm-input"
-            value={productId}
-            onChange={e => { setProductId(e.target.value); if (e.target.value) setItem(''); }}
-            style={{ marginBottom: productId ? 0 : 8 }}
-          >
-            <option value="">{products === null ? 'Loading products…' : 'Not in the catalogue — type it below'}</option>
-            {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          {products !== null && products.length === 0 ? (
+            // ── Honest empty state, not a fake picker ──────────────────────
+            // A dropdown whose only option is "Not in the catalogue" when the
+            // catalogue has zero products isn't a picker at all — it quietly
+            // admits Products setup never happened while still looking like
+            // the feature works. Say that plainly and point at Products,
+            // rather than routing straight to free text as if this were the
+            // normal path.
+            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', borderRadius: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
+                No products set up yet, so sales cannot draw down stock. Set up products first, or record this as a one-off below.
+              </div>
+              <button type="button" className="btn-secondary" style={{ fontSize: 'var(--fs-xs)' }} onClick={() => { onClose(); navigate('crops', { tab: 'products' }); }}>
+                Set up Products
+              </button>
+            </div>
+          ) : (
+            <select
+              className="farm-input"
+              value={productId}
+              onChange={e => { setProductId(e.target.value); if (e.target.value) setItem(''); }}
+              style={{ marginBottom: productId ? 0 : 8 }}
+            >
+              <option value="">{products === null ? 'Loading products…' : 'Not in the catalogue — type it below'}</option>
+              {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
           {/* The escape hatch, and the only path that leaves stock untouched.
               Kept because an ad-hoc sale — a service, a one-off — is real. */}
           {!productId && (
@@ -371,25 +395,15 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Method</label>
           {/* Was free text ("e.g. Mpesa"), which produced Mpesa / M-Pesa /
               mpesa / MPESA as four payment methods in every report that
-              groups by it. No table exists for these, so it is a curated
-              list with a free-text escape — same pattern as
-              lib/record-vocabulary.ts. */}
-          <select
-            className="farm-input"
-            value={methodIsOther ? '__other' : method}
-            onChange={e => {
-              if (e.target.value === '__other') { setMethodIsOther(true); setMethod(''); return; }
-              setMethodIsOther(false);
-              setMethod(e.target.value);
-            }}
-          >
-            <option value="">Not recorded</option>
-            {SALE_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-            <option value="__other">Other…</option>
-          </select>
-          {methodIsOther && (
-            <input className="farm-input" value={method} onChange={e => setMethod(e.target.value)} placeholder="Name the method" style={{ marginTop: 8 }} autoFocus />
-          )}
+              groups by it. Payment method has no backing table, but it IS
+              a value this tenant has already typed consistently in past
+              sales/purchases (see FinanceScreen's paymentMethods) — so this
+              is the same suggest-from-real-data combobox as Supplier/
+              Category/Unit/Item below, not a hardcoded curated list. */}
+          <input className="farm-input" list="sale-payment-methods" placeholder="Not recorded" value={method} onChange={e => setMethod(e.target.value)} />
+          <datalist id="sale-payment-methods">
+            {paymentMethods.map(m => <option key={m} value={m} />)}
+          </datalist>
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
@@ -418,9 +432,19 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onClose }: {
  * Inventory's Purchases tab uses; there is no expense-only concept in the
  * backend separate from a stock purchase). No edit/PATCH UI — GET/POST are
  * the only verbs the route supports. ── */
-function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreated, onClose }: {
+function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, paymentMethods, farms, activeFarmId, onCreated, onClose }: {
   tenantId: string;
   itemNames: string[];
+  // Suggestions only — every one of these is a combobox (input + datalist),
+  // not a hard select, so a new supplier/category/unit/method a farmer
+  // genuinely hasn't used before still gets recorded verbatim. Built from
+  // this tenant's own purchase/inventory history (see FinanceScreen), not
+  // invented — an empty list here degrades to a plain text field for free,
+  // since an empty <datalist> shows no suggestions at all.
+  supplierNames: string[];
+  categories: string[];
+  units: string[];
+  paymentMethods: string[];
   // farm-scoped-data task — see components/farm/inventory.tsx's
   // RecordPurchaseSheet for the identical rationale: a purchase and the lot
   // it creates always land at the same farm, so this can never be optional
@@ -526,9 +550,12 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
-          <input className="farm-input" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
+          <input className="farm-input" list="finance-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
             style={fieldErrorStyle(!!fieldErrors.supplier)}
             aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'purchase-supplier-error' : undefined} />
+          <datalist id="finance-supplier-names">
+            {supplierNames.map(n => <option key={n} value={n} />)}
+          </datalist>
           <FieldError id="purchase-supplier-error" message={fieldErrors.supplier} />
         </div>
         <div style={{ marginBottom: 12 }}>
@@ -544,13 +571,19 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
-            <input className="farm-input" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+            <input className="farm-input" list="finance-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+            <datalist id="finance-categories">
+              {categories.map(c => <option key={c} value={c} />)}
+            </datalist>
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
-            <input className="farm-input" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
+            <input className="farm-input" list="finance-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
               style={fieldErrorStyle(!!fieldErrors.unit)}
               aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'purchase-unit-error' : undefined} />
+            <datalist id="finance-units">
+              {units.map(u => <option key={u} value={u} />)}
+            </datalist>
             <FieldError id="purchase-unit-error" message={fieldErrors.unit} />
           </div>
         </div>
@@ -573,7 +606,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, farms, activeFarmId, onCreat
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Payment Method</label>
-            <input className="farm-input" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
+            <input className="farm-input" list="finance-payment-methods" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
+            <datalist id="finance-payment-methods">
+              {paymentMethods.map(m => <option key={m} value={m} />)}
+            </datalist>
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
@@ -994,6 +1030,33 @@ export function FinanceScreen() {
   const itemCategoryById = useMemo(() => new Map(items.map((i) => [i.id, i.category] as const)), [items]);
   const batchLabelById = useMemo(() => new Map((batches ?? []).map((b) => [b.id, b.code] as const)), [batches]);
 
+  // ── Picker suggestions, sourced from this tenant's own data (issue: free-
+  // text fields that should be pickers) ─────────────────────────────────────
+  // Supplier/category/unit come from the real inventory catalogue and this
+  // tenant's own purchase history — not invented — so "Unga Ltd" / "unga
+  // ltd" / "Unga limited" stop being three suppliers. Payment method has no
+  // backing table, but a tenant's own past sales+purchases are real
+  // observations too; PAYMENT_METHOD_SEED only fills in before any exist.
+  const supplierNames = useMemo(
+    () => Array.from(new Set((purchases ?? []).map((p) => p.supplier).filter(Boolean))).sort(),
+    [purchases]
+  );
+  const categoryNames = useMemo(
+    () => Array.from(new Set(items.map((i) => i.category).filter(Boolean))).sort(),
+    [items]
+  );
+  const unitNames = useMemo(
+    () => Array.from(new Set(items.map((i) => i.unit).filter(Boolean))).sort(),
+    [items]
+  );
+  const paymentMethodNames = useMemo(() => {
+    const observed = [
+      ...(purchases ?? []).map((p) => p.paymentMethod),
+      ...(sales ?? []).map((s) => s.method),
+    ].filter(Boolean);
+    return Array.from(new Set([...PAYMENT_METHOD_SEED, ...observed])).sort();
+  }, [purchases, sales]);
+
   const salesRows = useMemo(() => (sales ?? []).map((s) => ({
     id: s.id,
     item: s.item,
@@ -1385,6 +1448,7 @@ export function FinanceScreen() {
         <RecordSaleSheet
           tenantId={tenantId}
           batches={batches ?? []}
+          paymentMethods={paymentMethodNames}
           onCreated={() => { loadSales(); loadGL(); }}
           onClose={() => setShowRecordSale(false)}
         />
@@ -1393,6 +1457,10 @@ export function FinanceScreen() {
         <RecordPurchaseSheet
           tenantId={tenantId}
           itemNames={items.map((i) => i.name)}
+          supplierNames={supplierNames}
+          categories={categoryNames}
+          units={unitNames}
+          paymentMethods={paymentMethodNames}
           farms={farms}
           activeFarmId={activeFarmId}
           onCreated={() => { loadPurchases(); loadGL(); }}
