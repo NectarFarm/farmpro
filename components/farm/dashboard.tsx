@@ -928,7 +928,16 @@ export function NotificationsScreen() {
     else if (n.sourceType === "alert") navigate("inventory");
     else if (n.sourceType === "support_ticket" || n.sourceType === "support_ticket_staff") {
       const id = ticketIdFromNotificationSource(n.sourceType, n.sourceId);
-      if (id) navigate("support-ticket", { id });
+      if (!id) return;
+      // A staff notification (lib/support/notify.ts's notifyStaffOnTicketEvent,
+      // tenant-scoped to PLATFORM_TENANT_SENTINEL — see that file's header)
+      // is only ever visible to a platform-staff session, and "support-ticket"
+      // is the CUSTOMER's own ticket screen (GET /api/support/tickets/[id]
+      // requires the caller's own tenantId to match the ticket's, which no
+      // staff session's tenantId — always null — ever will). Staff go to the
+      // admin ticket workspace instead, deep-linked straight to this one.
+      if (n.sourceType === "support_ticket_staff") navigate("admin-tickets", { id });
+      else navigate("support-ticket", { id });
     }
   }
 

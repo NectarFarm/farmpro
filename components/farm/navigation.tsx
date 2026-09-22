@@ -91,6 +91,13 @@ export interface NavContext {
   pendingOnboardingRequests: number; // Real count of `onboard_requests` rows with status
                                       // 'pending' (issue #251/#252), super_admin sessions only —
                                       // 0 for every other role (issue #298).
+  pendingTickets: number; // e2e finding: the admin console had no way to see a new/unassigned
+                           // ticket without opening Tickets — Overview's own "operator's inbox"
+                           // (components/admin/overview.tsx) already counts this; the Tickets nav
+                           // row now shows the same number. Real count of open (not resolved/
+                           // closed) `support_tickets` rows with no assignee, from GET
+                           // /api/admin/tickets (support.handle) — super_admin sessions only, 0 for
+                           // every other role, same convention as pendingOnboardingRequests.
   /* ── How far through setup this tenant is (setup-sequence task) ──
    * From GET /api/setup-state: real row counts plus a done/not-done flag per
    * step of lib/onboarding-guide.ts. `null` means "not loaded" — either still
@@ -180,7 +187,7 @@ const NavCtx = createContext<NavContext>({
   tenantId: PROVISIONAL_TENANT_ID,
   navigate: () => {}, goBack: () => {}, isNavigating: false, setActiveFarmId: () => {},
   pendingApprovals: 0, unreadNotifs: 0,
-  openTasksCount: 0, pendingOnboardingRequests: 0,
+  openTasksCount: 0, pendingOnboardingRequests: 0, pendingTickets: 0,
   setupState: null, refreshSetupState: () => {},
   refreshBadges: () => {},
   userName: '',
@@ -768,6 +775,24 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId, 
     return () => { cancelled = true; };
   }, [role]);
 
+  // e2e finding: admin-tickets nav badge — same "open and unassigned" count
+  // components/admin/overview.tsx's inbox already computes from GET
+  // /api/admin/tickets, so the nav row and the inbox tile can never disagree.
+  // support.handle-gated on the server; a super_admin without that capability
+  // just gets a 403 here and the badge silently stays 0, same failure mode
+  // pendingOnboardingRequests already accepts above.
+  const [pendingTickets, setPendingTickets] = useState(0);
+  useEffect(() => {
+    if (role !== 'super_admin') { setPendingTickets(0); return; }
+    let cancelled = false;
+    apiClient.get<{ status: string; assignedTo: string | null }[]>('/api/admin/tickets').then(res => {
+      if (!cancelled && res.success && Array.isArray(res.data)) {
+        setPendingTickets(res.data.filter(t => t.status !== 'resolved' && t.status !== 'closed' && !t.assignedTo).length);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [role]);
+
   // ── Setup progress (setup-sequence task) ──
   // GET /api/setup-state: ten real COUNT(*)s over this tenant's own rows,
   // turned into done/not-done per step of lib/onboarding-guide.ts server-side.
@@ -837,7 +862,7 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId, 
   }, [role, subscriptionNonce]);
 
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, isNavigating, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState, refreshBadges, userName, subscription, refreshSubscription }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, isNavigating, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, pendingTickets, setupState, refreshSetupState, refreshBadges, userName, subscription, refreshSubscription }}>
       {/* Two pixels saying the tap landed while the next screen renders. */}
       {isNavigating && <div className="nav-progress" role="status" aria-label="Loading screen" />}
       {process.env.NODE_ENV !== 'production' && (
@@ -971,7 +996,7 @@ function TabMenuSheet({ menu, onClose }: { menu: { title: string; items: TabMenu
 
 /* ── Bottom Tab Bar ── */
 export function BottomNav() {
-  const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests } = useNav();
+  const { current, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, pendingTickets } = useNav();
   const tabs = getTabsForRole(role);
   // Which tab's contents are open, if any. Local to the bar — a menu is not
   // application state and must not survive a navigation.
@@ -993,7 +1018,7 @@ export function BottomNav() {
           const isActive = tabIsActive(current, tab.id);
           const badge = tab.id === 'settings' && pendingApprovals > 0
             ? pendingApprovals
-            : tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
+            : tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, pendingTickets);
           const isMoreTab = isEnterprise && tab.id === 'settings';
           const hasMenu = isMoreTab ? true : tabMenuFor(tab.id, role) !== null;
           const isOpen = isMoreTab ? moreOpen : (hasMenu && openMenu === tab.id);
@@ -1052,6 +1077,7 @@ function badgeAriaLabel(tabId: ScreenId, count: number): string {
   if (tabId === 'tasks') return `${count} open task${count === 1 ? '' : 's'}`;
   if (tabId === 'dashboard' || tabId === 'notifications') return `${count} unread notification${count === 1 ? '' : 's'}`;
   if (tabId === 'admin-onboarding') return `${count} pending request${count === 1 ? '' : 's'}`;
+  if (tabId === 'admin-tickets') return `${count} unassigned ticket${count === 1 ? '' : 's'}`;
   return `${count}`;
 }
 
@@ -1067,7 +1093,7 @@ function NavBadge({ count, tabId, className = 'nav-badge' }: { count: number; ta
  * are real counts (issue #293 for governance/dashboard, issue #298 for
  * tasks/admin-onboarding) — no hardcoded literals. A tenant/session with 0 of
  * any of these shows no badge, not a fake number. */
-export function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs: number, openTasksCount: number, pendingOnboardingRequests: number): number | null {
+export function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs: number, openTasksCount: number, pendingOnboardingRequests: number, pendingTickets: number): number | null {
   if (tabId === 'governance' && pendingApprovals > 0) return pendingApprovals;
   if (tabId === 'tasks' && openTasksCount > 0) return openTasksCount;
   // Dashboard keeps the unread count for the mobile Home tab (no Inbox tab
@@ -1077,6 +1103,7 @@ export function tabBadge(tabId: ScreenId, pendingApprovals: number, unreadNotifs
   if (tabId === 'dashboard' && unreadNotifs > 0) return unreadNotifs;
   if (tabId === 'notifications' && unreadNotifs > 0) return unreadNotifs;
   if (tabId === 'admin-onboarding' && pendingOnboardingRequests > 0) return pendingOnboardingRequests;
+  if (tabId === 'admin-tickets' && pendingTickets > 0) return pendingTickets;
   return null;
 }
 
@@ -1274,7 +1301,7 @@ const ENTERPRISE_GROUPS: SidebarGroup[] = [
  * destination the mobile Farm/Manage menus name has a row of its own, so
  * nothing is reachable only by noticing a tab inside a screen. */
 export function AppSidebar() {
-  const { current, params, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, activeFarmId, farms, setupState, tenantId, userName } = useNav();
+  const { current, params, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, pendingTickets, activeFarmId, farms, setupState, tenantId, userName } = useNav();
   const tabs = getTabsForRole(role);
   const homeScreen = startScreenForRole(role);
 
@@ -1443,7 +1470,7 @@ export function AppSidebar() {
           // belongs on Notifications, which is the screen it opens.
           const badge = tab.id === 'dashboard'
             ? null
-            : tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
+            : tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, pendingTickets);
           const rowKey = tab.dataTour ?? `${tab.id}:${tab.params?.tab ?? ''}`;
           return (
             <li key={rowKey}>
@@ -1549,7 +1576,7 @@ function SidebarFooter({
  * reference's own SidebarBody has to its mobile Sheet. Closes itself
  * (`onNavigate`) the moment a destination is picked, same as TabMenuSheet. */
 function MobileMoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { current, params, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, farms, setupState } = useNav();
+  const { current, params, navigate, role, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, pendingTickets, farms, setupState } = useNav();
   if (!open) return null;
 
   const tabs = getTabsForRole(role);
@@ -1592,7 +1619,7 @@ function MobileMoreSheet({ open, onClose }: { open: boolean; onClose: () => void
                 {group.items.map((tab) => {
                   const Icon = tab.icon;
                   const active = sidebarRowIsActive(current, params, tab, allItems);
-                  const badge = tab.id === 'dashboard' ? null : tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests);
+                  const badge = tab.id === 'dashboard' ? null : tabBadge(tab.id, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, pendingTickets);
                   const rowKey = tab.dataTour ?? `${tab.id}:${tab.params?.tab ?? ''}`;
                   return (
                     <li key={rowKey}>
