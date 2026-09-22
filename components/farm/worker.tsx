@@ -333,15 +333,23 @@ function guessRecordType(title: string): string | null {
 // a good addition, but not a substitute. Sourced from the same GET /api/tasks
 // (issue #227, extended #243/#244) the Tasks/Governance screens already use;
 // the server-side `due=today` filter is the exact one built for this
-// purpose (see app/api/tasks/route.ts's header comment). There's no
-// `assigneeId` column on `tasks`, so — exactly like components/farm/tasks.tsx
-// — the assignee's name is parsed back out of `notes`'s "Assigned: <name>"
-// prefix via the shared `splitNotes` helper; a task counts as "mine" when
-// that name matches the logged-in worker's own employee name.
-export function selectMyTasksToday(tasks: ApiTask[], workerName: string): ApiTask[] {
+// purpose (see app/api/tasks/route.ts's header comment).
+//
+// e2e finding (P1): `tasks.assigneeId` (migration 0029, db/schemas/
+// dashboard.ts) is a real employees.id column — the "no assigneeId column"
+// comment that used to sit here was stale (the column predates it) and this
+// filter matched ONLY the notes-encoded "Assigned: <name>" text, which the
+// owner's Assign-work sheet doesn't even write to anymore. A task assigned
+// through the real column never matched, so it never reached the worker who
+// was actually assigned it. `assigneeId` now wins whenever a row has one;
+// the notes-name match is kept ONLY as a fallback for rows written before
+// that column existed (never set on any row created since).
+export function selectMyTasksToday(tasks: ApiTask[], employeeId: string, workerName: string): ApiTask[] {
   const name = workerName.trim().toLowerCase();
-  if (!name) return [];
-  return tasks.filter((t) => splitNotes(t.notes).assignee.trim().toLowerCase() === name);
+  return tasks.filter((t) => {
+    if (t.assigneeId) return t.assigneeId === employeeId;
+    return !!name && splitNotes(t.notes).assignee.trim().toLowerCase() === name;
+  });
 }
 
 // ── Worker Home — hero is "your next job" ───────────────────────────────────
@@ -355,9 +363,16 @@ export function selectMyTasksToday(tasks: ApiTask[], workerName: string): ApiTas
 // queue, recent activity, ad-hoc quick-record shortcuts — is secondary and
 // sits below, smaller.
 export function WorkerHomeScreen() {
-  const { navigate } = useNav();
+  const { navigate, role } = useNav();
   const { tenantId, employee, employeeError, batches } = useWorkerContext();
   const { showToast } = useToast();
+  // e2e finding: a tile this role can't file (Health is the one testers hit
+  // most) used to sit here disabled with a reason a worker only saw after
+  // tapping it. If a role has no edit access to a record type, the tile
+  // itself shouldn't exist here — `access` reads 'edit' while the matrix is
+  // still loading, so nothing flickers away on a slow phone once it lands.
+  const { access } = useEffectiveRolePermissions(tenantId, role);
+  const quickRecordTiles = ALL_RECORD_TYPES.filter((tile) => access(RECORD_TYPE_MODULES[tile.type]) === 'edit');
   const [recent, setRecent] = useState<ApiRecord[] | null>(null);
   const [batchLabel, setBatchLabel] = useState<Record<string, string>>({});
   const [tasksToday, setTasksToday] = useState<ApiTask[] | null>(null);
@@ -373,7 +388,7 @@ export function WorkerHomeScreen() {
   const loadTasksToday = useCallback(() => {
     if (!employee) return;
     apiClient.get<ApiTask[]>(`/api/tasks?tenantId=${tenantId}&due=today`).then((res) => {
-      if (res.success) setTasksToday(selectMyTasksToday(res.data, employee.name));
+      if (res.success) setTasksToday(selectMyTasksToday(res.data, employee.id, employee.name));
     });
   }, [employee, tenantId]);
 
@@ -531,10 +546,14 @@ export function WorkerHomeScreen() {
       </div>
 
       {/* Quick record — ad-hoc shortcuts straight into a type; the full
-         grouped browser lives on the Record tab. */}
+         grouped browser lives on the Record tab. Hidden entirely (not just
+         emptied) when this role can't file anything here — a shortcut row
+         with nothing a worker can tap is worse than no row at all. */}
+      {quickRecordTiles.length > 0 && (
+      <>
       <p className="section-eyebrow mb-2">Quick record</p>
       <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-        {ALL_RECORD_TYPES.map((tile) => {
+        {quickRecordTiles.map((tile) => {
           const done = doneTodayTypes.has(tile.type);
           return (
             <button
@@ -555,6 +574,8 @@ export function WorkerHomeScreen() {
           );
         })}
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -599,7 +620,7 @@ export function WorkerRecordScreen() {
   const { params, tenantId, role } = useNav();
   const { showToast } = useToast();
   const ctx = useWorkerContext();
-  const { access } = useEffectiveRolePermissions(tenantId, role);
+  const { ready, access } = useEffectiveRolePermissions(tenantId, role);
   const [activeForm, setActiveForm] = useState<null | string>(() => RECORD_TYPE_TO_FORM[params.type] ?? null);
   // The owner's rounds. Fetched here rather than baked in, because what a
   // round consists of is a property of the farm — see db/schemas/people.ts.
@@ -651,7 +672,7 @@ export function WorkerRecordScreen() {
   if (activeForm === 'weight') return <WeightForm ctx={ctx} onBack={() => setActiveForm(null)} />;
   if (activeForm === 'stock') return <StockCountForm ctx={ctx} onBack={() => setActiveForm(null)} />;
 
-  const GROUPS = [
+  const RAW_GROUPS = [
     {
       label: 'Daily work',
       tiles: [
@@ -670,6 +691,35 @@ export function WorkerRecordScreen() {
       ],
     },
   ];
+
+  // e2e finding: a card this role can't file used to sit here disabled with
+  // a reason (still true for the deep-link safety net above) — the picker
+  // itself now simply doesn't offer it. A tile whose module resolves to
+  // anything but 'edit' is dropped, and a group left with no tiles at all is
+  // dropped with it (an empty "Checks" heading over nothing reads as broken).
+  const tileModule = (type: string) => {
+    const apiType = FORM_KEY_TO_API_TYPE[type];
+    return apiType ? RECORD_TYPE_MODULES[apiType] : undefined;
+  };
+  const GROUPS = RAW_GROUPS
+    .map((g) => ({ ...g, tiles: g.tiles.filter((tile) => { const m = tileModule(tile.type); return !m || access(m) === 'edit'; }) }))
+    .filter((g) => g.tiles.length > 0);
+
+  // Same rule for a farm-defined round: a step whose module this role can't
+  // edit is invisible inside RoutineRunner too (see there), so a round with
+  // NO usable step at all shouldn't be offered here either.
+  const usableRoutines = (routines ?? []).filter((r) => r.steps.some((s) => access(RECORD_TYPE_MODULES[s.kind] ?? '') === 'edit'));
+
+  if (ready && routines !== null && GROUPS.length === 0 && usableRoutines.length === 0) {
+    return (
+      <div className="screen-content px-screen pt-4 pb-8">
+        <div className="mb-5">
+          <h1 className="font-display text-2xl font-medium text-fg">Record</h1>
+        </div>
+        <EmptyState icon={<ClipboardList size={20} aria-hidden="true" />} title="Nothing to record yet" body="Your role can't record anything yet — ask the owner." />
+      </div>
+    );
+  }
 
   return (
     <div className="screen-content px-screen pt-4 pb-8">
@@ -704,13 +754,19 @@ export function WorkerRecordScreen() {
       ))}
 
       {/* The owner's rounds, each as its own tile. Nothing is shown when none
-         are set up — an empty "Rounds" heading over nothing would read as
-         something failing to load. */}
-      {routines !== null && routines.length > 0 && (
+         are set up, or none has a step this role can actually file — an
+         empty "Rounds" heading over nothing would read as something failing
+         to load. The step count only counts steps this role can file, same
+         reasoning as dropping an all-hidden GROUPS bucket above: a round
+         that shows "4 steps" but opens with one is a worse surprise than a
+         lower number that turns out to be true. */}
+      {usableRoutines.length > 0 && (
         <div className="mb-5">
           <p className="section-eyebrow mb-2">Rounds</p>
           <div className="flex flex-col gap-2">
-            {routines.map((routine) => (
+            {usableRoutines.map((routine) => {
+              const visibleStepCount = routine.steps.filter((s) => access(RECORD_TYPE_MODULES[s.kind] ?? '') === 'edit').length;
+              return (
               <button
                 key={routine.id}
                 type="button"
@@ -723,13 +779,14 @@ export function WorkerRecordScreen() {
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-semibold text-fg">{routine.name}</p>
                   <p className="text-xs text-muted">
-                    {routine.steps.length} step{routine.steps.length === 1 ? '' : 's'}
+                    {visibleStepCount} step{visibleStepCount === 1 ? '' : 's'}
                     {routine.timeOfDay !== 'any' ? ` · ${routine.timeOfDay}` : ''}
                   </p>
                 </div>
                 <ChevronRight size={16} className="shrink-0 text-subtle" aria-hidden="true" />
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1129,6 +1186,15 @@ const STEP_RECORD_TYPE: Record<string, string> = {
 
 function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Routine; onBack: () => void }) {
   const { showToast } = useToast();
+  const { role } = useNav();
+  const { access } = useEffectiveRolePermissions(ctx.tenantId, role);
+  // Same rule as the picker's GROUPS/Rounds list (WorkerRecordScreen): a step
+  // whose module this role can't edit is dropped, not shown disabled — the
+  // list above only offers a round that has at least one, so this is mostly
+  // defensive (the matrix can change between opening the list and opening a
+  // round already in hand), but it must never let a step through the server
+  // will refuse anyway.
+  const visibleSteps = routine.steps.filter((s) => access(RECORD_TYPE_MODULES[s.kind] ?? '') === 'edit');
   const [batchId, setBatchId] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, Record<string, string>>>({});
   const [skipped, setSkipped] = useState<Record<string, boolean>>({});
@@ -1144,8 +1210,8 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
     apiClient.get<AvailableItem[]>(`/api/inventory/available?tenantId=${ctx.tenantId}&batchId=${batchId}`).then((res) => {
       setStock(res.success ? res.data : []);
     });
-    apiClient.get<{ productId: string; name: string }[]>(`/api/batches/${batchId}/products?tenantId=${ctx.tenantId}`).then((res) => {
-      if (res.success) setProductList(res.data.map((p) => ({ id: p.productId, name: p.name })));
+    apiClient.get<{ id: string; name: string }[]>(`/api/batches/${batchId}/products?tenantId=${ctx.tenantId}`).then((res) => {
+      if (res.success) setProductList(res.data.map((p) => ({ id: p.id, name: p.name })));
     });
   }, [batchId, ctx.tenantId]);
 
@@ -1188,7 +1254,7 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
     }
   }
 
-  const missingRequired = routine.steps.filter((s) => s.required && !skipped[s.id] && !isAnswered(s));
+  const missingRequired = visibleSteps.filter((s) => s.required && !skipped[s.id] && !isAnswered(s));
 
   async function submit() {
     if (!ctx.employee || !batchId) return;
@@ -1197,7 +1263,7 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
     const completed: Record<string, unknown> = {};
     const failures: string[] = [];
 
-    for (const step of routine.steps) {
+    for (const step of visibleSteps) {
       if (skipped[step.id] || !isAnswered(step)) continue;
       const data = payloadFor(step);
       if (!data) continue;
@@ -1215,7 +1281,7 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
     const runRes = await apiClient.post('/api/routine-runs', {
       tenantId: ctx.tenantId, routineId: routine.id, batchId, employeeId: ctx.employee.id,
       completedSteps: completed,
-      skippedCount: routine.steps.filter((s) => skipped[s.id] || !isAnswered(s)).length,
+      skippedCount: visibleSteps.filter((s) => skipped[s.id] || !isAnswered(s)).length,
     });
     setSubmitting(false);
 
@@ -1244,13 +1310,15 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
               <button type="button" onClick={() => setBatchId(null)} className="ml-2 text-xs font-bold text-primary">change</button>
             </p>
 
-            {routine.steps.length === 0 && (
+            {visibleSteps.length === 0 && (
               <div className="rounded-xl bg-warning-soft px-4 py-3.5 text-sm leading-relaxed text-muted">
-                Nobody has said what this round involves yet. Ask your manager to add the steps.
+                {routine.steps.length === 0
+                  ? 'Nobody has said what this round involves yet. Ask your manager to add the steps.'
+                  : "Your role can't record any of this round's steps — ask the owner."}
               </div>
             )}
 
-            {routine.steps.map((step, i) => {
+            {visibleSteps.map((step, i) => {
               const done = isAnswered(step);
               const isSkipped = !!skipped[step.id];
               return (
@@ -1364,7 +1432,7 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
 
             <div className="flex gap-2">
               <Button variant="secondary" size="lg" className="h-14 flex-1" onClick={onBack}>Cancel</Button>
-              <Button size="lg" className="h-14 flex-[2]" disabled={submitting || missingRequired.length > 0 || routine.steps.length === 0} onClick={submit}>
+              <Button size="lg" className="h-14 flex-[2]" disabled={submitting || missingRequired.length > 0 || visibleSteps.length === 0} onClick={submit}>
                 <Check size={14} /> {submitting ? 'Saving…' : `Finish ${routine.name}`}
               </Button>
             </div>
@@ -1439,8 +1507,8 @@ function CollectProductsForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => vo
   useEffect(() => {
     if (!batchId) return;
     setProductList(null);
-    apiClient.get<{ productId: string; name: string }[]>(`/api/batches/${batchId}/products?tenantId=${ctx.tenantId}`).then((res) => {
-      if (res.success) setProductList(res.data.map((p) => ({ id: p.productId, name: p.name })));
+    apiClient.get<{ id: string; name: string }[]>(`/api/batches/${batchId}/products?tenantId=${ctx.tenantId}`).then((res) => {
+      if (res.success) setProductList(res.data.map((p) => ({ id: p.id, name: p.name })));
       else setProductList([]);
     });
   }, [batchId, ctx.tenantId]);
