@@ -23,6 +23,7 @@ import { apiClient } from '@/lib/request';
 import { detectGpsLocation } from '@/lib/geolocation';
 import { gpsRequirementError, GPS_REQUIRED_MESSAGE } from '@/lib/validation';
 import { useConfirm } from './ui-shared';
+import { Button } from '@/components/ui-kit/button';
 
 /* ── Shared GPS + Map block ──────────────────────────────────────────────── */
 export function GpsMapBlock({
@@ -218,7 +219,7 @@ export function AuthMasthead({ eyebrow, headline, lede }: { eyebrow: string; hea
           </span>
           <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 750, color: 'var(--text-primary)' }}>{eyebrow}</span>
         </div>
-        <h1>{headline}</h1>
+        <h1 className="font-display">{headline}</h1>
         {lede ? <p className="auth-lede">{lede}</p> : null}
       </div>
     </div>
@@ -464,9 +465,9 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
             </div>
           )}
           {error && !lock.locked && <div className="auth-error">{error}</div>}
-          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy || lock.locked}>
+          <Button type="submit" className="w-full justify-center" disabled={busy || lock.locked}>
             {busy ? 'Signing in…' : lock.locked ? `Wait ${formatLockRemain(lock.remain)}` : 'Sign in'}
-          </button>
+          </Button>
         </form>
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); handlePinLogin(); }}>
@@ -511,9 +512,9 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
             ))}
             <div className="auth-pin-key is-blank" aria-hidden="true" />
           </div>
-          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} disabled={busy || lock.locked}>
+          <Button type="submit" className="mt-4 w-full justify-center" disabled={busy || lock.locked}>
             {busy ? 'Signing in…' : lock.locked ? `Wait ${formatLockRemain(lock.remain)}` : 'Sign in'}
-          </button>
+          </Button>
         </form>
       )}
 

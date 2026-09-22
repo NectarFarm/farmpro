@@ -3,6 +3,7 @@ import React from 'react';
 import { Check, ArrowRight, ClipboardList, CheckCircle2 } from './icons';
 import { useNav, type ScreenId } from './navigation';
 import type { SetupState, SetupStepState } from '@/lib/setup-state';
+import { Button } from '@/components/ui-kit/button';
 
 /* ── Setup progress UI ──────────────────────────────────────────────────────
  * The owner's complaint, verbatim: "that navigation does not show the
@@ -126,7 +127,7 @@ export function SetupStrip({ state, onNavigate }: {
         <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>
           Next
         </div>
-        <div style={{ fontSize: 'var(--fs-base)', fontWeight: 750, color: 'var(--text-primary)', marginTop: 3, lineHeight: 1.35 }}>
+        <div className="font-display" style={{ fontSize: 'var(--fs-lg)', fontWeight: 600, color: 'var(--text-primary)', marginTop: 3, lineHeight: 1.3 }}>
           {next.title}
         </div>
         {/* The real state of that step from the server — "No production units
@@ -137,29 +138,13 @@ export function SetupStrip({ state, onNavigate }: {
 
         <div style={{ display: 'flex', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
           {next.goTo && (
-            <button
-              type="button"
-              onClick={() => onNavigate(next.goTo!.screen as ScreenId, next.goTo!.params)}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 11,
-                background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.35)',
-                color: 'var(--primary-green)', fontWeight: 750, fontSize: 'var(--fs-sm)', cursor: 'pointer',
-              }}
-            >
+            <Button size="sm" onClick={() => onNavigate(next.goTo!.screen as ScreenId, next.goTo!.params)}>
               Do this now <ArrowRight size={13} aria-hidden="true" />
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
-            onClick={() => onNavigate('getting-started')}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 11,
-              background: 'transparent', border: '1px solid var(--border-subtle)',
-              color: 'var(--text-muted)', fontWeight: 650, fontSize: 'var(--fs-sm)', cursor: 'pointer',
-            }}
-          >
+          <Button size="sm" variant="outline" onClick={() => onNavigate('getting-started')}>
             <ClipboardList size={13} aria-hidden="true" /> All {state.total} steps
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -284,7 +269,7 @@ export function SetupChecklist({ state, onNavigate }: {
         <div className="farm-card" style={{ padding: 14, marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center', border: '1px solid rgba(var(--primary-rgb),0.28)' }}>
           <ProgressRing completed={state.completed} total={state.total} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 750, color: 'var(--text-primary)' }}>
+            <div className="font-display" style={{ fontSize: 'var(--fs-xl)', fontWeight: 600, color: 'var(--text-primary)' }}>
               {state.completed} of {state.total} done
             </div>
             <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>

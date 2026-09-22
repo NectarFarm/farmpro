@@ -49,7 +49,7 @@
 // ============================================================
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
-import { useNav, TopNav } from "./navigation";
+import { useNav, TopNav, ticketIdFromNotificationSource } from "./navigation";
 // NOTE: no import from ./data — this screen renders real API data only.
 // See the header note above for where per-group batch breakdowns come from.
 import {
@@ -257,13 +257,13 @@ function NavTile({ icon: Icon, label, tour, tint, onClick }: { icon: LucideIcon;
 // degradation: renders nothing while loading/unset, and a plain "set a
 // location" nudge rather than a fake forecast when the farm has no GPS pin —
 // never invents a temperature.
-function WeatherTeaser({ data, onClick }: { data: WeatherData | null; onClick: () => void }) {
+function WeatherTeaser({ data, onClick, bare }: { data: WeatherData | null; onClick: () => void; bare?: boolean }) {
   if (!data) return null;
   return (
     <button
       onClick={onClick}
-      className="farm-card"
-      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px", textAlign: "left", cursor: "pointer", marginBottom: 18 }}
+      className={bare ? undefined : "farm-card"}
+      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: bare ? 0 : "12px 14px", textAlign: "left", cursor: "pointer", marginBottom: bare ? 0 : 18, background: bare ? "transparent" : undefined, border: "none" }}
     >
       <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
         <span style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(var(--primary-rgb),0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "var(--primary-green)" }}>
@@ -355,12 +355,68 @@ function AlertIcon({ icon: Icon, count, label, tone, onClick }: {
  * for an id (see readRect there), and on mobile the 'nav-weather' and
  * 'nav-people' steps previously had no visible target at all, so the guided
  * tour silently skipped them. Now they land on these tiles. */
+// The redesign's hero: "what needs me today", not the revenue figure — an
+// owner or manager opens the app to find out what needs a decision, not to
+// re-read a number that hasn't moved since last night. Pulls only real,
+// already-loaded counts (overdue tasks, pending approvals, low/expiring
+// stock lines) plus the weather teaser; a pillar with nothing to say is
+// simply omitted rather than shown at zero, and the whole card steps back to
+// a calm "nothing needs you" state when every count is zero/null.
+function NeedsTodayHero({
+  overdueCount, approvalsCount, lowStockCount, weather, navigate,
+}: {
+  overdueCount: number; approvalsCount: number; lowStockCount: number | null;
+  weather: WeatherData | null; navigate: (screen: any) => void;
+}) {
+  const pillars: { count: number; label: string; screen: string; tone: string }[] = [
+    ...(overdueCount > 0 ? [{ count: overdueCount, label: overdueCount === 1 ? "overdue task" : "overdue tasks", screen: "tasks", tone: "var(--status-critical)" }] : []),
+    ...(approvalsCount > 0 ? [{ count: approvalsCount, label: approvalsCount === 1 ? "approval waiting" : "approvals waiting", screen: "governance", tone: "var(--status-warning)" }] : []),
+    ...((lowStockCount ?? 0) > 0 ? [{ count: lowStockCount as number, label: (lowStockCount as number) === 1 ? "stock line low" : "stock lines low", screen: "inventory", tone: "var(--status-warning)" }] : []),
+  ];
+  const total = pillars.reduce((sum, p) => sum + p.count, 0);
+
+  return (
+    <div className="farm-card enter-rise" style={{ padding: 16, marginBottom: 12 }}>
+      {pillars.length === 0 ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <CheckCircle2 size={20} color="var(--primary-green)" aria-hidden="true" style={{ flexShrink: 0 }} />
+          <div>
+            <div className="font-display" style={{ fontSize: 'var(--fs-xl)', fontWeight: 600, color: "var(--text-primary)" }}>Nothing needs you right now</div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: "var(--text-muted)", marginTop: 2 }}>No overdue work, approvals or low stock.</div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span className="font-display" style={{ fontSize: 36, fontWeight: 600, lineHeight: 1, color: "var(--status-warning)" }}>{total}</span>
+            <span style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)" }}>need{total === 1 ? "s" : ""} you today</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+            {pillars.map(p => (
+              <button
+                key={p.label}
+                onClick={() => navigate(p.screen)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 100, background: "rgba(var(--warning-rgb),0.1)", border: `1px solid ${p.tone}40`, color: p.tone, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: "pointer" }}
+              >
+                {p.count} {p.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border-subtle)" }}>
+        <WeatherTeaser data={weather} onClick={() => navigate("weather")} bare />
+      </div>
+    </div>
+  );
+}
+
 function OperationalDashboard({
   role, userName, farmName, farmMeta, kpis, kpisFailed, tasksToday, notifs, period, setPeriod, navigate, settings,
-  onSwitchFarm, canSwitchFarm, setupState, weather,
+  onSwitchFarm, canSwitchFarm, setupState, weather, lowStockCount,
 }: {
   role: DashboardRole; userName?: string; farmName: string; farmMeta: string; kpis: KpiData | null;
-  weather: WeatherData | null;
+  weather: WeatherData | null; lowStockCount: number | null;
   // Was set by the fetch and rendered nowhere — so a failed KPI load left
   // every figure showing "—", which reads as "your farm has no data" rather
   // than "we could not load it". Same honesty rule the rest of this app
@@ -476,11 +532,21 @@ function OperationalDashboard({
           request never pushes the revenue figure down for an apology. */}
       <SetupStrip state={setupState} onNavigate={navigate} />
 
-      {/* Hero: the one figure this role opens the app for. An owner reads
-          money; a manager reads whether today's work is on track.
-          `enter-rise` is the app's one orchestrated first-paint moment (see
-          app/global.css) — this card and the destination grid below rise in
-          together on mount; nothing else in the app animates on load. */}
+      {/* The hero: what needs a decision today, not a figure that hasn't
+          moved since last night. Revenue/today's-work-completed moves to a
+          secondary card below the stat tiles — still real, still one tap
+          from the ledger, just no longer the first thing the eye lands on. */}
+      <NeedsTodayHero
+        overdueCount={kpis?.overdueTasksCount ?? 0}
+        approvalsCount={kpis?.pendingApprovals ?? 0}
+        lowStockCount={lowStockCount}
+        weather={weather}
+        navigate={navigate}
+      />
+
+      {/* Secondary: an owner reads money; a manager reads whether today's
+          work is on track. `enter-rise` is the app's one orchestrated
+          first-paint moment (see app/global.css). */}
       <div className="farm-card enter-rise" style={{ padding: 16, marginBottom: 12 }}>
         {isManager ? (
           <>
@@ -536,8 +602,6 @@ function OperationalDashboard({
         )}
       </div>
 
-      <WeatherTeaser data={weather} onClick={() => navigate("weather")} />
-
       {/* Three figures, each a link. Deliberately three: four fits at 360px
           but leaves no room for a label longer than one word. */}
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
@@ -547,18 +611,6 @@ function OperationalDashboard({
           ? <StatTile value={kpis?.cropBatchGroupsCount ?? "—"} label="Crops" onClick={() => navigate("crops")} />
           : <StatTile value={kpis?.pendingApprovals ?? "—"} label="Approvals" onClick={() => navigate("governance")} />}
       </div>
-
-      {/* Everything else, one tap away. */}
-      <section style={{ marginBottom: 18 }}>
-        <div className="section-eyebrow" style={{ marginBottom: 8 }}>Go to</div>
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${tileColumns}, 1fr)`, gap: 8 }}>
-          {destinations.map((d, i) => (
-            <div key={d.id} className="enter-rise" style={{ "--stagger": `${40 + i * 25}ms` } as React.CSSProperties}>
-              <NavTile icon={d.icon} label={d.label} tour={d.tour} tint={d.tint} onClick={() => navigate(d.id)} />
-            </div>
-          ))}
-        </div>
-      </section>
 
       {/* Today's work — capped, with the full list one tap away. */}
       <section style={{ paddingBottom: 28 }}>
@@ -599,6 +651,19 @@ function OperationalDashboard({
             </div>
           </div>
         )}
+      </section>
+
+      {/* Everything else, one tap away — demoted below the fold now that
+          "what needs you" owns the top of the screen. */}
+      <section style={{ paddingBottom: 28 }}>
+        <div className="section-eyebrow" style={{ marginBottom: 8 }}>Go to</div>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${tileColumns}, 1fr)`, gap: 8 }}>
+          {destinations.map((d, i) => (
+            <div key={d.id} className="enter-rise" style={{ "--stagger": `${40 + i * 25}ms` } as React.CSSProperties}>
+              <NavTile icon={d.icon} label={d.label} tour={d.tour} tint={d.tint} onClick={() => navigate(d.id)} />
+            </div>
+          ))}
+        </div>
       </section>
     </div>
   );
@@ -703,6 +768,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
   // an unfetched/failed load never regresses to blank UI.
   const [settings, setSettings] = useState<DashboardSettings | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [lowStockCount, setLowStockCount] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -747,6 +813,13 @@ export function DashboardScreen({ userName }: { userName?: string }) {
     // Notifications stay tenant-wide — no farm relationship exists.
     apiClient.get<NotificationRow[]>(`/api/notifications?tenantId=${tenantId}`).then(res => {
       if (!cancelled && res.success) setNotifs(res.data);
+    });
+    // Low/expiring stock lines for the "needs you today" hero — the same
+    // status GET /api/inventory/items already computes server-side for
+    // inventory.tsx's own low-stock chip (lib/inventory.ts's
+    // computeItemStatus), read here additively rather than recomputed.
+    apiClient.get<{ status: string }[]>(`/api/inventory/items?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
+      if (!cancelled && res.success) setLowStockCount(res.data.filter(i => i.status === "low" || i.status === "expiring").length);
     });
     return () => { cancelled = true; };
   }, [tenantId, activeFarmId]);
@@ -797,6 +870,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
       onSwitchFarm={() => setShowFarmSwitcher(true)}
       setupState={setupState}
       weather={weather}
+      lowStockCount={lowStockCount}
     />
     {showFarmSwitcher && <FarmSwitcherSheet onClose={() => setShowFarmSwitcher(false)} />}
   </>;
@@ -852,6 +926,10 @@ export function NotificationsScreen() {
     if (n.sourceType === "task") navigate("tasks", n.sourceId ? { taskId: n.sourceId } : undefined);
     else if (n.sourceType === "approval") navigate("governance");
     else if (n.sourceType === "alert") navigate("inventory");
+    else if (n.sourceType === "support_ticket" || n.sourceType === "support_ticket_staff") {
+      const id = ticketIdFromNotificationSource(n.sourceType, n.sourceId);
+      if (id) navigate("support-ticket", { id });
+    }
   }
 
   const unread = (notifs ?? []).filter(n => !n.read).length;
