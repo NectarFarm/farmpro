@@ -933,9 +933,8 @@
  * why this only ever looked wrong on desktop.
  *
  * The sidebar sits flush against the left edge and the main area takes the
- * rest. Long-form content is still capped for readability by .px-screen
- * (1320px) below — that is the right place for a reading measure, rather than
- * boxing in the entire application chrome. */
+ * rest. Page content (.px-screen) fills that main column with a 32px gutter;
+ * it is not centered inside a second, narrower measure. */
 
 .screen-scroll {
   height: 100%;
@@ -1460,18 +1459,16 @@
  * like a mistake rather than a step. Moved to 768px so the gutter grows up
  * WITH the sidebar, not a breakpoint late.
  *
- * max-width dropped 1320px -> 900px: 1320 was sized for a full-bleed phone/
- * tablet column with no sidebar eating into it. Once a sidebar is docked,
- * shell-main's own width is already viewport-minus-sidebar, so 1320 never
- * actually capped anything at any realistic desktop width (at 1280px wide
- * with the sidebar docked, the column is ~1030px — under 1320 either way) —
- * single-line copy (e.g. the Reports screen's Auditor/Investor blurb) ran
- * edge-to-edge across it uncapped. 900px is still roomy enough for the
- * 2-column report/settings card grids (each card lands ~410px) but actually
- * engages at typical laptop widths instead of only on ultra-wide monitors. */
+ * Do not cap or center .px-screen here. A 900px column with margin: 0 auto
+ * left the spare width as empty bands on both sides of the page. On a normal
+ * desktop at 100% zoom (sidebar 232px, viewport 1440px+) that band between
+ * the rail and the content was 150px and up — the page looked like it was
+ * floating in the main column. The main column is already viewport minus
+ * the sidebar; the 32px gutter is the inset, and the page should fill the
+ * rest. */
 @media (min-width: 768px) {
   .screen-content { padding-bottom: 36px; }
-  .px-screen { max-width: 900px; margin: 0 auto; padding-left: 32px; padding-right: 32px; }
+  .px-screen { max-width: none; margin: 0; padding-left: 32px; padding-right: 32px; }
   .top-nav { padding-left: 32px; padding-right: 32px; }
   .top-nav-title { font-size: 26px !important; letter-spacing: -0.02em; }
 }
@@ -1486,8 +1483,8 @@
 
 /* ── Auth front door ───────────────────────────────────────────────────────
  * Login, apply, forgot-password, set-password and the "fix your application"
- * link are ONE family. A 420px column, left-aligned, never the 900px reading
- * measure the logged-in app uses. The headline is allowed to wrap on the
+ * link are ONE family. A 420px column, left-aligned — not the full main
+ * column the logged-in app uses. The headline is allowed to wrap on the
  * column, not on an arbitrary 15ch that orphaned "for." */
 .auth-stage {
   width: 100%;
