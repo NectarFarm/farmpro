@@ -2117,11 +2117,20 @@ function MortalityForm({ ctx, onBack, resubmitOf }: { ctx: WorkerCtx; onBack: ()
                     <button type="button" onClick={() => setLightbox(url)} className="block size-20 overflow-hidden rounded-xl border border-border">
                       <img src={url} alt={`Mortality evidence ${i + 1}`} className="size-full object-cover" />
                     </button>
+                    {/* A worker with wet or gloved hands is exactly who
+                        needs to hit this reliably — the badge stays a small
+                        28px visual (it sits on an 80px thumbnail; a literal
+                        44px circle would swallow it), but the tappable area
+                        around it is the full 44px the rest of this screen
+                        uses, via an invisible outer hit box centered on the
+                        same spot the small circle used to occupy alone. */}
                     <button
                       type="button" onClick={() => removePhoto(i)} aria-label={`Remove photo ${i + 1}`}
-                      className="absolute -top-2 -right-2 flex size-7 items-center justify-center rounded-full bg-danger text-primary-fg shadow-(--shadow-border)"
+                      className="absolute -top-4 -right-4 flex size-11 items-center justify-center rounded-full"
                     >
-                      <X size={13} aria-hidden="true" />
+                      <span className="flex size-7 items-center justify-center rounded-full bg-danger text-primary-fg shadow-(--shadow-border)">
+                        <X size={13} aria-hidden="true" />
+                      </span>
                     </button>
                   </div>
                 ))}
