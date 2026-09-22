@@ -9,6 +9,10 @@ import { parseMoneyToCents, centsToMajor, majorToCents } from '@/lib/money';
 import { useToast, useConfirm, fieldErrorStyle, FieldError } from './ui-shared';
 import { Kpi } from '@/components/ui-kit/page-header';
 import { Segmented, Chips } from '@/components/ui-kit/segmented';
+import { Badge } from '@/components/ui-kit/badge';
+import { Button } from '@/components/ui-kit/button';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { Dossier } from '@/components/ui-kit/inspector';
 import { SitesTab } from './sites';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
@@ -300,13 +304,13 @@ function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string)
 }
 
 /* ── Enterprise card (livestock) ── */
-function LivestockBatchCard({ batch, navigate }: { batch: ViewBatch; navigate: (id: 'batch-detail', p: Record<string,string>) => void }) {
+function LivestockBatchCard({ batch, onPick, active }: { batch: ViewBatch; onPick: (b: ViewBatch) => void; active?: boolean }) {
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === batch.enterprise);
   // owner-roast finding #1: real recorded deaths / initialQty, not a raw
   // headcount deficit — see ApiBatch.mortalityQty's header.
   const mort = batch.initialQty > 0 ? ((batch.mortalityQty / batch.initialQty) * 100).toFixed(1) : '0.0';
   return (
-    <button onClick={() => navigate('batch-detail', { id: batch.id, code: batch.code })} className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer', borderLeft: `3px solid ${cfg?.type === 'crop' ? 'rgba(var(--warning-rgb),0.6)' : 'rgba(var(--primary-rgb),0.5)'}` }}>
+    <button onClick={() => onPick(batch)} className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer', borderLeft: `3px solid ${cfg?.type === 'crop' ? 'rgba(var(--warning-rgb),0.6)' : 'rgba(var(--primary-rgb),0.5)'}`, outline: active ? '2px solid var(--primary-green)' : 'none', outlineOffset: -2 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {cfg?.icon ? <cfg.icon size={28} color="var(--text-primary)" aria-hidden="true" /> : <HelpCircle size={28} color="var(--text-muted)" aria-hidden="true" />}
@@ -315,7 +319,7 @@ function LivestockBatchCard({ batch, navigate }: { batch: ViewBatch; navigate: (
             <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{batch.code} · {batch.unitCode || 'no unit'}</div>
           </div>
         </div>
-        <span className={`chip ${batch.status === 'ACTIVE' ? 'chip-ok' : batch.status === 'QUARANTINE' ? 'chip-critical' : 'chip-info'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{batch.status}</span>
+        <Badge variant={batch.status === 'ACTIVE' ? 'success' : batch.status === 'QUARANTINE' ? 'warning' : 'default'}>{batch.status}</Badge>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 6 }}>
         <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
@@ -682,6 +686,13 @@ export function CropsScreen() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ApiProduct | null>(null);
   const [productsUnit, setProductsUnit] = useState<ApiUnit | null>(null);
+  // Desktop master-detail selection (Livestock/Crops tabs) — a phone never
+  // reads this, it navigates to the full page instead (see pickBatch below).
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  function pickBatch(b: ViewBatch) {
+    setSelectedBatchId(b.id);
+    if (isPhoneViewport()) navigate('batch-detail', { id: b.id, code: b.code });
+  }
 
   const [apiBatches, setApiBatches] = useState<ApiBatch[] | null>(null);
   const [apiUnits, setApiUnits] = useState<ApiUnit[] | null>(null);
@@ -789,29 +800,44 @@ export function CropsScreen() {
         <div className="px-screen"><div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading batches…</div></div>
       )}
 
-      {/* LIVESTOCK / CROPS batch cards */}
+      {/* LIVESTOCK / CROPS — master-detail on desktop (lg:): the reference's
+          list+dossier split. A phone keeps the original full-page push
+          (pickBatch navigates instead of only selecting, below lg). */}
       {!loading && (tab === 'livestock' || tab === 'crops') && (
         <div className="px-screen">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-            {displayed.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}>
-                  {tab === 'livestock' ? <PawPrint size={40} aria-hidden="true" /> : <Sprout size={40} aria-hidden="true" />}
-                </div>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-                  {tab === 'livestock' ? 'No livestock yet' : 'No crops yet'}
-                </div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>
-                  {tab === 'livestock' ? 'A batch is one group you track together — pigs in a pen, cows in a paddock, birds in a house, fish in a pond.' : 'A crop batch is a planted field you track from planting to harvest.'}
-                </div>
-                <button type="button" className="btn-primary" onClick={() => setShowEnterpriseSelector(true)}>
+          {displayed.length === 0 ? (
+            <EmptyState
+              icon={tab === 'livestock' ? <PawPrint size={20} /> : <Sprout size={20} />}
+              title={tab === 'livestock' ? 'No livestock yet' : 'No crops yet'}
+              body={tab === 'livestock'
+                ? 'A batch is one group you track together — pigs in a pen, cows in a paddock, birds in a house, fish in a pond.'
+                : 'A crop batch is a planted field you track from planting to harvest.'}
+              action={(
+                <Button className="w-full justify-center" onClick={() => setShowEnterpriseSelector(true)}>
                   <Plus size={14} /> {tab === 'livestock' ? 'Start a livestock batch' : 'Start a crop batch'}
-                </button>
+                </Button>
+              )}
+            />
+          ) : (
+            <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,1fr)]" style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {displayed.map(b => (
+                  <LivestockBatchCard key={b.id} batch={b} onPick={pickBatch} active={selectedBatchId === b.id} />
+                ))}
               </div>
-            ) : displayed.map(b => (
-              <LivestockBatchCard key={b.id} batch={b} navigate={navigate} />
-            ))}
-          </div>
+              <div className="hidden min-w-0 lg:block">
+                {(() => {
+                  const selected = displayed.find(b => b.id === selectedBatchId) ?? displayed[0];
+                  if (!selected) return <EmptyState icon={<PawPrint size={20} />} title="Nothing selected" body="Pick a row on the left to see its file." />;
+                  return (
+                    <Dossier kicker={`${selected.code} · ${selected.unitCode || 'no unit'}`} title={selected.label}>
+                      <BatchDetailScreen embedded embeddedBatchId={selected.id} embeddedBatchCode={selected.code} />
+                    </Dossier>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1287,10 +1313,19 @@ function BatchLedger({ batchId, tenantId, refreshKey }: { batchId: string; tenan
   );
 }
 
-export function BatchDetailScreen() {
+// `embedded` (ui/governance-reference-redesign, docs/ui-migration-map.md §2
+// Units): renders the exact same batch file — ledger, transfer, products,
+// economics/processes, every action — without the TopNav/full-page chrome,
+// so CropsScreen's Livestock/Crops tabs can show it inline in a right-hand
+// Dossier on desktop (the reference's master-detail), while a phone still
+// gets a real page push via navigate('batch-detail', ...). Props override
+// params so the same component works both ways with one implementation.
+export function BatchDetailScreen({ embedded = false, embeddedBatchId, embeddedBatchCode }: {
+  embedded?: boolean; embeddedBatchId?: string; embeddedBatchCode?: string;
+} = {}) {
   const { goBack, params, navigate, farms, tenantId, activeFarmId } = useNav();
-  const batchId = params.id;
-  const batchCode = params.code;
+  const batchId = embedded ? embeddedBatchId : params.id;
+  const batchCode = embedded ? embeddedBatchCode : params.code;
 
   const [batch, setBatch] = useState<ApiBatch | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -1439,23 +1474,23 @@ export function BatchDetailScreen() {
   }, [batch?.id, tenantId]);
 
   if (notFound) {
+    const body = <div style={{ padding: embedded ? 0 : undefined, textAlign: 'center' }}><div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)' }}>Batch not found.</div></div>;
+    if (embedded) return body;
     return (
       <div className="screen-content">
         <TopNav title="Batch" showBack />
-        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)' }}>Batch not found.</div>
-        </div>
+        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>{body}</div>
       </div>
     );
   }
 
   if (!batch) {
+    const body = <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading batch…</div>;
+    if (embedded) return body;
     return (
       <div className="screen-content">
         <TopNav title="Batch" showBack />
-        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading batch…</div>
-        </div>
+        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>{body}</div>
       </div>
     );
   }
@@ -1505,9 +1540,9 @@ export function BatchDetailScreen() {
   }
 
   return (
-    <div className="screen-content">
-      <TopNav title={batch.name} subtitle={`${batch.code} · ${unit?.code ?? 'no unit'}`} showBack />
-      <div className="px-screen" style={{ paddingTop: 14 }}>
+    <div className={embedded ? '' : 'screen-content'}>
+      {!embedded && <TopNav title={batch.name} subtitle={`${batch.code} · ${unit?.code ?? 'no unit'}`} showBack />}
+      <div className={embedded ? '' : 'px-screen'} style={embedded ? undefined : { paddingTop: 14 }}>
 
         {/* Hero */}
         <div className="farm-card farm-card-active" style={{ padding: 16, marginBottom: 14 }}>
