@@ -9,6 +9,10 @@ import { parseMoneyToCents, centsToMajor, majorToCents } from '@/lib/money';
 import { useToast, useConfirm, fieldErrorStyle, FieldError } from './ui-shared';
 import { Kpi } from '@/components/ui-kit/page-header';
 import { Segmented, Chips } from '@/components/ui-kit/segmented';
+import { Badge } from '@/components/ui-kit/badge';
+import { Button } from '@/components/ui-kit/button';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { Dossier } from '@/components/ui-kit/inspector';
 import { SitesTab } from './sites';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
@@ -300,13 +304,13 @@ function EnterpriseSelector({ onSelect, onClose }: { onSelect: (subtype: string)
 }
 
 /* ── Enterprise card (livestock) ── */
-function LivestockBatchCard({ batch, navigate }: { batch: ViewBatch; navigate: (id: 'batch-detail', p: Record<string,string>) => void }) {
+function LivestockBatchCard({ batch, onPick, active }: { batch: ViewBatch; onPick: (b: ViewBatch) => void; active?: boolean }) {
   const cfg = ENTERPRISE_REGISTRY.find(e => e.subtype === batch.enterprise);
   // owner-roast finding #1: real recorded deaths / initialQty, not a raw
   // headcount deficit — see ApiBatch.mortalityQty's header.
   const mort = batch.initialQty > 0 ? ((batch.mortalityQty / batch.initialQty) * 100).toFixed(1) : '0.0';
   return (
-    <button onClick={() => navigate('batch-detail', { id: batch.id, code: batch.code })} className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer', borderLeft: `3px solid ${cfg?.type === 'crop' ? 'rgba(var(--warning-rgb),0.6)' : 'rgba(var(--primary-rgb),0.5)'}` }}>
+    <button onClick={() => onPick(batch)} className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer', borderLeft: `3px solid ${cfg?.type === 'crop' ? 'rgba(var(--warning-rgb),0.6)' : 'rgba(var(--primary-rgb),0.5)'}`, outline: active ? '2px solid var(--primary-green)' : 'none', outlineOffset: -2 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {cfg?.icon ? <cfg.icon size={28} color="var(--text-primary)" aria-hidden="true" /> : <HelpCircle size={28} color="var(--text-muted)" aria-hidden="true" />}
@@ -315,7 +319,7 @@ function LivestockBatchCard({ batch, navigate }: { batch: ViewBatch; navigate: (
             <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{batch.code} · {batch.unitCode || 'no unit'}</div>
           </div>
         </div>
-        <span className={`chip ${batch.status === 'ACTIVE' ? 'chip-ok' : batch.status === 'QUARANTINE' ? 'chip-critical' : 'chip-info'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{batch.status}</span>
+        <Badge variant={batch.status === 'ACTIVE' ? 'success' : batch.status === 'QUARANTINE' ? 'warning' : 'default'}>{batch.status}</Badge>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 6 }}>
         <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
@@ -682,6 +686,13 @@ export function CropsScreen() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ApiProduct | null>(null);
   const [productsUnit, setProductsUnit] = useState<ApiUnit | null>(null);
+  // Desktop master-detail selection (Livestock/Crops tabs) — a phone never
+  // reads this, it navigates to the full page instead (see pickBatch below).
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  function pickBatch(b: ViewBatch) {
+    setSelectedBatchId(b.id);
+    if (isPhoneViewport()) navigate('batch-detail', { id: b.id, code: b.code });
+  }
 
   const [apiBatches, setApiBatches] = useState<ApiBatch[] | null>(null);
   const [apiUnits, setApiUnits] = useState<ApiUnit[] | null>(null);
@@ -789,29 +800,44 @@ export function CropsScreen() {
         <div className="px-screen"><div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading batches…</div></div>
       )}
 
-      {/* LIVESTOCK / CROPS batch cards */}
+      {/* LIVESTOCK / CROPS — master-detail on desktop (lg:): the reference's
+          list+dossier split. A phone keeps the original full-page push
+          (pickBatch navigates instead of only selecting, below lg). */}
       {!loading && (tab === 'livestock' || tab === 'crops') && (
         <div className="px-screen">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-            {displayed.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}>
-                  {tab === 'livestock' ? <PawPrint size={40} aria-hidden="true" /> : <Sprout size={40} aria-hidden="true" />}
-                </div>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-                  {tab === 'livestock' ? 'No livestock yet' : 'No crops yet'}
-                </div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>
-                  {tab === 'livestock' ? 'A batch is one group you track together — pigs in a pen, cows in a paddock, birds in a house, fish in a pond.' : 'A crop batch is a planted field you track from planting to harvest.'}
-                </div>
-                <button type="button" className="btn-primary" onClick={() => setShowEnterpriseSelector(true)}>
+          {displayed.length === 0 ? (
+            <EmptyState
+              icon={tab === 'livestock' ? <PawPrint size={20} /> : <Sprout size={20} />}
+              title={tab === 'livestock' ? 'No livestock yet' : 'No crops yet'}
+              body={tab === 'livestock'
+                ? 'A batch is one group you track together — pigs in a pen, cows in a paddock, birds in a house, fish in a pond.'
+                : 'A crop batch is a planted field you track from planting to harvest.'}
+              action={(
+                <Button className="w-full justify-center" onClick={() => setShowEnterpriseSelector(true)}>
                   <Plus size={14} /> {tab === 'livestock' ? 'Start a livestock batch' : 'Start a crop batch'}
-                </button>
+                </Button>
+              )}
+            />
+          ) : (
+            <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,1fr)]" style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {displayed.map(b => (
+                  <LivestockBatchCard key={b.id} batch={b} onPick={pickBatch} active={selectedBatchId === b.id} />
+                ))}
               </div>
-            ) : displayed.map(b => (
-              <LivestockBatchCard key={b.id} batch={b} navigate={navigate} />
-            ))}
-          </div>
+              <div className="hidden min-w-0 lg:block">
+                {(() => {
+                  const selected = displayed.find(b => b.id === selectedBatchId) ?? displayed[0];
+                  if (!selected) return <EmptyState icon={<PawPrint size={20} />} title="Nothing selected" body="Pick a row on the left to see its file." />;
+                  return (
+                    <Dossier kicker={`${selected.code} · ${selected.unitCode || 'no unit'}`} title={selected.label}>
+                      <BatchDetailScreen embedded embeddedBatchId={selected.id} embeddedBatchCode={selected.code} />
+                    </Dossier>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -821,43 +847,43 @@ export function CropsScreen() {
           unit's non-closed batches, not a fabricated capacity percentage. */}
       {!loading && tab === 'units' && (
         <div className="px-screen">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-            {farmUnits.length === 0 ? (
-              <div style={{ gridColumn: '1 / -1', padding: 24, textAlign: 'center' }}>
-                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Warehouse size={40} aria-hidden="true" /></div>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No houses or fields yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>Livestock and crops both need a place — a house, pen, paddock or field. Add that first.</div>
-                <button type="button" className="btn-primary" onClick={() => setShowAddUnit(true)}>
-                  <Plus size={14} /> Add a house or field
-                </button>
-              </div>
-            ) : farmUnits.map(u => {
-              const unitBatches = allViewBatches.filter(b => b.unitId === u.id && b.status !== 'CLOSED');
-              const occupancy = unitBatches.reduce((s, b) => s + b.qty, 0);
-              return (
-                <div key={u.id} className="farm-card" style={{ padding: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{u.name}</div>
-                    <span className={`chip ${u.status === 'ACTIVE' ? 'chip-ok' : 'chip-warning'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{u.status}</span>
+          {farmUnits.length === 0 ? (
+            <EmptyState
+              icon={<Warehouse size={20} />}
+              title="No houses or fields yet"
+              body="Livestock and crops both need a place — a house, pen, paddock or field. Add that first."
+              action={<Button className="w-full justify-center" onClick={() => setShowAddUnit(true)}><Plus size={14} /> Add a house or field</Button>}
+            />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              {farmUnits.map(u => {
+                const unitBatches = allViewBatches.filter(b => b.unitId === u.id && b.status !== 'CLOSED');
+                const occupancy = unitBatches.reduce((s, b) => s + b.qty, 0);
+                return (
+                  <div key={u.id} className="rounded-xl bg-surface p-3 shadow-(--shadow-border)">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{u.name}</div>
+                      <Badge variant={u.status === 'ACTIVE' ? 'success' : 'warning'}>{u.status}</Badge>
+                    </div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'capitalize' }}>{u.type}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontFamily: 'monospace', marginBottom: 8 }}>{u.code}</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', marginBottom: 8 }}>
+                      {unitBatches.length > 0
+                        ? <span><strong style={{ color: 'var(--text-primary)' }}>{occupancy.toLocaleString()}</strong> across {unitBatches.length} batch{unitBatches.length === 1 ? '' : 'es'}</span>
+                        : <span style={{ color: 'var(--text-dim)' }}>No active batch assigned</span>}
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={() => setProductsUnit(u)}>
+                      <Package size={11} /> Products
+                    </Button>
                   </div>
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'capitalize' }}>{u.type}</div>
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontFamily: 'monospace', marginBottom: 8 }}>{u.code}</div>
-                  <div style={{ fontSize: 'var(--fs-xs)', marginBottom: 8 }}>
-                    {unitBatches.length > 0
-                      ? <span><strong style={{ color: 'var(--text-primary)' }}>{occupancy.toLocaleString()}</strong> across {unitBatches.length} batch{unitBatches.length === 1 ? '' : 'es'}</span>
-                      : <span style={{ color: 'var(--text-dim)' }}>No active batch assigned</span>}
-                  </div>
-                  <button onClick={() => setProductsUnit(u)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '5px 9px', borderRadius: 8, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
-                    <Package size={11} /> Products
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
           {farmUnits.length > 0 && (
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }} onClick={() => setShowAddUnit(true)}>
-            <Plus size={14} /> Add a house or field
-          </button>
+            <Button className="w-full justify-center" style={{ marginBottom: 16 }} onClick={() => setShowAddUnit(true)}>
+              <Plus size={14} /> Add a house or field
+            </Button>
           )}
         </div>
       )}
@@ -869,49 +895,49 @@ export function CropsScreen() {
           a per-unit picker. */}
       {tab === 'products' && (
         <div className="px-screen">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {apiProducts === null ? (
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading products…</div>
-            ) : apiProducts.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Package size={40} aria-hidden="true" /></div>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No products yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>What you sell — milk, eggs, grain, live animals. Add it once, then attach it to a house or field.</div>
-                <button type="button" className="btn-primary" onClick={() => setShowAddProduct(true)}>
-                  <Plus size={14} /> Add a product
-                </button>
-              </div>
-            ) : apiProducts.map(p => (
-              <div key={p.id} className="farm-card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', textTransform: 'capitalize', marginTop: 2 }}>{p.type} · KSh {Number(p.saleUnits).toLocaleString()}</div>
+          {apiProducts === null ? (
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading products…</div>
+          ) : apiProducts.length === 0 ? (
+            <EmptyState
+              icon={<Package size={20} />}
+              title="No products yet"
+              body="What you sell — milk, eggs, grain, live animals. Add it once, then attach it to a house or field."
+              action={<Button className="w-full justify-center" onClick={() => setShowAddProduct(true)}><Plus size={14} /> Add a product</Button>}
+            />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {apiProducts.map(p => (
+                <div key={p.id} className="flex items-center justify-between rounded-xl bg-surface p-3 shadow-(--shadow-border)">
+                  <div>
+                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', textTransform: 'capitalize', marginTop: 2 }}>{p.type} · KSh {Number(p.saleUnits).toLocaleString()}</div>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button variant="ghost" size="icon-sm" title="Edit" onClick={() => setEditingProduct(p)}><Edit2 size={13} /></Button>
+                    <Button variant="ghost" size="icon-sm" title="Archive"
+                      onClick={async () => {
+                        const ok = await confirm({
+                          message: `Archive ${p.name}?`,
+                          detail: 'It leaves the catalogue. Batches that already use it keep it until you detach it.',
+                          variant: 'danger',
+                          confirmLabel: 'Archive',
+                        });
+                        if (!ok) return;
+                        const res = await apiClient.delete(`/api/products/${p.id}?tenantId=${tenantId}`);
+                        if (res.success) { showToast(`${p.name} archived.`, 'success'); loadProducts(); }
+                        else showToast(res.error || 'Could not archive this product.', 'error');
+                      }}>
+                      <Archive size={13} />
+                    </Button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn-icon" title="Edit" onClick={() => setEditingProduct(p)}><Edit2 size={13} /></button>
-                  <button className="btn-icon" title="Archive"
-                    onClick={async () => {
-                      const ok = await confirm({
-                        message: `Archive ${p.name}?`,
-                        detail: 'It leaves the catalogue. Batches that already use it keep it until you detach it.',
-                        variant: 'danger',
-                        confirmLabel: 'Archive',
-                      });
-                      if (!ok) return;
-                      const res = await apiClient.delete(`/api/products/${p.id}?tenantId=${tenantId}`);
-                      if (res.success) { showToast(`${p.name} archived.`, 'success'); loadProducts(); }
-                      else showToast(res.error || 'Could not archive this product.', 'error');
-                    }}>
-                    <Archive size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
           {apiProducts && apiProducts.length > 0 && (
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }} onClick={() => setShowAddProduct(true)}>
-            <Plus size={14} /> Add a product
-          </button>
+            <Button className="w-full justify-center" style={{ marginBottom: 16 }} onClick={() => setShowAddProduct(true)}>
+              <Plus size={14} /> Add a product
+            </Button>
           )}
         </div>
       )}
@@ -1287,10 +1313,19 @@ function BatchLedger({ batchId, tenantId, refreshKey }: { batchId: string; tenan
   );
 }
 
-export function BatchDetailScreen() {
+// `embedded` (ui/governance-reference-redesign, docs/ui-migration-map.md §2
+// Units): renders the exact same batch file — ledger, transfer, products,
+// economics/processes, every action — without the TopNav/full-page chrome,
+// so CropsScreen's Livestock/Crops tabs can show it inline in a right-hand
+// Dossier on desktop (the reference's master-detail), while a phone still
+// gets a real page push via navigate('batch-detail', ...). Props override
+// params so the same component works both ways with one implementation.
+export function BatchDetailScreen({ embedded = false, embeddedBatchId, embeddedBatchCode }: {
+  embedded?: boolean; embeddedBatchId?: string; embeddedBatchCode?: string;
+} = {}) {
   const { goBack, params, navigate, farms, tenantId, activeFarmId } = useNav();
-  const batchId = params.id;
-  const batchCode = params.code;
+  const batchId = embedded ? embeddedBatchId : params.id;
+  const batchCode = embedded ? embeddedBatchCode : params.code;
 
   const [batch, setBatch] = useState<ApiBatch | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -1439,23 +1474,23 @@ export function BatchDetailScreen() {
   }, [batch?.id, tenantId]);
 
   if (notFound) {
+    const body = <div style={{ padding: embedded ? 0 : undefined, textAlign: 'center' }}><div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)' }}>Batch not found.</div></div>;
+    if (embedded) return body;
     return (
       <div className="screen-content">
         <TopNav title="Batch" showBack />
-        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)' }}>Batch not found.</div>
-        </div>
+        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>{body}</div>
       </div>
     );
   }
 
   if (!batch) {
+    const body = <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading batch…</div>;
+    if (embedded) return body;
     return (
       <div className="screen-content">
         <TopNav title="Batch" showBack />
-        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading batch…</div>
-        </div>
+        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>{body}</div>
       </div>
     );
   }
@@ -1505,17 +1540,17 @@ export function BatchDetailScreen() {
   }
 
   return (
-    <div className="screen-content">
-      <TopNav title={batch.name} subtitle={`${batch.code} · ${unit?.code ?? 'no unit'}`} showBack />
-      <div className="px-screen" style={{ paddingTop: 14 }}>
+    <div className={embedded ? '' : 'screen-content'}>
+      {!embedded && <TopNav title={batch.name} subtitle={`${batch.code} · ${unit?.code ?? 'no unit'}`} showBack />}
+      <div className={embedded ? '' : 'px-screen'} style={embedded ? undefined : { paddingTop: 14 }}>
 
         {/* Hero */}
-        <div className="farm-card farm-card-active" style={{ padding: 16, marginBottom: 14 }}>
+        <div className="rounded-xl bg-surface p-4 shadow-(--shadow-border)" style={{ marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               {cfg?.icon && <cfg.icon size={36} color="var(--text-primary)" aria-hidden="true" />}
               <div>
-                <span className={`chip ${batch.status === 'ACTIVE' ? 'chip-ok' : batch.status === 'QUARANTINE' ? 'chip-critical' : 'chip-info'}`}>{batch.status}</span>
+                <Badge variant={batch.status === 'ACTIVE' ? 'success' : batch.status === 'QUARANTINE' ? 'warning' : 'default'}>{batch.status}</Badge>
                 <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>
                   Stage: <span style={{ color: 'var(--primary-green)', fontWeight: 700 }}>{batch.stage || '—'}</span>
                   {/* Species (issue #301): moved out of the 3rd stat tile (which
@@ -1531,15 +1566,12 @@ export function BatchDetailScreen() {
               <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)' }}>{farm?.name ?? '—'}</div>
               {/* Editing a batch had no entry point anywhere — the API
                  accepted every field, the screen offered none of them. */}
-              <button
-                onClick={() => setShowEdit(true)}
-                style={{ marginTop: 6, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}
-              >Edit batch</button>
+              <Button variant="secondary" size="sm" style={{ marginTop: 6 }} onClick={() => setShowEdit(true)}>Edit batch</Button>
             </div>
           </div>
 
           {/* KPIs */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+          <div className="grid grid-cols-4 gap-2">
             {[
               { label: cfg?.type === 'crop' ? 'Plots' : 'Head', value: batch.currentQty.toLocaleString() },
               { label: cfg?.type === 'crop' ? 'Growth' : 'Mort. %', value: cfg?.type === 'crop' ? '—' : `${mort}%` },
@@ -1553,8 +1585,8 @@ export function BatchDetailScreen() {
               { label: cfg?.type === 'crop' ? 'Area' : 'FCR', value: '—' },
               { label: 'Cost KSh', value: `${(costKsh/1000).toFixed(0)}K` },
             ].map(s => (
-              <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>{s.value}</div>
+              <div key={s.label} className="rounded-lg bg-surface-2 p-2 text-center">
+                <div className="font-display text-lg font-medium tabular-nums">{s.value}</div>
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>{s.label}</div>
               </div>
             ))}
@@ -1852,18 +1884,18 @@ export function BatchDetailScreen() {
               opens Finance, which is where a sale is actually recorded; a
               sale of a product marked as coming out of the batch also takes
               it off this batch's head count (batch-ledger task). */}
-          <button className="btn-primary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => navigate('finance', { batch: batch.code })}>
+          <Button className="justify-center" onClick={() => navigate('finance', { batch: batch.code })}>
             Record Sale
-          </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => setShowAdvanceForm(f => !f)}>
+          </Button>
+          <Button variant="secondary" className="justify-center" onClick={() => setShowAdvanceForm(f => !f)}>
             Advance Stage
-          </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => navigate('tasks', { batch: batch.code })}>
+          </Button>
+          <Button variant="secondary" className="justify-center" onClick={() => navigate('tasks', { batch: batch.code })}>
             <ClipboardList size={13} aria-hidden="true" /> All Batch Tasks
-          </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => setShowEdit(true)}>
+          </Button>
+          <Button variant="secondary" className="justify-center" onClick={() => setShowEdit(true)}>
             Edit Batch
-          </button>
+          </Button>
         </div>
 
         {/* Per-unit task shortcuts */}
