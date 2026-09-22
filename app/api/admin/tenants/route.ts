@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { asc, count, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { farms, tenants, users } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 
 // ── GET /api/admin/tenants (issue #252) ─────────────────────────────────────
 // super_admin-only. Real backend for AdminFarmsScreen's farm/tenant list —
@@ -15,13 +15,9 @@ import { getSessionUser } from '@/lib/auth'
 // Response envelope matches app/api/onboard-requests/route.ts / lib/api-response.ts
 // ({ success, data | error }).
 
-const bad = (msg: string, status = 400) =>
-  NextResponse.json({ success: false, error: msg }, { status })
-
 export async function GET() {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('tenants.manage')
+  if ('error' in auth) return auth.error
 
   const tenantRows = await db.select().from(tenants).orderBy(asc(tenants.createdAt), asc(tenants.id))
 

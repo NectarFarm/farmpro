@@ -26,6 +26,7 @@
 import 'server-only'
 import { NextResponse } from 'next/server'
 import { getSessionUser, type SessionUser } from '@/lib/auth'
+import { hasCapability, type Capability } from '@/lib/platform-staff'
 
 export const unauthorized = (): NextResponse =>
   NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
@@ -92,4 +93,20 @@ export async function requireTenantSession(opts: TenantSessionOptions = {}): Pro
   if (named) return { session, tenantId: named }
 
   return { error: tenantRequired() }
+}
+
+// ── Platform-staff capability guard (SaaS back-office backend) ─────────────
+// Builds on requireRole(['super_admin']): a caller must first be a
+// super_admin at all, then must resolve `cap` via lib/platform-staff.ts's
+// backward-compatible rule (no platform_staff row = every capability, so the
+// existing founder account and any admin nobody has configured yet keep
+// working exactly as before this table existed). Same 401-before-403
+// ordering as requireRole — a caller with no session at all gets 401, never
+// a 403 that would confirm the route exists and is capability-gated.
+export async function requirePlatformCapability(cap: Capability): Promise<SessionResult> {
+  const result = await requireRole(['super_admin'])
+  if ('error' in result) return result
+  const capable = await hasCapability(result.session.id, result.session.role, cap)
+  if (!capable) return { error: forbidden() }
+  return result
 }

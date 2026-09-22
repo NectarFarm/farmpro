@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { enterpriseRequests, notifications } from '@/db/schemas'
-import { requireRole } from '@/lib/api-auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 import { grantEnterprises } from '@/lib/enterprises'
 import { notifyRecipientsByEmail } from '@/lib/notification-email'
 import { writeAuditLog } from '@/lib/audit'
@@ -29,7 +29,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const body = (raw ?? {}) as Record<string, unknown>
 
-  const auth = await requireRole(['super_admin'])
+  const auth = await requirePlatformCapability('onboarding.review')
   if ('error' in auth) return auth.error
   const { session } = auth
 

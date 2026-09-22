@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm'
 import { db } from '@/db'
 import { users } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 import { SAFE_USER_COLUMNS } from '@/lib/admin-users'
 
 // ── GET /api/admin/users (admin user-management feature) ───────────────────
@@ -20,16 +20,12 @@ import { SAFE_USER_COLUMNS } from '@/lib/admin-users'
 // passwordSalt, pinHash, pinPrefilter never leave this route (see
 // lib/admin-users.ts's SAFE_USER_COLUMNS comment).
 
-const bad = (msg: string, status = 400) =>
-  NextResponse.json({ success: false, error: msg }, { status })
-
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
 
 export async function GET(req: Request) {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('users.manage')
+  if ('error' in auth) return auth.error
 
   const url = new URL(req.url)
   const q = url.searchParams.get('q')?.trim() ?? ''
