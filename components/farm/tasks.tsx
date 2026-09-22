@@ -186,13 +186,21 @@ function ymd(d: Date): string {
 // This is a pure client regroup of the same GET /api/tasks response the old
 // flat list used — no new fetch, matching the map's "EXISTS → regroup"
 // entry for Tasks §2.
-type Bucket = 'overdue' | 'today' | 'upcoming' | 'done';
-const BUCKET_LABEL: Record<Bucket, string> = { overdue: 'Overdue', today: 'Today', upcoming: 'Upcoming', done: 'Done' };
-const BUCKET_ORDER: Bucket[] = ['overdue', 'today', 'upcoming', 'done'];
+type Bucket = 'overdue' | 'today' | 'awaiting' | 'upcoming' | 'done';
+const BUCKET_LABEL: Record<Bucket, string> = { overdue: 'Overdue', today: 'Today', awaiting: 'Waiting on approval', upcoming: 'Upcoming', done: 'Done' };
+const BUCKET_ORDER: Bucket[] = ['overdue', 'today', 'awaiting', 'upcoming', 'done'];
 
 function taskBucket(t: ApiTask): Bucket {
   const status = displayStatus(t);
   if (status === 'DONE' || status === 'REJECTED') return 'done';
+  // A worker has finished this one and it is parked at PENDING_APPROVAL
+  // waiting for a signature (app/api/tasks/[id] parks it there rather than
+  // completing it). It used to fall through to the due-date comparison below
+  // and land in `overdue` the moment its due time passed — so an owner saw
+  // work that was actually done sitting in Overdue, with nothing saying it
+  // was waiting on them. isOverdue() already excludes this status; the
+  // bucket now agrees with it.
+  if (status === 'PENDING_APPROVAL') return 'awaiting';
   if (status === 'OVERDUE') return 'overdue';
   if (!t.dueAt) return 'upcoming';
   const due = ymd(new Date(t.dueAt));
@@ -227,7 +235,7 @@ function TaskLine({ task, employees, active, onPick }: { task: ApiTask; employee
   // Amber ("needs you") for anything not yet closed and already due,
   // primary green once done — red is reserved for real destructive actions
   // elsewhere on this screen (delete), not for a task merely running late.
-  const dotClass = status === 'DONE' ? 'bg-primary' : (bucket === 'overdue' || bucket === 'today') ? 'bg-warning' : 'bg-border';
+  const dotClass = status === 'DONE' ? 'bg-primary' : bucket === 'awaiting' ? 'bg-primary-soft' : (bucket === 'overdue' || bucket === 'today') ? 'bg-warning' : 'bg-border';
   return (
     <button
       type="button"
@@ -916,7 +924,7 @@ export function TasksScreen() {
   }, [statusFiltered, person, search, employees]);
 
   const groups = useMemo(() => {
-    const map: Record<Bucket, ApiTask[]> = { overdue: [], today: [], upcoming: [], done: [] };
+    const map: Record<Bucket, ApiTask[]> = { overdue: [], today: [], awaiting: [], upcoming: [], done: [] };
     for (const t of scoped) map[taskBucket(t)].push(t);
     return BUCKET_ORDER.map(id => ({ id, items: map[id] })).filter(g => g.items.length > 0);
   }, [scoped]);
