@@ -151,10 +151,20 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
  * wireframe sea. This rail is public copy — no tenant data, no "who is
  * registered" leak — so the desktop has something to read without widening
  * the form into the logged-in app's measure. Hidden below 1024px, where the
- * form is the whole screen. */
+ * form is the whole screen.
+ *
+ * e2e finding: this used to be `mx-auto max-w-6xl` — the exact "app shell
+ * deliberately has NO max-width" mistake app/global.css's own header comment
+ * already documents fixing once for the logged-in shell (a `max-width` that
+ * centers itself leaves the page background showing as bands down both
+ * edges above that width, reading as the content shrinking inward instead of
+ * filling the screen — at 1440px this cost 144px of dead space on EACH side,
+ * not just the one a tester happened to describe). No cap here either now —
+ * this two-column split fills the viewport at every desktop width, same as
+ * the shell it hands off to a moment later. */
 export function AuthStage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col lg:grid lg:min-h-dvh lg:grid-cols-[1.05fr_0.95fr] lg:items-stretch">
+    <div className="flex w-full flex-col lg:grid lg:min-h-dvh lg:grid-cols-[1.05fr_0.95fr] lg:items-stretch">
       <aside className="hidden flex-col justify-between bg-sidebar px-12 py-14 text-sidebar-fg lg:flex">
         <div>
           <div className="flex items-center gap-2.5">

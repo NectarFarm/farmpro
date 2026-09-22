@@ -225,8 +225,8 @@ describe('unread count', () => {
   // (ui/governance-reference-redesign moved it to TopNav's bell), so this
   // only asserts the pure function still resolves both ids correctly.
   it('resolves both the mobile Home tab and a Notifications-id caller', () => {
-    expect(tabBadge('dashboard', 0, 4, 0, 0)).toBe(4)
-    expect(tabBadge('notifications', 0, 4, 0, 0)).toBe(4)
+    expect(tabBadge('dashboard', 0, 4, 0, 0, 0)).toBe(4)
+    expect(tabBadge('notifications', 0, 4, 0, 0, 0)).toBe(4)
   })
 })
 

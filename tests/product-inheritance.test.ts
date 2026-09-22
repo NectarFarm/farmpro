@@ -31,8 +31,9 @@ import { PATCH as productPATCH, DELETE as productDELETE } from '@/app/api/produc
 import { GET as unitProductsGET, PUT as unitProductsPUT } from '@/app/api/units/[id]/products/route'
 import { GET as batchProductsGET, PUT as batchProductsPUT } from '@/app/api/batches/[id]/products/route'
 import { POST as salesPOST } from '@/app/api/data/sales/route'
+import { POST as recordsPOST } from '@/app/api/records/route'
 import { db } from '@/db'
-import { tenants, users, sessions, farms, productionUnits, batches, products, productUnits, batchProducts, sales } from '@/db/schemas'
+import { tenants, users, sessions, farms, productionUnits, batches, products, productUnits, batchProducts, sales, employees, productCollections, records } from '@/db/schemas'
 import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
@@ -101,6 +102,9 @@ run('product/unit/batch inheritance (product-unit-inheritance task)', () => {
 
   afterAll(async () => {
     await db.delete(sales).where(eq(sales.tenantId, tenantId))
+    await db.delete(productCollections).where(eq(productCollections.tenantId, tenantId))
+    await db.delete(records).where(eq(records.tenantId, tenantId))
+    await db.delete(employees).where(eq(employees.tenantId, tenantId))
     await db.delete(batchProducts).where(eq(batchProducts.tenantId, tenantId))
     await db.delete(productUnits).where(inArray(productUnits.tenantId, [tenantId, otherTenantId]))
     await db.delete(products).where(inArray(products.tenantId, [tenantId, otherTenantId]))
@@ -324,6 +328,69 @@ run('product/unit/batch inheritance (product-unit-inheritance task)', () => {
       expect(payload.data.deleted).toBe(true)
       const rows = await db.select().from(products).where(eq(products.id, freeId))
       expect(rows).toHaveLength(0)
+    })
+  })
+
+  // ── e2e finding (P1): "Collect products" refused a product the worker
+  // WAS offered ────────────────────────────────────────────────────────────
+  // Root cause was client-side, not a catalogue/inheritance bug: components/
+  // farm/worker.tsx read `p.productId` off each row from GET
+  // /api/batches/[id]/products, but that response's id field is `id` (see
+  // ResolvedProduct in lib/products.ts) — `productId` was always undefined,
+  // so every submission actually posted the literal string "undefined" as
+  // the product id, which POST /api/records correctly refused as not in the
+  // catalogue. This proves the fix end-to-end: the exact `id` field the
+  // (now-corrected) worker screen reads resolves, and a product inherited
+  // from its unit — never explicitly attached to the batch itself — saves.
+  describe('worker Collect Products end-to-end (real id field, unit-inherited product)', () => {
+    it('saves a production record for a product the batch only has by unit inheritance', async () => {
+      mockCookie = ownerSession
+      const inheritedOnlyId = `p-inherited-${randomUUID()}`
+      await db.insert(products).values({ id: inheritedOnlyId, tenantId, type: 'egg', name: 'Worker Test Eggs', saleUnits: '1' })
+      await db.insert(productUnits).values({ id: randomUUID(), tenantId, unitId: unit1Id, productId: inheritedOnlyId })
+
+      const workerEmployeeId = `emp-prod-worker-${randomUUID()}`
+      await db.insert(employees).values({ id: workerEmployeeId, tenantId, name: 'Collect Worker', role: 'worker' })
+
+      // Exactly what GET /api/batches/[id]/products hands the worker screen —
+      // batch1 never had this product added at the batch level, only inherited.
+      const { status: listStatus, payload: listPayload } = await readJson(
+        await batchProductsGET(getRequest(`http://localhost/api/batches/${batch1Id}/products`), { params: Promise.resolve({ id: batch1Id }) })
+      )
+      expect(listStatus).toBe(200)
+      const row = listPayload.data.find((r: { id: string; name: string }) => r.id === inheritedOnlyId)
+      expect(row).toBeTruthy()
+      expect(row.inherited).toBe(true)
+      expect(row.sourceUnitId).toBe(unit1Id)
+
+      // The worker screen's mapping is `{ id: p.id, name: p.name }` (the fix) —
+      // posting exactly that `id` must succeed, not "not in this farm's catalogue".
+      const { status, payload } = await readJson(
+        await recordsPOST(jsonRequest('http://localhost/api/records', 'POST', {
+          tenantId, batchId: batch1Id, employeeId: workerEmployeeId, type: 'production',
+          data: { items: [{ productId: row.id, qty: 12 }] },
+        }))
+      )
+      expect(status).toBe(201)
+      expect(payload.success).toBe(true)
+
+      const collected = await db.select().from(productCollections).where(eq(productCollections.batchId, batch1Id))
+      expect(collected.some((c) => c.productId === inheritedOnlyId && c.qty === 12)).toBe(true)
+    })
+
+    it('still refuses a product id that does not exist for this tenant (the literal "undefined" the old client bug sent)', async () => {
+      mockCookie = ownerSession
+      const workerEmployeeId = `emp-prod-worker2-${randomUUID()}`
+      await db.insert(employees).values({ id: workerEmployeeId, tenantId, name: 'Collect Worker 2', role: 'worker' })
+
+      const { status, payload } = await readJson(
+        await recordsPOST(jsonRequest('http://localhost/api/records', 'POST', {
+          tenantId, batchId: batch1Id, employeeId: workerEmployeeId, type: 'production',
+          data: { items: [{ productId: 'undefined', qty: 3 }] },
+        }))
+      )
+      expect(status).toBe(400)
+      expect(String(payload.error)).toContain('catalogue')
     })
   })
 })

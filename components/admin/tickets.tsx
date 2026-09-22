@@ -29,7 +29,12 @@ const STATUS_VARIANT: Record<TicketStatus, 'default' | 'warning' | 'success'> = 
   open: 'warning', in_progress: 'warning', waiting_on_customer: 'default', resolved: 'success', closed: 'default',
 };
 
+// Module-scope (not recreated per render) so the deep-link effect below can
+// reference it without upsetting react-hooks/exhaustive-deps.
+const OPEN_STATUSES = new Set<TicketStatus>(['open', 'in_progress', 'waiting_on_customer']);
+
 export function AdminTicketsScreen() {
+  const { params } = useNav();
   const { showToast } = useToast();
   const { has } = useAdminCapabilities();
 
@@ -40,16 +45,30 @@ export function AdminTicketsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (assigneeFilter !== 'anyone') params.set('assignee', assigneeFilter);
-    const res = await apiClient.get<AdminTicket[]>(`/api/admin/tickets?${params.toString()}`);
+    const p = new URLSearchParams();
+    if (assigneeFilter !== 'anyone') p.set('assignee', assigneeFilter);
+    const res = await apiClient.get<AdminTicket[]>(`/api/admin/tickets?${p.toString()}`);
     if (res.success) { setTickets(res.data); setLoadError(''); } else setLoadError(res.error || 'Failed to load tickets.');
   }, [assigneeFilter]);
 
   useEffect(() => { load(); }, [load]);
 
-  const openStatuses = new Set<TicketStatus>(['open', 'in_progress', 'waiting_on_customer']);
-  const visible = (tickets ?? []).filter((t) => statusFilter === 'all' || openStatuses.has(t.status));
+  // Deep link from a staff notification (dashboard.tsx's handleNotifTap,
+  // navigate('admin-tickets', { id })) — e2e finding: this screen previously
+  // ignored `params.id` entirely, so tapping "New ticket T-1042" (or a
+  // customer reply) always landed on the plain, unfiltered queue instead of
+  // that ticket. A resolved/closed ticket (e.g. a customer reopening one) is
+  // surfaced even though the default filter is "Open", the same way TasksScreen's
+  // taskId deep link works.
+  useEffect(() => {
+    if (!params.id || !tickets) return;
+    const match = tickets.find((t) => t.id === params.id);
+    if (!match) return;
+    setSelectedId(match.id);
+    if (!OPEN_STATUSES.has(match.status)) setStatusFilter('all');
+  }, [params.id, tickets]);
+
+  const visible = (tickets ?? []).filter((t) => statusFilter === 'all' || OPEN_STATUSES.has(t.status));
   const selected = visible.find((t) => t.id === selectedId) ?? null;
 
   if (!has('support.handle')) {

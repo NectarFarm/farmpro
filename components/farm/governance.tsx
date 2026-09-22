@@ -196,9 +196,14 @@ interface AuditLogRow {
   at: string;
 }
 // GET /api/employees — already used by components/farm/people.tsx; only the
-// three fields this screen actually reads are typed here.
+// fields this screen actually reads are typed here. `userId` (nullable
+// logical link to `users` — db/schemas/people.ts) is what lets this screen
+// resolve an approval's `requestedBy` (a users.id) back to a name for
+// someone who isn't in the approvers list — a worker who raised a request
+// can never approve one, so GET /api/approvals/approvers never carries them.
 interface EmployeeRow {
   id: string;
+  userId: string | null;
   name: string;
   role: string;
   status: string;
@@ -482,9 +487,13 @@ export function GovernanceScreen() {
       if (res.success) setMyUserId(res.data.id);
     });
     // "People on roles" tile + Roles tab member chips (new UI — see header
-    // comment). Read-only, already-existing endpoint; no write path here.
+    // comment), AND requester/approver name resolution below. Read-only,
+    // already-existing endpoint; no write path here. Kept unfiltered by
+    // status here — a departed employee still needs to resolve to a real
+    // name on an old approval/audit row; the ACTIVE-only view used for
+    // headcounts is `activeEmployees` below.
     apiClient.get<EmployeeRow[]>(`/api/employees?tenantId=${tenantId}`).then((res) => {
-      if (res.success) setEmployees(res.data.filter(e => e.status === 'ACTIVE'));
+      if (res.success) setEmployees(res.data);
     });
   }, [tenantId]);
   useEffect(() => { loadRoles(); }, [loadRoles]);
@@ -536,6 +545,11 @@ export function GovernanceScreen() {
     }
   }
 
+  // ACTIVE-only view for headcounts (roles tab counts, member chips, the
+  // "People on roles" tile) — `employees` itself stays unfiltered so name
+  // resolution below can still find someone who has since left.
+  const activeEmployees = useMemo(() => employees.filter(e => e.status === 'ACTIVE'), [employees]);
+
   const pending = (approvals ?? []).filter(a => a.status === 'pending').length;
   // "Approved — This season": the current quarter, computed from the
   // approvals data already fetched (see header comment for why "quarter").
@@ -543,19 +557,27 @@ export function GovernanceScreen() {
   const approvedThisSeason = (approvals ?? []).filter(a =>
     a.status === 'approved' && !!a.decidedAt && a.decidedAt.slice(0, 10) >= seasonRange.from && a.decidedAt.slice(0, 10) <= seasonRange.to,
   ).length;
-  const peopleOnRoles = employees.length;
+  const peopleOnRoles = activeEmployees.length;
 
+  // Resolves a users.id to a display name against every person this screen
+  // actually has loaded: the approvers list first (it already carries the
+  // role), then the full employees list (unfiltered by status — see the
+  // fetch comment above) matched on `employees.userId`, since a requester
+  // who can't approve — any worker — is never in the approvers list at all.
+  // Only when NEITHER resolves the id does this say the person is gone; that
+  // used to be the approvers list's only possible answer for anyone who
+  // wasn't an approver, worker included.
   const approverName = useCallback((userId: string | null) => {
     if (!userId) return null;
     if (userId === myUserId) return 'you';
-    return approvers.find((p) => p.userId === userId)?.name ?? 'someone no longer on this farm';
-  }, [approvers, myUserId]);
-  // Best-effort requester name: `requestedBy` is a raw user id (approval_
-  // requests.requestedBy — db/schemas/governance.ts), not a display name.
-  // Resolved through the same approvers/session lookup as decidedBy/
-  // assignedApproverId above when possible (an owner/manager requester is
-  // always in the approvers list); falls back to a generic label rather than
-  // printing a raw uuid.
+    const approver = approvers.find((p) => p.userId === userId);
+    if (approver) return approver.name;
+    const employee = employees.find((e) => e.userId === userId);
+    if (employee) return employee.name;
+    return 'someone no longer on this farm';
+  }, [approvers, employees, myUserId]);
+  // `requestedBy` is a raw user id (approval_requests.requestedBy —
+  // db/schemas/governance.ts), not a display name — resolved the same way.
   const requesterName = useCallback((userId: string) => approverName(userId) ?? 'a worker on this farm', [approverName]);
   const requesterInitials = useCallback((userId: string) => {
     const resolved = approverName(userId);
@@ -684,7 +706,7 @@ export function GovernanceScreen() {
 
         <PageHeader
           kicker="Company"
-          title="Governance"
+          title="Approvals"
           lede="Who can do what, what still needs a second look, and a full trail of every change across the group."
           actions={(
             <div className="flex items-center gap-2">
@@ -791,7 +813,7 @@ export function GovernanceScreen() {
               ) : roles.length === 0 ? (
                 <div className="py-6 text-sm text-muted">No roles configured yet.</div>
               ) : roles.map((r) => {
-                const count = employees.filter(e => e.role === r.role).length;
+                const count = activeEmployees.filter(e => e.role === r.role).length;
                 const active = r.role === selectedRoleEntry?.role;
                 return (
                   <li key={r.role} className="shrink-0">
@@ -826,7 +848,7 @@ export function GovernanceScreen() {
               {selectedRoleEntry ? (
                 <RoleDetail
                   entry={selectedRoleEntry}
-                  members={employees.filter(e => e.role === selectedRoleEntry.role)}
+                  members={activeEmployees.filter(e => e.role === selectedRoleEntry.role)}
                   canEdit={canEditRoles}
                   deleteConfirm={deleteRoleConfirm === selectedRoleEntry.role}
                   onEdit={() => setEditRole(selectedRoleEntry)}
@@ -995,7 +1017,18 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
         <div className="min-w-0">
           <Badge variant={approval.status === 'pending' ? 'warning' : approval.status === 'approved' ? 'success' : 'danger'}>{approval.status}</Badge>
           <h2 className="font-display mt-3 text-2xl leading-tight font-medium">{approval.title}</h2>
-          {approval.details && <p className="mt-2 text-sm leading-relaxed text-muted">{approval.details}</p>}
+          {/* `details` is `data.cause`/`data.varianceReason` for a mortality or
+           * physical-count request (POST /api/records) — already shown, properly
+           * labeled, in "What the worker submitted" below once the record loads.
+           * Rendering it again here too, with no label at all, is how an honest
+           * default value like "Unknown" (MortalityForm's default cause) reads
+           * as a broken field: title, then a bare unlabeled word underneath it.
+           * For a task-completion request `details` IS the whole story — the
+           * completion note, never repeated anywhere else — so it still shows,
+           * just with a label instead of dangling under the title. */}
+          {approval.type === 'task_completion' && approval.details && (
+            <p className="mt-2 text-sm leading-relaxed text-muted"><span className="text-subtle">Notes: </span>{approval.details}</p>
+          )}
         </div>
       </div>
 

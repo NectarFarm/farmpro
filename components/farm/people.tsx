@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
-import { Plus, Key, ChevronRight, Check, X, Search, List, Grid3X3, CheckCircle2, Upload } from './icons';
+import { Plus, Key, ChevronRight, Check, X, Search, List, Grid3X3, CheckCircle2, Upload, AlertTriangle } from './icons';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef, usePersistedView } from './data-table';
 import { useToast } from './ui-shared';
@@ -556,6 +556,47 @@ interface WorkerLoginState {
   status: string | null;
 }
 
+// Owner reveals a fresh set-password link exactly once — same "cannot be
+// retrieved again, copy it now" convention as admin-users.tsx's
+// TempPasswordModal, for the same reason: this codebase sends no real email,
+// so the link itself is the only way the owner can hand it to the manager.
+function SetPasswordLinkModal({ email, url, onClose }: { email: string; url: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: 20 }} onClick={onClose}>
+      <div className="farm-card" style={{ width: '100%', maxWidth: 420, padding: 20 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <CheckCircle2 size={18} color="var(--status-ok)" />
+          <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>Login created</div>
+        </div>
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+          Send this one-time link to <strong>{email}</strong> — through a channel you trust, out of band. They use it to set their own password.
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
+          <code style={{ fontFamily: 'monospace', fontSize: 'var(--fs-xs)', flex: 1, wordBreak: 'break-all', color: 'var(--text-primary)' }}>{url}</code>
+          <button
+            onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(url); setCopied(true); }}
+            style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 8, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', cursor: 'pointer', flexShrink: 0 }}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', marginBottom: 16, lineHeight: 1.4 }}>
+          <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>This link cannot be shown again once you close this dialog. It expires in 48 hours.</span>
+        </div>
+        <button onClick={onClose} className="btn-primary" style={{ width: '100%', justifyContent: 'center', fontSize: 'var(--fs-base)', padding: 10 }}>Done</button>
+      </div>
+    </div>
+  );
+}
+
+// Roles this card can issue an email login for — everyone above a worker
+// except the owner themselves (POST /api/employees/[id]/email-login refuses
+// owner/super_admin server-side too; mirrored here only so the button never
+// offers an action the API will reject).
+const EMAIL_LOGIN_ROLES = new Set(['manager', 'vet', 'auditor']);
+
 function WorkerLoginCard({ employee, tenantId, onLinked }: {
   employee: ApiEmployee;
   tenantId: string;
@@ -566,11 +607,16 @@ function WorkerLoginCard({ employee, tenantId, onLinked }: {
   const [state, setState] = useState<WorkerLoginState | null>(null);
   const [phone, setPhone] = useState(employee.phone || '');
   const [pin, setPin] = useState('');
+  const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [setPasswordLink, setSetPasswordLink] = useState<{ email: string; url: string } | null>(null);
 
   const canManage = role === 'owner' || role === 'manager';
+  // Only an owner may issue a login for a role above worker — see the API
+  // route's header comment for why this stays narrower than the PIN card.
+  const canIssueEmailLogin = role === 'owner' && EMAIL_LOGIN_ROLES.has(employee.role);
 
   const load = useCallback(() => {
     if (!canManage) return;
@@ -582,17 +628,57 @@ function WorkerLoginCard({ employee, tenantId, onLinked }: {
 
   useEffect(() => { load(); }, [load]);
 
-  // Only workers sign in with a PIN; managers and owners use a password and
-  // are still issued by a platform admin. Saying so beats a card whose
-  // buttons always fail.
   if (!canManage) return null;
+
+  // Everyone above a worker signs in with email + password, not a PIN — but
+  // an owner can now actually issue that login from here instead of being
+  // told to go find a platform admin who has no UI for it either.
   if (employee.role !== 'worker') {
+    async function sendEmailLogin() {
+      setError('');
+      setBusy(true);
+      const res = await apiClient.post<{ userId: string; email: string; setPasswordUrl: string }>(`/api/employees/${employee.id}/email-login`, { tenantId, email });
+      setBusy(false);
+      if (!res.success) { setError(res.error || 'Could not create the login.'); return; }
+      setEmail('');
+      setSetPasswordLink({ email: res.data.email, url: res.data.setPasswordUrl });
+      load();
+      onLinked();
+    }
+
     return (
       <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
-        <div className="section-eyebrow" style={{ marginBottom: 6 }}>Sign-in</div>
-        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          {roleLabel(employee.role)} accounts sign in with an email and password, not a PIN. Ask the platform admin to issue one.
-        </div>
+        <div className="section-eyebrow" style={{ marginBottom: 8 }}>Sign-in</div>
+        {!canIssueEmailLogin ? (
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            {roleLabel(employee.role)} accounts sign in with an email and password, not a PIN.
+            {role !== 'owner' ? ' Only the owner can issue this login.' : ' This role cannot be issued a login here.'}
+          </div>
+        ) : state === null ? (
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading…</div>
+        ) : state.hasLogin ? (
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            {employee.name} already has a sign-in account{state.status && state.status !== 'ACTIVE' ? ` (currently ${state.status.toLowerCase()})` : ''}. There is no reset action here yet — ask the platform admin to reset their password.
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
+              {employee.name} has no way to sign in yet. {roleLabel(employee.role)} accounts sign in with an email and password — give them an email and we&apos;ll generate a one-time link for them to set one.
+            </div>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email</label>
+            <input
+              className="farm-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="grace@example.com" style={{ marginBottom: 10 }}
+            />
+            {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+            <button className="btn-primary" disabled={busy || !email.trim()} onClick={sendEmailLogin} style={{ width: '100%', justifyContent: 'center' }}>
+              {busy ? 'Creating…' : 'Create login'}
+            </button>
+          </>
+        )}
+        {setPasswordLink && (
+          <SetPasswordLinkModal email={setPasswordLink.email} url={setPasswordLink.url} onClose={() => setSetPasswordLink(null)} />
+        )}
       </div>
     );
   }
@@ -899,7 +985,7 @@ export function PeopleDetailScreen() {
         {activeSection === 'permissions' && (
           <div className="mt-5">
             <p className="mb-3 text-sm text-muted">
-              Permissions inherited from the <strong className="text-fg">{roleName}</strong> role. Go to Governance → Roles &amp; rules to edit role permissions.
+              Permissions inherited from the <strong className="text-fg">{roleName}</strong> role. Go to Approvals → Roles &amp; rules to edit role permissions.
             </p>
             <section className="rounded-xl bg-surface p-2 shadow-(--shadow-border)">
               {assignedRole ? (

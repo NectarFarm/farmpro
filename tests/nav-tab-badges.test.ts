@@ -18,38 +18,50 @@ import { tabBadge } from '@/components/farm/navigation'
 
 describe('tabBadge() (issue #298)', () => {
   it('shows no badge for "tasks" when openTasksCount is 0 (not the old hardcoded 2)', () => {
-    expect(tabBadge('tasks', 0, 0, 0, 0)).toBeNull()
+    expect(tabBadge('tasks', 0, 0, 0, 0, 0)).toBeNull()
   })
 
   it('shows the real openTasksCount for "tasks" when > 0', () => {
-    expect(tabBadge('tasks', 0, 0, 5, 0)).toBe(5)
+    expect(tabBadge('tasks', 0, 0, 5, 0, 0)).toBe(5)
   })
 
   it('shows no badge for "admin-onboarding" when pendingOnboardingRequests is 0 (not the old hardcoded 2)', () => {
-    expect(tabBadge('admin-onboarding', 0, 0, 0, 0)).toBeNull()
+    expect(tabBadge('admin-onboarding', 0, 0, 0, 0, 0)).toBeNull()
   })
 
   it('shows the real pendingOnboardingRequests for "admin-onboarding" when > 0', () => {
-    expect(tabBadge('admin-onboarding', 0, 0, 0, 3)).toBe(3)
+    expect(tabBadge('admin-onboarding', 0, 0, 0, 3, 0)).toBe(3)
+  })
+
+  // e2e finding: the admin console's Tickets nav row had no badge at all —
+  // tabBadge() simply had no case for 'admin-tickets', so a new/unassigned
+  // ticket never surfaced there even though components/admin/overview.tsx's
+  // "operator's inbox" already counted the exact same thing.
+  it('shows no badge for "admin-tickets" when pendingTickets is 0', () => {
+    expect(tabBadge('admin-tickets', 0, 0, 0, 0, 0)).toBeNull()
+  })
+
+  it('shows the real pendingTickets (open + unassigned) for "admin-tickets" when > 0', () => {
+    expect(tabBadge('admin-tickets', 0, 0, 0, 0, 2)).toBe(2)
   })
 
   // Regression guards for issue #293's fixes — unaffected by this change.
   it('still shows pendingApprovals for "governance" when > 0, and nothing at 0', () => {
-    expect(tabBadge('governance', 0, 0, 0, 0)).toBeNull()
-    expect(tabBadge('governance', 4, 0, 0, 0)).toBe(4)
+    expect(tabBadge('governance', 0, 0, 0, 0, 0)).toBeNull()
+    expect(tabBadge('governance', 4, 0, 0, 0, 0)).toBe(4)
   })
 
   it('still shows unreadNotifs for "dashboard" when > 0, and nothing at 0', () => {
-    expect(tabBadge('dashboard', 0, 0, 0, 0)).toBeNull()
-    expect(tabBadge('dashboard', 0, 7, 0, 0)).toBe(7)
+    expect(tabBadge('dashboard', 0, 0, 0, 0, 0)).toBeNull()
+    expect(tabBadge('dashboard', 0, 7, 0, 0, 0)).toBe(7)
   })
 
   it('shows the same unread count on the desktop Notifications row', () => {
-    expect(tabBadge('notifications', 0, 0, 0, 0)).toBeNull()
-    expect(tabBadge('notifications', 0, 7, 0, 0)).toBe(7)
+    expect(tabBadge('notifications', 0, 0, 0, 0, 0)).toBeNull()
+    expect(tabBadge('notifications', 0, 7, 0, 0, 0)).toBe(7)
   })
 
   it('returns null for a tab with no badge concept', () => {
-    expect(tabBadge('crops', 9, 9, 9, 9)).toBeNull()
+    expect(tabBadge('crops', 9, 9, 9, 9, 0)).toBeNull()
   })
 })

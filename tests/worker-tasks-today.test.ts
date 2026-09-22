@@ -31,7 +31,7 @@ import { GET as tasksGET, POST as tasksPOST } from '@/app/api/tasks/route'
 import { PATCH as taskPATCH } from '@/app/api/tasks/[id]/route'
 import { db } from '@/db'
 import { tenants, employees, tasks, approvalRequests, users, sessions } from '@/db/schemas'
-import { splitNotes, buildNotes, type ApiTask } from '@/components/farm/tasks'
+import { buildNotes, type ApiTask } from '@/components/farm/tasks'
 import { selectMyTasksToday } from '@/components/farm/worker'
 import { createSession, hashSecret } from '@/lib/auth'
 
@@ -64,24 +64,36 @@ describe('selectMyTasksToday (pure filter, no DB needed)', () => {
     }
   }
 
-  it('keeps only tasks whose notes-encoded assignee matches the worker name', () => {
-    const mine = task({ id: 'mine', notes: buildNotes('John Kamau', '') })
-    const someoneElses = task({ id: 'other', notes: buildNotes('Sarah Mwangi', '') })
-    const unassigned = task({ id: 'unassigned', notes: null })
+  it('matches on the real assigneeId column, with no "Assigned:" text in the notes at all', () => {
+    const mine = task({ id: 'mine', assigneeId: 'emp-john', notes: 'Use the morning mash' })
+    const someoneElses = task({ id: 'other', assigneeId: 'emp-sarah', notes: null })
+    const unassigned = task({ id: 'unassigned', assigneeId: null, notes: null })
 
-    const result = selectMyTasksToday([mine, someoneElses, unassigned], 'John Kamau')
+    const result = selectMyTasksToday([mine, someoneElses, unassigned], 'emp-john', 'John Kamau')
     expect(result.map((t) => t.id)).toEqual(['mine'])
   })
 
-  it('matches case-insensitively and ignores surrounding whitespace', () => {
-    const mine = task({ id: 'mine', notes: buildNotes('  John Kamau  ', '') })
-    const result = selectMyTasksToday([mine], 'john kamau')
+  it('falls back to the notes-encoded assignee only for legacy rows with no assigneeId set', () => {
+    const legacyMine = task({ id: 'legacy-mine', assigneeId: null, notes: buildNotes('John Kamau', '') })
+    const legacyOther = task({ id: 'legacy-other', assigneeId: null, notes: buildNotes('Sarah Mwangi', '') })
+    // A row that HAS a real assigneeId is never re-checked against notes,
+    // even if stale notes text would otherwise have matched — the column is
+    // authoritative once set.
+    const staleNotesButNotMine = task({ id: 'stale-notes', assigneeId: 'emp-sarah', notes: buildNotes('John Kamau', '') })
+
+    const result = selectMyTasksToday([legacyMine, legacyOther, staleNotesButNotMine], 'emp-john', 'John Kamau')
+    expect(result.map((t) => t.id)).toEqual(['legacy-mine'])
+  })
+
+  it('matches the notes fallback case-insensitively and ignores surrounding whitespace', () => {
+    const mine = task({ id: 'mine', assigneeId: null, notes: buildNotes('  John Kamau  ', '') })
+    const result = selectMyTasksToday([mine], 'emp-john', 'john kamau')
     expect(result.map((t) => t.id)).toEqual(['mine'])
   })
 
-  it('returns nothing for an empty worker name', () => {
-    const mine = task({ id: 'mine', notes: buildNotes('John Kamau', '') })
-    expect(selectMyTasksToday([mine], '')).toEqual([])
+  it('returns nothing for an unassigned legacy row when the worker name is empty', () => {
+    const mine = task({ id: 'mine', assigneeId: null, notes: buildNotes('John Kamau', '') })
+    expect(selectMyTasksToday([mine], 'emp-john', '')).toEqual([])
   })
 })
 
@@ -113,21 +125,26 @@ run('worker home "My Tasks Today": GET /api/tasks?due=today + assignee filter (i
     await db.delete(tenants).where(inArray(tenants.id, [tenantId]))
   })
 
-  it('surfaces a task assigned to the worker and due today, and excludes others', async () => {
+  it('surfaces a task assigned to the worker (real assigneeId column, no "Assigned:" notes text) and due today, and excludes others', async () => {
     const now = new Date()
     const todayNoon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12))
     const tomorrow = new Date(todayNoon.getTime() + 24 * 60 * 60 * 1000)
 
+    // P1 e2e finding: the owner's Assign-work sheet writes `assigneeId`
+    // (components/farm/tasks.tsx), not a notes-encoded name — this is the
+    // exact shape a task created that way actually has.
     const myTaskRes = await tasksPOST(
       postRequest('http://localhost/api/tasks', {
         tenantId,
         title: 'Feeding — House A1',
         dueAt: todayNoon.toISOString(),
-        notes: buildNotes('John Kamau', 'Use the morning mash'),
+        assigneeId: workerId,
+        notes: 'Use the morning mash',
       })
     )
     expect(myTaskRes.status).toBe(201)
     const myTask = (await myTaskRes.json()).data
+    expect(myTask.assigneeId).toBe(workerId)
 
     await tasksPOST(
       postRequest('http://localhost/api/tasks', {
@@ -149,7 +166,7 @@ run('worker home "My Tasks Today": GET /api/tasks?due=today + assignee filter (i
         tenantId,
         title: 'Tomorrow feeding — House A1',
         dueAt: tomorrow.toISOString(),
-        notes: buildNotes('John Kamau', ''),
+        assigneeId: workerId,
       })
     )
 
@@ -158,12 +175,11 @@ run('worker home "My Tasks Today": GET /api/tasks?due=today + assignee filter (i
     const payload = await res.json()
     expect(payload.success).toBe(true)
 
-    const mine = selectMyTasksToday(payload.data, 'John Kamau')
+    const mine = selectMyTasksToday(payload.data, workerId, 'John Kamau')
     expect(mine).toHaveLength(1)
     expect(mine[0].id).toBe(myTask.id)
     expect(mine[0].title).toBe('Feeding — House A1')
-    expect(splitNotes(mine[0].notes).assignee).toBe('John Kamau')
-    expect(splitNotes(mine[0].notes).rest).toBe('Use the morning mash')
+    expect(mine[0].notes).toBe('Use the morning mash')
   })
 
   it('completing a task from the worker view goes through the same approval-aware PATCH as Tasks/Governance', async () => {
