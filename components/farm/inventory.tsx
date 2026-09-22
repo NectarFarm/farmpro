@@ -1153,7 +1153,13 @@ export function InventoryScreen() {
                       lede={`${selectedItem.qtyOnHand.toLocaleString()} ${selectedItem.unit} on hand`}
                       footer={<Button className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}>Record a purchase</Button>}
                     >
-                      <StockDossierBody item={selectedItem} tenantId={tenantId} onAdjusted={loadItems} />
+                      {/* loadAll, not loadItems: an adjustment changes the lot
+                          quantity the Lots tab reads from GET
+                          /api/inventory/variance too, and reloading only the
+                          items left that tab showing the pre-adjustment figure
+                          until a full page reload — two screens disagreeing
+                          about the same bag of feed. */}
+                      <StockDossierBody item={selectedItem} tenantId={tenantId} onAdjusted={loadAll} />
                     </Dossier>
                   ) : (
                     <EmptyState icon={<Wheat size={20} />} title="Nothing selected" body="Pick a line on the left to see its lots and purchases." />
@@ -1236,7 +1242,7 @@ export function InventoryScreen() {
         lede={selectedItem ? `${selectedItem.qtyOnHand.toLocaleString()} ${selectedItem.unit} on hand` : undefined}
         footer={<Button className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}>Record a purchase</Button>}
       >
-        {selectedItem && <StockDossierBody item={selectedItem} tenantId={tenantId} onAdjusted={loadItems} />}
+        {selectedItem && <StockDossierBody item={selectedItem} tenantId={tenantId} onAdjusted={loadAll} />}
       </Inspector>
 
       {/* CSV Import Modal */}
