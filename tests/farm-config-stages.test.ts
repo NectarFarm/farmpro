@@ -215,9 +215,14 @@ describe('components/farm/farm-config.tsx — the screen that was missing', () =
     expect(source).toMatch(/excluded from this batch/)
   })
 
-  it('links out to units and routines instead of duplicating their editors', () => {
-    expect(source).toMatch(/Houses & fields/)
-    expect(source).toMatch(/Routines/)
+  // ui/governance-reference-redesign, docs/ui-migration-map.md D3/§4: the old
+  // "Structure" tab (four links out to Units/Routines/People/Governance) is
+  // deleted — the new Sites tab on the Units screen (components/farm/
+  // crops.tsx, params.tab='sites') replaces it with an actual farm→house
+  // tree. FarmConfigScreen now only has Stages/Products.
+  it('the Structure tab is gone — only Stages and Products remain', () => {
+    expect(source).not.toMatch(/'structure'/)
+    expect(source).not.toMatch(/StructureTab/)
   })
 
   it('is registered as a screen and reachable from Settings', () => {
