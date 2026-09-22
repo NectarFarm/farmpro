@@ -168,6 +168,11 @@ function TenantOverviewSheet({ tenantId, tenantName, onClose, onChanged }: {
   const [data, setData] = useState<TenantOverview | null>(null);
   const [loadError, setLoadError] = useState('');
   const [plans, setPlans] = useState<AdminPlan[] | null>(null);
+  // Fallback only: the subscription's own plan always carries a currency, so
+  // this is read solely for the "no subscription/no plan currency" edge —
+  // never used to override a real plan currency (that would repeat the
+  // plans?.[0] bug this replaces).
+  const [tenantSettingsCurrency, setTenantSettingsCurrency] = useState('');
   const [planId, setPlanId] = useState('');
   const [period, setPeriod] = useState<PlanPeriod>('monthly');
   const [discountCode, setDiscountCode] = useState('');
@@ -189,6 +194,11 @@ function TenantOverviewSheet({ tenantId, tenantName, onClose, onChanged }: {
   useEffect(() => {
     apiClient.get<AdminPlan[]>('/api/admin/plans').then((res) => { if (res.success) setPlans(res.data); });
   }, []);
+  useEffect(() => {
+    apiClient.get<{ currencySymbol: string }>(`/api/settings?tenantId=${tenantId}`).then((res) => {
+      if (res.success) setTenantSettingsCurrency(res.data.currencySymbol);
+    });
+  }, [tenantId]);
 
   async function patchSub(body: Record<string, unknown>) {
     setSubBusy(true); setSubError('');
@@ -247,7 +257,7 @@ function TenantOverviewSheet({ tenantId, tenantName, onClose, onChanged }: {
                     <strong>{data.subscription.planName}</strong> · {data.subscription.period} · status: <strong>{data.subscription.status}</strong>
                     {data.subscription.trialEndsAt && <> · trial ends {fmtDate(data.subscription.trialEndsAt)}</>}
                     {data.subscription.currentPeriodEnd && <> · period ends {fmtDate(data.subscription.currentPeriodEnd)}</>}
-                    {' '}· due {centsToDisplay(data.subscription.amountDueCents, plans?.[0]?.currency ?? 'UGX')}
+                    {' '}· due {centsToDisplay(data.subscription.amountDueCents, data.subscription.planCurrency || tenantSettingsCurrency)}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                     <select className="farm-input" value={planId} onChange={(e) => setPlanId(e.target.value)}>
@@ -345,7 +355,6 @@ export function AdminFarmsScreen() {
       const t = tenants.find((x) => x.id === params.tenantId);
       if (t) setOverviewTenant({ id: t.id, name: t.name });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.tenantId, tenants]);
 
   const load = useCallback(async () => {

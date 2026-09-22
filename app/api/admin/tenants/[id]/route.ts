@@ -72,6 +72,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
               planId: sub.planId,
               planName: sub.plan.name,
               planCode: sub.plan.code,
+              planCurrency: sub.plan.currency,
               period: sub.period,
               status: access.status,
               needsPlan: access.needsPlan,

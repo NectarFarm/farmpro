@@ -8,7 +8,8 @@ import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
-import { canEdit, needsApproval, MODULES } from '@/lib/permissions'
+import { canEdit, needsApproval } from '@/lib/permissions'
+import { RECORD_TYPE_MODULES } from '@/lib/permission-matrix'
 import { applyMovement, applyCount, BatchLedgerError } from '@/lib/batch-ledger'
 import { consumeStock, InsufficientStockError, UnknownItemError, type ConsumeResult } from '@/lib/inventory-consume'
 import { notifyApprovalRaised } from '@/lib/governance'
@@ -65,24 +66,12 @@ const RECORD_TYPES = new Set([
 ])
 
 // role-permission-enforcement task: each writable record `type` maps to
-// exactly one governance module (see lib/permissions.ts's MODULES) — this is
-// the "map each record type to its module" instruction, done honestly rather
-// than inventing a module `records` itself doesn't have.
-const RECORD_TYPE_MODULES: Record<string, string> = {
-  feeding: MODULES.feeding,
-  mortality: MODULES.mortality,
-  physical_count: MODULES.physicalCount,
-  // Collecting eggs/milk is the egg-collection module the matrix already
-  // has; there is no separate 'production' module to invent.
-  production: MODULES.eggCollection,
-  health: MODULES.health,
-  // Weighing and observing are part of doing the round, and the matrix has
-  // no module of their own — they ride with the batch module rather than
-  // getting a fabricated one the Governance screen cannot configure.
-  weight: MODULES.batches,
-  check: MODULES.batches,
-  stock_count: MODULES.inventory,
-}
+// exactly one governance module — this is the "map each record type to its
+// module" instruction, done honestly rather than inventing a module
+// `records` itself doesn't have. Lives in lib/permission-matrix.ts (not
+// here) so components/farm/worker.tsx's record-type picker can read the
+// exact same mapping this route enforces, instead of a second copy that
+// could silently drift from it.
 
 // GET /api/records?tenantId=&batchId=&type=&employeeId=&farmId= — activity
 // feed / worker's own history, newest first.

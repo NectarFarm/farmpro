@@ -345,6 +345,7 @@ describe('per-field validation (owner-roast findings #9/#10/#11) shares one mech
 describe('nav badge vs screen notification counts agree (owner-roast finding #5)', () => {
   const nav = read('components/farm/navigation.tsx')
   const dashboard = read('components/farm/dashboard.tsx')
+  const governance = read('components/farm/governance.tsx')
 
   it('NavProvider exposes a refreshBadges that re-runs the badge-count effect', () => {
     expect(nav).toMatch(/refreshBadges: \(\) => void/)
@@ -359,6 +360,26 @@ describe('nav badge vs screen notification counts agree (owner-roast finding #5)
     expect(markReadBlock).toMatch(/refreshBadges\(\);/)
     const markAllBlock = screen.slice(screen.indexOf('function markAllRead'), screen.indexOf('function handleNotifTap'))
     expect(markAllBlock).toMatch(/refreshBadges\(\);/)
+  })
+
+  // e2e finding: the Approvals nav badge stayed on a stale "5" after every
+  // request in the queue had already been approved/rejected (Governance
+  // showing 0 pending, 6 approved) — the same staleness bug finding #5 fixed
+  // for notifications, just never applied to the other refreshBadges() call
+  // site this codebase has.
+  it('approving/rejecting a request in GovernanceScreen calls refreshBadges so the nav badge cannot go stale', () => {
+    const decideBlock = governance.slice(governance.indexOf('async function decide'), governance.indexOf('async function persistRoles'))
+    expect(decideBlock).toMatch(/refreshBadges\(\);/)
+  })
+
+  // The badge counts GET /api/approvals?status=pending&farmId=<activeFarmId>
+  // (plus &scope=mine for non-owners); GovernanceScreen's queue must resolve
+  // the exact same rows (same tenant, same farm, same scope) or the two can
+  // legitimately disagree the moment anything but "All Farms" is selected.
+  it("GovernanceScreen's approvals queue is scoped by the same farmId and scope=mine rule as the nav badge", () => {
+    const loadBlock = governance.slice(governance.indexOf('const loadApprovals'), governance.indexOf('const loadRoles'))
+    expect(loadBlock).toMatch(/\/api\/approvals\?tenantId=\$\{tenantId\}&farmId=\$\{activeFarmId\}\$\{scopeParam\}/)
+    expect(governance).toMatch(/const scopeParam = sessionRole === 'owner' \? '' : '&scope=mine';/)
   })
 })
 
