@@ -344,7 +344,7 @@ describe('nav badge vs screen notification counts agree (owner-roast finding #5)
     expect(nav).toMatch(/refreshBadges: \(\) => void/)
     expect(nav).toMatch(/const refreshBadges = useCallback\(\(\) => \{ setBadgesNonce\(\(n\) => n \+ 1\); \}, \[\]\)/)
     expect(nav).toMatch(/\}, \[tenantId, activeFarmId, role, badgesNonce\]\)/)
-    expect(nav).toMatch(/refreshBadges,\s*userName \}\}>/)
+    expect(nav).toMatch(/refreshBadges,\s*userName[, \w]*\}\}>/)
   })
 
   it('marking a notification read (one or all) calls refreshBadges so the nav badge cannot go stale', () => {
