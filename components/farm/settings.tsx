@@ -159,10 +159,13 @@ export function ThemeProvider({ children, tenantId }: { children: React.ReactNod
 export function useTheme() { return useContext(ThemeCtx); }
 
 /* ── SettingsScreen ── */
+// Preview swatches (ui/governance-reference-redesign): dark-farm/light-farm
+// updated to match their new app/global.css hex values; high-contrast/
+// sun-mode are unchanged themes, so their swatches are unchanged too.
 const THEME_OPTIONS: { id: ThemeMode; label: string; desc: string; preview: string; icon: LucideIcon }[] = [
-  { id: 'dark-farm',      label: 'Dark Farm',       desc: 'Optional low-light view', preview: '#0a0f0a', icon: Moon },
+  { id: 'dark-farm',      label: 'Dark Farm',       desc: 'Optional low-light view', preview: '#121612', icon: Moon },
   { id: 'high-contrast',  label: 'High Contrast',    desc: 'Black & white, maximum legibility', preview: '#000000', icon: Contrast },
-  { id: 'light-farm',     label: 'Light Farm',       desc: 'Default operational view', preview: '#f7f8f5', icon: Sun },
+  { id: 'light-farm',     label: 'Light Farm',       desc: 'Default operational view', preview: '#efece3', icon: Sun },
   { id: 'sun-mode',       label: 'Outdoor / Sun',    desc: 'Warm amber tones for bright sunlight', preview: '#2a1e00', icon: Sunrise },
 ];
 
