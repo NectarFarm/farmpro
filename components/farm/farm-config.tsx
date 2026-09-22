@@ -31,7 +31,7 @@ import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import { ENTERPRISE_REGISTRY } from './data';
 import {
-  Plus, X, ChevronRight, Layers, Package, Lock, AlertTriangle, Check, Sprout,
+  Plus, X, Layers, Package, Lock, AlertTriangle, Check,
 } from './icons';
 
 /* GET /api/stages's payload. `typicalDays` is nullable because migration 0036
@@ -91,9 +91,9 @@ let draftSeq = 0;
 const newKey = () => `draft-${draftSeq++}`;
 
 export function FarmConfigScreen() {
-  const { role, navigate } = useNav();
+  const { role } = useNav();
   const { showToast } = useToast();
-  const [tab, setTab] = useState<'stages' | 'products' | 'structure'>('stages');
+  const [tab, setTab] = useState<'stages' | 'products'>('stages');
 
   const isOwner = role === 'owner' || role === 'super_admin';
 
@@ -130,7 +130,6 @@ export function FarmConfigScreen() {
           {([
             ['stages', 'Stages', Layers],
             ['products', 'Products', Package],
-            ['structure', 'Structure', Sprout],
           ] as const).map(([id, label, Icon]) => (
             <button
               key={id}
@@ -151,7 +150,6 @@ export function FarmConfigScreen() {
 
         {tab === 'stages' && <StagesTab showToast={showToast} />}
         {tab === 'products' && <ProductsTab showToast={showToast} />}
-        {tab === 'structure' && <StructureTab navigate={navigate} />}
       </div>
     </div>
   );
@@ -499,42 +497,8 @@ function ProductsTab({ showToast }: { showToast: (m: string, t?: 'success' | 'er
   );
 }
 
-/* ── Structure ───────────────────────────────────────────────────────────────
- * Links out rather than reimplementing. Production units and routines already
- * have real editors; a second copy here would drift from them, and "configure
- * the farm" is about being able to FIND the setup, not about it all living in
- * one file. */
-function StructureTab({ navigate }: { navigate: (to: 'crops' | 'routines' | 'people' | 'governance') => void }) {
-  const rows: { label: string; desc: string; to: 'crops' | 'routines' | 'people' | 'governance' }[] = [
-    { label: 'Houses & fields', desc: 'The house, pen, paddock or field a batch lives in — and the products each one yields', to: 'crops' },
-    { label: 'Routines', desc: 'The round your workers walk each day', to: 'routines' },
-    { label: 'People', desc: 'Who works here, and which batches they are assigned to', to: 'people' },
-    { label: 'Approvals', desc: 'What each role may do, and what needs signing off first', to: 'governance' },
-  ];
-  return (
-    <div>
-      <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-        {rows.map((r, i) => (
-          <div
-            key={r.to}
-            onClick={() => navigate(r.to)}
-            style={{
-              padding: '13px 14px', display: 'flex', gap: 10, alignItems: 'center', cursor: 'pointer',
-              borderBottom: i < rows.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-            }}
-          >
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{r.label}</div>
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1, lineHeight: 1.45 }}>{r.desc}</div>
-            </div>
-            <ChevronRight size={16} color="var(--text-dim)" aria-hidden="true" />
-          </div>
-        ))}
-      </div>
-      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.6, marginBottom: 20 }}>
-        These already have their own screens, so this page links to them rather than keeping a second copy of the
-        same editor.
-      </div>
-    </div>
-  );
-}
+// ── "Structure" tab removed (docs/ui-migration-map.md D3/§4) ────────────────
+// It was a list of four links out to Units/Routines/People/Governance — the
+// new Sites tab on the Units screen (components/farm/crops.tsx, params.tab=
+// 'sites') now does that job with an actual farm→house tree instead of a
+// list of links.

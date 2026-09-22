@@ -7,6 +7,9 @@ import { Plus, X, Check, Package, Archive, Edit2, PawPrint, Sprout, MapPin, Help
 import { StatusTimeline } from './status-timeline';
 import { parseMoneyToCents, centsToMajor, majorToCents } from '@/lib/money';
 import { useToast, useConfirm, fieldErrorStyle, FieldError } from './ui-shared';
+import { Kpi } from '@/components/ui-kit/page-header';
+import { Segmented, Chips } from '@/components/ui-kit/segmented';
+import { SitesTab } from './sites';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
 // This screen used to render entirely from the batches mock array exported by
@@ -635,18 +638,29 @@ function UnitProductsSheet({ tenantId, unit, allProducts, onSaved, onClose }: {
   );
 }
 
-const CROPS_TABS = ['livestock', 'crops', 'units', 'products'] as const;
+// docs/ui-migration-map.md D1–D3: 'sites' added as a 5th tab, reusing the
+// same units/batches/farms data this screen already fetches — no new API
+// call. Order matches components/farm/navigation.tsx's TAB_MENUS.crops rows.
+const CROPS_TABS = ['units', 'livestock', 'crops', 'products', 'sites'] as const;
 type CropsTab = (typeof CROPS_TABS)[number];
 
 // The Farm tab's menu (components/farm/navigation.tsx's TAB_MENUS) and the
 // setup guide's per-step deep links (lib/onboarding-guide.ts's `goTo`) both
-// name one of this screen's four tabs. Reading it here is what makes "Add your
+// name one of this screen's tabs. Reading it here is what makes "Add your
 // production units" actually land on Units instead of on Livestock and leave
 // the farmer to find the right tab — which was the whole point of the
 // deep link. Anything unrecognised falls back to the screen's own default
 // rather than rendering an empty tab body.
+//
+// Default is 'units' (ui/governance-reference-redesign lead decision): the
+// Units screen's hero is the units list with live occupancy, not the batch
+// list — matching the reference's own framing of this page.
 function initialCropsTab(raw: string | undefined): CropsTab {
-  return (CROPS_TABS as readonly string[]).includes(raw ?? '') ? (raw as CropsTab) : 'livestock';
+  return (CROPS_TABS as readonly string[]).includes(raw ?? '') ? (raw as CropsTab) : 'units';
+}
+
+function isPhoneViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
 }
 
 export function CropsScreen() {
@@ -721,63 +735,52 @@ export function CropsScreen() {
   return (
     <div className="screen-content">
       <TopNav
-        title={{ livestock: NAV.livestock, crops: NAV.crops, units: NAV.houses, products: NAV.products }[tab]}
-        subtitle={{ livestock: 'Animals you track together', crops: 'Planted fields', units: 'Houses, pens, paddocks and fields', products: 'What you sell' }[tab]}
+        title={{ livestock: NAV.livestock, crops: NAV.crops, units: NAV.houses, products: NAV.products, sites: NAV.sites }[tab]}
+        subtitle={{ livestock: 'Animals you track together', crops: 'Planted fields', units: 'Houses, pens, paddocks and fields', products: 'What you sell', sites: 'The farm→house tree, with who lives where' }[tab]}
         rightEl={
-          <button className="btn-fab" style={{ width: 34, height: 34, borderRadius: 9 }} onClick={() => tab === 'units' ? setShowAddUnit(true) : tab === 'products' ? setShowAddProduct(true) : setShowEnterpriseSelector(true)} aria-label={tab === 'units' ? 'Add a house or field' : tab === 'products' ? 'Add a product' : tab === 'livestock' ? 'Start a livestock batch' : 'Start a crop batch'}>
-            <Plus size={15} />
-          </button>
+          tab === 'sites' ? undefined : (
+            <button className="btn-fab" style={{ width: 34, height: 34, borderRadius: 9 }} onClick={() => tab === 'units' ? setShowAddUnit(true) : tab === 'products' ? setShowAddProduct(true) : setShowEnterpriseSelector(true)} aria-label={tab === 'units' ? 'Add a house or field' : tab === 'products' ? 'Add a product' : tab === 'livestock' ? 'Start a livestock batch' : 'Start a crop batch'}>
+              <Plus size={15} />
+            </button>
+          )
         }
       />
 
       {/* Farm filter — shown in the "All Farms" aggregate view (multi-farm owners, issue #219) */}
       {activeFarm === 'ALL' && (
         <div className="px-screen" style={{ paddingTop: 8 }}>
-          <div className="chip-row" style={{ marginBottom: 6 }}>
-            <button onClick={() => setFarmFilter('All')} className={`filter-chip ${farmFilter === 'All' ? 'active' : ''}`}>All Farms</button>
-            {farms.map(f => (
-              <button key={f.code} onClick={() => setFarmFilter(f.code)} className={`filter-chip ${farmFilter === f.code ? 'active' : ''}`}>{f.name}</button>
-            ))}
-          </div>
+          <Chips value={farmFilter} onChange={setFarmFilter} items={[{ id: 'All', label: 'All Farms' }, ...farms.map(f => ({ id: f.code, label: f.name }))]} />
         </div>
       )}
 
-      {/* Summary strip */}
-      <div className="px-screen" style={{ paddingTop: 8 }}>
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4, marginBottom: 10 }}>
-          {[
-            { label: 'Livestock Batches', value: livestockBatches.filter(b=>b.status==='ACTIVE').length, color: 'var(--primary-green)' },
-            { label: 'Crop Batches', value: cropBatches.filter(b=>b.status==='ACTIVE').length, color: 'var(--accent-amber)' },
-            { label: 'Animals', value: livestockBatches.reduce((s,b)=>s+b.qty,0).toLocaleString(), color: 'var(--accent-blue)' },
-            { label: 'Total Cost', value: `KSh ${(centsToMajor(farmBatches.reduce((s,b)=>s+b.costCents,0))/1000).toFixed(0)}K`, color: 'var(--text-secondary)' },
-          ].map(s => (
-            <div key={s.label} style={{ flexShrink: 0, background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '8px 12px', textAlign: 'center', minWidth: 80 }}>
-              <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>{s.label}</div>
-            </div>
-          ))}
+      {/* Summary strip — the reference's Livestock/Crops/Animals/Placement KPI row (ui-kit Kpi) */}
+      <div className="px-screen" style={{ paddingTop: 10 }}>
+        <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <Kpi label="Livestock" value={livestockBatches.filter(b => b.status === 'ACTIVE').length} hint="Open batches" onClick={() => setTab('livestock')} />
+          <Kpi label="Crops" value={cropBatches.filter(b => b.status === 'ACTIVE').length} hint="In the ground" onClick={() => setTab('crops')} />
+          <Kpi label="Animals" value={livestockBatches.reduce((s, b) => s + b.qty, 0).toLocaleString()} hint="Head on feed" onClick={() => setTab('livestock')} />
+          <Kpi label="Placement" value={`KSh ${(centsToMajor(farmBatches.reduce((s, b) => s + b.costCents, 0)) / 1000).toFixed(0)}K`} hint="Cost still on batches" />
         </div>
 
-        {/* Type tabs */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-          {([
-            ['livestock', PawPrint, NAV.livestock],
-            ['crops', Sprout, NAV.crops],
-            ['units', Warehouse, NAV.houses],
-            ['products', Package, NAV.products],
-          ] as const).map(([id, Icon, label]) => (
-            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-              <Icon size={12} aria-hidden="true" /> {label}
-            </button>
-          ))}
+        {/* Hero: Units is the farm's physical truth (ui/governance-reference-redesign lead decision) — first tab, default tab. */}
+        <div className="mb-3">
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            items={[
+              { id: 'units', label: NAV.houses, hint: 'Where things live' },
+              { id: 'livestock', label: NAV.livestock, hint: 'Batches you track' },
+              { id: 'crops', label: NAV.crops, hint: 'Planted fields' },
+              { id: 'products', label: NAV.products, hint: 'What you sell' },
+              { id: 'sites', label: NAV.sites, hint: 'The whole tree' },
+            ]}
+          />
         </div>
 
         {/* Status filter */}
-        {tab !== 'units' && tab !== 'products' && (
-          <div className="chip-row" style={{ marginBottom: 10 }}>
-            {filters.map(f => (
-              <button key={f} onClick={() => setFilter(f)} className={`filter-chip ${filter === f ? 'active' : ''}`}>{f}</button>
-            ))}
+        {tab !== 'units' && tab !== 'products' && tab !== 'sites' && (
+          <div className="mb-3">
+            <Chips value={filter} onChange={setFilter} items={filters.map(f => ({ id: f, label: f }))} />
           </div>
         )}
       </div>
@@ -910,6 +913,19 @@ export function CropsScreen() {
             <Plus size={14} /> Add a product
           </button>
           )}
+        </div>
+      )}
+
+      {/* SITES — docs/ui-migration-map.md D1–D3: the farm→house tree, built
+          from the exact same units/batches/farms data already in state above
+          — zero new fetches. */}
+      {tab === 'sites' && (
+        <div className="px-screen" style={{ paddingBottom: 16 }}>
+          <SitesTab
+            units={units.map(u => ({ id: u.id, farmId: u.farmId, type: u.type, name: u.name, code: u.code, status: u.status }))}
+            batches={allViewBatches.map(b => ({ id: b.id, unitId: b.unitId, code: b.code, label: b.label, qty: b.qty, status: b.status }))}
+            farms={farms}
+          />
         </div>
       )}
 
