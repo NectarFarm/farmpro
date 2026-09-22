@@ -8,7 +8,7 @@ import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
-import { fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, type SaveReceipt } from './ui-shared';
+import { fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, type SaveReceipt } from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
 import { todayInTimezone } from '@/lib/datetime';
 import { useRegional } from './settings';
@@ -517,7 +517,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
           </div>
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+          {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
           <Button className="w-full justify-center" disabled={saving} onClick={save}>
             {saving ? 'Saving…' : 'Record Sale'}
           </Button>
@@ -553,6 +553,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   onViewList: () => void;
   onClose: () => void;
 }) {
+  const { navigate } = useNav();
   const [supplier, setSupplier] = useState('');
   const [itemName, setItemName] = useState('');
   const [category, setCategory] = useState('');
@@ -836,7 +837,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
           </div>
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+          {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
           <Button className="w-full justify-center" disabled={saving} onClick={save}>
             {saving ? 'Saving…' : 'Record Purchase'}
           </Button>

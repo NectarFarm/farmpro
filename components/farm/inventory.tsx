@@ -4,7 +4,7 @@ import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, Download, Wheat, Syringe, Beaker, Sprout, Receipt, AlertTriangle, Upload, type LucideIcon } from './icons';
-import { useToast, fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, type SaveReceipt } from './ui-shared';
+import { useToast, fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, type SaveReceipt } from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
 import { todayInTimezone } from '@/lib/datetime';
 import { useRegional } from './settings';
@@ -170,6 +170,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   onViewList: () => void;
   onClose: () => void;
 }) {
+  const { navigate } = useNav();
   const [supplier, setSupplier] = useState('');
   const [itemName, setItemName] = useState(prefill?.itemName ?? '');
   const [category, setCategory] = useState(prefill?.category ?? '');
@@ -472,7 +473,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
           </div>
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {error && <div className="mb-2 text-xs text-danger">{error}</div>}
+          {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
           <Button className="w-full justify-center" onClick={save} disabled={saving}>
             {saving ? 'Saving…' : 'Record Purchase'}
           </Button>

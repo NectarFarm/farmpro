@@ -270,6 +270,34 @@ export function FieldError({ id, message }: { id?: string; message?: string }) {
   return <div id={id} style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{message}</div>;
 }
 
+// ── Dimension-requirement error, with the setup link (item 19) ─────────────
+// lib/dimensions.ts's attachLineDimensions has always refused a posting that
+// leaves a REQUIRED account dimension empty (DimensionRequirementError:
+// "Posting to <account> requires a value for: <dimension>") — the one part
+// of that behaviour that was never wired anywhere was the sheet just
+// showing that raw message with nothing to do about it. Shared by the sale
+// and both purchase sheets so a save error only gets this one-tap "why, and
+// where to fix it" treatment once.
+const DIMENSION_REQUIREMENT_RE = /requires a value for/i;
+
+export function isDimensionRequirementError(message: string): boolean {
+  return DIMENSION_REQUIREMENT_RE.test(message);
+}
+
+export function SaveError({ message, onSetupDimensions }: { message: string; onSetupDimensions: () => void }) {
+  if (!message) return null;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{message}</div>
+      {isDimensionRequirementError(message) && (
+        <button type="button" onClick={onSetupDimensions} className="mt-1 text-xs font-medium text-primary">
+          Set up reporting dimensions
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    PAYMENT METHOD + REFERENCE (forms-audit slice)
    Shared by Record Sale (finance.tsx) and both Record Purchase sheets
