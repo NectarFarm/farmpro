@@ -177,6 +177,46 @@ interface TicketDetail {
   events: TicketEvent[];
 }
 
+export type TicketTimelineItem =
+  | { id: string; createdAt: string; kind: 'message'; message: TicketMessage }
+  | { id: string; createdAt: string; kind: 'system'; text: string };
+
+// ── What the CUSTOMER's conversation folds an event into, and what it drops ─
+// The 4-step tracker already shows the STATUS itself; a raw append-only event
+// log underneath it (kind + fromValue/toValue, one line per row) is an
+// internal audit trail, not something a farmer reads — an assignment change
+// or a priority bump names nothing they asked about, and "status_changed:
+// waiting_on_customer" only repeats the badge two inches above it. Only the
+// three transitions that actually tell them something new become a quiet
+// inline line in the conversation, timestamped like a message: moved to "in
+// progress", marked "resolved", or reopened (a status_changed row FROM
+// resolved/closed back TO open — reopenTicket has no event kind of its own,
+// it's plain updateTicket({status:'open'}), so this is the only way to tell a
+// real reopen apart from the ticket's initial "open" state, which never
+// appears as an event at all). The STAFF side (components/admin/tickets.tsx)
+// keeps every event, unfiltered — that IS their audit trail; this function is
+// customer-side only.
+export function customerSystemLineFor(e: Pick<TicketEvent, 'kind' | 'fromValue' | 'toValue'>): string | null {
+  if (e.kind !== 'status_changed') return null;
+  if (e.toValue === 'in_progress') return 'Marked in progress';
+  if (e.toValue === 'resolved') return 'Resolved';
+  if (e.toValue === 'open' && (e.fromValue === 'resolved' || e.fromValue === 'closed')) return 'Reopened';
+  return null;
+}
+
+// Messages and the handful of customer-relevant events, merged into one
+// chronological timeline so a status change renders in the conversation at
+// the moment it actually happened, not bolted on as a separate list below it.
+export function mergeTicketTimeline(messages: TicketMessage[], events: TicketEvent[]): TicketTimelineItem[] {
+  return [
+    ...messages.map((m): TicketTimelineItem => ({ id: m.id, createdAt: m.createdAt, kind: 'message', message: m })),
+    ...events.flatMap((e): TicketTimelineItem[] => {
+      const text = customerSystemLineFor(e);
+      return text ? [{ id: e.id, createdAt: e.createdAt, kind: 'system' as const, text }] : [];
+    }),
+  ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
 export function SupportTicketScreen() {
   const { params, goBack } = useNav();
   const { showToast } = useToast();
@@ -210,6 +250,10 @@ export function SupportTicketScreen() {
   const { ticket, messages, events } = detail;
   const stepIdx = TRACKER_STEPS.findIndex((s) => s.status === ticket.status);
   const done = ticket.status === 'resolved' || ticket.status === 'closed';
+  const timeline = mergeTicketTimeline(messages, events);
+  function fmtTime(iso: string): string {
+    return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
 
   async function sendReply() {
     if (!reply.trim()) return;
@@ -263,24 +307,20 @@ export function SupportTicketScreen() {
           <span className="text-xs text-subtle">{ticket.category} · {ticket.priority}</span>
         </div>
 
-        {/* Conversation */}
+        {/* Conversation — messages and the handful of status changes worth
+           telling a customer about, interleaved in the order they happened. */}
         <div className="mt-5 flex flex-col gap-2">
-          {messages.map((m) => (
-            <div key={m.id} className={cn('max-w-[85%] rounded-lg px-3 py-2 text-sm', m.authorKind === 'customer' ? 'self-end bg-primary text-primary-fg' : 'self-start bg-surface-2')}>
-              <p>{m.body}</p>
-              <p className="mt-0.5 text-[10px] opacity-70">{m.authorKind}</p>
+          {timeline.map((item) => item.kind === 'message' ? (
+            <div key={item.id} className={cn('max-w-[85%] rounded-lg px-3 py-2 text-sm', item.message.authorKind === 'customer' ? 'self-end bg-primary text-primary-fg' : 'self-start bg-surface-2')}>
+              <p>{item.message.body}</p>
+              <p className="mt-0.5 text-[10px] opacity-70">{item.message.authorKind}</p>
+            </div>
+          ) : (
+            <div key={item.id} className="my-1 flex items-center justify-center gap-1.5 self-center text-[11px] text-subtle">
+              <Hourglass size={10} /> {item.text} · {fmtTime(item.createdAt)}
             </div>
           ))}
         </div>
-
-        {/* Events (append-only progress log, distinct from the conversation) */}
-        {events.length > 0 && (
-          <div className="mt-4 flex flex-col gap-1 text-xs text-subtle">
-            {events.map((e) => (
-              <div key={e.id} className="flex items-center gap-1.5"><Hourglass size={10} /> {e.kind.replace('_', ' ')}{e.toValue ? `: ${e.toValue}` : ''}</div>
-            ))}
-          </div>
-        )}
 
         {!done ? (
           <div className="mt-5 flex items-center gap-2">
