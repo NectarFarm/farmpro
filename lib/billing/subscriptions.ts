@@ -92,6 +92,11 @@ export async function findDiscountByCode(code: string): Promise<typeof discounts
   return rows[0] ?? null
 }
 
+export async function findDiscountById(id: string): Promise<typeof discounts.$inferSelect | null> {
+  const rows = await db.select().from(discounts).where(eq(discounts.id, id)).limit(1)
+  return rows[0] ?? null
+}
+
 /** Narrows a raw `discounts` row into the shape lib/billing/pricing.ts expects. */
 export function discountRowToDiscountLike(row: typeof discounts.$inferSelect): DiscountLike {
   return {
