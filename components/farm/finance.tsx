@@ -17,6 +17,10 @@ import { PageHeader } from '@/components/ui-kit/page-header';
 import { Segmented } from '@/components/ui-kit/segmented';
 import { Button } from '@/components/ui-kit/button';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
+import { Kv } from '@/components/ui-kit/inspector';
+import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dialog';
+import { controlClass } from '@/components/ui-kit/field';
+import { StatusTimeline } from './status-timeline';
 
 // ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
 // Ports src/components/finance/finance-page.tsx's layout onto this screen's
@@ -107,6 +111,16 @@ interface ApiSale {
   status: string;
   soldAt: string;
   createdAt: string;
+  // Forms-audit slice / item 20 / item 23 — always present on the real row
+  // (GET /api/data/sales selects the whole row); typed here as this screen
+  // starts reading them.
+  paymentReference: string | null;
+  dueDate: string | null;
+  soldTo: string | null;
+  notes: string | null;
+  customerId: string | null;
+  reversedAt: string | null;
+  recordedBy: string | null;
 }
 interface ApiPurchase {
   id: string;
@@ -119,6 +133,15 @@ interface ApiPurchase {
   amountPaidCents: number;
   createdAt: string;
   farmId: string | null; // farm-scoped-data task (migration 0019)
+  // Forms-audit slice / item 20 / item 23.
+  paymentReference: string | null;
+  dueDate: string | null;
+  invoiceNumber: string | null;
+  notes: string | null;
+  photoUrl: string | null;
+  supplierId: string | null;
+  reversedAt: string | null;
+  recordedBy: string | null;
 }
 interface ApiInventoryItemLite {
   id: string;
@@ -897,6 +920,295 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   );
 }
 
+const detailLabelStyle: React.CSSProperties = { fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 };
+
+/* ── Sale detail: edit (reason required) + reverse + history (item 23) ──────
+ * "Edit a sale, purchase or expense with a required reason, storing before/
+ * after values and who changed them" + "Reverse a posted row with a contra
+ * entry — never a delete, never an in-place rewrite of a posted figure" +
+ * "A per-record history panel, the same trust treatment StatusTimeline
+ * already gives tasks." All three live here: PATCH /api/data/sales/[id]
+ * (reason required, restricted to fields that don't drive the ledger — see
+ * that route's own comment for exactly which and why), POST .../reverse
+ * (reason required, posts a contra entry, marks reversedAt), and
+ * <StatusTimeline entity="sale" .../> reading back both as audit_log rows.
+ * A reversed sale shows neither action — it is done, permanently, by design. */
+function SaleDetailSheet({ tenantId, sale, onClose, onChanged }: {
+  tenantId: string;
+  sale: ApiSale;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { showToast } = useToast();
+  const [mode, setMode] = useState<'view' | 'edit'>('view');
+  const [item, setItem] = useState(sale.item);
+  const [soldTo, setSoldTo] = useState(sale.soldTo ?? '');
+  const [paymentReference, setPaymentReference] = useState(sale.paymentReference ?? '');
+  const [dueDate, setDueDate] = useState(sale.dueDate ? sale.dueDate.slice(0, 10) : '');
+  const [notes, setNotes] = useState(sale.notes ?? '');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [showReverse, setShowReverse] = useState(false);
+  const [reverseReason, setReverseReason] = useState('');
+  const [reversing, setReversing] = useState(false);
+  const [reverseError, setReverseError] = useState('');
+
+  const reversed = !!sale.reversedAt;
+
+  async function saveEdit() {
+    if (!reason.trim()) { setError('A reason is required'); return; }
+    if (!item.trim()) { setError('Item cannot be blank'); return; }
+    setSaving(true); setError('');
+    const res = await apiClient.patch(`/api/data/sales/${sale.id}`, {
+      tenantId, reason: reason.trim(), item: item.trim(),
+      soldTo: soldTo.trim() || null, paymentReference: paymentReference.trim() || null,
+      dueDate: dueDate || null, notes: notes.trim() || null,
+    });
+    setSaving(false);
+    if (res.success) { showToast('Sale updated', 'success'); onChanged(); setMode('view'); setReason(''); }
+    else setError(res.error ?? 'Could not update this sale');
+  }
+
+  async function confirmReverse() {
+    if (!reverseReason.trim()) return;
+    setReversing(true); setReverseError('');
+    const res = await apiClient.post(`/api/data/sales/${sale.id}/reverse`, { tenantId, reason: reverseReason.trim() });
+    setReversing(false);
+    if (res.success) { showToast('Sale reversed', 'success'); setShowReverse(false); onChanged(); onClose(); }
+    else setReverseError(res.error ?? 'Could not reverse this sale');
+  }
+
+  return (
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <SheetTitle className="truncate">{sale.item}</SheetTitle>
+          {reversed && <span className="shrink-0 rounded-full bg-danger-soft px-2.5 py-1 text-[11px] font-semibold text-danger">Reversed</span>}
+        </div>
+        <p className="mb-4 text-sm text-muted">{fmtDate(sale.soldAt)} · {sale.method || 'No method recorded'}</p>
+
+        {mode === 'view' && (
+          <>
+            <div className="mb-4 rounded-xl bg-surface-2 px-3.5">
+              <Kv label="Amount" value={formatMoney(sale.amountCents)} />
+              <Kv label="Status" value={sale.status} />
+              <Kv label="Sold to" value={sale.soldTo || '—'} />
+              <Kv label="Payment reference" value={sale.paymentReference || '—'} />
+              <Kv label="Due date" value={fmtDate(sale.dueDate)} />
+              <Kv label="Notes" value={sale.notes || '—'} />
+            </div>
+            {reversed ? (
+              <p className="mb-4 text-sm text-muted">This sale was reversed and can no longer be edited.</p>
+            ) : (
+              <div className="mb-4 flex gap-2">
+                <Button variant="secondary" className="flex-1 justify-center" onClick={() => setMode('edit')}>Edit</Button>
+                <Button variant="outline" className="flex-1 justify-center" onClick={() => setShowReverse(true)}>Reverse</Button>
+              </div>
+            )}
+            <StatusTimeline tenantId={tenantId} entity="sale" entityId={sale.id} />
+          </>
+        )}
+
+        {mode === 'edit' && (
+          <div className="flex flex-col gap-3">
+            <div>
+              <label style={detailLabelStyle}>Item</label>
+              <input className="farm-input" value={item} onChange={(e) => setItem(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Sold to</label>
+              <input className="farm-input" value={soldTo} onChange={(e) => setSoldTo(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Payment reference</label>
+              <input className="farm-input" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Due date</label>
+              <input type="date" className="farm-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Notes</label>
+              <textarea className="farm-input" style={{ minHeight: 70 }} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Reason for this change (required)</label>
+              <textarea className="farm-input" style={{ minHeight: 60 }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Buyer's name was misspelled" />
+            </div>
+            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{error}</div>}
+            <div className="flex gap-2">
+              <Button variant="secondary" className="flex-1 justify-center" disabled={saving} onClick={() => { setMode('view'); setError(''); }}>Cancel</Button>
+              <Button className="flex-1 justify-center" disabled={saving || !reason.trim()} onClick={saveEdit}>{saving ? 'Saving…' : 'Save changes'}</Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <Dialog open={showReverse} onOpenChange={(o) => { if (!o) setShowReverse(false); }}>
+        <DialogTitle>Reverse this sale?</DialogTitle>
+        <DialogDescription>
+          This posts a contra entry that cancels {formatMoney(sale.amountCents)} from the ledger — &quot;{sale.item}&quot; stays on record, marked reversed, never deleted.
+        </DialogDescription>
+        <textarea
+          className={cn(controlClass, 'mt-2 h-24 resize-none py-2 text-base')}
+          value={reverseReason}
+          onChange={(e) => setReverseReason(e.target.value)}
+          placeholder="Why is this being reversed?"
+          autoFocus
+        />
+        {reverseError && <div className="mt-2 text-sm text-danger">{reverseError}</div>}
+        <div className="mt-4 flex gap-2">
+          <Button variant="secondary" className="h-11 flex-1" onClick={() => setShowReverse(false)} disabled={reversing}>Cancel</Button>
+          <Button variant="outline" className="h-11 flex-1" disabled={reversing || !reverseReason.trim()} onClick={confirmReverse}>
+            {reversing ? 'Reversing…' : 'Reverse sale'}
+          </Button>
+        </div>
+      </Dialog>
+    </Sheet>
+  );
+}
+
+/* ── Purchase detail: edit (reason required) + reverse + history (item 23) ──
+ * Same shape as SaleDetailSheet above — see that component's comment. */
+function PurchaseDetailSheet({ tenantId, purchase, itemLabel, onClose, onChanged }: {
+  tenantId: string;
+  purchase: ApiPurchase;
+  itemLabel: string;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { showToast } = useToast();
+  const [mode, setMode] = useState<'view' | 'edit'>('view');
+  const [supplier, setSupplier] = useState(purchase.supplier);
+  const [paymentReference, setPaymentReference] = useState(purchase.paymentReference ?? '');
+  const [invoiceNumber, setInvoiceNumber] = useState(purchase.invoiceNumber ?? '');
+  const [dueDate, setDueDate] = useState(purchase.dueDate ? purchase.dueDate.slice(0, 10) : '');
+  const [notes, setNotes] = useState(purchase.notes ?? '');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [showReverse, setShowReverse] = useState(false);
+  const [reverseReason, setReverseReason] = useState('');
+  const [reversing, setReversing] = useState(false);
+  const [reverseError, setReverseError] = useState('');
+
+  const reversed = !!purchase.reversedAt;
+
+  async function saveEdit() {
+    if (!reason.trim()) { setError('A reason is required'); return; }
+    if (!supplier.trim()) { setError('Supplier cannot be blank'); return; }
+    setSaving(true); setError('');
+    const res = await apiClient.patch(`/api/purchases/${purchase.id}`, {
+      tenantId, reason: reason.trim(), supplier: supplier.trim(),
+      paymentReference: paymentReference.trim() || null, invoiceNumber: invoiceNumber.trim() || null,
+      dueDate: dueDate || null, notes: notes.trim() || null,
+    });
+    setSaving(false);
+    if (res.success) { showToast('Purchase updated', 'success'); onChanged(); setMode('view'); setReason(''); }
+    else setError(res.error ?? 'Could not update this purchase');
+  }
+
+  async function confirmReverse() {
+    if (!reverseReason.trim()) return;
+    setReversing(true); setReverseError('');
+    const res = await apiClient.post(`/api/purchases/${purchase.id}/reverse`, { tenantId, reason: reverseReason.trim() });
+    setReversing(false);
+    if (res.success) { showToast('Purchase reversed', 'success'); setShowReverse(false); onChanged(); onClose(); }
+    else setReverseError(res.error ?? 'Could not reverse this purchase');
+  }
+
+  return (
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <SheetTitle className="truncate">{itemLabel}</SheetTitle>
+          {reversed && <span className="shrink-0 rounded-full bg-danger-soft px-2.5 py-1 text-[11px] font-semibold text-danger">Reversed</span>}
+        </div>
+        <p className="mb-4 text-sm text-muted">{fmtDate(purchase.createdAt)} · {purchase.supplier}</p>
+
+        {mode === 'view' && (
+          <>
+            <div className="mb-4 rounded-xl bg-surface-2 px-3.5">
+              <Kv label="Total cost" value={formatMoney(purchase.totalCostCents)} />
+              <Kv label="Amount paid" value={formatMoney(purchase.amountPaidCents)} />
+              <Kv label="Supplier" value={purchase.supplier} />
+              <Kv label="Invoice number" value={purchase.invoiceNumber || '—'} />
+              <Kv label="Payment reference" value={purchase.paymentReference || '—'} />
+              <Kv label="Due date" value={fmtDate(purchase.dueDate)} />
+              <Kv label="Notes" value={purchase.notes || '—'} />
+            </div>
+            {reversed ? (
+              <p className="mb-4 text-sm text-muted">This purchase was reversed and can no longer be edited.</p>
+            ) : (
+              <div className="mb-4 flex gap-2">
+                <Button variant="secondary" className="flex-1 justify-center" onClick={() => setMode('edit')}>Edit</Button>
+                <Button variant="outline" className="flex-1 justify-center" onClick={() => setShowReverse(true)}>Reverse</Button>
+              </div>
+            )}
+            <StatusTimeline tenantId={tenantId} entity="purchase" entityId={purchase.id} />
+          </>
+        )}
+
+        {mode === 'edit' && (
+          <div className="flex flex-col gap-3">
+            <div>
+              <label style={detailLabelStyle}>Supplier</label>
+              <input className="farm-input" value={supplier} onChange={(e) => setSupplier(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Invoice number</label>
+              <input className="farm-input" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Payment reference</label>
+              <input className="farm-input" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Due date</label>
+              <input type="date" className="farm-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Notes</label>
+              <textarea className="farm-input" style={{ minHeight: 70 }} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+            <div>
+              <label style={detailLabelStyle}>Reason for this change (required)</label>
+              <textarea className="farm-input" style={{ minHeight: 60 }} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Supplier name was misspelled" />
+            </div>
+            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{error}</div>}
+            <div className="flex gap-2">
+              <Button variant="secondary" className="flex-1 justify-center" disabled={saving} onClick={() => { setMode('view'); setError(''); }}>Cancel</Button>
+              <Button className="flex-1 justify-center" disabled={saving || !reason.trim()} onClick={saveEdit}>{saving ? 'Saving…' : 'Save changes'}</Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <Dialog open={showReverse} onOpenChange={(o) => { if (!o) setShowReverse(false); }}>
+        <DialogTitle>Reverse this purchase?</DialogTitle>
+        <DialogDescription>
+          This posts a contra entry that cancels {formatMoney(purchase.totalCostCents)} from the ledger — the purchase stays on record, marked reversed, never deleted. Stock already received is not automatically written off; adjust the lot separately if needed.
+        </DialogDescription>
+        <textarea
+          className={cn(controlClass, 'mt-2 h-24 resize-none py-2 text-base')}
+          value={reverseReason}
+          onChange={(e) => setReverseReason(e.target.value)}
+          placeholder="Why is this being reversed?"
+          autoFocus
+        />
+        {reverseError && <div className="mt-2 text-sm text-danger">{reverseError}</div>}
+        <div className="mt-4 flex gap-2">
+          <Button variant="secondary" className="h-11 flex-1" onClick={() => setShowReverse(false)} disabled={reversing}>Cancel</Button>
+          <Button variant="outline" className="h-11 flex-1" disabled={reversing || !reverseReason.trim()} onClick={confirmReverse}>
+            {reversing ? 'Reversing…' : 'Reverse purchase'}
+          </Button>
+        </div>
+      </Dialog>
+    </Sheet>
+  );
+}
+
 /* ── Supplier / customer balances (item 20) ──────────────────────────────────
  * "A balance view per supplier and per customer computed from unpaid rows —
  * no new ledger concepts, just a sum." GET /api/suppliers and /api/customers
@@ -1039,7 +1351,9 @@ const SALES_COLS: ColDef<Record<string, unknown>>[] = [
   {
     key: 'status', header: 'Status', align: 'center', minWidth: 70,
     summary: 'count',
-    render: (r) => <span className={`chip ${r.status === 'paid' ? 'chip-ok' : 'chip-warning'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{(r.status as string).toUpperCase()}</span>,
+    render: (r) => r.reversed
+      ? <span className="chip chip-critical" style={{ fontSize: 'var(--fs-2xs)' }}>REVERSED</span>
+      : <span className={`chip ${r.status === 'paid' ? 'chip-ok' : 'chip-warning'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{(r.status as string).toUpperCase()}</span>,
   },
 ];
 
@@ -1236,6 +1550,9 @@ export function FinanceScreen() {
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
   const [showSupplierBalances, setShowSupplierBalances] = useState(false);
   const [showCustomerBalances, setShowCustomerBalances] = useState(false);
+  // Item 23: detail sheet (edit/reverse/history) for one selected row.
+  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+  const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
 
   const [sales, setSales] = useState<ApiSale[] | null>(null);
   const [salesError, setSalesError] = useState('');
@@ -1397,6 +1714,7 @@ export function FinanceScreen() {
     method: s.method,
     amount: centsToMajor(s.amountCents),
     status: s.status,
+    reversed: !!s.reversedAt,
   })), [sales, batchLabelById]);
 
   const filteredSales = salesRows.filter((s) => {
@@ -1404,6 +1722,11 @@ export function FinanceScreen() {
     const q = salesSearch.toLowerCase();
     return s.item.toLowerCase().includes(q) || s.batchLabel.toLowerCase().includes(q) || (s.method || '').toLowerCase().includes(q);
   });
+
+  // Item 23: the full row (not the display-flattened salesRows/salesTable
+  // shape) for whichever sale/purchase the detail sheet has open.
+  const selectedSale = useMemo(() => (sales ?? []).find((s) => s.id === selectedSaleId) ?? null, [sales, selectedSaleId]);
+  const selectedPurchase = useMemo(() => (purchases ?? []).find((p) => p.id === selectedPurchaseId) ?? null, [purchases, selectedPurchaseId]);
 
   // Batch P&L rows: revenue = this batch's real sales summed; cost = the
   // batch's real cost-breakdown total (currently just acquisitionCostCents —
@@ -1630,6 +1953,7 @@ export function FinanceScreen() {
               rows={filteredSales as unknown as Record<string, unknown>[]}
               columns={SALES_COLS}
               rowKey={(r) => r.id as string}
+              onRowClick={(r) => setSelectedSaleId(r.id as string)}
               defaultPageSize={20}
               pageSizes={[10, 20, 50, 100]}
               bodyHeight={320}
@@ -1663,13 +1987,15 @@ export function FinanceScreen() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
               {(purchases ?? []).map((p) => (
-                <div key={p.id} className="farm-card" style={{ padding: 14 }}>
+                <div key={p.id} className="farm-card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => setSelectedPurchaseId(p.id)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{itemNameById.get(p.itemId) ?? p.itemId}</div>
                       <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{p.supplier} · {fmtDate(p.createdAt)}</div>
                     </div>
-                    {itemCategoryById.get(p.itemId) && (
+                    {p.reversedAt ? (
+                      <span className="chip chip-critical" style={{ fontSize: 'var(--fs-2xs)' }}>REVERSED</span>
+                    ) : itemCategoryById.get(p.itemId) && (
                       <span className={`chip ${catChipClass(itemCategoryById.get(p.itemId) as string)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{itemCategoryById.get(p.itemId)}</span>
                     )}
                   </div>
@@ -1832,6 +2158,23 @@ export function FinanceScreen() {
       )}
       {showSupplierBalances && <BalancesSheet kind="suppliers" tenantId={tenantId} onClose={() => setShowSupplierBalances(false)} />}
       {showCustomerBalances && <BalancesSheet kind="customers" tenantId={tenantId} onClose={() => setShowCustomerBalances(false)} />}
+      {selectedSale && (
+        <SaleDetailSheet
+          tenantId={tenantId}
+          sale={selectedSale}
+          onClose={() => setSelectedSaleId(null)}
+          onChanged={() => { loadSales(); loadGL(); }}
+        />
+      )}
+      {selectedPurchase && (
+        <PurchaseDetailSheet
+          tenantId={tenantId}
+          purchase={selectedPurchase}
+          itemLabel={itemNameById.get(selectedPurchase.itemId) ?? selectedPurchase.itemId}
+          onClose={() => setSelectedPurchaseId(null)}
+          onChanged={() => { loadPurchases(); loadGL(); }}
+        />
+      )}
     </div>
   );
 }
