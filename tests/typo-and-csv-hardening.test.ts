@@ -143,20 +143,18 @@ describe('components/farm/finance.tsx — a sale that can actually move stock', 
     expect(source).toMatch(/max=\{todayIso\}/)
   })
 
-  it('offers payment methods as a list rather than free text', () => {
-    // A hard <select> was the original ask, but a closed dropdown for
-    // payment method has the same failure mode a hard dropdown for supplier
-    // would: a farmer's genuinely new payment method (a new bank, a new
-    // agent till) becomes unrecordable rather than mistyped. The datalist
-    // pattern already used for supplier/category/unit is used here too —
-    // known values suggested from this tenant's own real sales/purchases,
-    // typing a new one still works. Anchored to the actual mechanism (the
-    // <input list=...> + <datalist> pair and the real-data source), not to
-    // string literals that would also match this file's own comments.
-    expect(source).toMatch(/list="finance-payment-methods"/)
-    expect(source).toMatch(/<datalist id="finance-payment-methods">/)
-    expect(source).toMatch(/paymentMethodNames/)
-    expect(source).not.toMatch(/placeholder="e\.g\. Mpesa"/)
+  it('offers payment method as a fixed list with a reference field (forms-audit slice, item 2)', () => {
+    // Superseded decision: a datalist-suggestion combobox (known values from
+    // this tenant's own history, typing a new one still worked) used to be
+    // the mechanism here. The forms-audit slice replaced it with the fixed
+    // list the audit asked for (M-Pesa/Cash/Bank transfer/Credit/Cheque) plus
+    // a labelled reference field for the three that have one — shared with
+    // both purchase sheets via ui-shared.tsx's PaymentMethodFields, not a
+    // hand-rolled datalist per sheet.
+    expect(source).toMatch(/<PaymentMethodFields method=\{method\} onMethodChange=\{onMethodChange\}/)
+    const sharedSrc = read('components/farm/ui-shared.tsx')
+    expect(sharedSrc).toMatch(/export function PaymentMethodFields\(/)
+    expect(sharedSrc).toMatch(/PAYMENT_METHODS\.map/)
   })
 
   it('quotes its CSV export', () => {
@@ -335,10 +333,10 @@ describe('per-field validation (owner-roast findings #9/#10/#11) shares one mech
     }
   })
 
-  it('finding #11: a sale of 0 is rejected explicitly and marked on the Amount field', () => {
-    expect(finance).toMatch(/errs\.amount = 'Amount must be a positive number — 0 is not a sale'/)
-    expect(finance).toMatch(/fieldErrorStyle\(!!fieldErrors\.amount\)/)
-    expect(finance).toMatch(/type="number" min="0\.01" step="0\.01" placeholder="0" value=\{amount\}/)
+  it('finding #11: a sale of 0 is rejected explicitly and marked on the Unit price field', () => {
+    expect(finance).toMatch(/errs\.unitPrice = 'Unit price must be a positive number — 0 is not a sale'/)
+    expect(finance).toMatch(/fieldErrorStyle\(!!fieldErrors\.unitPrice\)/)
+    expect(finance).toMatch(/type="number" min="0\.01" step="0\.01" placeholder="0" value=\{unitPrice\}/)
   })
 })
 
@@ -431,10 +429,10 @@ describe('per-field validation (owner-roast findings #9/#10/#11) shares one mech
     }
   })
 
-  it('finding #11: a sale of 0 is rejected explicitly and marked on the Amount field', () => {
-    expect(finance).toMatch(/errs\.amount = 'Amount must be a positive number — 0 is not a sale'/)
-    expect(finance).toMatch(/fieldErrorStyle\(!!fieldErrors\.amount\)/)
-    expect(finance).toMatch(/type="number" min="0\.01" step="0\.01" placeholder="0" value=\{amount\}/)
+  it('finding #11: a sale of 0 is rejected explicitly and marked on the Unit price field', () => {
+    expect(finance).toMatch(/errs\.unitPrice = 'Unit price must be a positive number — 0 is not a sale'/)
+    expect(finance).toMatch(/fieldErrorStyle\(!!fieldErrors\.unitPrice\)/)
+    expect(finance).toMatch(/type="number" min="0\.01" step="0\.01" placeholder="0" value=\{unitPrice\}/)
   })
 })
 

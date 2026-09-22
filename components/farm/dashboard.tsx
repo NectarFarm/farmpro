@@ -878,7 +878,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
 
 /* ── Notifications Screen ── */
 export function NotificationsScreen() {
-  const { navigate, tenantId, refreshBadges } = useNav();
+  const { navigate, tenantId, refreshBadges, role } = useNav();
   const [notifs, setNotifs] = useState<NotificationRow[] | null>(null);
 
   useEffect(() => {
@@ -924,7 +924,20 @@ export function NotificationsScreen() {
     // Tasks screen's plain unfiltered list instead of that task. TasksScreen
     // now opens the matching task's detail sheet when `taskId` is present.
     if (n.sourceType === "task") navigate("tasks", n.sourceId ? { taskId: n.sourceId } : undefined);
-    else if (n.sourceType === "approval") navigate("governance");
+    else if (n.sourceType === "approval") {
+      // rejection-loop task: a worker (and, same reasoning, a vet or
+      // auditor — components/farm/navigation.tsx's allowedScreensForRole
+      // restricts both to one screen each, neither of them Governance) has
+      // no Governance screen to land on — 'Request rejected'/'Request
+      // approved' for them is about a record THEY filed, not a queue they
+      // decide. `:decided` (lib/governance.ts's decideApproval) is the only
+      // approval notification any of these three ever receives (the raised
+      // one broadcasts to owner/manager); a rejected one is exactly what
+      // Worker Home's 'Needs another look' section exists to show, with the
+      // reason this notification's own `message` already carries.
+      const dest = role === 'worker' ? 'worker-home' : role === 'vet' ? 'vet-herd' : role === 'auditor' ? 'auditor-reports' : 'governance';
+      navigate(dest);
+    }
     else if (n.sourceType === "alert") navigate("inventory");
     else if (n.sourceType === "support_ticket" || n.sourceType === "support_ticket_staff") {
       const id = ticketIdFromNotificationSource(n.sourceType, n.sourceId);

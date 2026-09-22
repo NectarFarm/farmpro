@@ -6,6 +6,7 @@ import { canEdit, MODULES } from '@/lib/permissions'
 import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { isInvalid, requireNonNegativeCount } from '@/lib/validate-input'
+import { isImageDataUrl, dataUrlByteSize, MAX_PHOTO_BYTES } from '@/lib/record-photos'
 
 // ── PATCH /api/inventory/lots/[id] (issue #235 task 5) ──────────────────────
 // Reason-required quantity adjustment. Every adjustment writes a real
@@ -23,6 +24,15 @@ import { isInvalid, requireNonNegativeCount } from '@/lib/validate-input'
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 const notFound = () => NextResponse.json({ success: false, error: 'Inventory lot not found' }, { status: 404 })
+
+// forms-audit slice, item 11: WHY this adjustment happened, not just the
+// reason text — a recount, spoilage, damage, theft, a transfer out, or the
+// very first balance a lot is ever given. No new column: same as `reason`,
+// this rides in `audit_log.meta` (the real audit trail from issue #243,
+// reused rather than a second mechanism — see this file's own header
+// comment). Optional, so an older/simpler caller that only sends `reason`
+// still works exactly as before.
+const ADJUSTMENT_TYPES = new Set(['count', 'spoilage', 'damage', 'theft', 'transfer', 'opening_balance'])
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -48,6 +58,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const reason = typeof b.reason === 'string' ? b.reason.trim() : ''
   if (!reason) return badRequest('reason is required')
+
+  const adjustmentType = typeof b.adjustmentType === 'string' && b.adjustmentType.trim() ? b.adjustmentType.trim() : null
+  if (adjustmentType && !ADJUSTMENT_TYPES.has(adjustmentType)) {
+    return badRequest(`adjustmentType must be one of: ${Array.from(ADJUSTMENT_TYPES).join(', ')}`)
+  }
+
+  // One optional evidence photo — same validation the several-photos-per-
+  // record feature already applies (lib/record-photos.ts), stored in
+  // audit_log.meta alongside the reason rather than a new inventoryLots
+  // column: it documents THIS adjustment event, not a lasting fact about
+  // the lot the way expiryDate/unitCostCents are.
+  let photoUrl: string | null = null
+  if (typeof b.photoUrl === 'string' && b.photoUrl.trim()) {
+    const candidate = b.photoUrl.trim()
+    if (!isImageDataUrl(candidate)) return badRequest("The evidence photo isn't a photo this app can read — retake it")
+    if (dataUrlByteSize(candidate) > MAX_PHOTO_BYTES) return badRequest('The evidence photo is too large — retake it and it will be compressed automatically')
+    photoUrl = candidate
+  }
 
   // ── This guard used to let a lot's whole stock be wiped by accident ──────
   // `Number.isFinite(Number(x))` is not a number check: `Number(null)`,
@@ -75,6 +103,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!existing) return notFound()
 
   const before = existing.qtyOnHand
+  // The shilling impact, computed from the LOT's own recorded cost — not
+  // invented, not re-priced at today's rate. A recount that finds fewer
+  // units found that much cost gone; more found is a positive correction.
+  const costImpactCents = (newQty - before) * existing.unitCostCents
+
+  // Who physically did the count — optional, and distinct from `actor`
+  // (the session that recorded it): an owner often logs a count a worker or
+  // storekeeper actually did. Free text, same "no new master for this" call
+  // as sales.soldTo.
+  const countedBy = typeof b.countedBy === 'string' && b.countedBy.trim() ? b.countedBy.trim() : null
 
   const result = await db.transaction(async (tx) => {
     const [updated] = await tx
@@ -90,11 +128,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       action: 'inventory.adjust',
       entity: 'inventory_lot',
       entityId: id,
-      meta: { itemId: existing.itemId, before, after: newQty, reason },
+      meta: { itemId: existing.itemId, before, after: newQty, reason, adjustmentType, photoUrl, costImpactCents, countedBy },
     })
 
     return updated
   })
 
-  return ok(result)
+  return ok({ ...result, costImpactCents })
 }

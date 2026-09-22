@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Clock, ChevronDown, ChevronUp, Plus, Play, Ban, HelpCircle, ClipboardCheck,
   Unlock, PenLine, CheckCircle2, ThumbsUp, ThumbsDown, Package, Sprout, UserSingle,
-  FileText, type LucideIcon,
+  FileText, RotateCcw, type LucideIcon,
 } from './icons';
 import { useRegional } from './settings';
 import { formatDateTime, type DateFormat } from '@/lib/datetime';
@@ -41,6 +41,11 @@ const ACTION_LABELS: Record<string, string> = {
   'batch.updated': 'Batch updated',
   'employee.created': 'Employee added',
   'employee.updated': 'Employee updated',
+  // Item 23: edit/reverse on sales and purchases.
+  'sale.edited': 'Edited',
+  'sale.reversed': 'Reversed',
+  'purchase.edited': 'Edited',
+  'purchase.reversed': 'Reversed',
 };
 
 const ACTION_ICONS: Record<string, LucideIcon> = {
@@ -59,6 +64,10 @@ const ACTION_ICONS: Record<string, LucideIcon> = {
   'batch.updated': Sprout,
   'employee.created': UserSingle,
   'employee.updated': UserSingle,
+  'sale.edited': PenLine,
+  'sale.reversed': RotateCcw,
+  'purchase.edited': PenLine,
+  'purchase.reversed': RotateCcw,
 };
 
 // Recent entries (<24h) stay relative ("3h ago") regardless of settings —
@@ -148,7 +157,7 @@ export function StatusTimeline({
           return (
             <div key={entry.id} style={{ position: 'relative', paddingBottom: i < displayed.length - 1 ? 12 : 0 }}>
               {/* Dot on the timeline */}
-              <div style={{ position: 'absolute', left: -14, top: 3, width: 8, height: 8, borderRadius: '50%', background: entry.action.includes('rejected') || entry.action.includes('blocked') ? 'var(--status-critical)' : entry.action.includes('approved') || entry.action.includes('completed') ? 'var(--primary-green)' : 'var(--accent-blue)', border: '2px solid var(--surface)' }} />
+              <div style={{ position: 'absolute', left: -14, top: 3, width: 8, height: 8, borderRadius: '50%', background: entry.action.includes('rejected') || entry.action.includes('blocked') || entry.action.includes('reversed') ? 'var(--status-critical)' : entry.action.includes('approved') || entry.action.includes('completed') ? 'var(--primary-green)' : 'var(--accent-blue)', border: '2px solid var(--surface)' }} />
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                   <ActionIcon size={12} color="var(--text-dim)" aria-hidden="true" />
@@ -160,7 +169,7 @@ export function StatusTimeline({
                 </div>
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 1 }}>{formatTime(entry.at, regional)}</div>
                 {metaReason && (
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 2, fontStyle: 'italic' }}>"{metaReason}"</div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 2, fontStyle: 'italic' }}>&quot;{metaReason}&quot;</div>
                 )}
               </div>
             </div>

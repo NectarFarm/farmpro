@@ -42,6 +42,10 @@ export const inventoryItems = pgTable('inventory_items', {
   category: text('category').notNull().default(''),
   unit: text('unit').notNull(),
   lowStockThreshold: integer('low_stock_threshold').notNull().default(0),
+  // Migration 0045 (forms-audit slice). Optional — most tenants have never
+  // had a SKU system; a purchase or the new "Add item" action can still name
+  // one when they do.
+  sku: text('sku'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_inventory_items_tenant').on(t.tenantId),
@@ -101,6 +105,67 @@ export const purchases = pgTable('purchases', {
   totalCostCents: bigint('total_cost_cents', { mode: 'number' }).notNull().default(0),
   paymentMethod: text('payment_method').notNull().default(''),
   amountPaidCents: bigint('amount_paid_cents', { mode: 'number' }).notNull().default(0),
+  // Migration 0045 (forms-audit slice). `paymentMethod` stays free text —
+  // same reasoning as sales.method (db/schemas/finance.ts) — with a
+  // reference alongside it for M-Pesa/bank/cheque.
+  paymentReference: text('payment_reference'),
+  // Set only when this purchase is on credit (amountPaidCents < totalCostCents
+  // and Credit was the chosen method) — when the supplier expects payment.
+  dueDate: timestamp('due_date'),
+  // The supplier's own invoice/receipt number — optional, since not every
+  // supplier gives one (a casual cash purchase, a roadside seller).
+  invoiceNumber: text('invoice_number'),
+  // ── Why this is a NEW column, not a rename of `createdAt` ─────────────────
+  // POST /api/purchases already accepts a `receivedDate` and has since before
+  // this task — but only ever writes it into `createdAt` (see
+  // lib/inventory.ts's recordPurchase), which lib/reports.ts's P&L also
+  // filters on for period attribution. Repointing THAT to a new column would
+  // change which period a backdated purchase counts in — a real behaviour
+  // change, not an additive one, and out of scope for "add columns, don't
+  // repurpose". So this is a second, dedicated column: recordPurchase now
+  // writes the same value to BOTH `createdAt` (unchanged, for P&L
+  // continuity) and here (so the list/detail can show "Received" as its own
+  // labelled fact instead of it being invisibly implied by "created").
+  // Nullable: every purchase before this column defaulted the same way
+  // `createdAt` always has, so there is nothing to backfill without
+  // duplicating `createdAt` itself for every historical row.
+  receivedDate: timestamp('received_date'),
+  notes: text('notes'),
+  // A photo of the receipt/invoice — reuses the exact image-data-URL
+  // validation and size cap the several-photos-per-record feature already
+  // built (lib/record-photos.ts), just one photo instead of up to four; no
+  // second capture component. Nullable: optional, and every existing
+  // purchase predates it.
+  photoUrl: text('photo_url'),
+  // Migration 0046 (three-date model, item 18). `receivedDate` above already
+  // IS the effective date (when the stock actually took effect) — no new
+  // column needed for that one. These two are the genuinely new facts:
+  // `transactionDate` (when the purchase itself happened — placing the
+  // order, the supplier's invoice date — which can predate the stock
+  // actually arriving) and `postingDate` (which ledger period this counts
+  // in; defaults to `receivedDate`, the effective date). Both nullable,
+  // backfilled from `createdAt` for existing rows — see migration 0046's own
+  // header: lib/reports.ts's P&L has always filtered purchases by
+  // `createdAt`, so that (not `receivedDate`) is the value that keeps every
+  // existing figure unchanged.
+  transactionDate: timestamp('transaction_date'),
+  postingDate: timestamp('posting_date'),
+  // Migration 0047 (item 20). Optional link to the supplier master —
+  // `supplier` above stays the free-text fact for an old row or a genuine
+  // one-off; this is set only when the sheet's type-to-search picker
+  // actually resolved (or created) a real suppliers row. Plain logical
+  // reference, no DB FK, checked against the caller's tenant in the route.
+  supplierId: text('supplier_id'),
+  // Item 23: same mark and same reasoning as sales.reversedAt
+  // (db/schemas/finance.ts) — a reversed purchase's totalCostCents/
+  // amountPaidCents are never rewritten, only marked, with the contra entry
+  // (lib/finance.ts's reverseJournalEntry) doing the real work and
+  // audit_log (entity: 'purchase') carrying the before/after/reason/actor.
+  reversedAt: timestamp('reversed_at'),
+  // Item 23: same ownership marker and reasoning as sales.recordedBy
+  // (db/schemas/finance.ts) — nullable, unattributable for every purchase
+  // that predates it.
+  recordedBy: text('recorded_by'),
   // Multi-farm filtering (farm-scoped-data task) — a purchase is a receiving
   // event for a specific farm's stock, same rationale as inventoryLots.farmId
   // above (and recordPurchase sets both to the same value: a purchase and

@@ -5,8 +5,11 @@
 // Used across all screens for consistent feedback patterns
 // ============================================================
 
-import React, { useState, useCallback, createContext, useContext, useRef } from 'react';
+import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
 import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
+import { PAYMENT_METHODS, referenceLabel } from '@/lib/payment-method';
+import { formatMoney } from '@/lib/money';
+import { Button } from '@/components/ui-kit/button';
 
 /* ─────────────────────────────────────────────
    TOAST SYSTEM
@@ -265,4 +268,172 @@ export function fieldErrorStyle(hasError: boolean): React.CSSProperties | undefi
 export function FieldError({ id, message }: { id?: string; message?: string }) {
   if (!message) return null;
   return <div id={id} style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{message}</div>;
+}
+
+// ── Dimension-requirement error, with the setup link (item 19) ─────────────
+// lib/dimensions.ts's attachLineDimensions has always refused a posting that
+// leaves a REQUIRED account dimension empty (DimensionRequirementError:
+// "Posting to <account> requires a value for: <dimension>") — the one part
+// of that behaviour that was never wired anywhere was the sheet just
+// showing that raw message with nothing to do about it. Shared by the sale
+// and both purchase sheets so a save error only gets this one-tap "why, and
+// where to fix it" treatment once.
+const DIMENSION_REQUIREMENT_RE = /requires a value for/i;
+
+export function isDimensionRequirementError(message: string): boolean {
+  return DIMENSION_REQUIREMENT_RE.test(message);
+}
+
+export function SaveError({ message, onSetupDimensions }: { message: string; onSetupDimensions: () => void }) {
+  if (!message) return null;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{message}</div>
+      {isDimensionRequirementError(message) && (
+        <button type="button" onClick={onSetupDimensions} className="mt-1 text-xs font-medium text-primary">
+          Set up reporting dimensions
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   PAYMENT METHOD + REFERENCE (forms-audit slice)
+   Shared by Record Sale (finance.tsx) and both Record Purchase sheets
+   (finance.tsx, inventory.tsx) — one fixed list, one reference field that
+   shows up and labels itself for the method actually chosen. `method`/
+   `reference` stay plain strings the caller owns (each sheet posts them
+   straight into its existing free-text `method`/`paymentMethod`/
+   `paymentReference` fields — no schema opinion lives here).
+────────────────────────────────────────────── */
+export function PaymentMethodFields({ method, onMethodChange, reference, onReferenceChange, label = 'Payment method' }: {
+  method: string;
+  onMethodChange: (v: string) => void;
+  reference: string;
+  onReferenceChange: (v: string) => void;
+  label?: string;
+}) {
+  const refLabel = referenceLabel(method);
+  return (
+    <div>
+      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{label}</label>
+      <select className="farm-input" value={method} onChange={(e) => { onMethodChange(e.target.value); if (!referenceLabel(e.target.value)) onReferenceChange(''); }}>
+        <option value="">Not recorded</option>
+        {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      {refLabel && (
+        <div style={{ marginTop: 8 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{refLabel}</label>
+          <input className="farm-input" value={reference} onChange={(e) => onReferenceChange(e.target.value)} placeholder={`Enter the ${refLabel.toLowerCase()}`} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   SAVE CONFIRMATION (forms-audit slice, item 5)
+   "A save tells you what happened" — shared by Record Sale and both Record
+   Purchase sheets so a financial write never just closes the sheet with no
+   trace of what it did.
+────────────────────────────────────────────── */
+export interface SaveReceipt {
+  id: string;
+  totalLabel: string;
+  totalCents: number;
+  stockEffect?: string;
+}
+
+export function SaveConfirmation({ title, receipt, onViewList, onDone }: {
+  title: string;
+  receipt: SaveReceipt;
+  onViewList: () => void;
+  onDone: () => void;
+}) {
+  return (
+    <div className="px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-success-soft text-success">
+          <Check size={20} aria-hidden="true" />
+        </span>
+        <div>
+          <div className="font-display text-xl font-medium text-fg">{title}</div>
+          <div className="text-xs text-muted">Reference {receipt.id.slice(0, 8).toUpperCase()}</div>
+        </div>
+      </div>
+      <div className="mb-4 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+        <div className="flex justify-between text-sm">
+          <span className="text-muted">{receipt.totalLabel}</span>
+          <span className="font-display text-lg font-medium text-fg">{formatMoney(receipt.totalCents)}</span>
+        </div>
+        {receipt.stockEffect && (
+          <div className="mt-2 border-t border-border pt-2 text-sm text-muted">{receipt.stockEffect}</div>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <Button variant="secondary" className="h-11 flex-1" onClick={onViewList}>View in the list</Button>
+        <Button className="h-11 flex-1" onClick={onDone}>Done</Button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   SUPPLIER / CUSTOMER PICKER (item 20)
+   Type-to-search against a real master, creatable inline — the same
+   <input list=...>+<datalist> combobox idiom this app already uses for
+   supplier/category/unit suggestions, upgraded with a real id behind it and
+   a one-tap "save as new" when nothing matches. The free-text value ITSELF
+   (name) is what the caller still stores in sales.soldTo / purchases.
+   supplier — this never forces a match, only offers one.
+────────────────────────────────────────────── */
+export interface MasterOption {
+  id: string;
+  name: string;
+}
+
+export function MasterPicker({ label, listId, options, name, onNameChange, onResolvedChange, onCreate, creating, placeholder }: {
+  label: string;
+  listId: string;
+  options: MasterOption[];
+  name: string;
+  onNameChange: (name: string) => void;
+  /** Called whenever the typed name starts/stops exactly matching a real
+   * master — the caller owns the resolved id, this component only detects
+   * the match. */
+  onResolvedChange: (id: string | null) => void;
+  /** Saves the CURRENT typed name as a new master; the caller does the POST
+   * and, on success, calls onResolvedChange itself with the new id. */
+  onCreate: () => void;
+  creating: boolean;
+  placeholder: string;
+}) {
+  const trimmed = name.trim();
+  const exactMatch = options.find((o) => o.name.trim().toLowerCase() === trimmed.toLowerCase());
+  const matchedId = exactMatch?.id ?? null;
+
+  useEffect(() => {
+    onResolvedChange(matchedId);
+    // Only the match itself should re-trigger this — not a new
+    // onResolvedChange function identity from a parent that re-renders on
+    // every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchedId]);
+
+  return (
+    <div>
+      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{label}</label>
+      <input className="farm-input" list={listId} value={name} onChange={(e) => onNameChange(e.target.value)} placeholder={placeholder} />
+      <datalist id={listId}>
+        {options.map((o) => <option key={o.id} value={o.name} />)}
+      </datalist>
+      {trimmed && !exactMatch && (
+        <button type="button" onClick={onCreate} disabled={creating} className="mt-1 text-xs font-medium text-primary">
+          {creating ? 'Saving…' : `+ Save "${trimmed}" as a new ${label.toLowerCase()}`}
+        </button>
+      )}
+      {exactMatch && <p className="mt-1 text-[11px] text-muted">Matches an existing {label.toLowerCase()}.</p>}
+    </div>
+  );
 }

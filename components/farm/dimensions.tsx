@@ -88,7 +88,7 @@ export function DimensionsScreen() {
 
         <PageHeader
           kicker="Money"
-          title="GL Dimensions"
+          title="Reporting dimensions"
           lede="Every sale, purchase and payroll run is tagged with these, and every journal line carries them — what lets a P&L be produced per unit, per farm or per batch instead of one figure for the whole business."
         />
 
@@ -136,7 +136,13 @@ export function DimensionsScreen() {
         )}
 
         <button
-          onClick={() => navigate('reports')}
+          // forms-audit slice, item 7: used to open the plain Reports
+          // picker with nothing selected — a dead end for the one report
+          // this whole screen exists to set up. Lands directly on the
+          // dimension-pl report, pre-selected to Farm (the level every
+          // tenant's built-in dimensions actually have — see Reports'
+          // DIMENSION_LEVEL_OPTIONS).
+          onClick={() => navigate('reports', { report: 'dimension-pl', dimension: 'FARM' })}
           style={{ width: '100%', padding: 12, borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9, marginTop: 14, marginBottom: 24 }}
         >
           <FileText size={15} color="var(--primary-green)" aria-hidden="true" />
@@ -584,6 +590,17 @@ function CreateDimensionSheet({ tenantId, onClose, onCreated }: { tenantId: stri
  * per-tenant (it writes default_dimensions scoped by tenantId) and IS
  * editable — that split is stated on screen, not left for a farmer to
  * discover by typing into a field that silently does nothing. */
+// forms-audit slice, item 17: what No/Yes/Blocked actually do, in one plain
+// sentence each — shown inline next to the control (see the row render
+// below), since a farmer reading "Blocked" cold has no reason to know it
+// means "this account is never analysed by this dimension" without being
+// told.
+const REQUIREMENT_MEANING: Record<'optional' | 'required' | 'blocked', string> = {
+  optional: 'A posting to this account may carry this dimension, but does not have to.',
+  required: 'A posting to this account without this dimension is refused.',
+  blocked: 'This account is never analysed by this dimension.',
+};
+
 function AccountsTab({ tenantId, dimensions, showToast }: { tenantId: string; dimensions: Dimension[]; showToast: (msg: string, kind?: 'success' | 'error' | 'warning' | 'info') => void }) {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [open, setOpen] = useState<Account | null>(null);
@@ -706,35 +723,43 @@ function AccountDimensionsSheet({
             const rule = ruleFor(dim.id);
             const requirement = rule?.requirement ?? 'optional';
             return (
-              <div key={dim.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ fontFamily: 'monospace', fontSize: 'var(--fs-xs)', fontWeight: 800, color: 'var(--text-primary)' }}>{dim.code}</span>
-                  <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginLeft: 6 }}>{dim.name}</span>
+              <div key={dim.id} style={{ padding: '9px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 'var(--fs-xs)', fontWeight: 800, color: 'var(--text-primary)' }}>{dim.code}</span>
+                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginLeft: 6 }}>{dim.name}</span>
+                  </div>
+                  {/* Yes/No, the owner's own shape — with Blocked kept as a
+                      third state (already enforced at posting; see
+                      db/schemas/dimensions.ts's `requirement` comment). */}
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <button
+                      disabled={busyDim === dim.id}
+                      onClick={() => setRequirement(dim, 'optional')}
+                      className={requirement === 'optional' ? 'chip chip-info' : 'chip'}
+                      style={{ border: 'none', cursor: 'pointer', fontSize: 'var(--fs-2xs)' }}
+                    >No</button>
+                    <button
+                      disabled={busyDim === dim.id}
+                      onClick={() => setRequirement(dim, 'required')}
+                      className={requirement === 'required' ? 'chip chip-ok' : 'chip'}
+                      style={{ border: 'none', cursor: 'pointer', fontSize: 'var(--fs-2xs)' }}
+                    >Yes</button>
+                    <button
+                      disabled={busyDim === dim.id}
+                      onClick={() => setRequirement(dim, 'blocked')}
+                      className={requirement === 'blocked' ? 'chip chip-critical' : 'chip'}
+                      style={{ border: 'none', cursor: 'pointer', fontSize: 'var(--fs-2xs)' }}
+                    >Blocked</button>
+                  </div>
                 </div>
-                {/* Yes/No, the owner's own shape — with Blocked kept as a
-                    third state (already enforced at posting; see
-                    db/schemas/dimensions.ts's `requirement` comment). */}
-                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                  <button
-                    disabled={busyDim === dim.id}
-                    onClick={() => setRequirement(dim, 'optional')}
-                    className={requirement === 'optional' ? 'chip chip-info' : 'chip'}
-                    style={{ border: 'none', cursor: 'pointer', fontSize: 'var(--fs-2xs)' }}
-                  >No</button>
-                  <button
-                    disabled={busyDim === dim.id}
-                    onClick={() => setRequirement(dim, 'required')}
-                    className={requirement === 'required' ? 'chip chip-ok' : 'chip'}
-                    style={{ border: 'none', cursor: 'pointer', fontSize: 'var(--fs-2xs)' }}
-                  >Yes</button>
-                  <button
-                    disabled={busyDim === dim.id}
-                    onClick={() => setRequirement(dim, 'blocked')}
-                    className={requirement === 'blocked' ? 'chip chip-critical' : 'chip'}
-                    style={{ border: 'none', cursor: 'pointer', fontSize: 'var(--fs-2xs)' }}
-                    title="Never analyse this account by this dimension"
-                  >Blocked</button>
-                </div>
+                {/* forms-audit slice, item 17: the consequence, in plain
+                    words, next to the control — not left for a tooltip
+                    nobody on a phone can hover, and not filed in a help
+                    page. */}
+                <p style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 3, lineHeight: 1.4 }}>
+                  {REQUIREMENT_MEANING[requirement]}
+                </p>
               </div>
             );
           })}

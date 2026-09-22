@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { auditLog, users } from '@/db/schemas'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/audit-log (issue #244) ─────────────────────────────────────────
@@ -27,6 +27,16 @@ import { requireTenantSession } from '@/lib/api-auth'
 // Pagination: `limit` (default 50, capped at 200) + `offset` (default 0),
 // same minimal offset-pagination shape as this branch uses elsewhere (no
 // cursor infra exists yet). Always ordered newest-first (`at desc`).
+//
+// `entity`/`entityId` (item 23 bug fix): StatusTimeline (components/farm/
+// status-timeline.tsx) has sent these two query params since it was built for
+// tasks/employees/batches — but this route never read them, so every screen
+// using StatusTimeline was actually rendering the WHOLE tenant's audit log,
+// unfiltered, as if it were that one record's history. Harmless-looking
+// (still real rows, still tenant-scoped) but wrong: a task's "Status History"
+// showed every batch/employee/approval event too. Both optional and only
+// applied together (an entityId with no entity, or vice versa, is treated as
+// absent) — no existing caller that omits both changes behaviour.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 
@@ -55,6 +65,14 @@ export async function GET(req: Request) {
 
   const limit = parseLimit(url.searchParams.get('limit'))
   const offset = parseOffset(url.searchParams.get('offset'))
+  const entity = url.searchParams.get('entity')?.trim()
+  const entityId = url.searchParams.get('entityId')?.trim()
+
+  const conditions = [eq(auditLog.tenantId, tenantId)]
+  if (entity && entityId) {
+    conditions.push(eq(auditLog.entity, entity))
+    conditions.push(eq(auditLog.entityId, entityId))
+  }
 
   const rows = await db
     .select({
@@ -72,7 +90,7 @@ export async function GET(req: Request) {
     })
     .from(auditLog)
     .leftJoin(users, eq(users.id, auditLog.actor))
-    .where(eq(auditLog.tenantId, tenantId))
+    .where(and(...conditions))
     .orderBy(desc(auditLog.at), desc(auditLog.id))
     .limit(limit)
     .offset(offset)

@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNav, TopNav, requestLogout } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
@@ -9,8 +9,9 @@ import { Badge } from '@/components/ui-kit/badge';
 import { Input } from '@/components/ui-kit/input';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { controlClass } from '@/components/ui-kit/field';
+import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dialog';
 import {
-  Plus, Camera,
+  Plus, Camera, X,
   ChevronRight, Wifi, Check, Lock, ClipboardList, DollarSign, Calendar,
   Wheat, AlertTriangle, Hash, Sunrise, Egg, Syringe, Scale, Package, Layers,
   ArrowRight, CheckCircle2,
@@ -27,6 +28,8 @@ import {
 import {
   BYPASS_ROLES, DEFAULT_MATRIX, DEFAULT_APPROVAL, RECORD_TYPE_MODULES, type AccessLevel,
 } from '@/lib/permission-matrix';
+import { MAX_RECORD_PHOTOS, firstInvalidPhoto } from '@/lib/record-photos';
+import { compressImageFile } from '@/lib/image-compress';
 
 // ── Real API shapes (issue #248) ────────────────────────────────────────────
 // Wired to GET /api/employees/me and GET/POST /api/records (issue #247).
@@ -60,6 +63,7 @@ interface ApiRecord {
   type: string;
   data: Record<string, unknown>;
   photoUrl: string | null;
+  photoUrls: string[];
   createdAt: string | null;
 }
 
@@ -230,6 +234,52 @@ const RECORD_STATE_BADGE: Record<'pending' | 'rejected' | 'applied', { label: st
   applied: { label: 'Saved', variant: 'success' },
 };
 
+// ── Several photos per record: reading them back ────────────────────────────
+// `photoUrls` is the full list; `photoUrl` (kept for every reader that never
+// learned about the array) is just its first element. A record written
+// before this shipped has `photoUrls: []` and a real `photoUrl` — falling
+// back to `[photoUrl]` is what keeps an OLD mortality record's photo
+// visible here too, not just new ones.
+function photosOf(r: { photoUrl: string | null; photoUrls: string[] }): string[] {
+  return r.photoUrls.length > 0 ? r.photoUrls : (r.photoUrl ? [r.photoUrl] : []);
+}
+
+// Read-only thumbnail row for a worker's own record — "the worker must be
+// able to see the photos they attached" (rejection-loop task). Tapping one
+// opens PhotoLightbox full-screen; nothing here can edit or remove a photo,
+// this is history, not the capture form.
+function PhotoStrip({ photos, onOpen }: { photos: string[]; onOpen: (url: string) => void }) {
+  if (photos.length === 0) return null;
+  return (
+    <div className="mt-2 flex gap-1.5">
+      {photos.map((url, i) => (
+        <button
+          key={i} type="button" onClick={() => onOpen(url)}
+          className="size-11 shrink-0 overflow-hidden rounded-lg border border-border"
+        >
+          {/* eslint-config's @next/next/no-img-element is off repo-wide (see eslint.config.mjs) */}
+          <img src={url} alt={`Photo ${i + 1} attached to this record`} className="size-full object-cover" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Full-screen, tap-anywhere-to-close viewer shared by every screen that
+ * shows a worker's own photos read-only (Home, Profile). */
+function PhotoLightbox({ url, onClose }: { url: string | null; onClose: () => void }) {
+  if (!url) return null;
+  return (
+    <div
+      role="button" tabIndex={0} aria-label="Close photo"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-fg/85 p-4"
+      onClick={onClose}
+    >
+      <img src={url} alt="Photo attached to this record, enlarged" className="max-h-full max-w-full rounded-lg object-contain" />
+    </div>
+  );
+}
+
 /* ── Pick from a list, or say something the list lacks ──────────────────────
  * These fields were free-text inputs writing straight into the jsonb `data`
  * blob, so "Newcastle vaccine", "newcastle" and "Newcastl" all became distinct
@@ -352,6 +402,59 @@ export function selectMyTasksToday(tasks: ApiTask[], employeeId: string, workerN
   });
 }
 
+// ── Reply with a note (rejection-loop task) ─────────────────────────────────
+// One short reply per rejected record, attached where the owner already
+// looks (the same record, in Approvals) — no chat thread, no second screen.
+// PATCH /api/records/[id] enforces that this record is both the caller's own
+// and actually rejected; this dialog only ever opens on a row that already
+// satisfies both, so a failure here would mean the two disagreed, not a
+// normal outcome.
+function NoteReplyDialog({ record, onClose, onSaved, tenantId }: {
+  record: ApiRecord | null;
+  onClose: () => void;
+  onSaved: () => void;
+  tenantId: string;
+}) {
+  const { showToast } = useToast();
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setNote(''); }, [record?.id]);
+
+  async function submit() {
+    if (!record || !note.trim()) return;
+    setSaving(true);
+    const res = await apiClient.patch(`/api/records/${record.id}?tenantId=${tenantId}`, { note: note.trim() });
+    setSaving(false);
+    if (!res.success) { showToast(res.error ?? 'Could not send that note', 'error'); return; }
+    showToast('Sent to the owner', 'success');
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <Dialog open={!!record} onOpenChange={(o) => { if (!o) onClose(); }}>
+      {record && (
+        <>
+          <DialogTitle>Reply with a note</DialogTitle>
+          <DialogDescription>This goes to the owner, attached to this record — they&apos;ll see it next to their decision.</DialogDescription>
+          <textarea
+            className={cn(controlClass, 'mt-3 h-24 resize-none py-2 text-base')}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. The photo was blurry because the light was bad — I can retake it tomorrow morning"
+            autoFocus
+            maxLength={500}
+          />
+          <div className="mt-4 flex gap-2">
+            <Button variant="secondary" className="h-11 flex-1" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button className="h-11 flex-1" disabled={saving || !note.trim()} onClick={submit}>{saving ? 'Sending…' : 'Send'}</Button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
 // ── Worker Home — hero is "your next job" ───────────────────────────────────
 // The design brief for this screen: a worker on a cheap Android phone, in
 // sunlight, sometimes gloved, wants one thing before anything else — what do
@@ -373,17 +476,39 @@ export function WorkerHomeScreen() {
   // still loading, so nothing flickers away on a slow phone once it lands.
   const { access } = useEffectiveRolePermissions(tenantId, role);
   const quickRecordTiles = ALL_RECORD_TYPES.filter((tile) => access(RECORD_TYPE_MODULES[tile.type]) === 'edit');
-  const [recent, setRecent] = useState<ApiRecord[] | null>(null);
+  // Fetched once, in full — "Recent activity" shows the newest 5, "Needs
+  // another look" (rejection-loop task) filters the same list for rejected
+  // records that haven't already been fixed, so one request backs both
+  // instead of a second fetch for the second section.
+  const [allRecords, setAllRecords] = useState<ApiRecord[] | null>(null);
   const [batchLabel, setBatchLabel] = useState<Record<string, string>>({});
   const [tasksToday, setTasksToday] = useState<ApiTask[] | null>(null);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [noteTarget, setNoteTarget] = useState<ApiRecord | null>(null);
 
-  useEffect(() => {
+  const loadRecords = useCallback(() => {
     if (!employee) return;
     apiClient.get<ApiRecord[]>(`/api/records?tenantId=${tenantId}&employeeId=${employee.id}`).then((res) => {
-      if (res.success) setRecent(res.data.slice(0, 5));
+      if (res.success) setAllRecords(res.data);
     });
   }, [employee, tenantId]);
+
+  useEffect(() => { loadRecords(); }, [loadRecords]);
+
+  const recent = allRecords?.slice(0, 5) ?? null;
+
+  // A rejected record whose fix has already been resubmitted (a newer record
+  // carries its id in `data.resubmitsRecordId`) has nothing left for the
+  // worker to do — it drops off this list the moment that happens, rather
+  // than sitting here stale next to the attempt that superseded it.
+  const needsAnotherLook = useMemo(() => {
+    if (!allRecords) return [];
+    const resubmitted = new Set(
+      allRecords.map((r) => (typeof r.data.resubmitsRecordId === 'string' ? r.data.resubmitsRecordId : null)).filter((v): v is string => !!v),
+    );
+    return allRecords.filter((r) => recordApprovalState(r.data) === 'rejected' && !resubmitted.has(r.id));
+  }, [allRecords]);
 
   const loadTasksToday = useCallback(() => {
     if (!employee) return;
@@ -520,6 +645,49 @@ export function WorkerHomeScreen() {
         </p>
       )}
 
+      {/* ── Needs another look (rejection-loop task) ──────────────────────────
+         A worker who gets rejected used to learn nothing and could do
+         nothing — this is the loop closing. Sits above Recent activity: it's
+         work waiting on the worker, not history. Hidden entirely once
+         nothing is waiting, same "no empty section" rule the rest of this
+         screen already follows. */}
+      {needsAnotherLook.length > 0 && (
+        <>
+          <p className="section-eyebrow mb-2 text-danger">Needs another look</p>
+          <div className="mb-6 overflow-hidden rounded-xl bg-surface shadow-(--shadow-border)">
+            {needsAnotherLook.map((r, i) => {
+              const reason = typeof r.data.decisionNote === 'string' ? r.data.decisionNote : null;
+              const alreadyReplied = typeof r.data.workerNote === 'string' && r.data.workerNote.length > 0;
+              const apiType = r.type; // already the exact string RECORD_TYPE_TO_FORM expects
+              return (
+                <div key={r.id} className={cn('px-4 py-3.5', i < needsAnotherLook.length - 1 && 'border-b border-border')}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-danger-soft text-danger">
+                      <AlertTriangle size={16} aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-fg">{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</p>
+                      <p className="text-xs text-muted">{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)} · {timeOf(r.createdAt)}</p>
+                      {reason && <p className="mt-1 text-xs leading-relaxed text-danger">&quot;{reason}&quot;</p>}
+                      {alreadyReplied && <p className="mt-1 text-xs text-muted">You replied — waiting on the owner.</p>}
+                    </div>
+                  </div>
+                  <PhotoStrip photos={photosOf(r)} onOpen={setLightbox} />
+                  <div className="mt-2.5 flex gap-2">
+                    <Button size="lg" className="h-11 flex-1 text-[13px]" onClick={() => navigate('worker-record', { type: apiType, resubmit: r.id })}>
+                      Fix and resubmit
+                    </Button>
+                    <Button variant="secondary" size="lg" className="h-11 flex-1 text-[13px]" onClick={() => setNoteTarget(r)}>
+                      Reply with a note
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {/* Recent activity (real GET /api/records, not a task mock) */}
       <p className="section-eyebrow mb-2">Recent activity</p>
       <div className="mb-6 overflow-hidden rounded-xl bg-surface shadow-(--shadow-border)">
@@ -531,19 +699,24 @@ export function WorkerHomeScreen() {
           const RecordIcon = RECORD_TYPE_LABEL[r.type]?.icon ?? ClipboardList;
           const badge = RECORD_STATE_BADGE[recordApprovalState(r.data)];
           return (
-            <div key={r.id} className={cn('flex items-center gap-3 px-4 py-3', i < recent.length - 1 && 'border-b border-border')}>
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                <RecordIcon size={16} aria-hidden="true" />
+            <div key={r.id} className={cn('px-4 py-3', i < recent.length - 1 && 'border-b border-border')}>
+              <div className="flex items-center gap-3">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                  <RecordIcon size={16} aria-hidden="true" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-fg">{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</p>
+                  <p className="text-xs text-muted">{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)} · {timeOf(r.createdAt)}</p>
+                </div>
+                {badge.variant !== 'success' && <Badge variant={badge.variant}>{badge.label}</Badge>}
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-fg">{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</p>
-                <p className="text-xs text-muted">{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)} · {timeOf(r.createdAt)}</p>
-              </div>
-              {badge.variant !== 'success' && <Badge variant={badge.variant}>{badge.label}</Badge>}
+              <PhotoStrip photos={photosOf(r)} onOpen={setLightbox} />
             </div>
           );
         })}
       </div>
+      <PhotoLightbox url={lightbox} onClose={() => setLightbox(null)} />
+      <NoteReplyDialog record={noteTarget} onClose={() => setNoteTarget(null)} onSaved={loadRecords} tenantId={tenantId} />
 
       {/* Quick record — ad-hoc shortcuts straight into a type; the full
          grouped browser lives on the Record tab. Hidden entirely (not just
@@ -627,11 +800,32 @@ export function WorkerRecordScreen() {
   const [routines, setRoutines] = useState<Routine[] | null>(null);
   const [activeRoutine, setActiveRoutine] = useState<Routine | null>(null);
 
+  // ── Fix and resubmit (rejection-loop task) ─────────────────────────────────
+  // Worker Home's "Needs another look" section deep-links here with
+  // `resubmit=<rejected record id>` alongside the usual `type`. Loading the
+  // full rejected record (its count/cause/photos) is what lets the form open
+  // pre-filled instead of blank — `undefined` means still loading (the form
+  // is held back below so it never flashes empty first), `null` means there
+  // is nothing to resubmit (the common case) or the fetch failed, in which
+  // case the form still opens, just blank, rather than getting stuck.
+  const resubmitId = params.resubmit;
+  const [resubmitSeed, setResubmitSeed] = useState<ApiRecord | null | undefined>(resubmitId ? undefined : null);
+
   useEffect(() => {
     apiClient.get<Routine[]>(`/api/routines?tenantId=${tenantId}`).then((res) => {
       setRoutines(res.success ? res.data.filter((r) => r.active) : []);
     });
   }, [tenantId]);
+
+  useEffect(() => {
+    if (!resubmitId) { setResubmitSeed(null); return; }
+    let cancelled = false;
+    apiClient.get<ApiRecord[]>(`/api/records?tenantId=${tenantId}&id=${resubmitId}`).then((res) => {
+      if (cancelled) return;
+      setResubmitSeed(res.success && res.data.length > 0 ? res.data[0] : null);
+    });
+    return () => { cancelled = true; };
+  }, [resubmitId, tenantId]);
 
   // Safety net for the deep-link entry point (Home's Quick record row, or an
   // overdue task's "Record it" button, both navigate here with `type` set
@@ -664,9 +858,14 @@ export function WorkerRecordScreen() {
   }
 
   if (activeRoutine) return <RoutineRunner ctx={ctx} routine={activeRoutine} onBack={() => setActiveRoutine(null)} />;
+  // Held back while the rejected record it resubmits is still loading, so
+  // the form never flashes blank and then jumps to pre-filled a moment later.
+  if ((activeForm === 'mortality' || activeForm === 'count') && resubmitId && resubmitSeed === undefined) {
+    return <div className="screen-content px-screen pt-4"><div className="text-sm text-muted">Loading…</div></div>;
+  }
   if (activeForm === 'feeding') return <FeedingForm ctx={ctx} onBack={() => setActiveForm(null)} />;
-  if (activeForm === 'mortality') return <MortalityForm ctx={ctx} onBack={() => setActiveForm(null)} />;
-  if (activeForm === 'count') return <PhysicalCountForm ctx={ctx} onBack={() => setActiveForm(null)} />;
+  if (activeForm === 'mortality') return <MortalityForm ctx={ctx} onBack={() => setActiveForm(null)} resubmitOf={resubmitSeed ?? undefined} />;
+  if (activeForm === 'count') return <PhysicalCountForm ctx={ctx} onBack={() => setActiveForm(null)} resubmitOf={resubmitSeed ?? undefined} />;
   if (activeForm === 'collect') return <CollectProductsForm ctx={ctx} onBack={() => setActiveForm(null)} />;
   if (activeForm === 'health') return <HealthForm ctx={ctx} onBack={() => setActiveForm(null)} />;
   if (activeForm === 'weight') return <WeightForm ctx={ctx} onBack={() => setActiveForm(null)} />;
@@ -1770,32 +1969,53 @@ function StockCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void })
   );
 }
 
-function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
+function MortalityForm({ ctx, onBack, resubmitOf }: { ctx: WorkerCtx; onBack: () => void; resubmitOf?: ApiRecord }) {
   const { showToast } = useToast();
-  const [step, setStep] = useState(1);
-  const [batchId, setBatchId] = useState<string | null>(null);
-  const [count, setCount] = useState(0);
-  const [cause, setCause] = useState<string>('Unknown');
-  const [causeIsOther, setCauseIsOther] = useState(false);
-  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  // Resubmitting starts straight at the count/cause step — the batch is
+  // already known from the rejected record, and re-picking it is one more
+  // tap for information that hasn't changed. Back still reaches step 1 in
+  // case it genuinely was the wrong batch.
+  const [step, setStep] = useState(resubmitOf ? 2 : 1);
+  const [batchId, setBatchId] = useState<string | null>(resubmitOf?.batchId ?? null);
+  const [count, setCount] = useState(() => Math.max(0, Math.trunc(Number(resubmitOf?.data.count ?? resubmitOf?.data.deaths ?? 0))));
+  const [cause, setCause] = useState<string>(() => (typeof resubmitOf?.data.cause === 'string' && resubmitOf.data.cause ? resubmitOf.data.cause : 'Unknown'));
+  const [causeIsOther, setCauseIsOther] = useState(() => !!resubmitOf && !(MORTALITY_CAUSES as readonly string[]).includes(cause));
+  const [photos, setPhotos] = useState<string[]>(() => (resubmitOf ? photosOf(resubmitOf) : []));
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   const threshold = ctx.employee?.mortalityPhotoThreshold ?? 3;
+  // Still just "at least one photo" once the threshold is met — several
+  // photos task generalises the old "exactly one" rule, doesn't tighten it.
   const needsPhoto = count >= threshold;
   const batch = ctx.batches?.find((b) => b.id === batchId) ?? null;
 
-  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhotoDataUrl(typeof reader.result === 'string' ? reader.result : null);
-    reader.readAsDataURL(file);
+    e.target.value = ''; // lets the same file be picked again (e.g. retake)
+    if (!file || photos.length >= MAX_RECORD_PHOTOS) return;
+    setPhotoBusy(true); setPhotoError('');
+    try {
+      const compressed = await compressImageFile(file);
+      setPhotos((prev) => (prev.length >= MAX_RECORD_PHOTOS ? prev : [...prev, compressed]));
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Couldn't add that photo");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+  function removePhoto(i: number) {
+    setPhotos((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   async function handleSubmit() {
     if (!ctx.employee || !batchId) return;
-    if (needsPhoto && !photoDataUrl) { setError('A photo is required for this many deaths.'); return; }
+    if (needsPhoto && photos.length === 0) { setError('A photo is required for this many deaths.'); return; }
+    const photoProblem = firstInvalidPhoto(photos);
+    if (photoProblem) { setError(photoProblem.message); return; }
     setSubmitting(true); setError('');
     const res = await apiClient.post<RecordPostResult>('/api/records', {
       tenantId: ctx.tenantId,
@@ -1803,17 +2023,19 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
       employeeId: ctx.employee.id,
       type: 'mortality',
       data: { count, cause },
-      photoUrl: photoDataUrl,
+      photoUrls: photos,
+      ...(resubmitOf ? { resubmitsRecordId: resubmitOf.id } : {}),
     });
     setSubmitting(false);
     if (!res.success) { setError(res.error || 'Failed to save record.'); return; }
-    showToast(...submissionToast(res.data, 'Mortality record saved.'));
+    if (resubmitOf) showToast(...submissionToast(res.data, 'Resubmitted — sent back for approval.'));
+    else showToast(...submissionToast(res.data, 'Mortality record saved.'));
     onBack();
   }
 
   return (
     <div className="screen-content">
-      <div className="px-screen"><TopNav title="Mortality Record" showBack /></div>
+      <div className="px-screen"><TopNav title={resubmitOf ? 'Fix and Resubmit' : 'Mortality Record'} showBack /></div>
       <div className="px-screen pt-4 pb-8">
         <StepTrack steps={['Batch', 'Count & Cause', 'Photo', 'Confirm']} step={step} />
 
@@ -1886,25 +2108,56 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
             <div className="mb-4 rounded-xl bg-danger-soft p-4 text-center">
               <Camera size={40} className="mb-2 text-danger" aria-hidden="true" />
               <p className="mb-1 text-base font-bold text-fg">Photo Evidence Required</p>
-              <p className="text-sm leading-relaxed text-muted">Your farm requires a photo for {threshold}+ deaths. This helps with disease investigation.</p>
+              <p className="text-sm leading-relaxed text-muted">Your farm requires a photo for {threshold}+ deaths. This helps with disease investigation. Up to {MAX_RECORD_PHOTOS} photos — different angles help.</p>
             </div>
-            {photoDataUrl ? (
-              <img src={photoDataUrl} alt="Mortality evidence" className="mb-2.5 max-h-52 w-full rounded-xl object-cover" />
-            ) : null}
-            <label className="mb-2.5 flex h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary-soft text-base font-bold text-primary">
-              <Camera size={18} /> {photoDataUrl ? 'Retake Photo' : 'Take Photo'}
-              <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" />
-            </label>
+            {photos.length > 0 && (
+              <div className="mb-2.5 flex flex-wrap gap-2">
+                {photos.map((url, i) => (
+                  <div key={i} className="relative">
+                    <button type="button" onClick={() => setLightbox(url)} className="block size-20 overflow-hidden rounded-xl border border-border">
+                      <img src={url} alt={`Mortality evidence ${i + 1}`} className="size-full object-cover" />
+                    </button>
+                    {/* A worker with wet or gloved hands is exactly who
+                        needs to hit this reliably — the badge stays a small
+                        28px visual (it sits on an 80px thumbnail; a literal
+                        44px circle would swallow it), but the tappable area
+                        around it is the full 44px the rest of this screen
+                        uses, via an invisible outer hit box centered on the
+                        same spot the small circle used to occupy alone. */}
+                    <button
+                      type="button" onClick={() => removePhoto(i)} aria-label={`Remove photo ${i + 1}`}
+                      className="absolute -top-4 -right-4 flex size-11 items-center justify-center rounded-full"
+                    >
+                      <span className="flex size-7 items-center justify-center rounded-full bg-danger text-primary-fg shadow-(--shadow-border)">
+                        <X size={13} aria-hidden="true" />
+                      </span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {photos.length < MAX_RECORD_PHOTOS && (
+              <label className={cn(
+                'mb-1 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary-soft text-base font-bold text-primary',
+                photoBusy ? 'opacity-60' : 'cursor-pointer',
+              )}>
+                <Camera size={18} /> {photoBusy ? 'Adding…' : photos.length === 0 ? 'Take Photo' : 'Add another photo'}
+                <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" disabled={photoBusy} />
+              </label>
+            )}
+            <p className="mb-2.5 text-center text-xs text-muted">{photos.length} of {MAX_RECORD_PHOTOS} photos</p>
+            {photoError && <p className="mb-2.5 text-center text-xs text-danger">{photoError}</p>}
             <Button variant="secondary" className="mb-2.5 w-full" onClick={() => setStep(2)}>Back</Button>
-            <Button size="lg" className="h-14 w-full" disabled={!photoDataUrl} onClick={() => setStep(4)}>Continue with Photo</Button>
+            <Button size="lg" className="h-14 w-full" disabled={photos.length === 0} onClick={() => setStep(4)}>Continue with Photo{photos.length > 1 ? 's' : ''}</Button>
+            <PhotoLightbox url={lightbox} onClose={() => setLightbox(null)} />
           </div>
         )}
 
         {step === 4 && batch && (
           <div>
             <div className="mb-4 rounded-xl bg-primary-soft p-4">
-              <p className="mb-2 font-bold text-fg">Confirm & Save</p>
-              {[['Batch', batch.code], ['Deaths', `${count}`], ['Cause', cause], ['Photo', photoDataUrl ? 'Attached' : needsPhoto ? 'Missing' : 'Not required']].map(([k, v]) => (
+              <p className="mb-2 font-bold text-fg">{resubmitOf ? 'Confirm & Resubmit' : 'Confirm & Save'}</p>
+              {[['Batch', batch.code], ['Deaths', `${count}`], ['Cause', cause], ['Photos', photos.length > 0 ? `${photos.length} attached` : needsPhoto ? 'Missing' : 'Not required']].map(([k, v]) => (
                 <div key={k} className="mb-1 flex justify-between text-sm">
                   <span className="text-muted">{k}</span>
                   <span className="font-semibold text-fg">{v}</span>
@@ -1913,7 +2166,7 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
             </div>
             {error && <p className="mb-2.5 text-sm text-danger">{error}</p>}
             <Button size="lg" className="mb-2 h-14 w-full" disabled={submitting} onClick={handleSubmit}>
-              <Check size={14} /> {submitting ? 'Saving…' : 'Save Record'}
+              <Check size={14} /> {submitting ? 'Saving…' : resubmitOf ? 'Resubmit' : 'Save Record'}
             </Button>
           </div>
         )}
@@ -1922,11 +2175,14 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
   );
 }
 
-function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
+function PhysicalCountForm({ ctx, onBack, resubmitOf }: { ctx: WorkerCtx; onBack: () => void; resubmitOf?: ApiRecord }) {
   const { showToast } = useToast();
-  const [batchId, setBatchId] = useState<string | null>(ctx.batches?.[0]?.id ?? null);
-  const [physicalCount, setPhysicalCount] = useState('');
-  const [reason, setReason] = useState('');
+  const [batchId, setBatchId] = useState<string | null>(resubmitOf?.batchId ?? ctx.batches?.[0]?.id ?? null);
+  const [physicalCount, setPhysicalCount] = useState(() => {
+    const seeded = resubmitOf?.data.physicalCount ?? resubmitOf?.data.counted ?? resubmitOf?.data.count;
+    return seeded === undefined || seeded === null ? '' : String(seeded);
+  });
+  const [reason, setReason] = useState(() => (typeof resubmitOf?.data.varianceReason === 'string' ? resubmitOf.data.varianceReason : ''));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -1947,16 +2203,18 @@ function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void
       employeeId: ctx.employee.id,
       type: 'physical_count',
       data: { systemCount: batch.currentQty, physicalCount: count, variance, varianceReason: reason },
+      ...(resubmitOf ? { resubmitsRecordId: resubmitOf.id } : {}),
     });
     setSubmitting(false);
     if (!res.success) { setError(res.error || 'Failed to save record.'); return; }
-    showToast(...submissionToast(res.data, 'Physical count saved.'));
+    if (resubmitOf) showToast(...submissionToast(res.data, 'Resubmitted — sent back for approval.'));
+    else showToast(...submissionToast(res.data, 'Physical count saved.'));
     onBack();
   }
 
   return (
     <div className="screen-content">
-      <div className="px-screen"><TopNav title="Physical Count" showBack /></div>
+      <div className="px-screen"><TopNav title={resubmitOf ? 'Fix and Resubmit' : 'Physical Count'} showBack /></div>
       <div className="px-screen pt-4 pb-8">
         {ctx.batches !== null && ctx.batches.length === 0 ? (
           <div className="rounded-xl bg-warning-soft px-4 py-3.5 text-sm text-muted">No batches are assigned to you yet.</div>
@@ -2009,7 +2267,7 @@ function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void
             </div>
             {error && <p className="mb-2.5 text-sm text-danger">{error}</p>}
             <Button size="lg" className="mb-2 h-14 w-full" disabled={submitting || count === null} onClick={handleSubmit}>
-              <Check size={14} /> {submitting ? 'Saving…' : 'Submit Count'}
+              <Check size={14} /> {submitting ? 'Saving…' : resubmitOf ? 'Resubmit' : 'Submit Count'}
             </Button>
           </>
         )}
@@ -2106,6 +2364,7 @@ export function WorkerProfileScreen() {
   const { tenantId, employee, employeeError } = useWorkerContext();
   const [records, setRecords] = useState<ApiRecord[] | null>(null);
   const [batchLabel, setBatchLabelMap] = useState<Record<string, string>>({});
+  const [lightbox, setLightbox] = useState<string | null>(null);
 
   useEffect(() => {
     if (!employee) return;
@@ -2141,16 +2400,20 @@ export function WorkerProfileScreen() {
         {records !== null && records.map((r, i, arr) => {
           const badge = RECORD_STATE_BADGE[recordApprovalState(r.data)];
           return (
-            <div key={r.id} className={cn('flex items-center justify-between gap-2 px-4 py-3', i < arr.length - 1 && 'border-b border-border')}>
-              <div>
-                <p className="text-sm font-semibold text-fg">{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</p>
-                <p className="text-[11px] text-muted">{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)} · {timeOf(r.createdAt)}</p>
+            <div key={r.id} className={cn('px-4 py-3', i < arr.length - 1 && 'border-b border-border')}>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-fg">{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</p>
+                  <p className="text-[11px] text-muted">{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)} · {timeOf(r.createdAt)}</p>
+                </div>
+                <Badge variant={badge.variant}>{badge.label}</Badge>
               </div>
-              <Badge variant={badge.variant}>{badge.label}</Badge>
+              <PhotoStrip photos={photosOf(r)} onOpen={setLightbox} />
             </div>
           );
         })}
       </div>
+      <PhotoLightbox url={lightbox} onClose={() => setLightbox(null)} />
 
       {/* (#376 Gap 5: the hardcoded "Settings" block that lived here —
           Language / High Contrast / Sync-on-WiFi rows styled as active

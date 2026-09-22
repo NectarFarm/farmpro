@@ -309,6 +309,48 @@
       "when": 1790079407438,
       "tag": "0043_billing_currency_ksh",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790083229709,
+      "tag": "0044_record_photos_and_rejection_reason",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790092008638,
+      "tag": "0045_forms_audit_slice",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1790094948858,
+      "tag": "0046_three_date_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790109831010,
+      "tag": "0047_supplier_customer_masters",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790111579922,
+      "tag": "0048_edit_and_reverse",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790112129428,
+      "tag": "0049_edit_reverse_ownership",
+      "breakpoints": true
     }
   ]
 }

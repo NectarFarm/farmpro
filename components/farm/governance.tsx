@@ -19,6 +19,8 @@ import { Input } from '@/components/ui-kit/input';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { Kv } from '@/components/ui-kit/inspector';
+import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dialog';
+import { controlClass } from '@/components/ui-kit/field';
 import type { ReportPayload } from '@/lib/report-types';
 import { downloadReportCsv, downloadReportPdf, type ExportOptions } from '@/lib/report-export';
 import { periodDateRange } from '@/lib/period-range';
@@ -176,6 +178,9 @@ interface ApprovalRequestRow {
   assignedApproverId: string | null;
   decidedBy: string | null;
   decidedAt: string | null;
+  // rejection-loop task (migration 0044). Set only on a rejected request —
+  // the reason POST /api/approvals/[id]/reject now requires.
+  decisionNote: string | null;
 }
 
 interface ApproverRow {
@@ -420,6 +425,10 @@ export function GovernanceScreen() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [mobileEventOpen, setMobileEventOpen] = useState(false);
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  // rejection-loop task: Reject no longer fires straight from the button —
+  // it opens this small prompt first (see RejectReasonDialog below).
+  // `rejectTarget` doubles as the dialog's open/closed state.
+  const [rejectTarget, setRejectTarget] = useState<ApprovalRequestRow | null>(null);
   const [approvers, setApprovers] = useState<ApproverRow[]>([]);
   const [myUserId, setMyUserId] = useState<string | null>(null);
 
@@ -499,11 +508,16 @@ export function GovernanceScreen() {
   useEffect(() => { loadRoles(); }, [loadRoles]);
   useEffect(() => { loadAuditLog(); }, [loadAuditLog]);
 
-  async function decide(a: ApprovalRequestRow, decision: 'approve' | 'reject') {
+  // The actual API call, shared by both paths below. `reason` is only ever
+  // sent (and only ever required server-side) on a reject.
+  async function decideRequest(a: ApprovalRequestRow, decision: 'approve' | 'reject', reason?: string): Promise<boolean> {
     setDecidingId(a.id);
-    const res = await apiClient.post(`/api/approvals/${a.id}/${decision}?tenantId=${tenantId}`, {});
+    const res = await apiClient.post(
+      `/api/approvals/${a.id}/${decision}?tenantId=${tenantId}`,
+      decision === 'reject' ? { reason } : {},
+    );
     setDecidingId(null);
-    if (!res.success) { showToast(res.error ?? `Could not ${decision} request`, 'error'); return; }
+    if (!res.success) { showToast(res.error ?? `Could not ${decision} request`, 'error'); return false; }
     showToast(decision === 'approve' ? 'Approved' : 'Rejected', decision === 'approve' ? 'success' : 'error');
     await Promise.all([loadApprovals(), loadAuditLog()]);
     // Same fix as marking a notification read (dashboard.tsx's
@@ -511,6 +525,20 @@ export function GovernanceScreen() {
     // showing the pre-decision count until something else happens to
     // force a refetch (e.g. a farm switch).
     refreshBadges();
+    return true;
+  }
+
+  // rejection-loop task: a reject no longer fires straight away — it opens
+  // RejectReasonDialog (below) and waits for a reason. Approve is unchanged.
+  function decide(a: ApprovalRequestRow, decision: 'approve' | 'reject') {
+    if (decision === 'reject') { setRejectTarget(a); return; }
+    void decideRequest(a, decision);
+  }
+
+  async function confirmReject(reason: string) {
+    if (!rejectTarget) return;
+    const done = await decideRequest(rejectTarget, 'reject', reason);
+    if (done) setRejectTarget(null);
   }
 
   async function persistRoles(next: RoleMatrixEntry[]): Promise<boolean> {
@@ -777,6 +805,13 @@ export function GovernanceScreen() {
                             <span className="mt-0.5 block truncate text-xs text-muted">
                               {requesterName(a.requestedBy)} · {a.type} · {relativeTime(a.requestedAt)}
                             </span>
+                            {/* rejection-loop task: the reason at a glance,
+                             * not just once a row is opened — an owner
+                             * scanning the Rejected tab shouldn't have to
+                             * tap every row to remember why each one failed. */}
+                            {a.status === 'rejected' && a.decisionNote && (
+                              <span className="mt-0.5 block truncate text-xs text-danger">{a.decisionNote}</span>
+                            )}
                           </span>
                         </button>
                       </li>
@@ -953,7 +988,76 @@ export function GovernanceScreen() {
           onSave={saveRole}
         />
       )}
+
+      <RejectReasonDialog
+        approval={rejectTarget}
+        busy={!!rejectTarget && decidingId === rejectTarget.id}
+        onCancel={() => setRejectTarget(null)}
+        onConfirm={confirmReject}
+      />
     </div>
+  );
+}
+
+// A couple of one-tap common reasons — cheap to offer, and most rejections
+// are one of these. Tapping one fills the textarea rather than submitting
+// immediately: the approver can still tighten it up (which batch, which
+// number looked wrong) before it goes to the worker.
+const QUICK_REJECT_REASONS = [
+  'Photo is unclear',
+  'Count looks wrong for this batch',
+  'Wrong batch',
+];
+
+/* ── Reject: reason prompt (rejection-loop task) ─────────────────────────────
+ * POST /api/approvals/[id]/reject now requires a reason — a rejection with
+ * none taught the worker nothing and gave them nothing to act on. This is
+ * the one and only place Reject fires from; Approve stays a single tap. */
+function RejectReasonDialog({ approval, busy, onCancel, onConfirm }: {
+  approval: ApprovalRequestRow | null;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState('');
+  useEffect(() => { setReason(''); }, [approval?.id]);
+
+  const trimmed = reason.trim();
+
+  return (
+    <Dialog open={!!approval} onOpenChange={(o) => { if (!o) onCancel(); }}>
+      {approval && (
+        <>
+          <DialogTitle>Reject this request</DialogTitle>
+          <DialogDescription>
+            Say what&apos;s wrong with &quot;{approval.title}&quot; — this goes straight to the person who submitted it, so they know what to fix.
+          </DialogDescription>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {QUICK_REJECT_REASONS.map((r) => (
+              <button
+                key={r} type="button" onClick={() => setReason(r)}
+                className="min-h-11 rounded-full bg-surface-2 px-3 text-xs font-medium text-muted active:bg-danger-soft active:text-danger"
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <textarea
+            className={cn(controlClass, 'mt-2 h-24 resize-none py-2 text-base')}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Photo doesn't show the birds clearly enough to confirm"
+            autoFocus
+          />
+          <div className="mt-4 flex gap-2">
+            <Button variant="secondary" className="h-11 flex-1" onClick={onCancel} disabled={busy}>Cancel</Button>
+            <Button variant="outline" className="h-11 flex-1" disabled={busy || !trimmed} onClick={() => onConfirm(trimmed)}>
+              <X size={14} /> {busy ? 'Rejecting…' : 'Reject'}
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
   );
 }
 
@@ -977,7 +1081,34 @@ const DATA_LABELS: Record<string, string> = {
   notes: 'Worker notes', treatment: 'Treatment given', dose: 'Dose',
   weight: 'Weight (kg)', averageKg: 'Average weight (kg)', sampleSize: 'Samples taken',
 };
-const HIDDEN_KEYS = new Set(['pendingApproval', 'batchId', 'unitId', 'itemId', 'productId', 'items', 'feedItems', 'samples']);
+// Keys the "what changed" comparison and the plain entries table both need
+// to stay out of — bookkeeping fields, not something the worker "reported".
+const HIDDEN_KEYS = new Set([
+  'pendingApproval', 'batchId', 'unitId', 'itemId', 'productId', 'items', 'feedItems', 'samples',
+  // rejection-loop task: these read as their own labelled sections below
+  // (the reason, the photo, the resubmission banner), not as a bare
+  // "Resubmits record id" / "Decision note" row in the plain entries table.
+  'approvalDecision', 'decidedBy', 'decisionNote', 'resubmitsRecordId', 'workerNote', 'workerNoteAt',
+]);
+
+interface RecordRow {
+  id: string;
+  type: string;
+  data: Record<string, unknown>;
+  photoUrl: string | null;
+  photoUrls: string[];
+  createdAt: string;
+}
+
+function humanLabel(k: string): string {
+  return DATA_LABELS[k] ?? k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+}
+
+function labelledEntries(raw: [string, unknown][]): [string, string][] {
+  return raw
+    .filter(([k, v]) => !HIDDEN_KEYS.has(k) && v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => [humanLabel(k), typeof v === 'object' ? JSON.stringify(v) : String(v)] as [string, string]);
+}
 
 function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requesterName, isOverride, canDecide }: {
   approval: ApprovalRequestRow;
@@ -989,17 +1120,22 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
   isOverride: boolean;
   canDecide: boolean;
 }) {
-  const [record, setRecord] = useState<{ id: string; type: string; data: Record<string, unknown>; photoUrl: string | null; createdAt: string } | null>(null);
+  const [record, setRecord] = useState<RecordRow | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  // rejection-loop task: when this record resubmits a rejected one, fetch
+  // that original too — the "what changed" comparison and its rejection
+  // reason both come from it. Never shown for anything else, so no extra
+  // request fires on the common (non-resubmission) path.
+  const [original, setOriginal] = useState<RecordRow | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
 
   useEffect(() => {
     setRecord(null);
     setLoadFailed(false);
+    setOriginal(null);
     if (!approval.entityId) { setLoadFailed(true); return; }
     let cancelled = false;
-    apiClient.get<{ id: string; type: string; data: Record<string, unknown>; photoUrl: string | null; createdAt: string }[]>(
-      `/api/records?tenantId=${tenantId}&id=${approval.entityId}`,
-    ).then((res) => {
+    apiClient.get<RecordRow[]>(`/api/records?tenantId=${tenantId}&id=${approval.entityId}`).then((res) => {
       if (cancelled) return;
       if (res.success && res.data.length > 0) setRecord(res.data[0]);
       else setLoadFailed(true);
@@ -1007,9 +1143,21 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
     return () => { cancelled = true; };
   }, [approval.entityId, tenantId]);
 
-  const entries = Object.entries(record?.data ?? {})
-    .filter(([k, v]) => !HIDDEN_KEYS.has(k) && v !== null && v !== undefined && v !== '')
-    .map(([k, v]) => [DATA_LABELS[k] ?? k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase()), typeof v === 'object' ? JSON.stringify(v) : String(v)] as [string, string]);
+  const resubmitsId = typeof record?.data.resubmitsRecordId === 'string' ? record.data.resubmitsRecordId : null;
+  useEffect(() => {
+    setOriginal(null);
+    if (!resubmitsId) return;
+    let cancelled = false;
+    apiClient.get<RecordRow[]>(`/api/records?tenantId=${tenantId}&id=${resubmitsId}`).then((res) => {
+      if (!cancelled && res.success && res.data.length > 0) setOriginal(res.data[0]);
+    });
+    return () => { cancelled = true; };
+  }, [resubmitsId, tenantId]);
+
+  const entries = labelledEntries(Object.entries(record?.data ?? {}));
+  const originalEntries = original ? new Map(labelledEntries(Object.entries(original.data ?? {}))) : null;
+  const workerNote = typeof record?.data.workerNote === 'string' ? record.data.workerNote : null;
+  const photos = record && record.photoUrls.length > 0 ? record.photoUrls : (record?.photoUrl ? [record.photoUrl] : []);
 
   return (
     <article className="rounded-xl bg-surface p-5 shadow-(--shadow-border) lg:p-6">
@@ -1045,6 +1193,49 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
         )}
       </dl>
 
+      {/* rejection-loop task: the reason IS the point of a rejection — shown
+       * as its own block, not buried in the key/value grid above. */}
+      {approval.status === 'rejected' && approval.decisionNote && (
+        <div className="mt-4 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2.5 text-sm leading-relaxed text-fg">
+          <span className="font-semibold text-danger">Why it was rejected: </span>{approval.decisionNote}
+        </div>
+      )}
+
+      {/* A resubmission is a FRESH record (see POST /api/records's
+       * `resubmitsRecordId` comment) — this is what makes that visible as a
+       * second attempt rather than an unrelated new request, and shows what
+       * the worker changed against the rejected one's own reason. */}
+      {resubmitsId && (
+        <div className="mt-4 rounded-lg border border-primary/30 bg-primary-soft px-3 py-2.5 text-sm leading-relaxed text-fg">
+          <p className="font-semibold text-primary">This is a resubmission of a rejected record</p>
+          {original && (
+            <>
+              {typeof original.data.decisionNote === 'string' && original.data.decisionNote && (
+                <p className="mt-1 text-xs text-muted">Rejected because: {original.data.decisionNote}</p>
+              )}
+              {originalEntries && entries.some(([label, value]) => originalEntries.get(label) !== undefined && originalEntries.get(label) !== value) && (
+                <div className="mt-2 space-y-1 text-xs">
+                  <p className="font-medium text-subtle">Changed since that attempt:</p>
+                  {entries.filter(([label, value]) => originalEntries.get(label) !== undefined && originalEntries.get(label) !== value).map(([label, value]) => (
+                    <p key={label}>
+                      <span className="text-subtle">{label}: </span>
+                      <span className="line-through text-subtle">{originalEntries.get(label)}</span>{' '}
+                      <span className="font-medium">{value}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {workerNote && (
+        <div className="mt-4 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm leading-relaxed text-fg">
+          <span className="font-semibold text-subtle">Worker&apos;s reply: </span>{workerNote}
+        </div>
+      )}
+
       <div className="mt-6 text-xs font-medium tracking-wide text-subtle uppercase">What the worker submitted</div>
       {record === null && !loadFailed && <div className="py-2.5 text-sm text-muted">Loading the full submission…</div>}
       {loadFailed && (
@@ -1063,12 +1254,31 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
           ))}
         </div>
       )}
-      {record?.photoUrl && (
+      {photos.length > 0 && (
         <>
-          <div className="mt-4 text-xs font-medium tracking-wide text-subtle uppercase">Photo the worker attached</div>
-          {/* eslint-config's @next/next/no-img-element is off repo-wide (see eslint.config.mjs) — this app serves user-uploaded photos, not next/image-optimisable static assets. */}
-          <img src={record.photoUrl} alt="Photo submitted with this record" className="mt-2 w-full rounded-lg border border-border" />
+          <div className="mt-4 text-xs font-medium tracking-wide text-subtle uppercase">
+            {photos.length > 1 ? `Photos the worker attached (${photos.length})` : 'Photo the worker attached'}
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {photos.map((url, i) => (
+              // eslint-config's @next/next/no-img-element is off repo-wide
+              // (see eslint.config.mjs) — this app serves user-uploaded
+              // photos, not next/image-optimisable static assets.
+              <button key={i} type="button" onClick={() => setLightbox(url)} className="overflow-hidden rounded-lg border border-border">
+                <img src={url} alt={`Photo ${i + 1} submitted with this record`} className="aspect-square w-full object-cover" />
+              </button>
+            ))}
+          </div>
         </>
+      )}
+      {lightbox && (
+        <div
+          role="button" tabIndex={0} aria-label="Close photo"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-fg/80 p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <img src={lightbox} alt="Photo submitted with this record, enlarged" className="max-h-full max-w-full rounded-lg object-contain" />
+        </div>
       )}
 
       {isOverride && approval.status === 'pending' && (

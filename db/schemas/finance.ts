@@ -62,7 +62,7 @@
 //                                                  expense out of the ledger would make the
 //                                                  GL/trial balance/P&L quietly wrong once
 //                                                  payroll is real money moving.
-import { pgTable, text, timestamp, integer, bigint, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, boolean, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
 // A tenant's sales — the real backend for components/farm/finance.tsx's
 // `SALES` mock (Sales tab). `batchId` is kept as a plain logical reference
@@ -110,6 +110,61 @@ export const sales = pgTable('sales', {
   status: text('status').notNull().default('paid'), // 'paid' | 'pending'
   soldAt: timestamp('sold_at').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  // Migration 0045 (forms-audit slice). `method` stays free text — old rows
+  // keep whatever they already say — but the Record Sale sheet now offers a
+  // fixed list (M-Pesa, Cash, Bank transfer, Credit, Cheque) and, for the
+  // three that have one, a reference: the M-Pesa code, the bank reference,
+  // the cheque number. One column for all three; which it means is implied
+  // by `method`, the same way a bank statement line does.
+  paymentReference: text('payment_reference'),
+  // Set only when `status` is 'pending' (chosen via the Credit method) — the
+  // date the customer is expected to pay. Nullable: most sales are paid on
+  // the spot and never had a due date to begin with.
+  dueDate: timestamp('due_date'),
+  // "Sold to" — one optional free-text buyer name. Not a customer master
+  // (that's a separate epic, #416): this is the note a farmer already writes
+  // on paper, given somewhere to live.
+  soldTo: text('sold_to'),
+  notes: text('notes'),
+  // Migration 0046 (three-date model, item 18). `soldAt` already IS the
+  // transaction date (when the sale happened, "Sale date" in the sheet) —
+  // no new column needed for that one. These two are the genuinely new
+  // facts: `effectiveDate` (when the stock actually left / the service took
+  // effect — usually the same moment as the transaction, but a dispatch can
+  // lag a sale) and `postingDate` (which ledger period this counts in;
+  // defaults to `effectiveDate`, which itself defaults to `soldAt`). Both
+  // nullable, backfilled from `soldAt` for existing rows — see migration
+  // 0046's own header for why that, and not `createdAt`, is the value that
+  // keeps every P&L figure unchanged (lib/reports.ts has always filtered
+  // sales by `soldAt`, never `createdAt`).
+  effectiveDate: timestamp('effective_date'),
+  postingDate: timestamp('posting_date'),
+  // Migration 0047 (item 20). Optional link to the customer master — `soldTo`
+  // above stays the free-text fact for an old row or a genuine one-off; this
+  // is set only when the sheet's type-to-search picker actually resolved (or
+  // created) a real customers row. Plain logical reference, no DB FK — same
+  // convention every other cross-entity reference in this schema uses
+  // (batchId above, purchases.supplierId below), checked against the
+  // caller's tenant in the route rather than at the DB level.
+  customerId: text('customer_id'),
+  // Item 23: a reversed sale is never deleted and its amountCents/qty/status
+  // are never rewritten in place — this is the ONLY mark a reversal leaves
+  // on the row itself. Set once, by POST /api/data/sales/[id]/reverse, in
+  // the same transaction as the contra journal entry (lib/finance.ts's
+  // reverseJournalEntry) that actually cancels its ledger effect. The
+  // before/after values, the reason and who did it live in audit_log
+  // (entity: 'sale'), read back by the same StatusTimeline component tasks
+  // already use — no second history mechanism.
+  reversedAt: timestamp('reversed_at'),
+  // Item 23: "whoever may record it decides who may edit or reverse it" —
+  // the row's own creator, by user id, so a later edit/reverse can be
+  // refused to a different non-owner actor ("don't let a worker reverse
+  // someone else's row" — app/api/data/sales/[id]/route.ts and .../reverse/
+  // route.ts's canModifyOwnRow check). Nullable: every sale before this
+  // column predates ownership tracking and is not attributable to anyone —
+  // treated as editable by any actor the module gate already lets in, not
+  // locked to nobody.
+  recordedBy: text('recorded_by'),
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),
@@ -185,4 +240,45 @@ export const journalLines = pgTable('journal_lines', {
 }, (t) => [
   index('idx_journal_lines_entry').on(t.entryId),
   index('idx_journal_lines_account').on(t.accountId),
+])
+
+// ── Supplier and customer masters (item 20, forms-audit slice) ──────────────
+// Two small, tenant-scoped masters — not a re-architecture of anything: a
+// purchase/expense still stores its own free-text `supplier`, a sale still
+// stores its own free-text `soldTo` (see migration 0045). These are an
+// OPTIONAL link on top — `purchases.supplierId`/`sales.customerId`
+// (migration 0047) — so an old row, and a genuine one-off with no master
+// behind it, keep working exactly as they always have. Deliberately minimal
+// fields: name, phone, a contact person (distinct from the phone — a
+// supplier's phone often rings a shop, not the person the owner actually
+// deals with), an optional TIN, free-text credit terms ("Net 30", "COD" —
+// not a structured payment-terms engine), and an active flag so a supplier
+// who closed shop stops showing up in the picker without losing their
+// purchase history.
+export const suppliers = pgTable('suppliers', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  name: text('name').notNull(),
+  phone: text('phone').notNull().default(''),
+  contact: text('contact').notNull().default(''),
+  tin: text('tin'),
+  creditTerms: text('credit_terms'),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_suppliers_tenant').on(t.tenantId),
+])
+
+export const customers = pgTable('customers', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  name: text('name').notNull(),
+  phone: text('phone').notNull().default(''),
+  contact: text('contact').notNull().default(''),
+  tin: text('tin'),
+  creditTerms: text('credit_terms'),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_customers_tenant').on(t.tenantId),
 ])

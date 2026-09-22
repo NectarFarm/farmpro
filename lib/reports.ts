@@ -20,7 +20,7 @@
 // `columnFormats` tells the renderer which columns are money/weight so the
 // screen, the CSV and the PDF cannot disagree about a number.
 import 'server-only'
-import { and, asc, eq, gte, inArray, isNotNull, lte, sum } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sum } from 'drizzle-orm'
 import { db } from '@/db'
 import {
   batches, sales, purchases, records, products, employees, tenantSettings, farms,
@@ -227,17 +227,33 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
 
   const farmBatchIds = farmId ? await batchIdsForFarm(tenantId, farmId) : null
 
-  const saleConditions = [eq(sales.tenantId, tenantId)]
-  if (from) saleConditions.push(gte(sales.soldAt, from))
-  if (to) saleConditions.push(lte(sales.soldAt, to))
+  // Three-date model (item 18, part 2 of 2): period membership is decided by
+  // POSTING date, not the transaction date (sales.soldAt) or the row's own
+  // insertion time (purchases.createdAt) this used to read. Every row this
+  // app has ever written has posting_date backfilled/defaulted to exactly
+  // the value this filter used to compare against (migration 0046's own
+  // header, and tests/three-date-model.test.ts's proof), so this changes
+  // which COLUMN decides the period without changing which ROWS land in it.
+  // Item 23: a reversed sale/purchase is excluded from every period figure
+  // below — not deleted, still a real row, but its ledger effect has been
+  // cancelled by a contra entry (lib/finance.ts's reverseJournalEntry) dated
+  // to this SAME period, so leaving it in `periodSales`/`periodPurchases`
+  // would double-count: reported once here, then zeroed again in
+  // `glTotalRevenue`/`glTotalExpense` above. Restating the period this way —
+  // by dropping the reversed row from the period it was reported in, exactly
+  // as if it never happened — is the honest reading of "reverse it", not a
+  // silent rewrite of history: the row and its audit trail still exist.
+  const saleConditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt)]
+  if (from) saleConditions.push(gte(sales.postingDate, from))
+  if (to) saleConditions.push(lte(sales.postingDate, to))
   if (farmBatchIds !== null) saleConditions.push(inArray(sales.batchId, farmBatchIds.length ? farmBatchIds : ['__none__']))
-  const periodSales = await db.select().from(sales).where(and(...saleConditions)).orderBy(asc(sales.soldAt))
+  const periodSales = await db.select().from(sales).where(and(...saleConditions)).orderBy(asc(sales.postingDate))
 
-  const purchaseConditions = [eq(purchases.tenantId, tenantId)]
-  if (from) purchaseConditions.push(gte(purchases.createdAt, from))
-  if (to) purchaseConditions.push(lte(purchases.createdAt, to))
+  const purchaseConditions = [eq(purchases.tenantId, tenantId), isNull(purchases.reversedAt)]
+  if (from) purchaseConditions.push(gte(purchases.postingDate, from))
+  if (to) purchaseConditions.push(lte(purchases.postingDate, to))
   if (farmId) purchaseConditions.push(eq(purchases.farmId, farmId))
-  const periodPurchases = await db.select().from(purchases).where(and(...purchaseConditions)).orderBy(asc(purchases.createdAt))
+  const periodPurchases = await db.select().from(purchases).where(and(...purchaseConditions)).orderBy(asc(purchases.postingDate))
 
   // ── Payroll is an expense, and it was missing from this figure ──────────
   // POST /api/payroll/runs posts a real journal entry (Dr Payroll Expense,
@@ -264,7 +280,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
   type Row = { date: Date; type: string; description: string; batch: string; amount: number; status: string }
   const combined: Row[] = [
     ...periodSales.map((s): Row => ({
-      date: s.soldAt,
+      date: s.postingDate ?? s.soldAt,
       type: 'Sale',
       description: s.item,
       batch: s.batchId ? codeById.get(s.batchId) ?? s.batchId : '',
@@ -272,7 +288,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       status: s.status,
     })),
     ...periodPurchases.map((p): Row => ({
-      date: p.createdAt,
+      date: p.postingDate ?? p.createdAt,
       type: 'Purchase',
       description: p.supplier,
       batch: '',
@@ -399,9 +415,15 @@ export async function computeBatchPlReport(tenantId: string, from: Date | null, 
   // a feeding round), so their JS loops are building the exported table
   // itself, not a throwaway sum — collapsing those would drop rows the
   // report is supposed to show.
-  const saleConditions = [eq(sales.tenantId, tenantId), isNotNull(sales.batchId)]
-  if (from) saleConditions.push(gte(sales.soldAt, from))
-  if (to) saleConditions.push(lte(sales.soldAt, to))
+  // Three-date model (item 18, part 2 of 2) — see computePlReport's identical
+  // comment: posting date decides the period here too, now consistent with
+  // the plain P&L above instead of the two disagreeing on which batches'
+  // sales fall in a given range.
+  // Item 23: a reversed sale is excluded here too — see computePlReport's
+  // identical comment above.
+  const saleConditions = [eq(sales.tenantId, tenantId), isNotNull(sales.batchId), isNull(sales.reversedAt)]
+  if (from) saleConditions.push(gte(sales.postingDate, from))
+  if (to) saleConditions.push(lte(sales.postingDate, to))
   const revenueBySale = await db
     .select({ batchId: sales.batchId, total: sum(sales.amountCents) })
     .from(sales)

@@ -78,6 +78,15 @@ export const approvalRequests = pgTable('approval_requests', {
   // these did I approve?", which is the question an approver asks most.
   decidedBy: text('decided_by'),
   decidedAt: timestamp('decided_at'),
+  // Migration 0044 (rejection-loop task). A rejection with no reason taught
+  // the requester nothing and gave them nothing to act on — POST
+  // /api/approvals/[id]/reject now requires one. Kept on the approval row
+  // itself (the permanent record of the decision) AND copied onto the
+  // underlying record's `data.decisionNote` (lib/governance.ts) next to
+  // `approvalDecision`, since the record — not the approval queue — is what
+  // the worker's own screens and the approver's "what was submitted" panel
+  // actually read. Nullable: an approved request never sets it.
+  decisionNote: text('decision_note'),
 }, (t) => [
   index('idx_approval_requests_tenant').on(t.tenantId),
   index('idx_approval_requests_approver').on(t.tenantId, t.assignedApproverId),

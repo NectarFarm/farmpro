@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { purchases } from '@/db/schemas'
+import { purchases, suppliers } from '@/db/schemas'
 import { recordPurchase } from '@/lib/inventory'
 import { and, desc, eq } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
@@ -11,6 +11,7 @@ import {
   isInvalid, requireCount, requireNonNegativeCount, requireCents,
   requireEventDate, requireFutureAllowedDate,
 } from '@/lib/validate-input'
+import { isImageDataUrl, dataUrlByteSize, MAX_PHOTO_BYTES } from '@/lib/record-photos'
 
 // ── GET/POST /api/purchases (issue #235 task 2) ─────────────────────────────
 // Fresh build: no `purchases` table existed on this branch before this issue.
@@ -22,6 +23,7 @@ import {
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const created = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 201 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
+const notFound = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 404 })
 
 // GET /api/purchases?tenantId=...&itemId=... — list a tenant's purchases
 // (newest first), optionally filtered to one item.
@@ -54,7 +56,8 @@ export async function GET(req: Request) {
 // (case-insensitive) and always creates a new lot for the received quantity.
 // Body: { tenantId?, supplier, itemName, category?, unit, lowStockThreshold?,
 //         quantity, unitCostCents, totalCostCents?, paymentMethod?,
-//         amountPaidCents?, lotNo?, expiryDate?, receivedDate? }
+//         amountPaidCents?, lotNo?, expiryDate?, receivedDate?,
+//         paymentReference?, dueDate?, invoiceNumber?, notes?, photoUrl? }
 export async function POST(req: Request) {
   let raw: unknown
   try {
@@ -184,6 +187,53 @@ export async function POST(req: Request) {
     expiryDate = parsed
   }
 
+  // ── Forms-audit slice: reference, credit due date, invoice no., notes,
+  // and one optional receipt photo ────────────────────────────────────────
+  const paymentReference = typeof b.paymentReference === 'string' && b.paymentReference.trim() ? b.paymentReference.trim() : undefined
+  let dueDate: Date | undefined
+  if (b.dueDate !== undefined && b.dueDate !== null && b.dueDate !== '') {
+    const parsed = requireFutureAllowedDate(b.dueDate, 'dueDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    dueDate = parsed
+  }
+  const invoiceNumber = typeof b.invoiceNumber === 'string' && b.invoiceNumber.trim() ? b.invoiceNumber.trim() : undefined
+  const notes = typeof b.notes === 'string' && b.notes.trim() ? b.notes.trim() : undefined
+
+  // One photo, reusing the exact rules the several-photos-per-record feature
+  // already validates against (lib/record-photos.ts) — same shape, same
+  // cap, just a single photo instead of up to four.
+  let photoUrl: string | undefined
+  if (typeof b.photoUrl === 'string' && b.photoUrl.trim()) {
+    const candidate = b.photoUrl.trim()
+    if (!isImageDataUrl(candidate)) return badRequest("The receipt photo isn't a photo this app can read — retake it")
+    if (dataUrlByteSize(candidate) > MAX_PHOTO_BYTES) return badRequest('The receipt photo is too large — retake it and it will be compressed automatically')
+    photoUrl = candidate
+  }
+
+  // ── Three-date model (item 18) ────────────────────────────────────────────
+  // Both optional; recordPurchase defaults transactionDate and postingDate
+  // from receivedDate when a caller (every caller today) sends neither.
+  let transactionDate: Date | undefined
+  if (b.transactionDate !== undefined && b.transactionDate !== null && b.transactionDate !== '') {
+    const parsed = requireEventDate(b.transactionDate, 'transactionDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    transactionDate = parsed
+  }
+  let postingDate: Date | undefined
+  if (b.postingDate !== undefined && b.postingDate !== null && b.postingDate !== '') {
+    const parsed = requireEventDate(b.postingDate, 'postingDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    postingDate = parsed
+  }
+
+  // Item 20: an optional link to the supplier master, checked against this
+  // tenant.
+  const supplierId = typeof b.supplierId === 'string' && b.supplierId.trim() ? b.supplierId.trim() : undefined
+  if (supplierId) {
+    const rows = await db.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.id, supplierId), eq(suppliers.tenantId, tenantId)))
+    if (rows.length === 0) return notFound('Supplier not found for this tenant')
+  }
+
   let result
   try {
     result = await recordPurchase({
@@ -201,7 +251,16 @@ export async function POST(req: Request) {
       lotNo,
       expiryDate,
       receivedDate,
+      paymentReference,
+      dueDate,
+      invoiceNumber,
+      notes,
+      photoUrl,
+      transactionDate,
+      postingDate,
+      supplierId,
       farmId: farmFilter ?? null,
+      recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })
   } catch (err) {

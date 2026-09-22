@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
 import { db } from '@/db'
-import { accounts, journalEntries, journalLines, sales, purchases, batches, productionUnits } from '@/db/schemas'
+import { accounts, journalEntries, journalLines, journalLineDimensions, sales, purchases, batches, productionUnits } from '@/db/schemas'
 import { applyMovement } from '@/lib/batch-ledger'
 import { availableProduce, ProduceShortfallError } from '@/lib/produce'
 import {
@@ -127,7 +127,7 @@ async function captureDimensions(
 // entirely rather than moving it to the other side.)
 export async function postSaleJournal(
   tx: Tx,
-  sale: { id: string; tenantId: string; amountCents: number; status: string; batchId?: string | null },
+  sale: { id: string; tenantId: string; amountCents: number; status: string; batchId?: string | null; postingDate?: Date | null },
   opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
@@ -150,6 +150,15 @@ export async function postSaleJournal(
       sourceId: sale.id,
       farmId,
       memo: sale.status === 'pending' ? 'Sale recorded on account' : 'Cash sale recorded',
+      // Three-date model (item 18, part 2 of 2): a journal entry's own date
+      // now agrees with the sale's posting date instead of silently defaulting
+      // to whatever instant this transaction happened to commit at — this is
+      // what makes computeDimensionPlReport (which has always filtered on
+      // journal_entries.entry_date, not sales/purchases directly) period-
+      // consistent with the plain P&L above for a backdated sale. Old entries
+      // are untouched (see migration 0046 — this is new-row-only, exactly
+      // like every other part of the repoint).
+      ...(sale.postingDate ? { entryDate: sale.postingDate } : {}),
     })
     .returning()
 
@@ -187,7 +196,7 @@ export async function postSaleJournal(
 // still balances by construction.
 export async function postPurchaseJournal(
   tx: Tx,
-  purchase: { id: string; tenantId: string; totalCostCents: number; amountPaidCents: number; farmId?: string | null },
+  purchase: { id: string; tenantId: string; totalCostCents: number; amountPaidCents: number; farmId?: string | null; postingDate?: Date | null },
   opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
@@ -210,6 +219,9 @@ export async function postPurchaseJournal(
       sourceId: purchase.id,
       farmId,
       memo: owed > 0 ? (paid > 0 ? 'Purchase recorded, partially paid' : 'Purchase recorded on account') : 'Purchase recorded, paid in full',
+      // Three-date model (item 18, part 2 of 2) — see postSaleJournal's
+      // identical comment.
+      ...(purchase.postingDate ? { entryDate: purchase.postingDate } : {}),
     })
     .returning()
 
@@ -295,6 +307,108 @@ export async function postPayrollJournal(
   return entry
 }
 
+// ── Reversal (item 23) ───────────────────────────────────────────────────────
+// A posted sale/purchase is never deleted and its money is never rewritten in
+// place — the ONLY way to cancel its ledger effect is a contra journal entry:
+// one new entry, dated to match the ORIGINAL entry's entryDate (not "today"),
+// with every line's debit/credit swapped against the same accounts for the
+// same amounts, and the same dimension attributions mirrored onto the new
+// lines. This is what makes the cancellation exact and period-honest:
+//   - computeTrialBalance sums ALL journal_lines for the tenant with no date
+//     filter, so the contra's swapped lines net every account back to
+//     exactly where it was before the original entry posted, regardless of
+//     when the reversal itself is clicked.
+//   - computeDimensionPlReport filters journal_entries by entryDate — dating
+//     the contra to the ORIGINAL entry's date (not now) means it lands in
+//     the SAME reporting period as the transaction it cancels, so that
+//     period's dimension-scoped revenue/expense nets to zero for this
+//     document instead of the cancellation silently showing up in whatever
+//     period happens to contain today.
+//   - computePlReport/computeBatchPlReport read `sales`/`purchases` directly
+//     (not the ledger) for their period figures — those routes additionally
+//     filter out reversed rows (`reversedAt IS NULL`) so a reversed
+//     transaction drops out of the period it was reported in, exactly like
+//     it never happened, rather than being both reported AND ledger-zeroed.
+//
+// The contra entry is given its OWN sourceType (`${sourceType}_reversal`) —
+// not a second `journal_entries` row under the original sourceType/sourceId —
+// so `lib/dimensions.ts`'s getDocumentDimensions (`.limit(1)` on
+// tenantId+sourceType+sourceId) keeps resolving to exactly the original
+// entry, unambiguously, forever. `sourceId` stays the document id (the sale/
+// purchase itself), not the original entry's id, so a reversal is still
+// traceable straight back to the document it reverses without a join.
+//
+// Line-level dimensions are copied verbatim from the original lines' rows
+// (not re-resolved via resolveMasterDimensions/applyAccountRules) — the
+// original posting already proved every required dimension was present; a
+// reversal mirrors that same analysis rather than re-deriving it against
+// today's master data, which could have changed since.
+export async function reverseJournalEntry(
+  tx: Tx,
+  args: { tenantId: string; sourceType: 'sale' | 'purchase'; sourceId: string; memo: string },
+) {
+  const [original] = await tx
+    .select()
+    .from(journalEntries)
+    .where(and(
+      eq(journalEntries.tenantId, args.tenantId),
+      eq(journalEntries.sourceType, args.sourceType),
+      eq(journalEntries.sourceId, args.sourceId),
+    ))
+    .limit(1)
+  if (!original) {
+    throw new Error(`No journal entry found for ${args.sourceType} ${args.sourceId} — nothing to reverse`)
+  }
+
+  const originalLines = await tx.select().from(journalLines).where(eq(journalLines.entryId, original.id))
+  const originalLineIds = originalLines.map((l) => l.id)
+  const originalLineDims = originalLineIds.length > 0
+    ? await tx.select().from(journalLineDimensions).where(inArray(journalLineDimensions.lineId, originalLineIds))
+    : []
+
+  const [contraEntry] = await tx
+    .insert(journalEntries)
+    .values({
+      id: randomUUID(),
+      tenantId: args.tenantId,
+      sourceType: `${args.sourceType}_reversal`,
+      sourceId: args.sourceId,
+      farmId: original.farmId,
+      memo: args.memo,
+      // Dated to the ORIGINAL entry, not now — see the header comment above.
+      entryDate: original.entryDate,
+    })
+    .returning()
+
+  const contraLines = await tx.insert(journalLines).values(
+    originalLines.map((l) => ({
+      id: randomUUID(),
+      entryId: contraEntry.id,
+      accountId: l.accountId,
+      // The whole point of a contra: debit and credit swap per line.
+      debitCents: l.creditCents,
+      creditCents: l.debitCents,
+    })),
+  ).returning()
+
+  const dimsByOriginalLineId = new Map<string, { dimensionId: string; valueId: string }[]>()
+  for (const d of originalLineDims) {
+    const list = dimsByOriginalLineId.get(d.lineId) ?? []
+    list.push({ dimensionId: d.dimensionId, valueId: d.valueId })
+    dimsByOriginalLineId.set(d.lineId, list)
+  }
+  const newDimRows: { id: string; lineId: string; dimensionId: string; valueId: string }[] = []
+  originalLines.forEach((originalLine, i) => {
+    const dims = dimsByOriginalLineId.get(originalLine.id) ?? []
+    for (const d of dims) {
+      newDimRows.push({ id: randomUUID(), lineId: contraLines[i].id, dimensionId: d.dimensionId, valueId: d.valueId })
+    }
+  })
+  if (newDimRows.length > 0) await tx.insert(journalLineDimensions).values(newDimRows)
+
+  return { original, contraEntry }
+}
+
 // POST /api/data/sales' transaction: insert the sale row, then post its
 // journal entry in the same transaction — a sale can never exist without its
 // journal entry, or vice versa (same shape as lib/inventory.ts's
@@ -316,6 +430,29 @@ export async function recordSale(input: {
   method?: string
   status?: string
   soldAt?: Date
+  // Forms-audit slice: paymentReference/dueDate/soldTo/notes are all
+  // optional pass-throughs onto the columns db/schemas/finance.ts added —
+  // nothing here changes what a sale without them looks like.
+  paymentReference?: string | null
+  dueDate?: Date | null
+  soldTo?: string | null
+  notes?: string | null
+  // Item 20: optional link to the customer master — validated against the
+  // caller's tenant by the route, not here (same "route validates, function
+  // trusts" split as productId above).
+  customerId?: string | null
+  // Item 23: the recording actor's user id — see db/schemas/finance.ts's
+  // sales.recordedBy for what this unlocks (edit/reverse ownership).
+  recordedBy?: string | null
+  // Three-date model (item 18). `soldAt` above is already the transaction
+  // date. `effectiveDate` defaults to it (a sale's stock/service effect is
+  // usually the same moment as the sale itself); `postingDate` defaults to
+  // `effectiveDate` — the chain the sheet's own copy states. Neither is ever
+  // left null: a caller that sends nothing still gets real, consistent dates,
+  // which is what keeps `lib/reports.ts`'s posting_date filter equivalent to
+  // its old sold_at filter for every row this function has ever written.
+  effectiveDate?: Date | null
+  postingDate?: Date | null
   // Explicit dimension overrides (dimensions-on-gl task), keyed by dimension
   // CODE — highest priority in resolveMasterDimensions' resolution order.
   // Optional: most sales carry nothing here and rely entirely on the
@@ -323,6 +460,9 @@ export async function recordSale(input: {
   dimensions?: Record<string, string>
 }) {
   return db.transaction(async (tx) => {
+    const soldAt = input.soldAt ?? new Date()
+    const effectiveDate = input.effectiveDate ?? soldAt
+    const postingDate = input.postingDate ?? effectiveDate
     const [sale] = await tx
       .insert(sales)
       .values({
@@ -335,7 +475,15 @@ export async function recordSale(input: {
         amountCents: input.amountCents,
         method: input.method ?? '',
         status: input.status ?? 'paid',
-        soldAt: input.soldAt ?? new Date(),
+        soldAt,
+        paymentReference: input.paymentReference ?? null,
+        dueDate: input.dueDate ?? null,
+        soldTo: input.soldTo ?? null,
+        customerId: input.customerId ?? null,
+        notes: input.notes ?? null,
+        effectiveDate,
+        postingDate,
+        recordedBy: input.recordedBy ?? null,
       })
       .returning()
 

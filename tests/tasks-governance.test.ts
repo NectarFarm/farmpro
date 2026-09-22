@@ -300,8 +300,9 @@ run('tasks & governance: task CRUD, approvals, role permissions (issue #243)', (
       const approvalId = patched.approvalRequestId
 
       mockCookie = managerSessionToken
+      // rejection-loop task: a reason is now required.
       const { status, payload } = await readJson(
-        await rejectPOST(jsonRequest(`http://localhost/api/approvals/${approvalId}/reject`, 'POST'), { params: Promise.resolve({ id: approvalId }) })
+        await rejectPOST(jsonRequest(`http://localhost/api/approvals/${approvalId}/reject`, 'POST', { reason: 'Not done to spec' }), { params: Promise.resolve({ id: approvalId }) })
       )
       expect(status).toBe(200)
       expect(payload.data.approval.status).toBe('rejected')

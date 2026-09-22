@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { batches, products } from '@/db/schemas'
+import { batches, products, customers } from '@/db/schemas'
 import { listSales, recordSale } from '@/lib/finance'
 import { and, eq } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
@@ -9,7 +9,7 @@ import { canEdit, MODULES } from '@/lib/permissions'
 import { BatchLedgerError } from '@/lib/batch-ledger'
 import { ProduceShortfallError } from '@/lib/produce'
 import { DimensionRequirementError, DimensionValidationError, isPlainDimensionMap } from '@/lib/dimensions'
-import { isInvalid, requireCents, requireCount, requireEventDate } from '@/lib/validate-input'
+import { isInvalid, requireCents, requireCount, requireEventDate, requireFutureAllowedDate } from '@/lib/validate-input'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -58,7 +58,7 @@ export async function GET(req: Request) {
 
 // POST /api/data/sales — record a sale (and post its journal entry).
 // Body: { tenantId?, batchId?, productId?, item?, amountCents, method?,
-//         status?, soldAt? }
+//         status?, soldAt?, paymentReference?, dueDate?, soldTo?, notes? }
 //
 // `amountCents` (issue: money-unit-enforcement): renamed from `amount` and
 // now in cents, matching `purchases`' `unitCostCents`/`totalCostCents`/
@@ -146,6 +146,47 @@ export async function POST(req: Request) {
     return badRequest(`${product.name} comes out of the batch when sold — enter how many were sold`)
   }
 
+  // ── Forms-audit slice: reference, credit due date, buyer, notes ──────────
+  // All optional; none of this changes an existing caller that never sends
+  // them (they were absent from the body before these fields existed, and
+  // `undefined !== ''` here reads the same as always).
+  const paymentReference = typeof b.paymentReference === 'string' && b.paymentReference.trim() ? b.paymentReference.trim() : null
+  let dueDate: Date | null = null
+  if (b.dueDate !== undefined && b.dueDate !== null && b.dueDate !== '') {
+    const parsed = requireFutureAllowedDate(b.dueDate, 'dueDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    dueDate = parsed
+  }
+  const soldTo = typeof b.soldTo === 'string' && b.soldTo.trim() ? b.soldTo.trim() : null
+  const notes = typeof b.notes === 'string' && b.notes.trim() ? b.notes.trim() : null
+
+  // Item 20: an optional link to the customer master, checked against this
+  // tenant the same way productId/batchId above are — an id from another
+  // tenant, or one that doesn't exist, 404s rather than silently attaching
+  // nothing.
+  const customerId = typeof b.customerId === 'string' && b.customerId.trim() ? b.customerId.trim() : null
+  if (customerId) {
+    const rows = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)))
+    if (rows.length === 0) return notFound('Customer not found for this tenant')
+  }
+
+  // ── Three-date model (item 18) ────────────────────────────────────────────
+  // Both optional; recordSale defaults effectiveDate from soldAt and
+  // postingDate from effectiveDate when a caller (every caller today) sends
+  // neither, so this is purely additive.
+  let effectiveDate: Date | undefined
+  if (b.effectiveDate !== undefined && b.effectiveDate !== null && b.effectiveDate !== '') {
+    const parsed = requireEventDate(b.effectiveDate, 'effectiveDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    effectiveDate = parsed
+  }
+  let postingDate: Date | undefined
+  if (b.postingDate !== undefined && b.postingDate !== null && b.postingDate !== '') {
+    const parsed = requireEventDate(b.postingDate, 'postingDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    postingDate = parsed
+  }
+
   try {
     const sale = await recordSale({
       tenantId,
@@ -159,6 +200,14 @@ export async function POST(req: Request) {
       method,
       status,
       soldAt,
+      paymentReference,
+      dueDate,
+      soldTo,
+      notes,
+      effectiveDate,
+      postingDate,
+      customerId,
+      recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })
     return created(sale)

@@ -146,6 +146,31 @@ export async function recordPurchase(input: {
   lotNo?: string
   expiryDate?: Date | null
   receivedDate?: Date
+  // Forms-audit slice: all optional pass-throughs onto the columns
+  // db/schemas/inventory.ts added — see that file for why `receivedDate`
+  // above ALSO still gets written to `purchases.createdAt` (unchanged, for
+  // P&L continuity) as well as the new dedicated column.
+  paymentReference?: string | null
+  dueDate?: Date | null
+  invoiceNumber?: string | null
+  notes?: string | null
+  photoUrl?: string | null
+  // Three-date model (item 18). `receivedDate` above is already the
+  // effective date. `transactionDate` defaults to it when the caller sends
+  // nothing better (there is rarely a separate "when I placed the order"
+  // fact worth asking for on a small farm purchase); `postingDate` defaults
+  // to `receivedDate` too — the chain the sheet's own copy states. Never
+  // left null, for the same reason recordSale never leaves its dates null:
+  // `lib/reports.ts`'s posting_date filter has to stay equivalent to its old
+  // created_at filter for every row this function writes.
+  transactionDate?: Date | null
+  postingDate?: Date | null
+  // Item 20: optional link to the supplier master — validated against the
+  // caller's tenant by the route.
+  supplierId?: string | null
+  // Item 23: the recording actor's user id — see db/schemas/inventory.ts's
+  // purchases.recordedBy for what this unlocks (edit/reverse ownership).
+  recordedBy?: string | null
   // Farm-scoped-data task: the farm this stock physically lands at. Set on
   // BOTH the lot and the purchase row in the same transaction — see
   // db/schemas/inventory.ts's inventoryLots.farmId/purchases.farmId comments
@@ -195,6 +220,8 @@ export async function recordPurchase(input: {
     }
 
     const receivedDate = input.receivedDate ?? new Date()
+    const transactionDate = input.transactionDate ?? receivedDate
+    const postingDate = input.postingDate ?? receivedDate
     const lotNo = input.lotNo || `LOT-${receivedDate.toISOString().slice(0, 10)}-${randomUUID().slice(0, 8).toUpperCase()}`
     // The caller no longer gets to override this — POST /api/purchases now
     // computes it as quantity x unitCostCents and passes that in. Kept as a
@@ -232,6 +259,19 @@ export async function recordPurchase(input: {
         amountPaidCents: input.amountPaidCents ?? 0,
         createdAt: receivedDate,
         farmId: input.farmId ?? null,
+        paymentReference: input.paymentReference ?? null,
+        dueDate: input.dueDate ?? null,
+        invoiceNumber: input.invoiceNumber ?? null,
+        // Dual-write: `createdAt` above keeps doing the P&L-period job it
+        // always has (same `receivedDate` value); this is the new, honestly
+        // labelled column the list/detail actually show as "Received".
+        receivedDate,
+        notes: input.notes ?? null,
+        photoUrl: input.photoUrl ?? null,
+        transactionDate,
+        postingDate,
+        supplierId: input.supplierId ?? null,
+        recordedBy: input.recordedBy ?? null,
       })
       .returning()
 

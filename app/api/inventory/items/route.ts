@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
 import { inventoryItems, inventoryLots } from '@/db/schemas'
 import { computeItemStatus } from '@/lib/inventory'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
-import { requireTenantSession } from '@/lib/api-auth'
+import { requireTenantSession, forbidden } from '@/lib/api-auth'
+import { canEdit, MODULES } from '@/lib/permissions'
+import { isInvalid, requireNonNegativeCount } from '@/lib/validate-input'
 
 // ── GET /api/inventory/items (issue #235 task 3) ────────────────────────────
 // The merged stock-list endpoint: joins inventory_items with their
@@ -22,6 +25,8 @@ import { requireTenantSession } from '@/lib/api-auth'
 // this is a stock LEVEL filter, not a catalogue filter.
 
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
+const created = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 201 })
+const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
@@ -70,4 +75,65 @@ export async function GET(req: Request) {
   })
 
   return ok(merged)
+}
+
+// ── POST /api/inventory/items (forms-audit slice, item 6) ───────────────────
+// "Add a stock item without inventing a purchase" — the audit's finding #5:
+// a new item could only ever be created as a side effect of POST
+// /api/purchases (see lib/inventory.ts's recordPurchase), which meant
+// setting up a catalogue before the first delivery required faking a
+// purchase of stock that hadn't arrived yet. This creates the item master
+// alone, at zero quantity (no lot, nothing to receive) — a real "set up
+// before you buy" path, without touching the purchase flow at all.
+//
+// Body: { tenantId?, name, category?, unit, lowStockThreshold?, sku? }
+export async function POST(req: Request) {
+  let raw: unknown
+  try {
+    raw = await req.json()
+  } catch {
+    return badRequest('Invalid JSON body')
+  }
+  const b = (raw ?? {}) as Record<string, unknown>
+  const auth = await requireTenantSession({ explicitTenantId: typeof b.tenantId === 'string' ? b.tenantId : undefined })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
+
+  if (!(await canEdit(tenantId, session.role, MODULES.inventory))) {
+    return forbidden('Your role does not have edit access to inventory')
+  }
+
+  const name = typeof b.name === 'string' ? b.name.trim() : ''
+  const unit = typeof b.unit === 'string' ? b.unit.trim() : ''
+  if (!name) return badRequest('name is required')
+  if (!unit) return badRequest('unit is required')
+
+  const category = typeof b.category === 'string' ? b.category.trim() : ''
+  const sku = typeof b.sku === 'string' && b.sku.trim() ? b.sku.trim() : null
+
+  let lowStockThreshold = 0
+  if (b.lowStockThreshold !== undefined) {
+    const parsed = requireNonNegativeCount(b.lowStockThreshold, 'lowStockThreshold')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    lowStockThreshold = parsed
+  }
+
+  // Same case-insensitive dedupe POST /api/purchases' findOrCreateItem
+  // applies (lib/inventory.ts's recordPurchase) — two entry points into the
+  // same catalogue must refuse the same duplicate, not just one of them.
+  const existing = await db
+    .select({ id: inventoryItems.id })
+    .from(inventoryItems)
+    .where(and(eq(inventoryItems.tenantId, tenantId), sql`lower(${inventoryItems.name}) = lower(${name})`))
+  if (existing.length > 0) return badRequest(`${name} is already in the catalogue`)
+
+  const [item] = await db
+    .insert(inventoryItems)
+    .values({ id: randomUUID(), tenantId, name, category, unit, lowStockThreshold, sku })
+    .returning()
+
+  // Same merged shape GET returns (qtyOnHand/lots/status) — a freshly
+  // created item has none of either, and 'ok' is the honest status for zero
+  // stock against whatever reorder level was just set (0 is never "low").
+  return created({ ...item, qtyOnHand: 0, lots: [], status: 'ok' as const })
 }

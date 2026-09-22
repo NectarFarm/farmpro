@@ -9,7 +9,7 @@ import { downloadReportCsv, downloadReportPdf, type ExportOptions } from '@/lib/
 import { ReportDocumentPreview } from './report-document';
 import {
   FileText, Download, ChevronLeft,
-  DollarSign, BarChart3, ClipboardList, Syringe, Wheat, Users, PieChart, Scale,
+  DollarSign, BarChart3, ClipboardList, Syringe, Wheat, Users, PieChart, Scale, Layers,
   type LucideIcon,
 } from './icons';
 import { cn } from '@/lib/utils';
@@ -58,6 +58,12 @@ const REPORT_TYPES: { id: string; name: string; desc: string; icon: LucideIcon; 
   { id: 'labour', name: 'Labour & Task Cost', desc: 'Hours per batch — not recorded yet', icon: Users, color: 'var(--accent-amber)' },
   { id: 'batch-pl', name: 'Batch P&L', desc: 'Per-batch economics & margin', icon: PieChart, color: 'var(--primary-green)' },
   { id: 'fcr', name: 'FCR & Efficiency', desc: 'Feed conversion by species', icon: Scale, color: 'var(--accent-blue)' },
+  // forms-audit slice, item 7: GET /api/reports/dimension-pl has existed
+  // since dimensions-on-gl with no way into it from Reports at all —
+  // Reporting dimensions' own "P&L by dimension" button opened this exact
+  // picker with nothing selected, a dead end for the report the whole
+  // screen exists to set up.
+  { id: 'dimension-pl', name: 'P&L by Dimension', desc: 'Revenue & expense, rolled up by farm, unit, batch or enterprise', icon: Layers, color: 'var(--accent-purple)' },
 ];
 
 // Report types with a real /api/reports/* endpoint behind them.
@@ -69,7 +75,20 @@ const REPORT_ENDPOINTS: Record<string, string> = {
   production: '/api/reports/production',
   vaccination: '/api/reports/vaccination',
   fcr: '/api/reports/fcr',
+  'dimension-pl': '/api/reports/dimension-pl',
 };
+
+// The four built-in system dimensions (db/schemas/dimensions.ts's seed) —
+// the level a dimension-pl report groups by. Not fetched from GET
+// /api/dimensions: that register also holds a tenant's own archived/custom
+// dimensions, and this picker is deliberately scoped to the ones every
+// tenant actually has, matching what the audit asked for by name.
+const DIMENSION_LEVEL_OPTIONS: { code: string; label: string }[] = [
+  { code: 'FARM', label: 'Farm' },
+  { code: 'UNIT', label: 'Unit' },
+  { code: 'BATCH', label: 'Batch' },
+  { code: 'ENTERPRISE', label: 'Enterprise' },
+];
 
 // The ONE honestly-blocked report type left (#376 Gap 3): payroll cost has a
 // real source (payslips), but hours worked do not exist as a record type, so
@@ -94,7 +113,7 @@ function fmtExpiry(iso: string): string {
 }
 
 export function ReportsScreen() {
-  const { tenantId, role, activeFarmId, farms } = useNav();
+  const { tenantId, role, activeFarmId, farms, params } = useNav();
   const { showToast } = useToast();
   /* The default report window is the CURRENT month, computed at mount.
    *
@@ -112,7 +131,11 @@ export function ReportsScreen() {
   const initialRange = useMemo(() => periodDateRange('month'), []);
   const [dateFrom, setDateFrom] = useState(initialRange.from);
   const [dateTo, setDateTo] = useState(initialRange.to);
-  const [selected, setSelected] = useState<string | null>(null);
+  // forms-audit slice, item 7: a deep link (Reporting dimensions' "P&L by
+  // dimension" button) can land straight on a report pre-selected, instead
+  // of the plain picker every other entry point opens to.
+  const [selected, setSelected] = useState<string | null>(() => params.report ?? null);
+  const [dimensionCode, setDimensionCode] = useState(() => params.dimension || 'FARM');
 
   const [report, setReport] = useState<ReportPayload | null>(null);
   const [reportError, setReportError] = useState('');
@@ -212,13 +235,17 @@ export function ReportsScreen() {
   const loadReport = useCallback(() => {
     if (!endpoint) { setReport(null); setReportError(''); return; }
     setLoading(true);
-    const params = new URLSearchParams({ tenantId, from: dateFrom, to: dateTo, farmId: activeFarmId });
-    apiClient.get<ReportPayload>(`${endpoint}?${params.toString()}`).then((res) => {
+    const qs = new URLSearchParams({ tenantId, from: dateFrom, to: dateTo, farmId: activeFarmId });
+    // dimension-pl (item 7) takes a dimension code instead of a farm filter
+    // — the dimension level IS the grouping, so `farmId` above is simply
+    // unused by that one endpoint rather than conflicting with it.
+    if (selected === 'dimension-pl') qs.set('dimension', dimensionCode);
+    apiClient.get<ReportPayload>(`${endpoint}?${qs.toString()}`).then((res) => {
       setLoading(false);
       if (res.success) { setReport(res.data); setReportError(''); }
       else { setReport(null); setReportError(res.error || 'Failed to generate report.'); }
     });
-  }, [endpoint, tenantId, dateFrom, dateTo, activeFarmId]);
+  }, [endpoint, tenantId, dateFrom, dateTo, activeFarmId, selected, dimensionCode]);
 
   useEffect(() => { loadReport(); }, [loadReport]);
 
@@ -318,6 +345,28 @@ export function ReportsScreen() {
                 <button type="button" onClick={() => setSelected(null)} className="mb-3 inline-flex items-center gap-1 text-sm text-muted lg:hidden">
                   <ChevronLeft size={14} /> All reports
                 </button>
+                {/* forms-audit slice, item 7: the dimension selector the
+                    audit asked for by name (farm / unit / batch /
+                    enterprise) — the report re-generates the moment it
+                    changes, same as the date range above. */}
+                {selected === 'dimension-pl' && (
+                  <div className="mb-4 rounded-xl bg-surface p-3 shadow-(--shadow-border)">
+                    <div className="mb-2 text-xs font-semibold text-muted">Group by</div>
+                    <div className="flex flex-wrap gap-2">
+                      {DIMENSION_LEVEL_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.code} type="button" onClick={() => setDimensionCode(opt.code)}
+                          className={cn(
+                            'min-h-11 rounded-full px-3.5 text-sm font-medium',
+                            dimensionCode === opt.code ? 'bg-primary text-primary-fg' : 'bg-surface-2 text-muted',
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {loading && (
                   <div className="rounded-xl bg-surface p-4 text-sm text-muted shadow-(--shadow-border)">Generating report…</div>
                 )}
