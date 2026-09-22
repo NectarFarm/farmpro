@@ -3,6 +3,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui-kit/button';
+import { Badge } from '@/components/ui-kit/badge';
+import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Heart, ChevronDown, ChevronUp, Plus, X, AlertTriangle, Check } from './icons';
 import { MORTALITY_CAUSES } from '@/lib/record-vocabulary';
 
@@ -21,15 +25,18 @@ import { MORTALITY_CAUSES } from '@/lib/record-vocabulary';
 //
 // `employeeId` is required by POST /api/records' schema (records.employeeId
 // references employees.id) — resolved via GET /api/employees/me exactly like
-// the worker portal does. scripts/seed-demo-data.mjs seeds an employees row
-// for the demo vet account (role: 'vet', linked by userId) so this resolves
-// for a real login; a vet account with no linked employees row gets an
-// honest inline message instead of a broken submit button.
+// the worker portal does. A vet account with no linked employees row gets an
+// honest inline message and a disabled "Log mortality" action, never a
+// broken submit.
 //
-// Follow-up worth flagging (not built here per the task's explicit
-// instruction not to invent one): a real vaccinations/treatments table with
-// drug, dose, withdrawal-period fields would let this screen show far more
-// than "deaths by batch" — right now that's the only real health data source.
+// Design (package I): a clinical list — batches with recent deaths sort to
+// the top so the vet's eye lands on what needs attention first, exactly like
+// a triage list. No reference page exists for this role (D11 override); the
+// ui-kit's card/badge language is reused rather than inventing new chrome.
+//
+// Follow-up worth flagging (not built here — no real backend to show it
+// from): a real vaccinations/treatments table with drug, dose, withdrawal-
+// period fields would let this screen show far more than "deaths by batch".
 
 interface ApiEmployeeMe {
   id: string;
@@ -119,89 +126,96 @@ export function VetHerdScreen() {
     return (historyByBatch.get(batchId) ?? []).reduce((sum, r) => sum + (Number(r.data?.count) || 0), 0);
   }
 
+  function mostRecentDeath(batchId: string): number {
+    const list = historyByBatch.get(batchId) ?? [];
+    return list.length > 0 ? new Date(list[0].createdAt ?? 0).getTime() : -Infinity;
+  }
+
+  // Clinical triage ordering: batches with the most recent deaths first, so
+  // the vet's eye lands on what needs attention before anything else. A
+  // batch with no mortality history at all sorts to the bottom.
+  const sortedBatches = useMemo(() => {
+    return [...(batches ?? [])].sort((a, b) => mostRecentDeath(b.id) - mostRecentDeath(a.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batches, historyByBatch]);
+
   const loading = batches === null && !error;
 
   return (
     <div className="screen-content">
       <TopNav title="Herd Health" subtitle="Batches under your care" />
-      <div className="px-screen" style={{ paddingTop: 12, paddingBottom: 40 }}>
+      <div className="px-screen pt-3 pb-10">
         {employeeError && (
-          <div className="farm-card" style={{ padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <AlertTriangle size={16} color="var(--status-warning)" />
-            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{employeeError}</span>
+          <div className="mb-3.5 flex items-center gap-2.5 rounded-xl bg-warning-soft px-3.5 py-2.5 text-xs text-muted">
+            <AlertTriangle size={16} className="shrink-0 text-warning" aria-hidden="true" />
+            <span>{employeeError}</span>
           </div>
         )}
         {error && (
-          <div className="farm-card" style={{ padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <AlertTriangle size={16} color="var(--status-critical)" />
-            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{error}</span>
+          <div className="mb-3.5 flex items-center gap-2.5 rounded-xl bg-danger-soft px-3.5 py-2.5 text-sm text-danger">
+            <AlertTriangle size={16} className="shrink-0" aria-hidden="true" />
+            <span>{error}</span>
           </div>
         )}
-        {loading && (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading batches…</div>
-        )}
+        {loading && <div className="py-10 text-center text-base text-muted">Loading batches…</div>}
 
         {!loading && batches && batches.length === 0 && !error && (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-            <Heart size={32} style={{ marginBottom: 10, opacity: 0.4 }} />
-            <div style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>No batches on this farm yet</div>
-          </div>
+          <EmptyState icon={<Heart size={22} aria-hidden="true" />} title="No batches on this farm yet" body="Batches assigned to this farm will show up here for review." />
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {(batches ?? []).map((b) => {
+        <div className="flex flex-col gap-2.5">
+          {sortedBatches.map((b) => {
             const history = historyByBatch.get(b.id) ?? [];
             const isOpen = expanded === b.id;
             const deaths = totalDeaths(b.id);
+            const flagged = deaths > 0;
             return (
-              <div key={b.id} className="farm-card" style={{ padding: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{b.name}</div>
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{b.code} · {b.species || b.enterprise}</div>
+              <div key={b.id} className={cn('rounded-xl bg-surface p-3.5 shadow-(--shadow-border)', flagged && 'ring-1 ring-danger/30')}>
+                <div className="mb-2.5 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-semibold text-fg">{b.name}</p>
+                    <p className="font-mono text-xs text-muted">{b.code} · {b.species || b.enterprise}</p>
                   </div>
-                  <span className={`chip ${deaths > 0 ? 'chip-critical' : 'chip-ok'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{deaths} death{deaths === 1 ? '' : 's'}</span>
+                  <Badge variant={flagged ? 'danger' : 'success'} className="shrink-0">{deaths} death{deaths === 1 ? '' : 's'}</Badge>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 10 }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>{b.currentQty}</div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Current count</div>
+                <div className="mb-2.5 grid grid-cols-2 gap-1.5">
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-fg">{b.currentQty}</div>
+                    <div className="text-[11px] font-semibold text-muted">Current count</div>
                   </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>{history.length}</div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Mortality records</div>
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-fg">{history.length}</div>
+                    <div className="text-[11px] font-semibold text-muted">Mortality records</div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    type="button"
+                <div className="flex gap-2">
+                  <Button
+                    type="button" variant="secondary" className="h-11 flex-1"
                     onClick={() => setExpanded(isOpen ? null : b.id)}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 0', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: isOpen ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)', border: '1px solid var(--border-subtle)', color: isOpen ? 'var(--primary-green)' : 'var(--text-muted)' }}
                   >
                     {isOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                     {isOpen ? 'Hide history' : 'View history'}
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
+                    type="button" variant="danger" className="h-11 flex-1"
                     onClick={() => setLogFor(b)}
                     disabled={!employee}
                     title={employee ? undefined : 'No linked staff record'}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 0', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: employee ? 'pointer' : 'not-allowed', opacity: employee ? 1 : 0.5, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)' }}
                   >
                     <Plus size={12} /> Log mortality
-                  </button>
+                  </Button>
                 </div>
                 {isOpen && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-subtle)' }}>
+                  <div className="mt-2.5 border-t border-border pt-2.5">
                     {history.length === 0 ? (
-                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', textAlign: 'center', padding: '6px 0' }}>No mortality records for this batch.</div>
+                      <p className="py-1.5 text-center text-xs text-subtle">No mortality records for this batch.</p>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div className="flex flex-col gap-1.5">
                         {history.map((r) => (
-                          <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', padding: '6px 8px', background: 'var(--surface)', borderRadius: 8 }}>
-                            <span style={{ color: 'var(--text-muted)' }}>{fmtDate(r.createdAt)}</span>
-                            <span style={{ fontWeight: 700, color: 'var(--status-critical)' }}>{Number(r.data?.count) || 0} deaths</span>
-                            <span style={{ color: 'var(--text-secondary)' }}>{typeof r.data?.cause === 'string' ? r.data.cause : '—'}</span>
+                          <div key={r.id} className="flex justify-between rounded-lg bg-surface-2 px-2 py-1.5 text-xs">
+                            <span className="text-muted">{fmtDate(r.createdAt)}</span>
+                            <span className="font-bold text-danger">{Number(r.data?.count) || 0} deaths</span>
+                            <span className="text-fg">{typeof r.data?.cause === 'string' ? r.data.cause : '—'}</span>
                           </div>
                         ))}
                       </div>
@@ -255,43 +269,46 @@ function LogMortalitySheet({ batch, tenantId, employeeId, onClose, onSaved }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+    <div className="fixed inset-0 z-[200] flex items-end bg-black/65" onClick={onClose}>
+      <div className="w-full rounded-t-2xl bg-surface p-5 shadow-(--shadow-raised)" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3.5 flex items-center justify-between">
           <div>
-            <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Log Mortality</div>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{batch.code} · {batch.name}</div>
+            <p className="text-lg font-bold text-fg">Log Mortality</p>
+            <p className="font-mono text-xs text-muted">{batch.code} · {batch.name}</p>
           </div>
-          <button type="button" className="btn-icon" onClick={onClose}><X size={16} /></button>
+          <button type="button" onClick={onClose} className="flex size-9 items-center justify-center rounded-full bg-surface-2 text-muted"><X size={16} /></button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'center', marginBottom: 16 }}>
-          <button type="button" onClick={() => setCount(Math.max(0, count - 1))} style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border-subtle)', fontSize: 'var(--fs-3xl)', color: 'var(--text-primary)', cursor: 'pointer' }}>−</button>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 'var(--fs-hero)', fontWeight: 700, color: count > 0 ? 'var(--status-critical)' : 'var(--text-primary)', lineHeight: 1 }}>{count}</div>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>deaths</div>
+        <div className="mb-4 flex items-center justify-center gap-4">
+          <button type="button" onClick={() => setCount(Math.max(0, count - 1))} className="flex size-14 items-center justify-center rounded-2xl bg-surface-2 text-3xl text-fg">−</button>
+          <div className="text-center">
+            <div className={cn('font-display text-5xl leading-none font-medium', count > 0 ? 'text-danger' : 'text-fg')}>{count}</div>
+            <div className="text-xs text-muted">deaths</div>
           </div>
-          <button type="button" onClick={() => setCount(count + 1)} style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border-subtle)', fontSize: 'var(--fs-3xl)', color: 'var(--text-primary)', cursor: 'pointer' }}>+</button>
+          <button type="button" onClick={() => setCount(count + 1)} className="flex size-14 items-center justify-center rounded-2xl bg-surface-2 text-3xl text-fg">+</button>
         </div>
 
-        <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>Cause of death</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+        <p className="mb-2 text-sm font-bold text-muted">Cause of death</p>
+        <div className="mb-4 grid grid-cols-2 gap-2">
           {CAUSES.map((c) => (
             <button
               key={c}
               type="button"
               onClick={() => setCause(c)}
-              style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer', background: c === cause ? 'rgba(var(--critical-rgb),0.12)' : 'var(--card)', border: c === cause ? '1px solid rgba(var(--critical-rgb),0.3)' : '1px solid var(--border-subtle)', color: c === cause ? 'var(--status-critical)' : 'var(--text-muted)' }}
+              className={cn(
+                'min-h-12 rounded-lg px-2 text-sm font-semibold',
+                c === cause ? 'bg-danger-soft text-danger ring-1 ring-danger' : 'bg-surface-2 text-muted',
+              )}
             >
               {c}
             </button>
           ))}
         </div>
 
-        {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-        <button className="btn-primary" disabled={saving} style={{ width: '100%', justifyContent: 'center', borderRadius: 12, padding: 12, opacity: saving ? 0.7 : 1 }} onClick={handleSave}>
+        {error && <p className="mb-2.5 text-sm text-danger">{error}</p>}
+        <Button size="lg" className="h-14 w-full" disabled={saving} onClick={handleSave}>
           <Check size={14} /> {saving ? 'Saving…' : 'Save Record'}
-        </button>
+        </Button>
       </div>
     </div>
   );

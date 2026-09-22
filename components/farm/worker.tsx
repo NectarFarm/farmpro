@@ -3,15 +3,22 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav, requestLogout } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui-kit/button';
+import { Badge } from '@/components/ui-kit/badge';
+import { Input } from '@/components/ui-kit/input';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { controlClass } from '@/components/ui-kit/field';
 import {
   Plus, Camera,
   ChevronRight, Wifi, Check, Lock, ClipboardList, DollarSign, Calendar,
   Wheat, AlertTriangle, Hash, Sunrise, Egg, Syringe, Scale, Package, Layers,
+  ArrowRight, CheckCircle2,
   type LucideIcon,
 } from './icons';
 import { formatMoney } from '@/lib/money';
 import {
-  splitNotes, displayStatus, STATUS_LABEL, statusChipClass,
+  splitNotes, displayStatus,
   type ApiTask,
 } from './tasks';
 import {
@@ -72,17 +79,23 @@ const RECORD_TYPE_LABEL: Record<string, { label: string; icon: LucideIcon }> = {
   physical_count: { label: 'Physical Count', icon: Hash },
 };
 
-// These five were listed as "Coming Soon" because the backend accepted three
-// record types. It accepts all of them now (worker-routines task), so they are
-// real tiles — and the greyed-out group is gone rather than kept as an empty
-// shell. "Morning Round" is not in this list because it is not one fixed
-// thing: rounds are defined by the owner (Settings › Daily routines) and each
-// one gets its own tile on the record screen.
+// The backend accepts every one of these record types (worker-routines task).
+// "Morning Round" is not in this list because it is not one fixed thing:
+// rounds are defined by the owner (Settings › Daily routines) and each one
+// gets its own tile on the Record screen.
 const EXTRA_RECORD_TYPES = [
   { type: 'production', label: 'Collect', icon: Egg },
   { type: 'health', label: 'Health', icon: Syringe },
   { type: 'weight', label: 'Weight', icon: Scale },
   { type: 'stock_count', label: 'Closing Stock', icon: Package },
+];
+
+// One flat list for Home's "Quick record" row — the grouped browsing view
+// (Daily work / Checks) lives on the dedicated Record tab; Home only needs
+// fast single-tap shortcuts into a type the worker already knows they want.
+const ALL_RECORD_TYPES = [
+  ...Object.entries(RECORD_TYPE_LABEL).map(([type, meta]) => ({ type, ...meta })),
+  ...EXTRA_RECORD_TYPES,
 ];
 
 /* Shared fetch of the logged-in worker's own employee row + their assigned
@@ -132,22 +145,18 @@ function timeOf(iso: string | null) {
 // role, POST /api/records writes the row with `data.pendingApproval` and
 // raises an approval instead of moving the count (app/api/records/route.ts).
 // Deciding it clears that flag and stamps `data.approvalDecision`
-// (lib/governance.ts).
-//
-// Both worker history lists used to show an unconditional "SAVED" chip. For a
-// deferred mortality that was simply untrue — the worker walks away believing
-// the count came down, and it did not. The three states are distinct and the
-// worker needs to be able to tell them apart, so they are rendered apart.
+// (lib/governance.ts). The three states are distinct and the worker needs to
+// be able to tell them apart, so they are rendered apart.
 function recordApprovalState(data: Record<string, unknown>): 'pending' | 'rejected' | 'applied' {
   if (data.pendingApproval === true) return 'pending';
   if (data.approvalDecision === 'rejected') return 'rejected';
   return 'applied';
 }
 
-const RECORD_STATE_CHIP: Record<'pending' | 'rejected' | 'applied', { label: string; cls: string }> = {
-  pending: { label: 'WAITING', cls: 'chip chip-warning' },
-  rejected: { label: 'REJECTED', cls: 'chip chip-critical' },
-  applied: { label: 'SAVED', cls: 'chip chip-ok' },
+const RECORD_STATE_BADGE: Record<'pending' | 'rejected' | 'applied', { label: string; variant: 'warning' | 'danger' | 'success' }> = {
+  pending: { label: 'Waiting', variant: 'warning' },
+  rejected: { label: 'Rejected', variant: 'danger' },
+  applied: { label: 'Saved', variant: 'success' },
 };
 
 /* ── Pick from a list, or say something the list lacks ──────────────────────
@@ -166,13 +175,13 @@ const RECORD_STATE_CHIP: Record<'pending' | 'rejected' | 'applied', { label: str
  * a cause that is not in the list has to render as "Other" with the text
  * showing, or editing it would silently rewrite it.
  */
-function PickOrType({ options, value, onChange, placeholder, otherPlaceholder, style }: {
+function PickOrType({ options, value, onChange, placeholder, otherPlaceholder, className }: {
   options: readonly string[];
   value: string;
   onChange: (next: string) => void;
   placeholder: string;
   otherPlaceholder: string;
-  style?: React.CSSProperties;
+  className?: string;
 }) {
   // "Is this value one of the options" is the only state worth deriving; an
   // explicit `isOther` flag alongside `value` would let the two disagree.
@@ -180,24 +189,23 @@ function PickOrType({ options, value, onChange, placeholder, otherPlaceholder, s
   const [showOther, setShowOther] = useState(value !== '' && !listed);
 
   return (
-    <div style={style}>
+    <div className={className}>
       <select
-        className="farm-input"
+        className={cn(controlClass, 'h-14 text-base', showOther && 'mb-2')}
         value={showOther ? OTHER_OPTION : value}
         onChange={(e) => {
           if (e.target.value === OTHER_OPTION) { setShowOther(true); onChange(''); return; }
           setShowOther(false);
           onChange(e.target.value);
         }}
-        style={{ marginBottom: showOther ? 8 : 0 }}
       >
         <option value="">{placeholder}</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
         <option value={OTHER_OPTION}>{OTHER_OPTION}…</option>
       </select>
       {showOther && (
-        <input
-          className="farm-input"
+        <Input
+          className="h-14 text-base"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={otherPlaceholder}
@@ -227,6 +235,26 @@ function isToday(iso: string | null) {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
+// A task's title is free text (db/schemas/dashboard.ts has no `type` column —
+// see components/farm/tasks.tsx's header note), so there is no reliable link
+// from a task to a record form. This is a best-effort routing shortcut only —
+// it decides which record type "Record it" opens to, never what gets stored —
+// and falls back to the plain chooser when nothing matches, rather than
+// guessing wrong silently.
+const RECORD_TYPE_HINTS: [RegExp, string][] = [
+  [/mortal|death|die/i, 'mortality'],
+  [/feed/i, 'feeding'],
+  [/egg|milk|collect|harvest|produc/i, 'production'],
+  [/health|vaccin|treat|medic|dose/i, 'health'],
+  [/weigh/i, 'weight'],
+  [/count|census/i, 'physical_count'],
+  [/stock|closing/i, 'stock_count'],
+];
+function guessRecordType(title: string): string | null {
+  for (const [re, type] of RECORD_TYPE_HINTS) if (re.test(title)) return type;
+  return null;
+}
+
 // ── "My Tasks Today" (issue #303) ───────────────────────────────────────────
 // Restores the original Happy Seeds design's Worker Home checklist ("what do
 // I still need to do today"), dropped when this screen was wired to real data
@@ -245,6 +273,16 @@ export function selectMyTasksToday(tasks: ApiTask[], workerName: string): ApiTas
   return tasks.filter((t) => splitNotes(t.notes).assignee.trim().toLowerCase() === name);
 }
 
+// ── Worker Home — hero is "your next job" ───────────────────────────────────
+// The design brief for this screen: a worker on a cheap Android phone, in
+// sunlight, sometimes gloved, wants one thing before anything else — what do
+// I do right now. Today's tasks (already fetched for "My Tasks Today") are
+// ordered open-first, and the first open one becomes the hero card with one
+// big "Record it" action that jumps straight past the Record tab's chooser
+// when the title hints at a record type (see `guessRecordType`), or opens the
+// chooser itself when it can't tell. Everything else — the rest of today's
+// queue, recent activity, ad-hoc quick-record shortcuts — is secondary and
+// sits below, smaller.
 export function WorkerHomeScreen() {
   const { navigate } = useNav();
   const { tenantId, employee, employeeError, batches } = useWorkerContext();
@@ -288,165 +326,188 @@ export function WorkerHomeScreen() {
     loadTasksToday();
   }
 
+  function openRecordFor(task: ApiTask) {
+    const type = guessRecordType(task.title);
+    navigate('worker-record', type ? { type } : undefined);
+  }
+
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const doneTodayTypes = new Set((recent ?? []).filter((r) => isToday(r.createdAt)).map((r) => r.type));
 
+  const openTasks = (tasksToday ?? []).filter((t) => t.status !== 'DONE' && displayStatus(t) !== 'PENDING_APPROVAL');
+  const settledTasks = (tasksToday ?? []).filter((t) => t.status === 'DONE' || displayStatus(t) === 'PENDING_APPROVAL');
+  const nextJob = openTasks[0] ?? null;
+  const queuedJobs = openTasks.slice(1);
+
   return (
-    <div className="screen-content px-screen" style={{ paddingTop: 16 }}>
+    <div className="screen-content px-screen pt-4 pb-8">
       {/* Greeting */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{greeting}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--text-primary)' }}>
-          {employee?.name ?? '…'} <Wheat size={19} color="var(--primary-green)" aria-hidden="true" />
+      <div className="mb-5">
+        <p className="text-xs font-medium tracking-widest text-muted uppercase">{greeting}</p>
+        <div className="mt-1 flex items-center gap-2">
+          <h1 className="font-display truncate text-3xl leading-none font-medium text-fg">{employee?.name ?? '…'}</h1>
+          <Wheat size={20} className="shrink-0 text-primary" aria-hidden="true" />
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(var(--info-rgb),0.1)', borderRadius: 100, border: '1px solid rgba(var(--info-rgb),0.25)' }}>
-            <Wifi size={11} color="var(--accent-blue)" />
-            <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--accent-blue)' }}>Online</span>
-          </div>
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</div>
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-soft px-2.5 py-1 text-xs font-semibold text-primary">
+            <Wifi size={11} aria-hidden="true" /> Online
+          </span>
+          <span className="text-xs text-muted">{now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
         </div>
       </div>
 
-      {employeeError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{employeeError}</div>}
+      {employeeError && <div className="mb-4 rounded-xl bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{employeeError}</div>}
 
-      {/* My Tasks Today — real GET /api/tasks?due=today, filtered to this
-          worker via the "Assigned: <name>" notes convention (issue #303) */}
-      <div className="section-eyebrow" style={{ marginBottom: 10 }}>My Tasks Today</div>
-      <div className="farm-card" style={{ marginBottom: 14, overflow: 'hidden' }}>
-        {tasksToday === null && <div style={{ padding: 14, fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>}
-        {tasksToday !== null && tasksToday.length === 0 && (
-          <div style={{ padding: 14, fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Nothing due today — all caught up.</div>
-        )}
-        {tasksToday !== null && tasksToday.map((t, i) => {
-          const status = displayStatus(t);
-          const done = t.status === 'DONE';
-          const pendingApproval = status === 'PENDING_APPROVAL';
-          return (
-            <div key={t.id} style={{ padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center', borderBottom: i < tasksToday.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-                background: done ? 'rgba(var(--primary-rgb),0.12)' : 'var(--surface)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <ClipboardList size={16} color={done ? 'var(--status-ok)' : 'var(--text-muted)'} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: done ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: done ? 'line-through' : 'none' }}>{t.title}</div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 'var(--fs-xs)', color: status === 'OVERDUE' ? 'var(--status-critical)' : 'var(--text-dim)' }}>Due {timeOf(t.dueAt)}</span>
-                  {!done && !pendingApproval && (
-                    <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{STATUS_LABEL[status] ?? status}</span>
-                  )}
-                  {pendingApproval && <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-warning)' }}>Pending approval</span>}
-                  {done && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--fs-xs)', color: 'var(--status-ok)' }}><Check size={11} aria-hidden="true" /> Done</span>}
-                </div>
-              </div>
-              {!done && !pendingApproval && (
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                  <button onClick={() => markTaskDone(t)} disabled={taskActionId === t.id} style={{
-                    padding: '7px 10px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700,
-                    background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)',
-                    color: 'var(--primary-green)', cursor: taskActionId === t.id ? 'default' : 'pointer',
-                  }} title="Mark this task done">
-                    <Check size={12} />
-                  </button>
-                  <button onClick={() => navigate('worker-record')} style={{
-                    padding: '7px 12px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700,
-                    background: 'var(--card)', border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-primary)', cursor: 'pointer',
-                  }}>Open</button>
-                </div>
+      {/* Hero: your next job */}
+      <p className="section-eyebrow mb-2">Your next job</p>
+      {tasksToday === null && (
+        <div className="mb-5 rounded-xl bg-surface p-5 text-sm text-muted shadow-(--shadow-border)">Loading today&apos;s work…</div>
+      )}
+
+      {tasksToday !== null && !nextJob && (
+        <div className="mb-5 flex items-center gap-3 rounded-xl bg-success-soft px-4 py-5 shadow-(--shadow-border)">
+          <CheckCircle2 size={22} className="shrink-0 text-success" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-semibold text-fg">All caught up</p>
+            <p className="text-xs text-muted">Nothing assigned to you is due today. Use Quick record below for anything off-schedule.</p>
+          </div>
+        </div>
+      )}
+
+      {nextJob && (
+        <div className="mb-3 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+          <div className="flex items-start gap-3">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+              <ClipboardList size={20} aria-hidden="true" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-base leading-snug font-semibold text-fg">{nextJob.title}</p>
+              <p className={cn('mt-0.5 text-xs font-medium', displayStatus(nextJob) === 'OVERDUE' ? 'text-danger' : 'text-muted')}>
+                {displayStatus(nextJob) === 'OVERDUE' ? 'Overdue since ' : 'Due '}{timeOf(nextJob.dueAt)}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <Button
+              variant="secondary" size="lg" className="h-14 flex-1"
+              onClick={() => markTaskDone(nextJob)} disabled={taskActionId === nextJob.id}
+            >
+              <Check size={16} /> Done
+            </Button>
+            <Button size="lg" className="h-14 flex-[2] text-base" onClick={() => openRecordFor(nextJob)}>
+              Record it <ArrowRight size={16} />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {queuedJobs.length > 0 && (
+        <div className="mb-5 overflow-hidden rounded-xl bg-surface shadow-(--shadow-border)">
+          {queuedJobs.map((t, i) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => openRecordFor(t)}
+              className={cn(
+                'flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-2',
+                i < queuedJobs.length - 1 && 'border-b border-border',
               )}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-fg">{t.title}</span>
+                <span className={cn('text-xs', displayStatus(t) === 'OVERDUE' ? 'text-danger font-medium' : 'text-muted')}>
+                  {displayStatus(t) === 'OVERDUE' ? 'Overdue · ' : 'Due '}{timeOf(t.dueAt)}
+                </span>
+              </span>
+              <ChevronRight size={16} className="shrink-0 text-subtle" aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {settledTasks.length > 0 && (
+        <p className="mb-5 text-xs text-muted">
+          {settledTasks.filter((t) => t.status === 'DONE').length > 0 && `${settledTasks.filter((t) => t.status === 'DONE').length} done today`}
+          {settledTasks.some((t) => displayStatus(t) === 'PENDING_APPROVAL') && (settledTasks.filter((t) => t.status === 'DONE').length > 0 ? ' · ' : '') + 'some waiting on approval'}
+        </p>
+      )}
+
+      {/* Recent activity (real GET /api/records, not a task mock) */}
+      <p className="section-eyebrow mb-2">Recent activity</p>
+      <div className="mb-6 overflow-hidden rounded-xl bg-surface shadow-(--shadow-border)">
+        {recent === null && <div className="p-4 text-sm text-muted">Loading…</div>}
+        {recent !== null && recent.length === 0 && (
+          <div className="p-4 text-sm text-muted">No records submitted yet — use Quick record below.</div>
+        )}
+        {recent !== null && recent.map((r, i) => {
+          const RecordIcon = RECORD_TYPE_LABEL[r.type]?.icon ?? ClipboardList;
+          const badge = RECORD_STATE_BADGE[recordApprovalState(r.data)];
+          return (
+            <div key={r.id} className={cn('flex items-center gap-3 px-4 py-3', i < recent.length - 1 && 'border-b border-border')}>
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                <RecordIcon size={16} aria-hidden="true" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-fg">{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</p>
+                <p className="text-xs text-muted">{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)} · {timeOf(r.createdAt)}</p>
+              </div>
+              {badge.variant !== 'success' && <Badge variant={badge.variant}>{badge.label}</Badge>}
             </div>
           );
         })}
       </div>
 
-      {/* Recent activity (real GET /api/records, not a task mock) */}
-      <div className="section-eyebrow" style={{ marginBottom: 10 }}>Recent Activity</div>
-      <div className="farm-card" style={{ marginBottom: 14, overflow: 'hidden' }}>
-        {recent === null && <div style={{ padding: 14, fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>}
-        {recent !== null && recent.length === 0 && (
-          <div style={{ padding: 14, fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>No records submitted yet — use Quick Record below.</div>
-        )}
-        {recent !== null && recent.map((r, i) => (
-          <div key={r.id} style={{ padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center', borderBottom: i < recent.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-              background: 'rgba(var(--primary-rgb),0.12)', color: 'var(--primary-green)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              {(() => { const RecordIcon = RECORD_TYPE_LABEL[r.type]?.icon ?? ClipboardList; return <RecordIcon size={17} aria-hidden="true" />; })()}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)}</span>
-                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-ok)' }}>{timeOf(r.createdAt)}</span>
-                {recordApprovalState(r.data) === 'pending' && (
-                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-warning)' }}>Waiting for approval</span>
-                )}
-                {recordApprovalState(r.data) === 'rejected' && (
-                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>Not approved</span>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Quick Record tiles */}
-      <div className="section-eyebrow" style={{ marginBottom: 10 }}>Quick Record</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
-        {Object.entries(RECORD_TYPE_LABEL).map(([type, meta]) => (
-          <button key={type} onClick={() => navigate('worker-record', { type })} style={{
-            padding: '12px 4px', borderRadius: 14, background: doneTodayTypes.has(type) ? 'rgba(var(--primary-rgb),0.08)' : 'var(--card)',
-            border: doneTodayTypes.has(type) ? '1px solid rgba(var(--primary-rgb),0.25)' : '1px solid var(--border-subtle)',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'pointer', position: 'relative',
-          }}>
-            {doneTodayTypes.has(type) && <div style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: '50%', background: 'var(--status-ok)' }} />}
-            <meta.icon size={26} color={doneTodayTypes.has(type) ? 'var(--primary-green)' : 'var(--text-muted)'} aria-hidden="true" />
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: doneTodayTypes.has(type) ? 'var(--primary-green)' : 'var(--text-muted)', textAlign: 'center', lineHeight: 1.3 }}>{meta.label}</span>
-          </button>
-        ))}
-      </div>
-      {/* Was a row of greyed-out "Not available yet" squares. They all work
-         now, so they are ordinary quick-record buttons like the ones above. */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 20 }}>
-        {EXTRA_RECORD_TYPES.map((tile) => (
-          <button key={tile.type} onClick={() => navigate('worker-record', { type: tile.type })} style={{
-            padding: '12px 4px', borderRadius: 14, background: 'var(--card)',
-            border: '1px solid var(--border-subtle)', cursor: 'pointer',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-          }}>
-            <tile.icon size={26} color="var(--text-muted)" aria-hidden="true" />
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.3 }}>{tile.label}</span>
-          </button>
-        ))}
+      {/* Quick record — ad-hoc shortcuts straight into a type; the full
+         grouped browser lives on the Record tab. */}
+      <p className="section-eyebrow mb-2">Quick record</p>
+      <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
+        {ALL_RECORD_TYPES.map((tile) => {
+          const done = doneTodayTypes.has(tile.type);
+          return (
+            <button
+              key={tile.type}
+              type="button"
+              onClick={() => navigate('worker-record', { type: tile.type })}
+              className="flex w-16 shrink-0 flex-col items-center gap-1.5"
+            >
+              <span className={cn(
+                'relative flex size-14 items-center justify-center rounded-full shadow-(--shadow-border)',
+                done ? 'bg-primary text-primary-fg' : 'bg-surface text-muted',
+              )}>
+                <tile.icon size={22} aria-hidden="true" />
+                {done && <Check size={11} className="absolute top-0.5 right-0.5 rounded-full bg-surface text-primary" aria-hidden="true" />}
+              </span>
+              <span className="text-center text-[11px] leading-tight font-medium text-muted">{tile.label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-// worker.tsx's Home "Quick Record" tiles and this screen's own chooser below
-// used to render the exact same three tiles (feeding/mortality/physical
-// count) with no connection between them: tapping one on Home landed here
-// only to show the identical three tiles again before the real form opened
-// — a redundant extra tap, the "opens a page that just shows the same
-// navigation again" pattern. Home now passes `type` (the record's real API
-// type string, e.g. 'physical_count'); this screen normalises that to its
-// own internal form key ('count') and opens the form directly, skipping the
-// chooser. Reaching this screen with no `type` (its own bottom tab) still
-// shows the chooser — that's its one legitimate, unambiguous entry point.
+// worker.tsx's Home "Quick Record" shortcuts and this screen's own chooser
+// below used to render the exact same three tiles with no connection between
+// them: tapping one on Home landed here only to show the identical tiles
+// again before the real form opened. Home now passes `type` (the record's
+// real API type string, e.g. 'physical_count'); this screen normalises that
+// to its own internal form key ('count') and opens the form directly,
+// skipping the chooser. Reaching this screen with no `type` (its own bottom
+// tab) still shows the chooser — that's its one legitimate, unambiguous entry
+// point.
 const RECORD_TYPE_TO_FORM: Record<string, string> = {
   feeding: 'feeding', mortality: 'mortality', physical_count: 'count', count: 'count',
   production: 'collect', collect: 'collect', health: 'health', weight: 'weight',
   stock_count: 'stock', stock: 'stock',
 };
 
+// ── Record — a fast picker, then a short form ───────────────────────────────
+// Big, one-line tiles grouped by how often a worker reaches for them (Daily
+// work vs. Checks), each a minimum 56px tall tap target. A farm's own
+// configured rounds (routines) get their own tile group beneath — nothing
+// invented, `GET /api/routines` filtered to `active`.
 export function WorkerRecordScreen() {
   const { params, tenantId } = useNav();
   const ctx = useWorkerContext();
@@ -464,11 +525,11 @@ export function WorkerRecordScreen() {
 
   if (!ctx.employee) {
     return (
-      <div className="screen-content px-screen" style={{ paddingTop: 16 }}>
+      <div className="screen-content px-screen pt-4">
         {ctx.employeeError ? (
-          <div style={{ fontSize: 'var(--fs-base)', color: 'var(--status-critical)' }}>{ctx.employeeError}</div>
+          <div className="text-sm text-danger">{ctx.employeeError}</div>
         ) : (
-          <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-dim)' }}>Loading…</div>
+          <div className="text-sm text-muted">Loading…</div>
         )}
       </div>
     );
@@ -504,28 +565,31 @@ export function WorkerRecordScreen() {
   ];
 
   return (
-    <div className="screen-content px-screen" style={{ paddingTop: 16 }}>
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--text-primary)' }}>Record</div>
-        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>Choose what to log</div>
+    <div className="screen-content px-screen pt-4 pb-8">
+      <div className="mb-5">
+        <h1 className="font-display text-2xl font-medium text-fg">Record</h1>
+        <p className="mt-0.5 text-sm text-muted">Choose what to log</p>
       </div>
 
       {GROUPS.map((g) => (
-        <div key={g.label} style={{ marginBottom: 16 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>{g.label}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div key={g.label} className="mb-5">
+          <p className="section-eyebrow mb-2">{g.label}</p>
+          <div className="flex flex-col gap-2">
             {g.tiles.map((tile) => (
-              <button key={tile.type} onClick={() => setActiveForm(tile.type)}
-                className="farm-card" style={{ padding: 14, textAlign: 'left', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: 12, background: 'var(--surface)', color: 'var(--primary-green)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                }}><tile.icon size={22} aria-hidden="true" /></div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{tile.label}</div>
-                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>{tile.desc}</div>
+              <button
+                key={tile.type}
+                type="button"
+                onClick={() => setActiveForm(tile.type)}
+                className="flex min-h-14 items-center gap-3 rounded-xl bg-surface p-3.5 text-left shadow-(--shadow-border) active:bg-surface-2"
+              >
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                  <tile.icon size={21} aria-hidden="true" />
                 </div>
-                <ChevronRight size={16} color="var(--text-dim)" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-semibold text-fg">{tile.label}</p>
+                  <p className="text-xs text-muted">{tile.desc}</p>
+                </div>
+                <ChevronRight size={16} className="shrink-0 text-subtle" aria-hidden="true" />
               </button>
             ))}
           </div>
@@ -536,23 +600,27 @@ export function WorkerRecordScreen() {
          are set up — an empty "Rounds" heading over nothing would read as
          something failing to load. */}
       {routines !== null && routines.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Rounds</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="mb-5">
+          <p className="section-eyebrow mb-2">Rounds</p>
+          <div className="flex flex-col gap-2">
             {routines.map((routine) => (
-              <button key={routine.id} onClick={() => setActiveRoutine(routine)}
-                className="farm-card" style={{ padding: 14, textAlign: 'left', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface)', color: 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Sunrise size={22} aria-hidden="true" />
+              <button
+                key={routine.id}
+                type="button"
+                onClick={() => setActiveRoutine(routine)}
+                className="flex min-h-14 items-center gap-3 rounded-xl bg-surface p-3.5 text-left shadow-(--shadow-border) active:bg-surface-2"
+              >
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                  <Sunrise size={21} aria-hidden="true" />
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{routine.name}</div>
-                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-semibold text-fg">{routine.name}</p>
+                  <p className="text-xs text-muted">
                     {routine.steps.length} step{routine.steps.length === 1 ? '' : 's'}
                     {routine.timeOfDay !== 'any' ? ` · ${routine.timeOfDay}` : ''}
-                  </div>
+                  </p>
                 </div>
-                <ChevronRight size={16} color="var(--text-dim)" />
+                <ChevronRight size={16} className="shrink-0 text-subtle" aria-hidden="true" />
               </button>
             ))}
           </div>
@@ -565,23 +633,25 @@ export function WorkerRecordScreen() {
 type WorkerCtx = ReturnType<typeof useWorkerContext>;
 
 function BatchPicker({ batches, onPick }: { batches: ApiBatch[] | null; onPick: (id: string) => void }) {
-  if (batches === null) return <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading your batches…</div>;
+  if (batches === null) return <div className="text-sm text-muted">Loading your batches…</div>;
   if (batches.length === 0) {
     return (
-      <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+      <div className="rounded-xl bg-warning-soft px-4 py-3.5 text-sm text-muted">
         No batches are assigned to you yet. Ask your manager to assign one before submitting records.
       </div>
     );
   }
   return (
-    <div>
+    <div className="flex flex-col gap-2">
       {batches.map((b) => (
-        <button key={b.id} onClick={() => onPick(b.id)} style={{
-          width: '100%', padding: '14px 16px', marginBottom: 8, borderRadius: 12, textAlign: 'left', cursor: 'pointer',
-          background: 'var(--card)', border: '1px solid var(--border-subtle)',
-          fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)',
-          display: 'flex', alignItems: 'center', gap: 8,
-        }}><Layers size={15} color="var(--text-muted)" aria-hidden="true" /> {b.code} – {b.name}</button>
+        <button
+          key={b.id}
+          type="button"
+          onClick={() => onPick(b.id)}
+          className="flex min-h-14 items-center gap-2 rounded-xl bg-surface px-4 py-3.5 text-left text-base font-semibold text-fg shadow-(--shadow-border) active:bg-surface-2"
+        >
+          <Layers size={16} className="text-muted" aria-hidden="true" /> {b.code} – {b.name}
+        </button>
       ))}
     </div>
   );
@@ -626,6 +696,27 @@ interface FeedLine {
 
 function totalOf(line: FeedLine): number {
   return Object.values(line.perBatch).reduce((sum, v) => sum + (Number(v) || 0), 0);
+}
+
+function StepTrack({ steps, step }: { steps: string[]; step: number }) {
+  return (
+    <div className="mb-5 flex items-center gap-0">
+      {steps.map((s, i) => (
+        <React.Fragment key={s}>
+          <div className="flex flex-col items-center gap-1">
+            <div className={cn(
+              'flex size-6 items-center justify-center rounded-full text-[11px] font-bold',
+              i + 1 < step ? 'bg-primary text-primary-fg' : i + 1 === step ? 'bg-primary text-primary-fg ring-4 ring-primary-soft' : 'bg-surface text-muted shadow-(--shadow-border)',
+            )}>
+              {i + 1 < step ? <Check size={12} aria-hidden="true" /> : i + 1}
+            </div>
+            <span className={cn('text-[10px] font-bold', step === i + 1 ? 'text-primary' : 'text-subtle')}>{s}</span>
+          </div>
+          {i < steps.length - 1 && <div className={cn('mt-3 h-0.5 flex-1', i + 1 < step ? 'bg-primary' : 'bg-border')} />}
+        </React.Fragment>
+      ))}
+    </div>
+  );
 }
 
 function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
@@ -710,67 +801,48 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
 
   return (
     <div className="screen-content">
-      <div style={{ padding: '0 20px' }}>
-        <TopNav title="Feeding Record" showBack />
-      </div>
-      <div className="px-screen" style={{ paddingTop: 16 }}>
-        <div style={{ display: 'flex', gap: 0, marginBottom: 20 }}>
-          {['Batches','Feed','Confirm'].map((s, i) => (
-            <React.Fragment key={s}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`} style={{ width: 24, height: 24, fontSize: 'var(--fs-2xs)' }}>{i + 1 < step ? <Check size={12} aria-hidden="true" /> : i + 1}</div>
-                <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: step === i + 1 ? 'var(--primary-green)' : 'var(--text-dim)' }}>{s}</span>
-              </div>
-              {i < 2 && <div className={`step-line ${i + 1 < step ? 'done' : ''}`} style={{ marginTop: 12 }} />}
-            </React.Fragment>
-          ))}
-        </div>
+      <div className="px-screen"><TopNav title="Feeding Record" showBack /></div>
+      <div className="px-screen pt-4 pb-8">
+        <StepTrack steps={['Batches', 'Feed', 'Confirm']} step={step} />
 
         {step === 1 && (
           <div>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Which batches are you feeding?</div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+            <p className="mb-1 text-base font-semibold text-fg">Which batches are you feeding?</p>
+            <p className="mb-3 text-sm leading-relaxed text-muted">
               Pick every batch getting feed from the same bag — you enter how much each one gets on the next step.
-            </div>
+            </p>
             <MultiBatchPicker batches={ctx.batches} selected={batchIds} onToggle={toggleBatch} />
-            <button
-              className="btn-primary"
-              disabled={batchIds.length === 0}
-              style={{ width: '100%', justifyContent: 'center', borderRadius: 12, marginTop: 12, opacity: batchIds.length === 0 ? 0.5 : 1 }}
-              onClick={() => setStep(2)}
-            >
+            <Button size="lg" className="mt-3 h-14 w-full" disabled={batchIds.length === 0} onClick={() => setStep(2)}>
               Continue{batchIds.length > 0 ? ` with ${batchIds.length}` : ''}
-            </button>
+            </Button>
           </div>
         )}
 
         {step === 2 && (
           <div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 10 }}>
-              {chosenBatches.map((b) => b.code).join(' · ')}
-            </div>
+            <p className="mb-2.5 text-sm text-muted">{chosenBatches.map((b) => b.code).join(' · ')}</p>
 
             {stockError && (
-              <div style={{ padding: '10px 12px', marginBottom: 10, borderRadius: 10, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{stockError}</div>
+              <div className="mb-2.5 rounded-lg bg-danger-soft px-3 py-2.5 text-sm text-danger">{stockError}</div>
             )}
-            {stock === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', marginBottom: 10 }}>Loading what is in stock…</div>}
+            {stock === null && <div className="mb-2.5 text-sm text-muted">Loading what is in stock…</div>}
             {stock !== null && stock.length === 0 && !stockError && (
-              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+              <div className="mb-2.5 rounded-xl bg-warning-soft px-4 py-3.5 text-sm leading-relaxed text-muted">
                 There is no stock recorded for this farm yet. Ask your manager to add the feed to the store before recording a feeding.
               </div>
             )}
 
             {stock !== null && stock.length > 6 && (
-              <input className="farm-input" placeholder="Search feed…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 10 }} />
+              <Input className="mb-2.5 h-12 text-base" placeholder="Search feed…" value={search} onChange={(e) => setSearch(e.target.value)} />
             )}
 
             {lines.map((line, i) => {
               const item = (stock ?? []).find((s) => s.id === line.itemId) ?? null;
               const left = item ? remainingAfterForm(item) : null;
               return (
-                <div key={i} className="farm-card" style={{ padding: 14, marginBottom: 8 }}>
-                  <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Feed from store</label>
-                  <select className="farm-input" value={line.itemId} onChange={(e) => setLineItem(i, e.target.value)} style={{ marginBottom: 8 }}>
+                <div key={i} className="mb-2 rounded-xl bg-surface p-3.5 shadow-(--shadow-border)">
+                  <label className="mb-1.5 block text-xs font-semibold text-muted">Feed from store</label>
+                  <select className={cn(controlClass, 'mb-2 h-14 text-base')} value={line.itemId} onChange={(e) => setLineItem(i, e.target.value)}>
                     <option value="">Choose an item…</option>
                     {visibleStock.map((s) => (
                       <option key={s.id} value={s.id} disabled={s.qtyOnHand <= 0}>
@@ -780,73 +852,66 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
                   </select>
 
                   {item && (
-                    <div style={{
-                      fontSize: 'var(--fs-2xs)', lineHeight: 1.5, marginBottom: 8,
-                      color: left !== null && left < 0 ? 'var(--status-critical)' : left !== null && left <= item.lowStockThreshold ? 'var(--status-warning)' : 'var(--text-muted)',
-                    }}>
+                    <p className={cn('mb-2 text-xs leading-relaxed', left !== null && left < 0 ? 'text-danger' : left !== null && left <= item.lowStockThreshold ? 'text-warning' : 'text-muted')}>
                       {left !== null && left < 0
                         ? `That is ${Math.abs(left)} ${item.unit} more than the farm has.`
                         : `${left} ${item.unit} will be left after this.`}
                       {item.nextExpiry && ` · Oldest stock expires ${new Date(item.nextExpiry).toLocaleDateString()}`}
-                    </div>
+                    </p>
                   )}
 
                   {chosenBatches.map((b) => (
-                    <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ flex: 1, fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>{b.code}</span>
-                      <input
-                        className="farm-input" type="number" inputMode="decimal" min="0"
+                    <div key={b.id} className="mb-1.5 flex items-center gap-2">
+                      <span className="flex-1 text-sm text-fg">{b.code}</span>
+                      <Input
+                        type="number" inputMode="decimal" min="0"
                         placeholder={item ? item.unit : 'qty'}
                         value={line.perBatch[b.id] ?? ''}
                         onChange={(e) => setLineQty(i, b.id, e.target.value)}
-                        style={{ width: 110 }}
+                        className="h-12 w-28 text-base"
                       />
                     </div>
                   ))}
 
                   {lines.length > 1 && (
                     <button
+                      type="button"
                       onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}
-                      style={{ marginTop: 4, padding: '6px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}
+                      className="mt-1 rounded-lg bg-danger-soft px-2.5 py-1.5 text-xs font-bold text-danger"
                     >Remove</button>
                   )}
                 </div>
               );
             })}
 
-            <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 14 }} onClick={() => setLines((prev) => [...prev, { itemId: '', perBatch: {} }])}>
+            <Button variant="secondary" className="mb-4 w-full" onClick={() => setLines((prev) => [...prev, { itemId: '', perBatch: {} }])}>
               <Plus size={13} /> Add another feed
-            </button>
+            </Button>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={() => setStep(1)}>Back</button>
-              <button
-                className="btn-primary"
-                disabled={filledLines.length === 0 || overIssued.length > 0}
-                style={{ flex: 2, justifyContent: 'center', borderRadius: 12, opacity: filledLines.length === 0 || overIssued.length > 0 ? 0.5 : 1 }}
-                onClick={() => setStep(3)}
-              >Review</button>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="lg" className="h-14 flex-1" onClick={() => setStep(1)}>Back</Button>
+              <Button size="lg" className="h-14 flex-[2]" disabled={filledLines.length === 0 || overIssued.length > 0} onClick={() => setStep(3)}>Review</Button>
             </div>
           </div>
         )}
 
         {step === 3 && (
           <div>
-            <div style={{ padding: '14px', background: 'rgba(var(--primary-rgb),0.06)', borderRadius: 14, border: '1px solid rgba(var(--primary-rgb),0.2)', marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 'var(--fs-md)', marginBottom: 10 }}>Summary</div>
+            <div className="mb-4 rounded-xl bg-primary-soft p-4">
+              <p className="mb-2.5 text-base font-bold text-fg">Summary</p>
               {filledLines.map((line, i) => {
                 const item = (stock ?? []).find((s) => s.id === line.itemId);
                 return (
-                  <div key={i} style={{ marginBottom: 10 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-base)', marginBottom: 3 }}>
-                      <span style={{ color: 'var(--text-muted)' }}>{item?.name ?? 'Item'}</span>
-                      <span style={{ fontWeight: 700 }}>{totalOf(line)} {item?.unit}</span>
+                  <div key={i} className="mb-2.5">
+                    <div className="mb-0.5 flex justify-between text-sm">
+                      <span className="text-muted">{item?.name ?? 'Item'}</span>
+                      <span className="font-bold text-fg">{totalOf(line)} {item?.unit}</span>
                     </div>
                     {chosenBatches.map((b) => {
                       const qty = Number(line.perBatch[b.id]) || 0;
                       if (qty <= 0) return null;
                       return (
-                        <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>
+                        <div key={b.id} className="flex justify-between text-xs text-subtle">
                           <span>{b.code}</span><span>{qty} {item?.unit}</span>
                         </div>
                       );
@@ -854,16 +919,16 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
                   </div>
                 );
               })}
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5, borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
+              <p className="mt-1.5 border-t border-border pt-2 text-xs leading-relaxed text-muted">
                 Saving this takes the feed out of the store — the oldest stock is used first.
-              </div>
+              </p>
             </div>
-            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={() => setStep(2)}>Back</button>
-              <button className="btn-primary" disabled={submitting} style={{ flex: 2, justifyContent: 'center', borderRadius: 12, opacity: submitting ? 0.7 : 1 }} onClick={handleSubmit}>
+            {error && <div className="mb-2.5 text-sm text-danger">{error}</div>}
+            <div className="mb-2 flex gap-2">
+              <Button variant="secondary" size="lg" className="h-14 flex-1" onClick={() => setStep(2)}>Back</Button>
+              <Button size="lg" className="h-14 flex-[2]" disabled={submitting} onClick={handleSubmit}>
                 <Check size={14} /> {submitting ? 'Saving…' : 'Save Record'}
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -877,27 +942,29 @@ function MultiBatchPicker({ batches, selected, onToggle }: {
   selected: string[];
   onToggle: (id: string) => void;
 }) {
-  if (batches === null) return <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading your batches…</div>;
+  if (batches === null) return <div className="text-sm text-muted">Loading your batches…</div>;
   if (batches.length === 0) {
     return (
-      <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+      <div className="rounded-xl bg-warning-soft px-4 py-3.5 text-sm text-muted">
         No batches are assigned to you yet. Ask your manager to assign one before submitting records.
       </div>
     );
   }
   return (
-    <div>
+    <div className="flex flex-col gap-2">
       {batches.map((b) => {
         const on = selected.includes(b.id);
         return (
-          <button key={b.id} onClick={() => onToggle(b.id)} style={{
-            width: '100%', padding: '14px 16px', marginBottom: 8, borderRadius: 12, textAlign: 'left', cursor: 'pointer',
-            background: on ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)',
-            border: on ? '1px solid var(--primary-green)' : '1px solid var(--border-subtle)',
-            fontSize: 'var(--fs-base)', fontWeight: 600, color: on ? 'var(--primary-green)' : 'var(--text-primary)',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            {on ? <Check size={15} aria-hidden="true" /> : <Layers size={15} color="var(--text-muted)" aria-hidden="true" />}
+          <button
+            key={b.id}
+            type="button"
+            onClick={() => onToggle(b.id)}
+            className={cn(
+              'flex min-h-14 items-center gap-2 rounded-xl px-4 py-3.5 text-left text-base font-semibold shadow-(--shadow-border)',
+              on ? 'bg-primary-soft text-primary ring-1 ring-primary' : 'bg-surface text-fg',
+            )}
+          >
+            {on ? <Check size={16} aria-hidden="true" /> : <Layers size={16} className="text-muted" aria-hidden="true" />}
             {b.code} – {b.name}
           </button>
         );
@@ -1056,24 +1123,22 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
 
   return (
     <div className="screen-content">
-      <div style={{ padding: '0 20px' }}>
-        <TopNav title={routine.name} showBack />
-      </div>
-      <div className="px-screen" style={{ paddingTop: 16, paddingBottom: 90 }}>
+      <div className="px-screen"><TopNav title={routine.name} showBack /></div>
+      <div className="px-screen pt-4 pb-8">
         {!batchId ? (
           <>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, marginBottom: 12 }}>Which batch is this round for?</div>
+            <p className="mb-3 text-base font-semibold text-fg">Which batch is this round for?</p>
             <BatchPicker batches={ctx.batches} onPick={setBatchId} />
           </>
         ) : (
           <>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>
+            <p className="mb-3.5 text-sm text-muted">
               {ctx.batches?.find((b) => b.id === batchId)?.code}
-              <button onClick={() => setBatchId(null)} style={{ marginLeft: 8, fontSize: 'var(--fs-2xs)', background: 'none', border: 'none', color: 'var(--primary-green)', cursor: 'pointer', fontWeight: 700 }}>change</button>
-            </div>
+              <button type="button" onClick={() => setBatchId(null)} className="ml-2 text-xs font-bold text-primary">change</button>
+            </p>
 
             {routine.steps.length === 0 && (
-              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              <div className="rounded-xl bg-warning-soft px-4 py-3.5 text-sm leading-relaxed text-muted">
                 Nobody has said what this round involves yet. Ask your manager to add the steps.
               </div>
             )}
@@ -1082,25 +1147,25 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
               const done = isAnswered(step);
               const isSkipped = !!skipped[step.id];
               return (
-                <div key={step.id} className="farm-card" style={{
-                  padding: 14, marginBottom: 10, opacity: isSkipped ? 0.55 : 1,
-                  borderLeft: `3px solid ${done ? 'var(--primary-green)' : step.required ? 'var(--status-warning)' : 'var(--border-subtle)'}`,
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isSkipped ? 0 : 10 }}>
-                    <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)' }}>{i + 1}</span>
-                    <span style={{ flex: 1, fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{step.label}</span>
-                    {done && <Check size={14} color="var(--primary-green)" />}
+                <div
+                  key={step.id}
+                  className={cn('mb-2.5 rounded-xl bg-surface p-3.5 shadow-(--shadow-border)', isSkipped && 'opacity-55')}
+                  style={{ borderLeft: `3px solid ${done ? 'var(--color-primary)' : step.required ? 'var(--color-warning)' : 'var(--color-border)'}` }}
+                >
+                  <div className={cn('flex items-center gap-2', !isSkipped && 'mb-2.5')}>
+                    <span className="text-[11px] font-extrabold text-subtle">{i + 1}</span>
+                    <span className="flex-1 text-base font-semibold text-fg">{step.label}</span>
+                    {done && <Check size={14} className="text-primary" aria-hidden="true" />}
                     {!step.required && (
-                      <button
-                        onClick={() => setSkipped((sk) => ({ ...sk, [step.id]: !sk[step.id] }))}
-                        style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}
-                      >{isSkipped ? 'undo' : 'skip'}</button>
+                      <button type="button" onClick={() => setSkipped((sk) => ({ ...sk, [step.id]: !sk[step.id] }))} className="text-[11px] font-bold text-subtle">
+                        {isSkipped ? 'undo' : 'skip'}
+                      </button>
                     )}
                   </div>
 
                   {!isSkipped && step.kind === 'feeding' && (
                     <>
-                      <select className="farm-input" value={field(step.id, 'itemId')} onChange={(e) => setField(step.id, 'itemId', e.target.value)} style={{ marginBottom: 8 }}>
+                      <select className={cn(controlClass, 'mb-2 h-14 text-base')} value={field(step.id, 'itemId')} onChange={(e) => setField(step.id, 'itemId', e.target.value)}>
                         <option value="">Choose feed from the store…</option>
                         {(stock ?? []).map((s) => (
                           <option key={s.id} value={s.id} disabled={s.qtyOnHand <= 0}>
@@ -1108,13 +1173,13 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
                           </option>
                         ))}
                       </select>
-                      <input className="farm-input" type="number" inputMode="decimal" min="0" placeholder="How much" value={field(step.id, 'qty')} onChange={(e) => setField(step.id, 'qty', e.target.value)} />
+                      <Input className="h-14 text-base" type="number" inputMode="decimal" min="0" placeholder="How much" value={field(step.id, 'qty')} onChange={(e) => setField(step.id, 'qty', e.target.value)} />
                     </>
                   )}
 
                   {!isSkipped && step.kind === 'mortality' && (
                     <>
-                      <input className="farm-input" type="number" inputMode="numeric" min="0" placeholder="How many died (0 if none)" value={field(step.id, 'count')} onChange={(e) => setField(step.id, 'count', e.target.value)} style={{ marginBottom: 8 }} />
+                      <Input className="mb-2 h-14 text-base" type="number" inputMode="numeric" min="0" placeholder="How many died (0 if none)" value={field(step.id, 'count')} onChange={(e) => setField(step.id, 'count', e.target.value)} />
                       <PickOrType
                         options={MORTALITY_CAUSES}
                         value={field(step.id, 'cause')}
@@ -1126,16 +1191,16 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
                   )}
 
                   {!isSkipped && step.kind === 'physical_count' && (
-                    <input className="farm-input" type="number" inputMode="numeric" min="0" placeholder="How many did you count" value={field(step.id, 'counted')} onChange={(e) => setField(step.id, 'counted', e.target.value)} />
+                    <Input className="h-14 text-base" type="number" inputMode="numeric" min="0" placeholder="How many did you count" value={field(step.id, 'counted')} onChange={(e) => setField(step.id, 'counted', e.target.value)} />
                   )}
 
                   {!isSkipped && step.kind === 'production' && (
                     productList.length === 0
-                      ? <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>This batch has no products set up yet.</div>
+                      ? <p className="text-xs text-muted">This batch has no products set up yet.</p>
                       : productList.map((p) => (
-                        <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                          <span style={{ flex: 1, fontSize: 'var(--fs-sm)' }}>{p.name}</span>
-                          <input className="farm-input" type="number" inputMode="numeric" min="0" placeholder="0" style={{ width: 100 }}
+                        <div key={p.id} className="mb-1.5 flex items-center gap-2.5">
+                          <span className="flex-1 text-sm text-fg">{p.name}</span>
+                          <Input className="h-12 w-24 text-base" type="number" inputMode="numeric" min="0" placeholder="0"
                             value={field(step.id, `p:${p.id}`)} onChange={(e) => setField(step.id, `p:${p.id}`, e.target.value)} />
                         </div>
                       ))
@@ -1149,31 +1214,35 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
                         onChange={(v) => setField(step.id, 'treatment', v)}
                         placeholder="What was given"
                         otherPlaceholder="Name the treatment"
-                        style={{ marginBottom: 8 }}
+                        className="mb-2"
                       />
-                      <input className="farm-input" placeholder="Notes" value={field(step.id, 'notes')} onChange={(e) => setField(step.id, 'notes', e.target.value)} />
+                      <Input className="h-14 text-base" placeholder="Notes" value={field(step.id, 'notes')} onChange={(e) => setField(step.id, 'notes', e.target.value)} />
                     </>
                   )}
 
                   {!isSkipped && step.kind === 'weight' && (
-                    <input className="farm-input" type="number" inputMode="decimal" step="0.01" min="0" placeholder="Weight in kg" value={field(step.id, 'weight')} onChange={(e) => setField(step.id, 'weight', e.target.value)} />
+                    <Input className="h-14 text-base" type="number" inputMode="decimal" step="0.01" min="0" placeholder="Weight in kg" value={field(step.id, 'weight')} onChange={(e) => setField(step.id, 'weight', e.target.value)} />
                   )}
 
                   {!isSkipped && step.kind === 'check' && (
                     <>
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                      <div className="mb-2 flex gap-2">
                         {[['yes', 'All good'], ['no', 'Problem']].map(([value, label]) => (
-                          <button key={value} onClick={() => setField(step.id, 'done', value)}
-                            style={{
-                              flex: 1, padding: '10px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer',
-                              background: field(step.id, 'done') === value ? (value === 'yes' ? 'rgba(var(--primary-rgb),0.15)' : 'rgba(var(--critical-rgb),0.12)') : 'var(--card)',
-                              border: field(step.id, 'done') === value ? `1px solid ${value === 'yes' ? 'var(--primary-green)' : 'var(--status-critical)'}` : '1px solid var(--border-subtle)',
-                              color: field(step.id, 'done') === value ? (value === 'yes' ? 'var(--primary-green)' : 'var(--status-critical)') : 'var(--text-muted)',
-                            }}>{label}</button>
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setField(step.id, 'done', value)}
+                            className={cn(
+                              'h-12 flex-1 rounded-lg text-sm font-bold',
+                              field(step.id, 'done') === value
+                                ? value === 'yes' ? 'bg-primary-soft text-primary ring-1 ring-primary' : 'bg-danger-soft text-danger ring-1 ring-danger'
+                                : 'bg-surface text-muted shadow-(--shadow-border)',
+                            )}
+                          >{label}</button>
                         ))}
                       </div>
                       {field(step.id, 'done') === 'no' && (
-                        <input className="farm-input" placeholder="What is wrong?" value={field(step.id, 'note')} onChange={(e) => setField(step.id, 'note', e.target.value)} />
+                        <Input className="h-14 text-base" placeholder="What is wrong?" value={field(step.id, 'note')} onChange={(e) => setField(step.id, 'note', e.target.value)} />
                       )}
                     </>
                   )}
@@ -1182,21 +1251,15 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
             })}
 
             {missingRequired.length > 0 && (
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-warning)', marginBottom: 10, lineHeight: 1.5 }}>
-                Still to do: {missingRequired.map((s) => s.label).join(', ')}
-              </div>
+              <p className="mb-2.5 text-xs leading-relaxed text-warning">Still to do: {missingRequired.map((s) => s.label).join(', ')}</p>
             )}
-            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10, lineHeight: 1.5 }}>{error}</div>}
+            {error && <p className="mb-2.5 text-sm leading-relaxed text-danger">{error}</p>}
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={onBack}>Cancel</button>
-              <button
-                className="btn-primary" disabled={submitting || missingRequired.length > 0 || routine.steps.length === 0}
-                style={{ flex: 2, justifyContent: 'center', borderRadius: 12, opacity: submitting || missingRequired.length > 0 ? 0.6 : 1 }}
-                onClick={submit}
-              >
+            <div className="flex gap-2">
+              <Button variant="secondary" size="lg" className="h-14 flex-1" onClick={onBack}>Cancel</Button>
+              <Button size="lg" className="h-14 flex-[2]" disabled={submitting || missingRequired.length > 0 || routine.steps.length === 0} onClick={submit}>
                 <Check size={14} /> {submitting ? 'Saving…' : `Finish ${routine.name}`}
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -1206,12 +1269,7 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
 }
 
 /* ── The rest of the worker's record types (worker-routines task) ───────────
- * These five were "Coming Soon" tiles: honest when written, because the
- * backend accepted three record types — and then the reason the work went
- * unrecorded. POST /api/records takes all of them now, each mapped to the
- * permission module that already governs it.
- *
- * They share a deliberately plain shape: pick a batch, fill in the numbers,
+ * These share a deliberately plain shape: pick a batch, fill in the numbers,
  * save. No wizard steps unless the form genuinely has stages (feeding does,
  * because stock has to be fetched for the chosen batch first). A worker
  * standing in a poultry house with one hand free is the design constraint.
@@ -1230,28 +1288,26 @@ function SimpleFormShell({ title, batches, batchId, setBatchId, children, onBack
 }) {
   return (
     <div className="screen-content">
-      <div style={{ padding: '0 20px' }}>
-        <TopNav title={title} showBack />
-      </div>
-      <div className="px-screen" style={{ paddingTop: 16, paddingBottom: 90 }}>
+      <div className="px-screen"><TopNav title={title} showBack /></div>
+      <div className="px-screen pt-4 pb-8">
         {!batchId ? (
           <>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, marginBottom: 12 }}>Which batch?</div>
+            <p className="mb-3 text-base font-semibold text-fg">Which batch?</p>
             <BatchPicker batches={batches} onPick={setBatchId} />
           </>
         ) : (
           <>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 12 }}>
+            <p className="mb-3 text-sm text-muted">
               {batches?.find((b) => b.id === batchId)?.code}
-              <button onClick={() => setBatchId('')} style={{ marginLeft: 8, fontSize: 'var(--fs-2xs)', background: 'none', border: 'none', color: 'var(--primary-green)', cursor: 'pointer', fontWeight: 700 }}>change</button>
-            </div>
+              <button type="button" onClick={() => setBatchId('')} className="ml-2 text-xs font-bold text-primary">change</button>
+            </p>
             {children}
-            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', margin: '10px 0' }}>{error}</div>}
-            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={onBack}>Cancel</button>
-              <button className="btn-primary" disabled={submitting || !canSubmit} style={{ flex: 2, justifyContent: 'center', borderRadius: 12, opacity: submitting || !canSubmit ? 0.6 : 1 }} onClick={onSubmit}>
+            {error && <p className="my-2.5 text-sm text-danger">{error}</p>}
+            <div className="mt-3.5 flex gap-2">
+              <Button variant="secondary" size="lg" className="h-14 flex-1" onClick={onBack}>Cancel</Button>
+              <Button size="lg" className="h-14 flex-[2]" disabled={submitting || !canSubmit} onClick={onSubmit}>
                 <Check size={14} /> {submitting ? 'Saving…' : 'Save Record'}
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -1302,19 +1358,19 @@ function CollectProductsForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => vo
       title="Collect Products" batches={ctx.batches} batchId={batchId} setBatchId={(id) => setBatchId(id || null)}
       onBack={onBack} onSubmit={submit} submitting={submitting} error={error} canSubmit={entered.length > 0}
     >
-      {productList === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading this batch&apos;s products…</div>}
+      {productList === null && <div className="text-sm text-muted">Loading this batch&apos;s products…</div>}
       {productList !== null && productList.length === 0 && (
-        <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+        <div className="rounded-xl bg-warning-soft px-4 py-3.5 text-sm leading-relaxed text-muted">
           This batch has no products set up. Ask your manager to add what it produces — eggs, milk, whatever it is — on the batch.
         </div>
       )}
       {(productList ?? []).map((p) => (
-        <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <span style={{ flex: 1, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{p.name}</span>
-          <input
-            className="farm-input" type="number" inputMode="numeric" min="0" placeholder="0"
+        <div key={p.id} className="mb-2 flex items-center gap-2.5">
+          <span className="flex-1 text-base text-fg">{p.name}</span>
+          <Input
+            type="number" inputMode="numeric" min="0" placeholder="0"
             value={qty[p.id] ?? ''} onChange={(e) => setQty((q) => ({ ...q, [p.id]: e.target.value }))}
-            style={{ width: 110 }}
+            className="h-14 w-28 text-base"
           />
         </div>
       ))}
@@ -1369,46 +1425,41 @@ function HealthForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
       title="Health & Vaccine" batches={ctx.batches} batchId={batchId} setBatchId={(id) => setBatchId(id || null)}
       onBack={onBack} onSubmit={submit} submitting={submitting} error={error} canSubmit={treatment.trim().length > 0}
     >
-      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>What was given *</label>
+      <label className="mb-1.5 block text-xs font-semibold text-muted">What was given *</label>
       <PickOrType
         options={HEALTH_TREATMENTS}
         value={treatment}
         onChange={setTreatment}
         placeholder="Choose a vaccine or treatment…"
         otherPlaceholder="Name the treatment"
-        style={{ marginBottom: 10 }}
+        className="mb-2.5"
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+      <div className="mb-2.5 grid grid-cols-2 gap-2.5">
         <div>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>How many treated</label>
-          <input className="farm-input" type="number" inputMode="numeric" min="0" value={affected} onChange={(e) => setAffected(e.target.value)} placeholder="e.g. 200" />
+          <label className="mb-1.5 block text-xs font-semibold text-muted">How many treated</label>
+          <Input className="h-14 text-base" type="number" inputMode="numeric" min="0" value={affected} onChange={(e) => setAffected(e.target.value)} placeholder="e.g. 200" />
         </div>
         <div>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Dose</label>
-          {/* Amount and unit, not prose. 360px is the target width, so these
-              two sit side by side inside the half-width column. */}
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input
-              className="farm-input" type="number" inputMode="decimal" min="0" step="0.01"
+          <label className="mb-1.5 block text-xs font-semibold text-muted">Dose</label>
+          <div className="flex gap-1.5">
+            <Input
+              type="number" inputMode="decimal" min="0" step="0.01"
               value={doseAmount} onChange={(e) => setDoseAmount(e.target.value)}
-              placeholder="1" style={{ flex: 1, minWidth: 0 }}
+              placeholder="1" className="h-14 min-w-0 flex-1 text-base"
             />
-            <select
-              className="farm-input" value={doseUnit} onChange={(e) => setDoseUnit(e.target.value)}
-              style={{ flex: 1, minWidth: 0 }}
-            >
+            <select className={cn(controlClass, 'h-14 min-w-0 flex-1 text-base')} value={doseUnit} onChange={(e) => setDoseUnit(e.target.value)}>
               {DOSE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
         </div>
       </div>
 
-      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Per (optional)</label>
-      <input className="farm-input" value={dosePer} onChange={(e) => setDosePer(e.target.value)} placeholder="e.g. each bird, litre of water" style={{ marginBottom: 10 }} />
+      <label className="mb-1.5 block text-xs font-semibold text-muted">Per (optional)</label>
+      <Input className="mb-2.5 h-14 text-base" value={dosePer} onChange={(e) => setDosePer(e.target.value)} placeholder="e.g. each bird, litre of water" />
 
-      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes</label>
-      <textarea className="farm-input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Symptoms, who advised it, withdrawal period…" style={{ resize: 'none' }} />
+      <label className="mb-1.5 block text-xs font-semibold text-muted">Notes</label>
+      <textarea className={cn(controlClass, 'h-auto min-h-24 resize-none py-3 text-base')} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Symptoms, who advised it, withdrawal period…" />
     </SimpleFormShell>
   );
 }
@@ -1444,24 +1495,22 @@ function WeightForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
       title="Weight Sample" batches={ctx.batches} batchId={batchId} setBatchId={(id) => setBatchId(id || null)}
       onBack={onBack} onSubmit={submit} submitting={submitting} error={error} canSubmit={numbers.length > 0}
     >
-      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
-        Weigh a few and enter each one. The average is worked out for you.
-      </div>
+      <p className="mb-2.5 text-sm leading-relaxed text-muted">Weigh a few and enter each one. The average is worked out for you.</p>
       {weights.map((w, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <span style={{ width: 70, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Sample {i + 1}</span>
-          <input
-            className="farm-input" type="number" inputMode="decimal" step="0.01" min="0" placeholder="kg"
+        <div key={i} className="mb-2 flex items-center gap-2.5">
+          <span className="w-16 text-sm text-muted">Sample {i + 1}</span>
+          <Input
+            className="h-14 text-base" type="number" inputMode="decimal" step="0.01" min="0" placeholder="kg"
             value={w} onChange={(e) => setWeights((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
           />
         </div>
       ))}
-      <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginTop: 4 }} onClick={() => setWeights((prev) => [...prev, ''])}>
+      <Button variant="secondary" className="mt-1 w-full" onClick={() => setWeights((prev) => [...prev, ''])}>
         <Plus size={13} /> Another sample
-      </button>
+      </Button>
       {numbers.length > 0 && (
-        <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'rgba(var(--primary-rgb),0.06)', border: '1px solid rgba(var(--primary-rgb),0.2)', fontSize: 'var(--fs-base)', fontWeight: 700 }}>
-          Average: {average.toFixed(2)} kg <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>from {numbers.length} sample{numbers.length === 1 ? '' : 's'}</span>
+        <div className="mt-3 rounded-xl bg-primary-soft p-3 text-base font-bold text-fg">
+          Average: {average.toFixed(2)} kg <span className="text-xs font-medium text-muted">from {numbers.length} sample{numbers.length === 1 ? '' : 's'}</span>
         </div>
       )}
     </SimpleFormShell>
@@ -1520,27 +1569,24 @@ function StockCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void })
       title="Closing Stock" batches={ctx.batches} batchId={batchId} setBatchId={(id) => setBatchId(id || null)}
       onBack={onBack} onSubmit={submit} submitting={submitting} error={error} canSubmit={lines.length > 0}
     >
-      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
-        Count what is actually left in the store. Leave anything you did not count blank.
-      </div>
-      {stock === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading the store…</div>}
+      <p className="mb-2.5 text-sm leading-relaxed text-muted">Count what is actually left in the store. Leave anything you did not count blank.</p>
+      {stock === null && <div className="text-sm text-muted">Loading the store…</div>}
       {(stock ?? []).map((item) => {
         const value = counted[item.id] ?? '';
         const variance = value === '' ? null : Math.trunc(Number(value)) - item.qtyOnHand;
         return (
-          <div key={item.id} style={{ marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ flex: 1, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{item.name}</span>
-              <input
-                className="farm-input" type="number" inputMode="numeric" min="0" placeholder={`${item.qtyOnHand} ${item.unit}`}
+          <div key={item.id} className="mb-2.5">
+            <div className="flex items-center gap-2.5">
+              <span className="flex-1 text-base text-fg">{item.name}</span>
+              <Input
+                className="h-14 w-32 text-base" type="number" inputMode="numeric" min="0" placeholder={`${item.qtyOnHand} ${item.unit}`}
                 value={value} onChange={(e) => setCounted((c) => ({ ...c, [item.id]: e.target.value }))}
-                style={{ width: 120 }}
               />
             </div>
             {variance !== null && variance !== 0 && (
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', marginTop: 3 }}>
+              <p className="mt-0.5 text-xs text-warning">
                 {variance > 0 ? `${variance} ${item.unit} more` : `${Math.abs(variance)} ${item.unit} less`} than the system says ({item.qtyOnHand} {item.unit})
-              </div>
+              </p>
             )}
           </div>
         );
@@ -1592,44 +1638,36 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
 
   return (
     <div className="screen-content">
-      <div className="px-screen">
-        <TopNav title="Mortality Record" showBack />
-      </div>
-      <div className="px-screen" style={{ paddingTop: 16 }}>
-        <div style={{ display: 'flex', gap: 0, marginBottom: 20 }}>
-          {['Batch','Count & Cause','Photo','Confirm'].map((s, i) => (
-            <React.Fragment key={s}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                <div className={`step-node ${i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'pending'}`} style={{ width: 22, height: 22, fontSize: 'var(--fs-2xs)' }}>{i + 1 < step ? <Check size={11} aria-hidden="true" /> : i + 1}</div>
-                <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: step === i + 1 ? 'var(--primary-green)' : 'var(--text-dim)' }}>{s}</span>
-              </div>
-              {i < 3 && <div className={`step-line ${i + 1 < step ? 'done' : ''}`} style={{ marginTop: 11 }} />}
-            </React.Fragment>
-          ))}
-        </div>
+      <div className="px-screen"><TopNav title="Mortality Record" showBack /></div>
+      <div className="px-screen pt-4 pb-8">
+        <StepTrack steps={['Batch', 'Count & Cause', 'Photo', 'Confirm']} step={step} />
 
         {step === 1 && (
           <div>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, marginBottom: 12 }}>Select batch:</div>
+            <p className="mb-3 text-base font-semibold text-fg">Select batch:</p>
             <BatchPicker batches={ctx.batches} onPick={(id) => { setBatchId(id); setStep(2); }} />
           </div>
         )}
 
         {step === 2 && batch && (
           <div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 8 }}>{batch.code} · System count: {batch.currentQty}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'center', marginBottom: 16 }}>
-                <button onClick={() => setCount(Math.max(0, count - 1))} style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--surface)', border: '1px solid var(--border-subtle)', fontSize: 'var(--fs-3xl)', color: 'var(--text-primary)', cursor: 'pointer' }}>−</button>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 'var(--fs-hero)', fontWeight: 700, color: count > 0 ? 'var(--status-critical)' : 'var(--text-primary)', lineHeight: 1 }}>{count}</div>
-                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>deaths</div>
+            <div className="mb-4">
+              <p className="mb-2 text-sm text-muted">{batch.code} · System count: {batch.currentQty}</p>
+              <div className="mb-4 flex items-center justify-center gap-4">
+                <button type="button" onClick={() => setCount(Math.max(0, count - 1))} className="flex size-14 items-center justify-center rounded-2xl bg-surface text-3xl text-fg shadow-(--shadow-border)">−</button>
+                <div className="text-center">
+                  <div className={cn('font-display text-5xl leading-none font-medium', count > 0 ? 'text-danger' : 'text-fg')}>{count}</div>
+                  <div className="text-sm text-muted">deaths</div>
                 </div>
-                <button onClick={() => setCount(count + 1)} style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--surface)', border: '1px solid var(--border-subtle)', fontSize: 'var(--fs-3xl)', color: 'var(--text-primary)', cursor: 'pointer' }}>+</button>
+                <button type="button" onClick={() => setCount(count + 1)} className="flex size-14 items-center justify-center rounded-2xl bg-surface text-3xl text-fg shadow-(--shadow-border)">+</button>
               </div>
-              {needsPhoto && <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', background: 'rgba(var(--critical-rgb),0.08)', borderRadius: 10, border: '1px solid rgba(var(--critical-rgb),0.25)', fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', fontWeight: 600, marginBottom: 10 }}><AlertTriangle size={12} aria-hidden="true" /> Photo required for {threshold}+ deaths (your farm&apos;s threshold)</div>}
+              {needsPhoto && (
+                <div className="mb-2.5 flex items-center gap-1.5 rounded-lg bg-danger-soft px-3 py-2 text-xs font-semibold text-danger">
+                  <AlertTriangle size={12} aria-hidden="true" /> Photo required for {threshold}+ deaths (your farm&apos;s threshold)
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>Cause of death:</div>
+            <p className="mb-2 text-sm font-bold text-muted">Cause of death:</p>
             {/* Sourced from the shared list rather than a fourth inline copy —
                 components/farm/vet.tsx had its own, this screen had its own,
                 and a vet and a worker reporting the same death produced
@@ -1637,65 +1675,71 @@ function MortalityForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) 
                 separately. The tap-grid stays: it is faster than a select on a
                 phone and this is the screen workers use most. "Other" is the
                 escape hatch, and it reveals a text field. */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: causeIsOther ? 8 : 14 }}>
+            <div className={cn('mb-3.5 grid grid-cols-2 gap-2', causeIsOther && 'mb-2')}>
               {MORTALITY_CAUSES.map((c) => {
                 const active = c === cause && !causeIsOther;
                 return (
-                  <button key={c} onClick={() => { setCauseIsOther(false); setCause(c); }} style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, background: active ? 'rgba(var(--critical-rgb),0.12)' : 'var(--card)', border: active ? '1px solid rgba(var(--critical-rgb),0.3)' : '1px solid var(--border-subtle)', color: active ? 'var(--status-critical)' : 'var(--text-muted)', cursor: 'pointer' }}>{c}</button>
+                  <button
+                    key={c} type="button" onClick={() => { setCauseIsOther(false); setCause(c); }}
+                    className={cn(
+                      'min-h-12 rounded-lg px-2 text-sm font-semibold',
+                      active ? 'bg-danger-soft text-danger ring-1 ring-danger' : 'bg-surface text-muted shadow-(--shadow-border)',
+                    )}
+                  >{c}</button>
                 );
               })}
               <button
-                onClick={() => { setCauseIsOther(true); setCause(''); }}
-                style={{ padding: '10px 8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 600, background: causeIsOther ? 'rgba(var(--critical-rgb),0.12)' : 'var(--card)', border: causeIsOther ? '1px solid rgba(var(--critical-rgb),0.3)' : '1px solid var(--border-subtle)', color: causeIsOther ? 'var(--status-critical)' : 'var(--text-muted)', cursor: 'pointer' }}
+                type="button" onClick={() => { setCauseIsOther(true); setCause(''); }}
+                className={cn(
+                  'min-h-12 rounded-lg px-2 text-sm font-semibold',
+                  causeIsOther ? 'bg-danger-soft text-danger ring-1 ring-danger' : 'bg-surface text-muted shadow-(--shadow-border)',
+                )}
               >{OTHER_OPTION}…</button>
             </div>
             {causeIsOther && (
-              <input
-                className="farm-input" value={cause} onChange={(e) => setCause(e.target.value)}
-                placeholder="Describe the cause" autoFocus style={{ marginBottom: 14 }}
-              />
+              <Input className="mb-3.5 h-14 text-base" value={cause} onChange={(e) => setCause(e.target.value)} placeholder="Describe the cause" autoFocus />
             )}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 12 }} onClick={() => setStep(1)}>Back</button>
-              <button className="btn-primary" style={{ flex: 2, justifyContent: 'center', borderRadius: 12 }} onClick={() => setStep(needsPhoto ? 3 : 4)}>Next</button>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="lg" className="h-14 flex-1" onClick={() => setStep(1)}>Back</Button>
+              <Button size="lg" className="h-14 flex-[2]" onClick={() => setStep(needsPhoto ? 3 : 4)}>Next</Button>
             </div>
           </div>
         )}
 
         {step === 3 && (
           <div>
-            <div style={{ padding: '14px', background: 'rgba(var(--critical-rgb),0.06)', borderRadius: 14, border: '1px solid rgba(var(--critical-rgb),0.2)', marginBottom: 16, textAlign: 'center' }}>
-              <div style={{ marginBottom: 8, color: 'var(--status-critical)' }}><Camera size={40} aria-hidden="true" /></div>
-              <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Photo Evidence Required</div>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>Your farm requires a photo for {threshold}+ deaths. This helps with disease investigation.</div>
+            <div className="mb-4 rounded-xl bg-danger-soft p-4 text-center">
+              <Camera size={40} className="mb-2 text-danger" aria-hidden="true" />
+              <p className="mb-1 text-base font-bold text-fg">Photo Evidence Required</p>
+              <p className="text-sm leading-relaxed text-muted">Your farm requires a photo for {threshold}+ deaths. This helps with disease investigation.</p>
             </div>
             {photoDataUrl ? (
-              <img src={photoDataUrl} alt="Mortality evidence" style={{ width: '100%', borderRadius: 14, marginBottom: 10, maxHeight: 200, objectFit: 'cover' }} />
+              <img src={photoDataUrl} alt="Mortality evidence" className="mb-2.5 max-h-52 w-full rounded-xl object-cover" />
             ) : null}
-            <label style={{ width: '100%', padding: '16px', borderRadius: 14, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', fontWeight: 700, fontSize: 'var(--fs-md)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
+            <label className="mb-2.5 flex h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary-soft text-base font-bold text-primary">
               <Camera size={18} /> {photoDataUrl ? 'Retake Photo' : 'Take Photo'}
-              <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} style={{ display: 'none' }} />
+              <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" />
             </label>
-            <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 10 }} onClick={() => setStep(2)}>Back</button>
-            <button className="btn-primary" disabled={!photoDataUrl} style={{ width: '100%', justifyContent: 'center', opacity: photoDataUrl ? 1 : 0.6 }} onClick={() => setStep(4)}>Continue with Photo</button>
+            <Button variant="secondary" className="mb-2.5 w-full" onClick={() => setStep(2)}>Back</Button>
+            <Button size="lg" className="h-14 w-full" disabled={!photoDataUrl} onClick={() => setStep(4)}>Continue with Photo</Button>
           </div>
         )}
 
         {step === 4 && batch && (
           <div>
-            <div style={{ padding: '14px', background: 'rgba(var(--primary-rgb),0.06)', borderRadius: 14, border: '1px solid rgba(var(--primary-rgb),0.2)', marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>Confirm & Save</div>
-              {[['Batch', batch.code],['Deaths',`${count}`],['Cause', cause],['Photo', photoDataUrl ? 'Attached' : needsPhoto ? 'Missing' : 'Not required']].map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 'var(--fs-sm)' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{k}</span>
-                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{v}</span>
+            <div className="mb-4 rounded-xl bg-primary-soft p-4">
+              <p className="mb-2 font-bold text-fg">Confirm & Save</p>
+              {[['Batch', batch.code], ['Deaths', `${count}`], ['Cause', cause], ['Photo', photoDataUrl ? 'Attached' : needsPhoto ? 'Missing' : 'Not required']].map(([k, v]) => (
+                <div key={k} className="mb-1 flex justify-between text-sm">
+                  <span className="text-muted">{k}</span>
+                  <span className="font-semibold text-fg">{v}</span>
                 </div>
               ))}
             </div>
-            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-            <button className="btn-primary" disabled={submitting} style={{ width: '100%', justifyContent: 'center', marginBottom: 8, opacity: submitting ? 0.7 : 1 }} onClick={handleSubmit}>
+            {error && <p className="mb-2.5 text-sm text-danger">{error}</p>}
+            <Button size="lg" className="mb-2 h-14 w-full" disabled={submitting} onClick={handleSubmit}>
               <Check size={14} /> {submitting ? 'Saving…' : 'Save Record'}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -1737,59 +1781,61 @@ function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void
 
   return (
     <div className="screen-content">
-      <div className="px-screen">
-        <TopNav title="Physical Count" showBack />
-      </div>
-      <div className="px-screen" style={{ paddingTop: 16 }}>
+      <div className="px-screen"><TopNav title="Physical Count" showBack /></div>
+      <div className="px-screen pt-4 pb-8">
         {ctx.batches !== null && ctx.batches.length === 0 ? (
-          <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
-            No batches are assigned to you yet.
-          </div>
+          <div className="rounded-xl bg-warning-soft px-4 py-3.5 text-sm text-muted">No batches are assigned to you yet.</div>
         ) : (
           <>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Select Batch</label>
-              <select className="farm-input" value={batchId ?? ''} onChange={(e) => setBatchId(e.target.value)}>
+            <div className="mb-3.5">
+              <label className="mb-1.5 block text-xs font-semibold text-muted">Select Batch</label>
+              <select className={cn(controlClass, 'h-14 text-base')} value={batchId ?? ''} onChange={(e) => setBatchId(e.target.value)}>
                 {(ctx.batches ?? []).map((b) => <option key={b.id} value={b.id}>{b.code} – {b.name} ({b.currentQty} in system)</option>)}
               </select>
             </div>
             {batch && (
-              <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 'var(--fs-4xl)', fontWeight: 700, color: 'var(--text-primary)' }}>{batch.currentQty}</div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>System count</div>
+              <div className="mb-3.5 rounded-xl bg-surface p-3.5 shadow-(--shadow-border)">
+                <div className="mb-2.5 flex justify-between">
+                  <div className="text-center">
+                    <div className="font-display text-4xl font-medium text-fg">{batch.currentQty}</div>
+                    <div className="text-[11px] text-muted">System count</div>
                   </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 'var(--fs-4xl)', fontWeight: 700, color: 'var(--status-warning)' }}>{count ?? '—'}</div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Your count</div>
+                  <div className="text-center">
+                    <div className="font-display text-4xl font-medium text-warning">{count ?? '—'}</div>
+                    <div className="text-[11px] text-muted">Your count</div>
                   </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 'var(--fs-4xl)', fontWeight: 700, color: 'var(--status-critical)' }}>{variance !== null ? (variance > 0 ? `+${variance}` : variance) : '—'}</div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Variance</div>
+                  <div className="text-center">
+                    <div className="font-display text-4xl font-medium text-danger">{variance !== null ? (variance > 0 ? `+${variance}` : variance) : '—'}</div>
+                    <div className="text-[11px] text-muted">Variance</div>
                   </div>
                 </div>
               </div>
             )}
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Your Physical Count</label>
-              <input className="farm-input" type="number" placeholder="Enter count" value={physicalCount} onChange={(e) => setPhysicalCount(e.target.value)} style={{ fontSize: 'var(--fs-3xl)', textAlign: 'center', fontWeight: 700 }} />
+            <div className="mb-3">
+              <label className="mb-1.5 block text-xs font-semibold text-muted">Your Physical Count</label>
+              <Input className="h-16 text-center text-3xl font-bold" type="number" placeholder="Enter count" value={physicalCount} onChange={(e) => setPhysicalCount(e.target.value)} />
             </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>Reason for variance</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {['Suspected theft','Found extra','Uncounted deaths','Counting error'].map((r) => (
-                  <button key={r} onClick={() => setReason(r)} style={{ padding: '9px 8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 600, background: r === reason ? 'rgba(var(--warning-rgb),0.1)' : 'var(--card)', border: r === reason ? '1px solid rgba(var(--warning-rgb),0.3)' : '1px solid var(--border-subtle)', color: r === reason ? 'var(--status-warning)' : 'var(--text-muted)', cursor: 'pointer' }}>{r}</button>
+            <div className="mb-3.5">
+              <label className="mb-1.5 block text-xs font-semibold text-muted">Reason for variance</label>
+              <div className="grid grid-cols-2 gap-2">
+                {['Suspected theft', 'Found extra', 'Uncounted deaths', 'Counting error'].map((r) => (
+                  <button
+                    key={r} type="button" onClick={() => setReason(r)}
+                    className={cn(
+                      'min-h-11 rounded-lg px-2 text-xs font-semibold',
+                      r === reason ? 'bg-warning-soft text-warning ring-1 ring-warning' : 'bg-surface text-muted shadow-(--shadow-border)',
+                    )}
+                  >{r}</button>
                 ))}
               </div>
             </div>
-            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-              This count <strong style={{ color: 'var(--text-secondary)' }}>does not change the system count</strong>. Your owner will review and approve any adjustments.
+            <div className="mb-3.5 rounded-lg bg-warning-soft px-3 py-2.5 text-xs text-muted">
+              This count <strong className="text-fg">does not change the system count</strong>. Your owner will review and approve any adjustments.
             </div>
-            {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-            <button className="btn-primary" disabled={submitting || count === null} style={{ width: '100%', justifyContent: 'center', marginBottom: 8, opacity: submitting || count === null ? 0.7 : 1 }} onClick={handleSubmit}>
+            {error && <p className="mb-2.5 text-sm text-danger">{error}</p>}
+            <Button size="lg" className="mb-2 h-14 w-full" disabled={submitting || count === null} onClick={handleSubmit}>
               <Check size={14} /> {submitting ? 'Saving…' : 'Submit Count'}
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -1805,6 +1851,9 @@ function PhysicalCountForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void
 // linked to this login yet (same contract as GET /api/employees/me) — shown
 // as its own message, not folded into the generic error, since the fix is
 // "ask your admin to link your account," not "try again."
+//
+// Presented as a plain statement: one total, then one line per period —
+// nothing to tap, nothing to configure, the way a payslip actually reads.
 function periodLabel(startIso: string, endIso: string): string {
   const fmt = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   return `${fmt(startIso)} – ${fmt(endIso)}`;
@@ -1826,53 +1875,49 @@ export function WorkerPayScreen() {
   const total = payslips?.reduce((sum, p) => sum + p.amountCents, 0) ?? 0;
 
   return (
-    <div className="screen-content px-screen" style={{ paddingTop: 16 }}>
-      <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16 }}>My Pay</div>
+    <div className="screen-content px-screen pt-4 pb-8">
+      <h1 className="font-display mb-5 text-2xl font-medium text-fg">My Pay</h1>
 
       {notLinked && (
-        <div className="farm-card" style={{ padding: 28, textAlign: 'center' }}>
-          <Lock size={28} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-          <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No employee record linked</div>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Your login isn&apos;t linked to an employee record yet, so there is no pay history to show. Ask your farm owner or manager to link your account.
-          </div>
-        </div>
+        <EmptyState
+          icon={<Lock size={22} aria-hidden="true" />}
+          title="No employee record linked"
+          body="Your login isn't linked to an employee record yet, so there is no pay history to show. Ask your farm owner or manager to link your account."
+        />
       )}
 
-      {!notLinked && error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>{error}</div>}
+      {!notLinked && error && <p className="mb-3 text-sm text-danger">{error}</p>}
 
       {!notLinked && !error && payslips === null && (
-        <div style={{ padding: 20, textAlign: 'center', fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>
+        <div className="py-8 text-center text-sm text-muted">Loading…</div>
       )}
 
       {!notLinked && !error && payslips !== null && payslips.length === 0 && (
-        <div className="farm-card" style={{ padding: 28, textAlign: 'center' }}>
-          <DollarSign size={28} color="var(--text-dim)" style={{ marginBottom: 10 }} />
-          <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No payslips yet</div>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            You haven&apos;t been paid in a payroll run yet. Payslips appear here as soon as your owner runs payroll for a period that includes you.
-          </div>
-        </div>
+        <EmptyState
+          icon={<DollarSign size={22} aria-hidden="true" />}
+          title="No payslips yet"
+          body="You haven't been paid in a payroll run yet. Payslips appear here as soon as your owner runs payroll for a period that includes you."
+        />
       )}
 
       {!notLinked && !error && payslips !== null && payslips.length > 0 && (
         <>
-          <div className="farm-card" style={{ padding: 16, marginBottom: 14, textAlign: 'center' }}>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total paid to date</div>
-            <div style={{ fontSize: 'var(--fs-4xl)', fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(total)}</div>
+          <div className="mb-4 rounded-xl bg-surface p-5 text-center shadow-(--shadow-border)">
+            <p className="mb-1 text-xs font-medium tracking-widest text-muted uppercase">Total paid to date</p>
+            <p className="font-display text-4xl font-medium text-primary">{formatMoney(total)}</p>
           </div>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Payslip history</div>
-          <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 16 }}>
+          <p className="section-eyebrow mb-2">Payslip history</p>
+          <div className="mb-6 overflow-hidden rounded-xl bg-surface shadow-(--shadow-border)">
             {payslips.map((p, i, arr) => (
-              <div key={p.id} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Calendar size={16} color="var(--text-dim)" />
+              <div key={p.id} className={cn('flex items-center justify-between gap-3 px-4 py-3.5', i < arr.length - 1 && 'border-b border-border')}>
+                <div className="flex items-center gap-3">
+                  <Calendar size={16} className="shrink-0 text-subtle" aria-hidden="true" />
                   <div>
-                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>{periodLabel(p.periodStart, p.periodEnd)}</div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Gross pay — no deductions applied</div>
+                    <p className="text-sm font-semibold text-fg">{periodLabel(p.periodStart, p.periodEnd)}</p>
+                    <p className="text-[11px] text-muted">Gross pay — no deductions applied</p>
                   </div>
                 </div>
-                <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(p.amountCents)}</span>
+                <span className="font-display text-lg font-medium text-primary">{formatMoney(p.amountCents)}</span>
               </div>
             ))}
           </div>
@@ -1901,35 +1946,35 @@ export function WorkerProfileScreen() {
   }, [tenantId]);
 
   return (
-    <div className="screen-content px-screen" style={{ paddingTop: 16 }}>
+    <div className="screen-content px-screen pt-4 pb-8">
       {/* Avatar */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 20 }}>
-        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(var(--primary-rgb),0.2)', border: '2px solid rgba(var(--primary-rgb),0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-4xl)', fontWeight: 700, color: 'var(--primary-green)', marginBottom: 10 }}>
+      <div className="mb-5 flex flex-col items-center">
+        <div className="font-display mb-2.5 flex size-20 items-center justify-center rounded-full bg-primary-soft text-3xl font-medium text-primary ring-2 ring-primary/30">
           {employee ? employee.name.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 2) : '…'}
         </div>
-        <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700 }}>{employee?.name ?? 'Loading…'}</div>
-        <span className="chip chip-ok" style={{ marginTop: 4, textTransform: 'capitalize' }}>{employee?.role ?? 'worker'}</span>
+        <p className="font-display text-xl font-medium text-fg">{employee?.name ?? 'Loading…'}</p>
+        <Badge variant="success" className="mt-1 capitalize">{employee?.role ?? 'worker'}</Badge>
       </div>
 
-      {employeeError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 14 }}>{employeeError}</div>}
+      {employeeError && <p className="mb-3.5 text-sm text-danger">{employeeError}</p>}
 
       {/* Today's records (real GET /api/records, not a mock sync-status list) */}
-      <div className="section-eyebrow" style={{ marginBottom: 8 }}>Today&apos;s Records</div>
-      <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-        {records === null && <div style={{ padding: 12, fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>}
-        {records !== null && records.length === 0 && <div style={{ padding: 12, fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>No records submitted today.</div>}
-        {records !== null && records.map((r, i, arr) => (
-          <div key={r.id} style={{ padding: '11px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-            <div>
-              <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</div>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)} · {timeOf(r.createdAt)}</div>
+      <p className="section-eyebrow mb-2">Today&apos;s records</p>
+      <div className="mb-5 overflow-hidden rounded-xl bg-surface shadow-(--shadow-border)">
+        {records === null && <div className="p-3 text-sm text-muted">Loading…</div>}
+        {records !== null && records.length === 0 && <div className="p-3 text-sm text-muted">No records submitted today.</div>}
+        {records !== null && records.map((r, i, arr) => {
+          const badge = RECORD_STATE_BADGE[recordApprovalState(r.data)];
+          return (
+            <div key={r.id} className={cn('flex items-center justify-between gap-2 px-4 py-3', i < arr.length - 1 && 'border-b border-border')}>
+              <div>
+                <p className="text-sm font-semibold text-fg">{RECORD_TYPE_LABEL[r.type]?.label ?? r.type}</p>
+                <p className="text-[11px] text-muted">{batchLabel[r.batchId] ?? r.batchId.slice(0, 8)} · {timeOf(r.createdAt)}</p>
+              </div>
+              <Badge variant={badge.variant}>{badge.label}</Badge>
             </div>
-            {(() => {
-              const chip = RECORD_STATE_CHIP[recordApprovalState(r.data)];
-              return <span className={chip.cls} style={{ fontSize: 'var(--fs-2xs)' }}>{chip.label}</span>;
-            })()}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* (#376 Gap 5: the hardcoded "Settings" block that lived here —
@@ -1941,9 +1986,9 @@ export function WorkerProfileScreen() {
       {/* Issue #322: this button had no onClick — dead control on the screen
           workers see most. Routes through the same app-wide logout the
           TopNav button uses. */}
-      <button onClick={() => requestLogout()} style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', color: 'var(--status-critical)', cursor: 'pointer', marginBottom: 20 }}>
+      <Button variant="danger" size="lg" className="h-14 w-full" onClick={() => requestLogout()}>
         Sign Out
-      </button>
+      </Button>
     </div>
   );
 }
