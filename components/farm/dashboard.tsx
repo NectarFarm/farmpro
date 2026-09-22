@@ -62,6 +62,12 @@ import { apiClient } from "@/lib/request";
 import { centsToMajor } from "@/lib/money";
 import { SetupStrip } from "./setup-progress";
 import type { SetupState } from "@/lib/setup-state";
+// Types-only import (no server code) — the same response shape
+// components/farm/weather.tsx's own fetch already reads, reused here for the
+// one-line dashboard teaser (issue: redesign brief §2 Dashboard "Weather
+// teaser" — PARTIAL until this task, endpoint already existed, just never
+// called from this screen).
+import type { WeatherData } from "@/lib/weather-types";
 
 // ── Real backend shapes (issue #228, revisited #292, #296) ──────────────────
 // KPI fields computed from tables that exist on this branch
@@ -196,7 +202,7 @@ function RevenueTrendChart({ trend, color }: { trend: { date: string; amountCent
 function HeroMetric({ value, label, accent, sub }: { value: string; label: string; accent: string; sub?: string }) {
   return (
     <div>
-      <div className="kpi-value" style={{ color: accent, lineHeight: 1.05 }}>{value}</div>
+      <div className="kpi-value font-display" style={{ color: accent, lineHeight: 1.05 }}>{value}</div>
       <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>{label}</div>
       {sub && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 2 }}>{sub}</div>}
     </div>
@@ -242,6 +248,43 @@ function NavTile({ icon: Icon, label, tour, tint, onClick }: { icon: LucideIcon;
         <Icon size={16} color={tint ? undefined : 'var(--text-secondary)'} aria-hidden="true" />
       </span>
       <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 650, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.15 }}>{label}</span>
+    </button>
+  );
+}
+
+// One-line weather teaser (redesign brief §2 Dashboard — endpoint already
+// existed for components/farm/weather.tsx, just never surfaced here). Honest
+// degradation: renders nothing while loading/unset, and a plain "set a
+// location" nudge rather than a fake forecast when the farm has no GPS pin —
+// never invents a temperature.
+function WeatherTeaser({ data, onClick }: { data: WeatherData | null; onClick: () => void }) {
+  if (!data) return null;
+  return (
+    <button
+      onClick={onClick}
+      className="farm-card"
+      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px", textAlign: "left", cursor: "pointer", marginBottom: 18 }}
+    >
+      <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <span style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(var(--primary-rgb),0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "var(--primary-green)" }}>
+          <CloudSun size={16} aria-hidden="true" />
+        </span>
+        {data.hasCoordinates && data.current ? (
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 'var(--fs-sm)', fontWeight: 650, color: "var(--text-primary)" }}>
+              {Math.round(data.current.temperatureC)}° · {data.current.label}, {data.location.split(",")[0]}
+            </span>
+            <span style={{ display: "block", fontSize: 'var(--fs-2xs)', color: "var(--text-muted)", marginTop: 1 }}>
+              {data.current.rainy ? "Rain right now" : "No rain expected right now"}
+            </span>
+          </span>
+        ) : (
+          <span style={{ fontSize: 'var(--fs-sm)', color: "var(--text-muted)" }}>
+            No forecast — {data.farmName} has no location pinned yet
+          </span>
+        )}
+      </span>
+      <span style={{ fontSize: 'var(--fs-xs)', color: "var(--primary-green)", flexShrink: 0 }}>Forecast</span>
     </button>
   );
 }
@@ -314,9 +357,10 @@ function AlertIcon({ icon: Icon, count, label, tone, onClick }: {
  * tour silently skipped them. Now they land on these tiles. */
 function OperationalDashboard({
   role, userName, farmName, farmMeta, kpis, kpisFailed, tasksToday, notifs, period, setPeriod, navigate, settings,
-  onSwitchFarm, canSwitchFarm, setupState,
+  onSwitchFarm, canSwitchFarm, setupState, weather,
 }: {
   role: DashboardRole; userName?: string; farmName: string; farmMeta: string; kpis: KpiData | null;
+  weather: WeatherData | null;
   // Was set by the fetch and rendered nowhere — so a failed KPI load left
   // every figure showing "—", which reads as "your farm has no data" rather
   // than "we could not load it". Same honesty rule the rest of this app
@@ -492,6 +536,8 @@ function OperationalDashboard({
         )}
       </div>
 
+      <WeatherTeaser data={weather} onClick={() => navigate("weather")} />
+
       {/* Three figures, each a link. Deliberately three: four fits at 360px
           but leaves no room for a label longer than one word. */}
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
@@ -656,6 +702,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
   // falls back to the same hardcoded defaults this screen shipped with, so
   // an unfetched/failed load never regresses to blank UI.
   const [settings, setSettings] = useState<DashboardSettings | null>(null);
+  const [weather, setWeather] = useState<WeatherData | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -704,6 +751,18 @@ export function DashboardScreen({ userName }: { userName?: string }) {
     return () => { cancelled = true; };
   }, [tenantId, activeFarmId]);
 
+  // GET /api/weather (already real, used by weather.tsx) — needs a specific
+  // farm, so skipped on the "ALL farms" aggregate view rather than guessing
+  // which farm's pin to show.
+  useEffect(() => {
+    if (!activeFarmId || activeFarmId === "ALL") { setWeather(null); return; }
+    let cancelled = false;
+    apiClient.get<WeatherData>(`/api/weather?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
+      if (!cancelled && res.success) setWeather(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId, activeFarmId]);
+
   const unread = notifs?.filter(n => !n.read).length ?? 0;
 
   // Re-read setup progress whenever the dashboard is opened. Coming back here
@@ -737,6 +796,7 @@ export function DashboardScreen({ userName }: { userName?: string }) {
       canSwitchFarm={farms.length > 1}
       onSwitchFarm={() => setShowFarmSwitcher(true)}
       setupState={setupState}
+      weather={weather}
     />
     {showFarmSwitcher && <FarmSwitcherSheet onClose={() => setShowFarmSwitcher(false)} />}
   </>;
