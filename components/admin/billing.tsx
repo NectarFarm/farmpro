@@ -146,7 +146,7 @@ function emptyPlan(): AdminPlan {
   return {
     id: '', code: '', name: '', tagline: '', description: '', features: [],
     limits: { maxFarms: null, maxUsers: null, maxUnits: null }, prices: {},
-    currency: 'UGX', trialDays: 14, isPublic: true, isActive: true, sortOrder: 0,
+    currency: 'KSh', trialDays: 14, isPublic: true, isActive: true, sortOrder: 0,
     createdAt: '', updatedAt: '',
   };
 }

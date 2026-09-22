@@ -302,6 +302,13 @@
       "when": 1790036784740,
       "tag": "0042_backoffice_billing_support_staff",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790079407438,
+      "tag": "0043_billing_currency_ksh",
+      "breakpoints": true
     }
   ]
 }

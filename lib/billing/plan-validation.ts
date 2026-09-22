@@ -105,7 +105,7 @@ export function validatePlanFields(body: Record<string, unknown>, opts: { requir
 
   if ('currency' in body) {
     const currency = typeof body.currency === 'string' ? body.currency.trim().toUpperCase() : ''
-    if (!currency || currency.length > 8) fields.currency = 'currency is required (e.g. UGX, KSh)'
+    if (!currency || currency.length > 8) fields.currency = 'currency is required (e.g. KSh, UGX)'
     else value.currency = currency
   }
 
