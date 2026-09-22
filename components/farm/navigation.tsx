@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback, useTransition } from 'react';
-import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, DoorOpen, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronDown, ChevronRight, X, Key, Activity, Building2, Warehouse, PawPrint, Sprout, PanelLeftClose, PanelLeftOpen, SlidersHorizontal, MoreVertical, MapPin } from './icons';
+import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, BarChart3, Settings, Bell, ChevronLeft, Search, Plus, UserCircle, DoorOpen, FileText, UserCheck, Heart, Eye, Stethoscope, ClipboardList, Sunrise, Layers, Bot, ChevronUp, ChevronDown, ChevronRight, X, Key, Activity, Building2, Warehouse, PawPrint, Sprout, PanelLeftClose, PanelLeftOpen, SlidersHorizontal, MoreVertical, MapPin, CreditCard, HelpCircle } from './icons';
 import { apiClient } from '@/lib/request';
 import { useConfirm } from './ui-shared';
 import type { SetupState } from '@/lib/setup-state';
@@ -19,7 +19,9 @@ export type ScreenId =
   | 'ui-customise' | 'security-settings' | 'role-notice' | 'routines'
   | 'farm-config'
   | 'dimensions'
-  | 'auditor-reports' | 'vet-herd' | 'about' | 'getting-started';
+  | 'auditor-reports' | 'vet-herd' | 'about' | 'getting-started'
+  // SaaS back-office UI (package H2): plan selection/gate, billing, support.
+  | 'plan-select' | 'billing' | 'support' | 'support-ticket';
 
 /* ── Session role contract (issue #219) ──
  * The UI role set mirrors the backend exactly (backend: `lib/types/index.ts`):
@@ -120,6 +122,44 @@ export interface NavContext {
    * shell has it — the sidebar then falls back to the role label rather than
    * inventing a person. */
   userName: string;
+  /* ── SaaS back-office (package H2) ──
+   * From GET /api/auth/session's additive `subscription` field at boot,
+   * refreshable via GET /api/billing/subscription (docs/backoffice-api.md).
+   * `null` for a super_admin session (the concept doesn't apply) and for any
+   * tenant session before the boot fetch resolves. app/page.tsx's
+   * ScreenRouter reads `needsPlan` to gate the whole app onto PlanSelect
+   * (owner) or a calm "ask the owner" screen (everyone else) — see its own
+   * comment for why that check lives there and not here. */
+  subscription: {
+    status: string;
+    planName: string | null;
+    trialEndsAt: string | null;
+    currentPeriodEnd: string | null;
+    needsPlan: boolean;
+  } | null;
+  /* Re-read it. Called after a successful subscribe/cancel so the gate and
+   * the trial/past-due banner reflect the new state without a full reload —
+   * same refresh-nonce pattern as refreshSetupState/refreshBadges. */
+  refreshSubscription: () => void;
+}
+
+/* Support notifications (SaaS back-office) reuse the existing notifications
+ * table with sourceType 'support_ticket' (customer) / 'support_ticket_staff'
+ * (staff) and sourceId `${ticket.id}-${event}-${randomUUID()}`
+ * (lib/support/notify.ts) — ticket.id is always a v4 UUID (lib/support/
+ * tickets.ts#createTicket uses node:crypto randomUUID()), so it is recovered
+ * by matching the LEADING uuid rather than splitting on '-', which would
+ * break on the ticket id's own internal dashes. Exported so
+ * NotificationsScreen (components/farm/dashboard.tsx, package A) can deep-
+ * link a tapped support notification to its ticket without either package
+ * needing to edit the other's file — see this package's report for the
+ * one-line call site that request needs. */
+const LEADING_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+export function ticketIdFromNotificationSource(sourceType: string, sourceId: string | null | undefined): string | null {
+  if (sourceType !== 'support_ticket' && sourceType !== 'support_ticket_staff') return null;
+  if (!sourceId) return null;
+  const m = sourceId.match(LEADING_UUID_RE);
+  return m ? m[0] : null;
 }
 
 /* Tenant scope for /api/farms. With real sessions (issue #221) NavProvider gets
@@ -143,6 +183,7 @@ const NavCtx = createContext<NavContext>({
   setupState: null, refreshSetupState: () => {},
   refreshBadges: () => {},
   userName: '',
+  subscription: null, refreshSubscription: () => {},
 });
 
 export function useNav() { return useContext(NavCtx); }
@@ -176,6 +217,7 @@ const ALL_SCREENS: ScreenId[] = [
   'ui-customise', 'security-settings', 'role-notice',
   'auditor-reports', 'vet-herd', 'about', 'routines', 'getting-started',
   'farm-config', 'dimensions',
+  'plan-select', 'billing', 'support', 'support-ticket',
 ];
 const SCREEN_SET = new Set<string>(ALL_SCREENS);
 function isScreenId(s: string): s is ScreenId {
@@ -274,6 +316,10 @@ export const NAV = {
   // the name collision. Lives as a 5th tab on the Units screen
   // (`crops` with params.tab='sites'), not a new top-level screen.
   sites: 'Sites',
+  // SaaS back-office (package H2): owner-only plan/billing management, and
+  // support reachable by every tenant role.
+  billing: 'Plan & billing',
+  support: 'Help & support',
   // The mobile bottom bar's 5th slot (final decision, ui/governance-
   // reference-redesign): opens MobileMoreSheet, the same role-gated section
   // list the desktop sidebar shows (including Settings, the farm switcher
@@ -459,7 +505,7 @@ function guardDestination(role: Role, dest: ScreenId): ScreenId {
   return allowed.has(dest) ? dest : 'role-notice';
 }
 
-export function NavProvider({ children, initialRole = 'owner', initialTenantId, userName = '' }: { children: React.ReactNode; initialRole?: NavContext['role']; initialTenantId?: string; userName?: string }) {
+export function NavProvider({ children, initialRole = 'owner', initialTenantId, userName = '', initialSubscription = null }: { children: React.ReactNode; initialRole?: NavContext['role']; initialTenantId?: string; userName?: string; initialSubscription?: NavContext['subscription'] }) {
   const [role, setRole] = useState<NavContext['role']>(initialRole);
   const startScreen: ScreenId = startScreenForRole(initialRole);
   const [current, setCurrent] = useState<ScreenId>(startScreen);
@@ -754,8 +800,43 @@ export function NavProvider({ children, initialRole = 'owner', initialTenantId, 
     return () => { cancelled = true; };
   }, [tenantId, role, setupNonce]);
 
+  // ── Subscription state (SaaS back-office, package H2) ──
+  // Seeded from the session bootstrap's own GET /api/auth/session call
+  // (app/page.tsx already made this request; re-fetching it here would be a
+  // duplicate network call for information the caller already has), then
+  // independently refreshable via the richer GET /api/billing/subscription
+  // once refreshSubscription() is called (e.g. right after a successful
+  // subscribe/cancel, so the gate and the trial banner update without a full
+  // reload). super_admin never has a subscription — refreshSubscription() is
+  // a no-op for that role, same as setupState above.
+  const [subscription, setSubscription] = useState<NavContext['subscription']>(initialSubscription);
+  const [subscriptionNonce, setSubscriptionNonce] = useState(0);
+  const refreshSubscription = useCallback(() => { setSubscriptionNonce((n) => n + 1); }, []);
+  useEffect(() => {
+    if (role === 'super_admin' || subscriptionNonce === 0) return;
+    let cancelled = false;
+    apiClient.get<{
+      subscription: { trialEndsAt: string | null; currentPeriodEnd: string | null } | null;
+      plan: { name: string } | null;
+      access: { status: string; needsPlan: boolean };
+    }>('/api/billing/subscription').then((res) => {
+      if (cancelled || !res.success || !res.data) return;
+      setSubscription({
+        status: res.data.access.status,
+        planName: res.data.plan?.name ?? null,
+        trialEndsAt: res.data.subscription?.trialEndsAt ?? null,
+        currentPeriodEnd: res.data.subscription?.currentPeriodEnd ?? null,
+        needsPlan: res.data.access.needsPlan,
+      });
+    });
+    return () => { cancelled = true; };
+    // subscriptionNonce === 0 guard above means mount never double-fetches
+    // what initialSubscription already supplied — only a real
+    // refreshSubscription() call (nonce > 0) triggers this fetch.
+  }, [role, subscriptionNonce]);
+
   return (
-    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, isNavigating, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState, refreshBadges, userName }}>
+    <NavCtx.Provider value={{ current, history, role, params, activeFarmId, activeFarm, farms, tenantId, navigate, goBack, isNavigating, setActiveFarmId, pendingApprovals, unreadNotifs, openTasksCount, pendingOnboardingRequests, setupState, refreshSetupState, refreshBadges, userName, subscription, refreshSubscription }}>
       {/* Two pixels saying the tap landed while the next screen renders. */}
       {isNavigating && <div className="nav-progress" role="status" aria-label="Loading screen" />}
       {process.env.NODE_ENV !== 'production' && (
@@ -1176,6 +1257,14 @@ const ENTERPRISE_GROUPS: SidebarGroup[] = [
     { id: 'finance' as ScreenId, label: NAV.finance, icon: DollarSign, ownerOnly: true },
     { id: 'dimensions' as ScreenId, label: NAV.byFarm, icon: Layers, ownerOnly: true },
     { id: 'reports' as ScreenId, label: NAV.reports, icon: FileText, ownerOnly: true },
+    // SaaS back-office (package H2, lead decision #5): billing is an
+    // owner-level concern throughout the backend (docs/backoffice-api.md) —
+    // a manager gets no row at all here rather than a read-only one, since
+    // GET /api/billing/subscription is the only tenant-wide-readable route
+    // and a bare status line isn't worth its own nav destination for that
+    // role. Support is every tenant role's — no ownerOnly.
+    { id: 'billing' as ScreenId, label: NAV.billing, icon: CreditCard, ownerOnly: true },
+    { id: 'support' as ScreenId, label: NAV.support, icon: HelpCircle, ownerOnly: false },
   ] },
 ];
 
