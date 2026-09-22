@@ -4,6 +4,7 @@ import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, 
 import { apiClient } from '@/lib/request';
 import { useConfirm } from './ui-shared';
 import type { SetupState } from '@/lib/setup-state';
+import { SupportChatSheet } from '@/components/portal/support-chat';
 
 /* ── Screen registry ── */
 export type ScreenId =
@@ -1631,6 +1632,16 @@ export function TopNav({
 }) {
   const { goBack, unreadNotifs, navigate, role, current } = useNav();
   const canSeeBell = showBell && role !== 'vet' && role !== 'auditor' && current !== 'notifications';
+  // Persistent Help launcher (SaaS back-office, package H2, lead decision
+  // #4): every tenant role gets it — including worker/vet/auditor, who have
+  // no "Help & support" sidebar row (they use the flat single-tab set, not
+  // the Company sidebar group) — TopNav is the one component every screen
+  // already renders, so putting it here reaches all of them with no
+  // per-screen edit, the same trick showBell's default already relies on.
+  // super_admin (platform staff) handles tickets from the admin console
+  // instead, so it gets no launcher here.
+  const canSeeHelp = role !== 'super_admin' && current !== 'support' && current !== 'support-ticket';
+  const [helpOpen, setHelpOpen] = useState(false);
 
   return (
     <div className="top-nav">
@@ -1655,6 +1666,11 @@ export function TopNav({
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {rightEl}
+        {canSeeHelp && (
+          <button type="button" className="btn-icon" onClick={() => setHelpOpen(true)} aria-label="Help & support">
+            <HelpCircle size={16} />
+          </button>
+        )}
         {canSeeBell && (
           <button type="button" className="btn-icon" style={{ position: 'relative' }} onClick={() => navigate('notifications')} aria-label={unreadNotifs > 0 ? `Notifications, ${unreadNotifs} unread` : 'Notifications'}>
             <Bell size={16} />
@@ -1665,6 +1681,13 @@ export function TopNav({
         )}
         <LogoutButton className="top-nav-signout" />
       </div>
+      {canSeeHelp && (
+        <SupportChatSheet
+          open={helpOpen}
+          onClose={() => setHelpOpen(false)}
+          onEscalated={(id) => { setHelpOpen(false); navigate('support-ticket', { id }); }}
+        />
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@
 //     escalate straight into a ticket.
 //   SupportTicketScreen: one ticket's progress tracker, conversation, reply,
 //     rating (resolved/closed only) and reopen.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNav, TopNav } from '@/components/farm/navigation';
 import { apiClient } from '@/lib/request';
 import { useToast } from '@/components/farm/ui-shared';
@@ -17,10 +17,9 @@ import { Field, controlClass } from '@/components/ui-kit/field';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { cn } from '@/lib/utils';
-import { Bot, Send, Plus, MessageCircle, ClipboardList, CheckCircle2, Hourglass, RotateCcw, Star, ChevronRight } from 'lucide-react';
+import { Bot, Send, Plus, ClipboardList, CheckCircle2, Hourglass, RotateCcw, Star, ChevronRight } from 'lucide-react';
+import { SupportChatSheet, type Category, type Priority } from './support-chat';
 
-type Category = 'question' | 'bug' | 'billing' | 'complaint' | 'feature_request' | 'account';
-type Priority = 'low' | 'normal' | 'high' | 'urgent';
 type Status = 'open' | 'in_progress' | 'waiting_on_customer' | 'resolved' | 'closed';
 
 interface TicketRow {
@@ -32,9 +31,6 @@ interface TicketRow {
   status: Status;
   createdAt: string;
 }
-
-interface ChatMsg { role: 'user' | 'assistant'; content: string }
-interface SuggestTicket { subject: string; category: Category; priority: Priority; summary: string }
 
 const STATUS_LABEL: Record<Status, string> = {
   open: 'Open', in_progress: 'In progress', waiting_on_customer: 'Waiting on you',
@@ -116,89 +112,6 @@ export function SupportScreen() {
         onCreated={() => { setNewOpen(false); load(); showToast('Ticket raised.', 'success'); }}
       />
     </div>
-  );
-}
-
-// ── Bot chat sheet, shared shape for the persistent Help launcher too ──────
-export function SupportChatSheet({ open, onClose, onEscalated }: { open: boolean; onClose: () => void; onEscalated: (ticketId: string) => void }) {
-  const { showToast } = useToast();
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const [suggestion, setSuggestion] = useState<SuggestTicket | null>(null);
-  const [escalating, setEscalating] = useState(false);
-  const endRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages, suggestion]);
-
-  async function send() {
-    const text = input.trim();
-    if (!text || sending) return;
-    const next = [...messages, { role: 'user' as const, content: text }];
-    setMessages(next);
-    setInput('');
-    setSending(true);
-    const res = await apiClient.post<{ reply: string; suggestTicket?: SuggestTicket }>('/api/support/chat', { messages: next });
-    setSending(false);
-    if (!res.success) { showToast(res.error, 'error'); return; }
-    setMessages((m) => [...m, { role: 'assistant', content: res.data.reply }]);
-    if (res.data.suggestTicket) setSuggestion(res.data.suggestTicket);
-  }
-
-  async function escalate() {
-    if (!suggestion) return;
-    setEscalating(true);
-    const res = await apiClient.post<{ ticketId: string; ticketNumber: string }>('/api/support/chat/escalate', {
-      messages, subject: suggestion.subject, category: suggestion.category, priority: suggestion.priority,
-    });
-    setEscalating(false);
-    if (!res.success) { showToast(res.error, 'error'); return; }
-    showToast(`Ticket ${res.data.ticketNumber} raised.`, 'success');
-    setMessages([]); setSuggestion(null);
-    onEscalated(res.data.ticketId);
-  }
-
-  return (
-    <Sheet open={open} onOpenChange={onClose} side="bottom" className="inset-x-0 bottom-0 h-[85vh] rounded-t-xl lg:inset-auto lg:top-[8%] lg:left-1/2 lg:h-[80vh] lg:w-[28rem] lg:-translate-x-1/2 lg:rounded-xl">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <Bot size={18} className="text-primary" />
-        <SheetTitle>Ask the assistant</SheetTitle>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
-        {messages.length === 0 && (
-          <p className="text-sm text-muted">Describe what's wrong — billing, a bug, or anything else. If it needs a human, I'll offer to raise a ticket.</p>
-        )}
-        <div className="flex flex-col gap-2">
-          {messages.map((m, i) => (
-            <div key={i} className={cn('max-w-[85%] rounded-lg px-3 py-2 text-sm', m.role === 'user' ? 'self-end bg-primary text-primary-fg' : 'self-start bg-surface-2')}>
-              {m.content}
-            </div>
-          ))}
-        </div>
-        {suggestion && (
-          <div className="mt-3 rounded-xl bg-surface-2 p-3 shadow-(--shadow-border)">
-            <p className="text-xs font-medium tracking-wide text-muted uppercase">Send this to support?</p>
-            <p className="mt-1 text-sm font-medium">{suggestion.subject}</p>
-            <p className="mt-1 text-xs text-muted">{suggestion.category} · {suggestion.priority}</p>
-            <div className="mt-2 flex gap-2">
-              <Button size="sm" disabled={escalating} onClick={escalate}>{escalating ? 'Sending…' : 'Send to support'}</Button>
-              <Button size="sm" variant="ghost" onClick={() => setSuggestion(null)}>Not now</Button>
-            </div>
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
-      <div className="flex items-center gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <Input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
-          placeholder="Type a message…"
-          style={{ fontSize: 16 }}
-        />
-        <Button size="icon" disabled={sending || !input.trim()} onClick={send} aria-label="Send"><Send size={16} /></Button>
-      </div>
-    </Sheet>
   );
 }
 
