@@ -29,9 +29,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
+import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/ui-kit/page-header';
+import { Segmented } from '@/components/ui-kit/segmented';
+import { Button } from '@/components/ui-kit/button';
+import { Badge } from '@/components/ui-kit/badge';
+import { Sheet } from '@/components/ui-kit/sheet';
 import {
-  Plus, X, ChevronRight, Layers, Lock, FileText, Download, Edit2, Archive, RotateCcw,
-  Info, Users, Settings, Check,
+  Plus, X, ChevronRight, Lock, FileText, Download, Edit2, Archive, RotateCcw,
+  Info, Check,
 } from './icons';
 
 type DimensionLevel = { id: string; ordinal: number; name: string };
@@ -77,33 +83,25 @@ export function DimensionsScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="By farm & house" subtitle="How the ledger is analysed" />
+      <TopNav title="" />
       <div className="px-screen" style={{ paddingTop: 14 }}>
 
-        <div className="farm-card" style={{ padding: '12px 14px', marginBottom: 14, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-          <Layers size={16} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.55 }}>
-            Every sale, purchase and payroll run is tagged with these, and every journal line carries them.
-            That is what lets a P&amp;L be produced per unit, per farm or per batch instead of one figure for
-            the whole business.
-          </div>
-        </div>
+        <PageHeader
+          kicker="Money"
+          title="GL Dimensions"
+          lede="Every sale, purchase and payroll run is tagged with these, and every journal line carries them — what lets a P&L be produced per unit, per farm or per batch instead of one figure for the whole business."
+        />
 
-        <div className="chip-row" style={{ marginBottom: 14 }}>
-          {([
-            ['register', 'Dimensions', Layers],
-            ['accounts', 'Account rules', Settings],
-            ['defaults', 'Other defaults', Users],
-          ] as const).map(([key, label, Icon]) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={tab === key ? 'chip chip-info' : 'chip'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, cursor: 'pointer', border: 'none' }}
-            >
-              <Icon size={11} aria-hidden="true" /> {label}
-            </button>
-          ))}
+        <div className="mt-5 mb-4">
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            items={[
+              { id: 'register', label: 'Dimensions', hint: 'The analysis codes register' },
+              { id: 'accounts', label: 'Account rules', hint: 'Which dimensions an account requires' },
+              { id: 'defaults', label: 'Other defaults', hint: 'Units, batches, employees, products' },
+            ]}
+          />
         </div>
 
         {error && (
@@ -199,48 +197,44 @@ function RegisterTab({
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
-        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-xs font-medium tracking-wide text-muted uppercase">
           {dimensions.length} dimension{dimensions.length === 1 ? '' : 's'}
         </div>
-        <button onClick={exportCsv} className="btn-secondary" style={{ padding: '6px 11px', fontSize: 'var(--fs-2xs)' }}>
+        <Button variant="secondary" size="sm" onClick={exportCsv}>
           <Download size={12} /> Export
-        </button>
+        </Button>
       </div>
 
-      {/* Scrolling table — a desktop-shaped 8-column register would not fit
-          at 360px, so it rides inside a horizontally scrolling container
-          instead of being redesigned into something the owner didn't ask
-          for. */}
-      <div style={{ overflowX: 'auto', border: '1px solid var(--border-subtle)', borderRadius: 8, marginBottom: 14 }}>
-        <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
+      {/* Desktop: a real, dense table — this is a power-user register, not a
+          card list dressed up. Mobile: stacked cards below, since an
+          8-column table cannot read at 360px no matter how it's scrolled. */}
+      <div className="hidden overflow-hidden rounded-xl bg-surface shadow-(--shadow-border) lg:block">
+        <table className="w-full border-collapse text-xs">
           <thead>
             <tr>
-              {['DIMENSION ID', 'NAME', 'SHORT NAME', 'SEGMENTS', 'SEPARATOR', 'BUDGET CHECK', 'BUDGET CONTROL', 'ACTIONS'].map((h) => (
-                <th key={h} style={{
-                  background: 'var(--primary-green)', color: 'var(--on-accent, #05210f)', padding: '7px 9px', whiteSpace: 'nowrap',
-                  textAlign: 'left', fontSize: 'var(--fs-2xs)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                }}>{h}</th>
+              {['Dimension ID', 'Name', 'Short name', 'Segments', 'Separator', 'Budget check', 'Budget control', 'Actions'].map((h) => (
+                <th key={h} className="bg-surface-2 px-3 py-2 text-left text-[11px] font-medium tracking-wide text-muted uppercase">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {dimensions.map((d, i) => (
-              <tr key={d.id} style={{ background: i % 2 === 1 ? 'var(--card-hover)' : 'transparent', opacity: d.archived ? 0.6 : 1 }}>
-                <td style={{ padding: '7px 9px', whiteSpace: 'nowrap', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 800, color: 'var(--text-primary)' }}>{d.code}</span>
-                  {d.isSystem && <Lock size={9} style={{ marginLeft: 5, verticalAlign: 'middle' }} color="var(--text-dim)" aria-hidden="true" />}
+            {dimensions.map((d) => (
+              <tr key={d.id} className={cn('border-t border-border', d.archived && 'opacity-60')}>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <span className="font-mono font-semibold">{d.code}</span>
+                  {d.isSystem && <Lock size={9} className="ml-1.5 inline align-middle text-subtle" aria-hidden="true" />}
                 </td>
-                <td style={{ padding: '7px 9px', whiteSpace: 'nowrap', color: 'var(--text-primary)', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>
-                  {d.name}{d.archived && <span className="chip chip-critical" style={{ fontSize: 'var(--fs-2xs)', marginLeft: 6 }}>Archived</span>}
+                <td className="px-3 py-2 whitespace-nowrap">
+                  {d.name}{d.archived && <span className="chip chip-critical" style={{ marginLeft: 6 }}>Archived</span>}
                 </td>
-                <td style={{ padding: '7px 9px', whiteSpace: 'nowrap', fontFamily: 'monospace', color: 'var(--text-muted)', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>{d.shortName || d.code}</td>
-                <td style={{ padding: '7px 9px', whiteSpace: 'nowrap', color: 'var(--text-muted)', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>{d.levelCount}</td>
-                <td style={{ padding: '7px 9px', whiteSpace: 'nowrap', fontFamily: 'monospace', color: 'var(--text-muted)', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>{d.separator}</td>
-                <td style={{ padding: '7px 9px', whiteSpace: 'nowrap', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>{d.budgetCheck ? <Check size={13} color="var(--status-ok)" /> : <X size={13} color="var(--text-dim)" />}</td>
-                <td style={{ padding: '7px 9px', whiteSpace: 'nowrap', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>{d.budgetControl ? <Check size={13} color="var(--status-ok)" /> : <X size={13} color="var(--text-dim)" />}</td>
-                <td style={{ padding: '7px 9px', whiteSpace: 'nowrap', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>
-                  <div style={{ display: 'flex', gap: 4 }}>
+                <td className="px-3 py-2 font-mono whitespace-nowrap text-muted">{d.shortName || d.code}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-muted">{d.levelCount}</td>
+                <td className="px-3 py-2 font-mono whitespace-nowrap text-muted">{d.separator}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{d.budgetCheck ? <Check size={13} className="text-success" /> : <X size={13} className="text-subtle" />}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{d.budgetControl ? <Check size={13} className="text-success" /> : <X size={13} className="text-subtle" />}</td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <div className="flex gap-1">
                     <button onClick={() => onOpenValues(d)} className="btn-icon" title="Values"><ChevronRight size={13} /></button>
                     {!d.isSystem && (
                       <>
@@ -255,15 +249,56 @@ function RegisterTab({
               </tr>
             ))}
             {dimensions.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: '12px 9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No dimensions yet.</td></tr>
+              <tr><td colSpan={8} className="px-3 py-3 text-muted italic">No dimensions yet.</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
-      <button onClick={onCreate} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 6 }}>
+      {/* Mobile: one dense card per dimension, same fields as the table. */}
+      <div className="flex flex-col gap-2 lg:hidden">
+        {dimensions.length === 0 && (
+          <div className="rounded-xl bg-surface p-4 text-sm text-muted italic shadow-(--shadow-border)">No dimensions yet.</div>
+        )}
+        {dimensions.map((d) => (
+          <div key={d.id} className={cn('rounded-xl bg-surface p-3.5 shadow-(--shadow-border)', d.archived && 'opacity-60')}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-sm font-semibold">{d.code}</span>
+                  {d.isSystem && <Lock size={11} className="text-subtle" aria-hidden="true" />}
+                  {d.archived && <Badge variant="danger">Archived</Badge>}
+                </div>
+                <div className="mt-0.5 text-sm text-muted">{d.name}</div>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <button onClick={() => onOpenValues(d)} className="btn-icon" title="Values"><ChevronRight size={14} /></button>
+                {!d.isSystem && (
+                  <>
+                    <button onClick={() => onEdit(d)} className="btn-icon" title="Edit"><Edit2 size={14} /></button>
+                    <button onClick={() => onArchiveToggle(d)} className="btn-icon" title={d.archived ? 'Restore' : 'Archive'}>
+                      {d.archived ? <RotateCcw size={14} /> : <Archive size={14} />}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+              <div><span className="text-subtle">Short name </span><span className="font-mono text-muted">{d.shortName || d.code}</span></div>
+              <div><span className="text-subtle">Segments </span><span className="text-muted">{d.levelCount}</span></div>
+              <div><span className="text-subtle">Separator </span><span className="font-mono text-muted">{d.separator}</span></div>
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1 text-subtle">Check {d.budgetCheck ? <Check size={12} className="text-success" /> : <X size={12} />}</span>
+                <span className="flex items-center gap-1 text-subtle">Control {d.budgetControl ? <Check size={12} className="text-success" /> : <X size={12} />}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Button variant="secondary" className="mt-3 mb-1.5 w-full justify-center" onClick={onCreate}>
         <Plus size={14} /> New dimension
-      </button>
+      </Button>
     </div>
   );
 }
@@ -317,15 +352,13 @@ function DimensionValuesSheet({
   const canEditValue = (v: DimensionValue) => !dimension.isSystem && !v.sourceType;
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '88%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
+    <Sheet open onOpenChange={onClose} side="bottom" className="max-h-[88%] rounded-t-2xl">
         <div style={{ padding: '16px 18px 22px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontFamily: 'monospace', fontSize: 'var(--fs-lg)', fontWeight: 800, color: 'var(--text-primary)' }}>{dimension.code}</div>
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{dimension.name}</div>
             </div>
-            <button className="btn-icon" onClick={onClose}><X size={16} /></button>
           </div>
 
           {values === null && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading values…</div>}
@@ -401,8 +434,7 @@ function DimensionValuesSheet({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -430,8 +462,7 @@ function EditDimensionSheet({
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '88%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
+    <Sheet open onOpenChange={onClose} side="bottom" className="max-h-[88%] rounded-t-2xl">
         <div style={{ padding: '16px 18px 22px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div>
@@ -470,8 +501,7 @@ function EditDimensionSheet({
             <button onClick={save} disabled={busy} className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>{busy ? 'Saving…' : 'Save'}</button>
           </div>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -496,8 +526,7 @@ function CreateDimensionSheet({ tenantId, onClose, onCreated }: { tenantId: stri
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '88%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
+    <Sheet open onOpenChange={onClose} side="bottom" className="max-h-[88%] rounded-t-2xl">
         <div style={{ padding: '16px 18px 22px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800 }}>New dimension</div>
@@ -541,8 +570,7 @@ function CreateDimensionSheet({ tenantId, onClose, onCreated }: { tenantId: stri
             <button onClick={create} disabled={busy} className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>{busy ? 'Creating…' : 'Create'}</button>
           </div>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -633,8 +661,7 @@ function AccountDimensionsSheet({
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '90%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
+    <Sheet open onOpenChange={onClose} side="bottom" className="max-h-[90%] rounded-t-2xl">
         <div style={{ padding: '16px 18px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
             <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800 }}>Account</div>
@@ -712,8 +739,7 @@ function AccountDimensionsSheet({
             );
           })}
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -838,8 +864,7 @@ function MasterDefaultsSheet({
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '90%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
+    <Sheet open onOpenChange={onClose} side="bottom" className="max-h-[90%] rounded-t-2xl">
         <div style={{ padding: '16px 18px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
             <div>
@@ -884,7 +909,6 @@ function MasterDefaultsSheet({
             );
           })}
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
