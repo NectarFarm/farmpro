@@ -1176,7 +1176,14 @@ export function FinanceScreen() {
           title="Finance"
           lede="Sales, purchases, payroll, and a ledger that stays in balance."
           actions={
-            <Button onClick={() => { if (tab === 'sales') setShowRecordSale(true); else if (tab === 'purchases') setShowRecordPurchase(true); else if (tab === 'payroll') setShowRunPayroll(true); }}>
+            // forms-audit slice, item 8: this button's LABEL always fell back
+            // to "Record sale" for any tab that isn't Purchases/Payroll —
+            // including Overview, the tab a farmer actually lands on — but
+            // the click handler only matched `tab === 'sales'` exactly, so on
+            // Overview the button read "Record sale" and did nothing at all.
+            // The click handler now mirrors the label's own fallback instead
+            // of a narrower, silently-different condition.
+            <Button onClick={() => { if (tab === 'purchases') setShowRecordPurchase(true); else if (tab === 'payroll') setShowRunPayroll(true); else setShowRecordSale(true); }}>
               <Plus size={16} />
               {tab === 'payroll' ? 'Run payroll' : tab === 'purchases' ? 'Record purchase' : 'Record sale'}
             </Button>
