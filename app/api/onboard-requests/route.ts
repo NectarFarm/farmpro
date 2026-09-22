@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { desc, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { onboardRequests, users } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 import {
   normalizeEmail,
   isValidEmail,
@@ -279,9 +279,8 @@ export async function POST(req: Request) {
 
 // GET /api/onboard-requests — super_admin review queue, newest first.
 export async function GET() {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('onboarding.review')
+  if ('error' in auth) return auth.error
 
   const rows = await db.select().from(onboardRequests).orderBy(desc(onboardRequests.requestedAt))
   return NextResponse.json({ success: true, data: rows }, { status: 200 })

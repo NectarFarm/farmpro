@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { users } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 import { writeAuditLog } from '@/lib/audit'
 import { SAFE_USER_COLUMNS, toSafeUser, VALID_ROLES, VALID_STATUSES } from '@/lib/admin-users'
 import { isUniqueViolation, uniqueViolationConstraint } from '@/lib/db-errors'
@@ -23,9 +23,8 @@ const badFields = (fields: Record<string, string>, status = 400) => {
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('users.manage')
+  if ('error' in auth) return auth.error
 
   const { id } = await params
   const rows = await db.select(SAFE_USER_COLUMNS).from(users).where(eq(users.id, id)).limit(1)
@@ -35,9 +34,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('users.manage')
+  if ('error' in auth) return auth.error
+  const { session } = auth
 
   const { id } = await params
 

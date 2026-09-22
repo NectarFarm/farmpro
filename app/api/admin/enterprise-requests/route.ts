@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { desc, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { enterpriseRequests, tenants, users } from '@/db/schemas'
-import { requireRole } from '@/lib/api-auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 
 // ── GET /api/admin/enterprise-requests (super_admin) ───────────────────────
 // The queue behind POST /api/tenant-enterprises. Deliberately NOT filtered by
@@ -11,7 +11,7 @@ import { requireRole } from '@/lib/api-auth'
 //
 // `?status=` filters (default: pending, which is the only actionable state).
 export async function GET(req: Request) {
-  const auth = await requireRole(['super_admin'])
+  const auth = await requirePlatformCapability('onboarding.review')
   if ('error' in auth) return auth.error
 
   const status = new URL(req.url).searchParams.get('status')?.trim() || 'pending'

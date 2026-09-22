@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { desc, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { auditLog, users } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 
 // ── GET /api/admin/impersonation-log (admin user-management feature) ───────
 // super_admin only. History of who impersonated whom, when it started, and
@@ -14,15 +14,11 @@ import { getSessionUser } from '@/lib/auth'
 // to write one). Newest first. Actor/target ids are resolved to name/email in
 // one extra query (not per-row) so this stays O(1) queries regardless of log size.
 
-const bad = (msg: string, status = 400) =>
-  NextResponse.json({ success: false, error: msg }, { status })
-
 const ACTIONS = ['impersonation.start', 'impersonation.end'] as const
 
 export async function GET() {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('impersonate')
+  if ('error' in auth) return auth.error
 
   const rows = await db
     .select()
