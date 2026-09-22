@@ -8,18 +8,44 @@ import { useToast, fieldErrorStyle, FieldError } from './ui-shared';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
 import { parseMoneyToCents, centsToMajor } from '@/lib/money';
+import { cn } from '@/lib/utils';
+import { PageHeader, Kpi } from '@/components/ui-kit/page-header';
+import { Segmented, Chips } from '@/components/ui-kit/segmented';
+import { Badge } from '@/components/ui-kit/badge';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
+import { Dossier, Inspector, Kv } from '@/components/ui-kit/inspector';
+import { Field } from '@/components/ui-kit/field';
 
-// ── Real-data wiring (issue #236) ───────────────────────────────────────────
-// This screen used to render entirely from hardcoded mock arrays (stock
-// items, purchases, variances, feed mixes). Those are gone. Real endpoints
-// (issue #235, merged):
+// ── Inventory screen, redesigned onto the reference (ui/governance-
+// reference-redesign) but wired to the exact same backend as before — see
+// docs/ui-migration-map.md §2 Inventory. Every API call below is unchanged:
 //   GET  /api/inventory/items                — merged item+lots stock list
 //   GET  /api/purchases, POST /api/purchases  — purchase history + record
 //   PATCH /api/inventory/lots/[id]            — reason-required qty adjust
 //   GET  /api/inventory/items/[id]/usage-history — receipt history for an item
 //   GET  /api/inventory/variance              — staleness-based variance flag
-// There is no feed-mix backend anywhere on this branch — the Feed Mix tab
-// below is an honest "not available" state, not wired to anything fake.
+//
+// D7: the reference's Mixes tab is dropped entirely — there is no feed-mix
+// backend anywhere on this branch (never was even before this redesign).
+// D8: the local-only Purchases tab (no reference equivalent — reference only
+// surfaces purchases inline in a stock line's dossier) stays as its own tab.
+// The reference's "Lots" tab is our staleness-based Variance tab, relabelled
+// "Lots" to match the reference's mental model — the tab's underlying id
+// (`variance`) and its real "reason-required recount" flow are unchanged.
+//
+// Hero: the Stock list. The reference sorts by days-of-cover ascending — we
+// have no consumption/feeding-out ledger anywhere on this branch (only
+// purchases IN are recorded — see lib/inventory.ts), so "days of cover" would
+// be invented. Sorted instead by real distance-to-reorder: expiring items
+// first (the more time-sensitive, unfixable-by-reordering problem — same
+// priority computeItemStatus already uses), then by qtyOnHand/lowStockThreshold
+// ascending. A tapped stock line opens a Dossier (desktop) / bottom sheet
+// (mobile) showing its lots (real movements — receipt + reason-required
+// adjustments) and its purchase history — both already-existing endpoints,
+// nothing new.
 
 /* ── API row shapes (exactly as the routes above return them) ── */
 interface ApiLot {
@@ -71,7 +97,7 @@ const catIcon: Record<string, LucideIcon> = {
 
 function CategoryIcon({ category }: { category: string }) {
   const Icon = catIcon[category];
-  return Icon ? <Icon size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} aria-hidden="true" /> : null;
+  return Icon ? <Icon size={12} className="mr-1 inline align-text-bottom" aria-hidden="true" /> : null;
 }
 
 function fmtDate(d?: string | null): string | undefined {
@@ -100,8 +126,26 @@ function paymentStatus(p: ApiPurchase): 'paid' | 'partial' | 'unpaid' {
   return 'unpaid';
 }
 
+// ── Stock ordering — no days-of-cover data exists (see header comment), so
+// the hero list sorts by real signals only: expiring beats low beats ok
+// (same priority lib/inventory.ts's computeItemStatus uses), then by how
+// close qtyOnHand is to lowStockThreshold. An item with no threshold set
+// can never be "low" by definition, so it sorts to the back of its bucket
+// rather than dividing by zero.
+function stockRank(item: ApiInventoryItem): number {
+  return item.status === 'expiring' ? 0 : item.status === 'low' ? 1 : 2;
+}
+function stockRatio(item: ApiInventoryItem): number {
+  if (item.lowStockThreshold <= 0) return Infinity;
+  return item.qtyOnHand / item.lowStockThreshold;
+}
+function stockCoverPct(item: ApiInventoryItem): number {
+  if (item.lowStockThreshold <= 0) return 100;
+  return Math.max(4, Math.min(100, Math.round((item.qtyOnHand / (item.lowStockThreshold * 3)) * 100)));
+}
+
 /* ── Record Purchase sheet — real POST /api/purchases. Used from both the
- * Purchases tab (blank) and the item detail screen (prefilled). ── */
+ * Purchases tab (blank) and the item dossier (prefilled). ── */
 function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, paymentMethods, prefill, farms, activeFarmId, onCreated, onClose }: {
   tenantId: string;
   itemNames: string[];
@@ -209,169 +253,253 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Record Purchase</div>
-          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92vh]">
+      <SheetTitle className="sr-only">Record Purchase</SheetTitle>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="mb-4 font-display text-xl font-medium">Record Purchase</div>
+
+        <div className="grid gap-3">
+          <Field label="Farm *">
+            {farms.length === 0 ? (
+              <p className="text-sm leading-relaxed text-muted">Stock has to land at a farm. You do not have one yet — that is set up when the application is approved.</p>
+            ) : (
+              <>
+                <select
+                  className="h-10 w-full min-w-0 rounded-md bg-surface px-3 text-sm text-fg shadow-(--shadow-border) outline-none"
+                  value={farmId} onChange={e => setFarmId(e.target.value)}
+                  style={fieldErrorStyle(!!fieldErrors.farmId)}
+                  aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'inv-purchase-farm-error' : undefined}>
+                  <option value="" disabled>Select a farm…</option>
+                  {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+                <FieldError id="inv-purchase-farm-error" message={fieldErrors.farmId} />
+              </>
+            )}
+          </Field>
+
+          <Field label="Supplier *">
+            <Input list="inv-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.supplier)}
+              aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'inv-purchase-supplier-error' : undefined} />
+            <datalist id="inv-supplier-names">
+              {supplierNames.map(n => <option key={n} value={n} />)}
+            </datalist>
+            <FieldError id="inv-purchase-supplier-error" message={fieldErrors.supplier} />
+          </Field>
+
+          <Field label="Item *">
+            <Input list="inv-item-names" placeholder="e.g. dairy meal, maize seed, layers mash" value={itemName} onChange={e => setItemName(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.itemName)}
+              aria-invalid={!!fieldErrors.itemName} aria-describedby={fieldErrors.itemName ? 'inv-purchase-item-error' : undefined} />
+            <datalist id="inv-item-names">
+              {itemNames.map(n => <option key={n} value={n} />)}
+            </datalist>
+            <FieldError id="inv-purchase-item-error" message={fieldErrors.itemName} />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Category">
+              <Input list="inv-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+              <datalist id="inv-categories">
+                {categories.map(c => <option key={c} value={c} />)}
+              </datalist>
+            </Field>
+            <Field label="Unit *">
+              <Input list="inv-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.unit)}
+                aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'inv-purchase-unit-error' : undefined} />
+              <datalist id="inv-units">
+                {units.map(u => <option key={u} value={u} />)}
+              </datalist>
+              <FieldError id="inv-purchase-unit-error" message={fieldErrors.unit} />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Quantity *">
+              <Input type="number" inputMode="numeric" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.quantity)}
+                aria-invalid={!!fieldErrors.quantity} aria-describedby={fieldErrors.quantity ? 'inv-purchase-qty-error' : undefined} />
+              <FieldError id="inv-purchase-qty-error" message={fieldErrors.quantity} />
+            </Field>
+            <Field label="Cost/unit (KSh) *">
+              <Input type="number" inputMode="decimal" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.unitCost)}
+                aria-invalid={!!fieldErrors.unitCost} aria-describedby={fieldErrors.unitCost ? 'inv-purchase-unitcost-error' : undefined} />
+              <FieldError id="inv-purchase-unitcost-error" message={fieldErrors.unitCost} />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Lot No.">
+              <Input placeholder="auto if blank" value={lotNo} onChange={e => setLotNo(e.target.value)} />
+            </Field>
+            <Field label="Expiry date">
+              <Input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Payment method">
+              <Input list="inv-payment-methods" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
+              <datalist id="inv-payment-methods">
+                {paymentMethods.map(m => <option key={m} value={m} />)}
+              </datalist>
+            </Field>
+            <Field label="Amount paid (KSh)">
+              <Input type="number" inputMode="decimal" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.amountPaid)}
+                aria-invalid={!!fieldErrors.amountPaid} aria-describedby={fieldErrors.amountPaid ? 'inv-purchase-amountpaid-error' : undefined} />
+              <FieldError id="inv-purchase-amountpaid-error" message={fieldErrors.amountPaid} />
+            </Field>
+          </div>
+
+          <Field label="Reorder threshold (new items only)">
+            <Input type="number" inputMode="numeric" placeholder="e.g. 500" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)} />
+          </Field>
         </div>
 
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
-          {farms.length === 0 ? (
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.45 }}>Stock has to land at a farm. You do not have one yet — that is set up when the application is approved.</div>
-          ) : (
-          <>
-            <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.farmId)}
-              aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'inv-purchase-farm-error' : undefined}>
-              <option value="" disabled>Select a farm…</option>
-              {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
-            <FieldError id="inv-purchase-farm-error" message={fieldErrors.farmId} />
-          </>
-          )}
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
-          <input className="farm-input" list="inv-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
-            style={fieldErrorStyle(!!fieldErrors.supplier)}
-            aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'inv-purchase-supplier-error' : undefined} />
-          <datalist id="inv-supplier-names">
-            {supplierNames.map(n => <option key={n} value={n} />)}
-          </datalist>
-          <FieldError id="inv-purchase-supplier-error" message={fieldErrors.supplier} />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
-          <input className="farm-input" list="inv-item-names" placeholder="e.g. dairy meal, maize seed, layers mash" value={itemName} onChange={e => setItemName(e.target.value)}
-            style={fieldErrorStyle(!!fieldErrors.itemName)}
-            aria-invalid={!!fieldErrors.itemName} aria-describedby={fieldErrors.itemName ? 'inv-purchase-item-error' : undefined} />
-          <datalist id="inv-item-names">
-            {itemNames.map(n => <option key={n} value={n} />)}
-          </datalist>
-          <FieldError id="inv-purchase-item-error" message={fieldErrors.itemName} />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
-            <input className="farm-input" list="inv-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
-            <datalist id="inv-categories">
-              {categories.map(c => <option key={c} value={c} />)}
-            </datalist>
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
-            <input className="farm-input" list="inv-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.unit)}
-              aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'inv-purchase-unit-error' : undefined} />
-            <datalist id="inv-units">
-              {units.map(u => <option key={u} value={u} />)}
-            </datalist>
-            <FieldError id="inv-purchase-unit-error" message={fieldErrors.unit} />
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Quantity *</label>
-            <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.quantity)}
-              aria-invalid={!!fieldErrors.quantity} aria-describedby={fieldErrors.quantity ? 'inv-purchase-qty-error' : undefined} />
-            <FieldError id="inv-purchase-qty-error" message={fieldErrors.quantity} />
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Cost/unit (KSh) *</label>
-            <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.unitCost)}
-              aria-invalid={!!fieldErrors.unitCost} aria-describedby={fieldErrors.unitCost ? 'inv-purchase-unitcost-error' : undefined} />
-            <FieldError id="inv-purchase-unitcost-error" message={fieldErrors.unitCost} />
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Lot No.</label>
-            <input className="farm-input" placeholder="auto if blank" value={lotNo} onChange={e => setLotNo(e.target.value)} />
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Expiry Date</label>
-            <input className="farm-input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Payment Method</label>
-            <input className="farm-input" list="inv-payment-methods" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
-            <datalist id="inv-payment-methods">
-              {paymentMethods.map(m => <option key={m} value={m} />)}
-            </datalist>
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
-            <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.amountPaid)}
-              aria-invalid={!!fieldErrors.amountPaid} aria-describedby={fieldErrors.amountPaid ? 'inv-purchase-amountpaid-error' : undefined} />
-            <FieldError id="inv-purchase-amountpaid-error" message={fieldErrors.amountPaid} />
-          </div>
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Reorder threshold (new items only)</label>
-          <input className="farm-input" type="number" placeholder="e.g. 500" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)} />
-        </div>
-
-        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-        <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
+        {error && <div className="mt-3 text-xs text-danger">{error}</div>}
+        <Button className="mt-4 mb-2 w-full justify-center" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Record Purchase'}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
-/* Column definitions (outside component to keep stable refs) */
-const STOCK_COLS: ColDef<Record<string, unknown>>[] = [
-  {
-    key: 'name', header: 'Item', sortable: true, minWidth: 140,
-    summary: () => <span style={{ fontWeight: 700, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>TOTALS</span>,
-    render: (r) => (
-      <div>
-        <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>
-          <CategoryIcon category={r.category as string} />{r.name as string}
+/* ── Per-lot adjust control — real PATCH /api/inventory/lots/[id], reason
+ * required (the endpoint 400s without one). Real "movement": each lot is a
+ * receipt (arrival) that a reason-required correction can move again. ── */
+function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onSaved: () => void }) {
+  const { showToast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [qty, setQty] = useState(String(lot.qtyOnHand));
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save() {
+    const newQty = Number(qty);
+    if (!Number.isFinite(newQty) || newQty < 0) { setError('Enter a valid quantity.'); return; }
+    if (!reason.trim()) { setError('A reason is required for this adjustment.'); return; }
+    setSaving(true);
+    setError('');
+    const res = await apiClient.patch(`/api/inventory/lots/${lot.id}?tenantId=${tenantId}`, {
+      qtyOnHand: Math.trunc(newQty),
+      reason: reason.trim(),
+    });
+    setSaving(false);
+    if (res.success) {
+      setOpen(false);
+      setReason('');
+      showToast(`${lot.lotNo} is now ${Math.trunc(newQty).toLocaleString()}.`, 'success');
+      onSaved();
+    } else {
+      setError(res.error || 'Could not adjust this lot.');
+    }
+  }
+
+  return (
+    <li className="py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{lot.lotNo}</div>
+          <div className="mt-0.5 text-xs text-subtle">
+            Received {fmtDate(lot.receivedDate) ?? '—'}{lot.expiryDate ? ` · Expires ${fmtDate(lot.expiryDate)}` : ''}
+          </div>
         </div>
-        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>
-          {(r.lotCount as number) === 1 ? (r.singleLotNo as string) : `${r.lotCount as number} lots`}
+        <div className="shrink-0 text-right">
+          <div className="text-sm font-medium">{lot.qtyOnHand.toLocaleString()}</div>
+          <button type="button" onClick={() => setOpen(o => !o)} className="mt-0.5 text-xs font-medium text-primary">
+            {open ? 'Cancel' : 'Adjust'}
+          </button>
         </div>
       </div>
-    ),
-  },
-  {
-    key: 'qtyOnHand', header: 'Qty', sortable: true, align: 'right', minWidth: 70,
-    summary: 'sum',
-    render: (r) => (
-      <span style={{ fontWeight: 700, color: r.status === 'low' ? 'var(--status-warning)' : 'var(--text-primary)' }}>
-        {(r.qtyOnHand as number).toLocaleString()}{r.unit as string}
-      </span>
-    ),
-  },
-  {
-    key: 'lowStockThreshold', header: 'Reorder', sortable: true, align: 'right', minWidth: 72,
-    summary: 'sum',
-    render: (r) => <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{(r.lowStockThreshold as number).toLocaleString()}{r.unit as string}</span>,
-  },
-  {
-    key: 'avgCost', header: 'Cost/u', sortable: true, align: 'right', minWidth: 68,
-    summary: 'avg',
-    render: (r) => <span style={{ fontSize: 'var(--fs-xs)' }}>KSh {centsToMajor(r.avgCost as number).toLocaleString()}</span>,
-  },
-  {
-    key: 'status', header: 'Status', align: 'center', minWidth: 72,
-    summary: 'count',
-    render: (r) => (
-      <span className={`chip ${r.status === 'ok' ? 'chip-ok' : r.status === 'low' ? 'chip-warning' : 'chip-critical'}`} style={{ fontSize: 'var(--fs-2xs)' }}>
-        {r.status === 'ok' ? 'OK' : r.status === 'low' ? 'LOW' : 'EXPIRING'}
-      </span>
-    ),
-  },
-];
+      {open && (
+        <div className="mt-2.5 grid gap-2.5">
+          <Field label="New quantity">
+            <Input type="number" inputMode="numeric" value={qty} onChange={e => setQty(e.target.value)} />
+          </Field>
+          <Field label="Reason * (required, goes to the audit trail)">
+            <Input placeholder="e.g. physical recount, spoilage, theft" value={reason} onChange={e => setReason(e.target.value)} />
+          </Field>
+          {error && <p className="text-xs text-danger">{error}</p>}
+          <Button size="sm" onClick={save} disabled={saving || !reason.trim()}>
+            {saving ? 'Saving…' : 'Save adjustment'}
+          </Button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/* ── Shared dossier body: KV summary + Lots (movements) + Purchases. Used by
+ * both the inline Dossier/Inspector (InventoryScreen) and the standalone
+ * InventoryDetailScreen, so the two never drift. ── */
+function StockDossierBody({ item, tenantId, onAdjusted }: { item: ApiInventoryItem; tenantId: string; onAdjusted: () => void }) {
+  const [history, setHistory] = useState<ApiPurchase[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistory(null);
+    apiClient.get<ApiPurchase[]>(`/api/inventory/items/${item.id}/usage-history?tenantId=${tenantId}`).then((res) => {
+      if (!cancelled && res.success) setHistory(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [item.id, tenantId]);
+
+  const cost = avgUnitCostCents(item);
+  const expiry = nearestExpiry(item);
+
+  return (
+    <>
+      <dl>
+        <Kv label="On hand" value={`${item.qtyOnHand.toLocaleString()} ${item.unit}`} />
+        <Kv label="Reorder at" value={`${item.lowStockThreshold.toLocaleString()} ${item.unit}`} />
+        <Kv label="Cost / unit" value={`KSh ${centsToMajor(cost).toLocaleString()}`} />
+        <Kv label="Value" value={`KSh ${centsToMajor(cost * item.qtyOnHand).toLocaleString()}`} />
+        <Kv label="Nearest expiry" value={expiry ? fmtDate(expiry) : 'Not tracked'} />
+        <Kv label="Status" value={<Badge variant={item.status === 'ok' ? 'success' : item.status === 'low' ? 'warning' : 'danger'}>{item.status.toUpperCase()}</Badge>} />
+      </dl>
+
+      <h3 className="mt-6 text-xs font-medium tracking-[0.12em] text-subtle uppercase">Lots</h3>
+      {item.lots.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">No lots recorded for this item.</p>
+      ) : (
+        <ul className="mt-1 divide-y divide-border">
+          {item.lots.map((lot) => <LotRow key={lot.id} lot={lot} tenantId={tenantId} onSaved={onAdjusted} />)}
+        </ul>
+      )}
+
+      {/* Purchases — really the item's receipt history (see app/api/inventory/
+          items/[id]/usage-history/route.ts: there is no consumption/feeding
+          ledger to derive usage-out from, so this honestly shows when stock
+          came IN). */}
+      <h3 className="mt-6 text-xs font-medium tracking-[0.12em] text-subtle uppercase">Purchases</h3>
+      {history === null ? (
+        <p className="mt-2 text-sm text-muted">Loading…</p>
+      ) : history.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">No purchases recorded for this item yet.</p>
+      ) : (
+        <ul className="mt-1 divide-y divide-border">
+          {history.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+              <span className="min-w-0">
+                <span className="block font-medium">{p.supplier}</span>
+                <span className="block text-xs text-subtle">{fmtDate(p.createdAt)}</span>
+              </span>
+              <span className="shrink-0 text-right">
+                <span className="block font-medium">{p.quantity.toLocaleString()}{item.unit}</span>
+                <span className="block text-xs text-muted">KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
 
 const VARIANCE_COLS: ColDef<Record<string, unknown>>[] = [
   {
@@ -400,7 +528,7 @@ const VARIANCE_COLS: ColDef<Record<string, unknown>>[] = [
 ];
 
 export function InventoryScreen() {
-  const { navigate, tenantId, activeFarmId, farms } = useNav();
+  const { tenantId, activeFarmId, farms } = useNav();
   const [tab, setTab] = useState<'stock' | 'purchases' | 'variance'>('stock');
   const [cat, setCat] = useState('All');
   const [stockSearch, setStockSearch] = useState('');
@@ -414,6 +542,11 @@ export function InventoryScreen() {
   const [items, setItems] = useState<ApiInventoryItem[] | null>(null);
   const [purchases, setPurchases] = useState<ApiPurchase[] | null>(null);
   const [variance, setVariance] = useState<ApiVarianceRow[] | null>(null);
+
+  // Master–detail: a stock line opens a Dossier (desktop) / bottom sheet
+  // (mobile) — same selection pattern as components/farm/governance.tsx.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // farm-scoped-data task: items/purchases both re-fetch on activeFarmId
   // change. GET /api/inventory/items filters LOTS to the farm (the item
@@ -535,15 +668,16 @@ export function InventoryScreen() {
       if (!stockSearch.trim()) return true;
       const q = stockSearch.toLowerCase();
       return i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q) || i.lots.some(l => l.lotNo.toLowerCase().includes(q));
-    })
-    .map((i) => ({
-      ...i,
-      avgCost: avgUnitCostCents(i),
-      lotCount: i.lots.length,
-      singleLotNo: i.lots[0]?.lotNo ?? 'no lots',
-    }));
+    });
+  const sortedStock = [...filteredStock].sort((a, b) => stockRank(a) - stockRank(b) || stockRatio(a) - stockRatio(b));
 
   const itemNameById = new Map((items ?? []).map(i => [i.id, i.name] as const));
+  const selectedItem = (items ?? []).find(i => i.id === selectedId) ?? null;
+
+  function pickItem(id: string) {
+    setSelectedId(id);
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) setMobileOpen(true);
+  }
 
   // Picker suggestions for RecordPurchaseSheet, sourced from this tenant's
   // own items/purchases rather than invented (issue: free-text fields that
@@ -556,155 +690,200 @@ export function InventoryScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Inventory" subtitle="Lots, stock and purchases"
-        rightEl={
-          <div className="btn-cluster">
-            <button type="button" className="btn-icon" onClick={() => setShowImport(true)} title="Import inventory CSV" aria-label="Import inventory CSV">
-              <Upload size={13} />
-            </button>
-            <button type="button" className="btn-icon" onClick={exportStockCSV} title="Export inventory CSV" aria-label="Export inventory CSV">
-              <Download size={14} />
-            </button>
-            <button type="button" className="btn-fab" style={{ width: 36, height: 36, borderRadius: 9 }} onClick={() => setShowRecordPurchase(true)} aria-label="Record a purchase">
-              <Plus size={16} />
-            </button>
-          </div>
-        }
-      />
-
-      {/* Summary */}
-      <div className="px-screen" style={{ paddingTop: 12 }}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          {[
-            { label: 'Items', value: (items ?? []).length, color: 'var(--primary-green)' },
-            { label: 'Low/Expiring', value: lowCount, color: lowCount > 0 ? 'var(--status-warning)' : 'var(--text-muted)' },
-            { label: 'Flagged', value: flaggedVariances, color: flaggedVariances > 0 ? 'var(--status-critical)' : 'var(--text-muted)' },
-            { label: 'Lots', value: totalLots, color: 'var(--accent-blue)' },
-          ].map((s) => (
-            <div key={s.label} style={{ flex: 1, background: 'var(--card)', borderRadius: 12, padding: '10px 8px', textAlign: 'center', border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-10">
+        <PageHeader
+          kicker="Farm"
+          title="Inventory"
+          lede="What's running low, what came in, and lots that need a walk."
+          actions={(
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="icon-sm" onClick={() => setShowImport(true)} title="Import inventory CSV" aria-label="Import inventory CSV">
+                <Upload size={14} />
+              </Button>
+              <Button variant="secondary" size="icon-sm" onClick={exportStockCSV} title="Export inventory CSV" aria-label="Export inventory CSV">
+                <Download size={14} />
+              </Button>
+              <Button onClick={() => setShowRecordPurchase(true)}>
+                <Plus size={14} /> Record purchase
+              </Button>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="px-screen" style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
-        {[['stock', 'Stock'], ['purchases', 'Purchases'], ['variance', 'Variance']].map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id as typeof tab)} style={{
-            flex: 1, padding: '7px 4px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
-            background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
-            border: tab === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
-            color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)',
-          }}>{label}</button>
-        ))}
-      </div>
-
-      {loading && <div className="px-screen"><div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading inventory…</div></div>}
-
-      {/* STOCK TAB */}
-      {!loading && tab === 'stock' && (
-        <div className="px-screen">
-          <div style={{ position: 'relative', marginBottom: 10 }}>
-            <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <input className="farm-input" style={{ paddingLeft: 34, fontSize: 'var(--fs-base)' }} placeholder="Search item, category, lot…" value={stockSearch} onChange={e => setStockSearch(e.target.value)} />
-            {stockSearch && <button onClick={() => setStockSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}><X size={14} /></button>}
-          </div>
-          <div className="chip-row" style={{ marginBottom: 12 }}>
-            {cats.map((c) => (
-              <button key={c} onClick={() => setCat(c)} className={`filter-chip ${cat === c ? 'active' : ''}`}><CategoryIcon category={c} />{c}</button>
-            ))}
-          </div>
-          {(items ?? []).length === 0 ? (
-            <div style={{ padding: 24, textAlign: 'center', marginBottom: 20 }}>
-              <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Wheat size={40} aria-hidden="true" /></div>
-              <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Nothing in stock yet</div>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.45 }}>Record a purchase to bring feed, seed or medicine in. Feeding a batch later draws down from this.</div>
-              <button type="button" className="btn-primary" onClick={() => setShowRecordPurchase(true)}>
-                <Plus size={14} /> Record a purchase
-              </button>
-            </div>
-          ) : (
-          <div style={{ marginBottom: 20 }}>
-            <DataTable
-              rows={filteredStock as unknown as Record<string, unknown>[]}
-              columns={STOCK_COLS}
-              rowKey={(r) => r.id as string}
-              onRowClick={(r) => navigate('inventory-detail', { id: r.id as string })}
-              defaultPageSize={20}
-              pageSizes={[10, 20, 50, 100]}
-              bodyHeight={320}
-              tableId="inventory-stock"
-              emptyText="No items match your filter."
-            />
-          </div>
           )}
-        </div>
-      )}
+        />
 
-      {/* PURCHASES TAB */}
-      {!loading && tab === 'purchases' && (
-        <div className="px-screen">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-            {(purchases ?? []).length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Receipt size={40} aria-hidden="true" /></div>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No purchases yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>A purchase is how stock arrives. Record one to put feed, seed or medicine on the shelf.</div>
-                <button type="button" className="btn-primary" onClick={() => setShowRecordPurchase(true)}>
-                  <Plus size={14} /> Record a purchase
+        <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <Kpi label="Items" value={(items ?? []).length} hint="Catalogued" onClick={() => setTab('stock')} />
+          <Kpi label="Low / expiring" value={lowCount} hint={lowCount === 0 ? 'All clear' : 'Reorder these'} tone={lowCount > 0 ? 'warn' : 'ok'} onClick={() => setTab('stock')} />
+          <Kpi label="Flagged" value={flaggedVariances} hint="Need a recount" tone={flaggedVariances > 0 ? 'danger' : 'plain'} onClick={() => setTab('variance')} />
+          <Kpi label="Lots" value={totalLots} hint="On hand" onClick={() => setTab('stock')} />
+        </div>
+
+        <div className="mt-5">
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            items={[
+              { id: 'stock', label: 'Stock', hint: "What's running low" },
+              { id: 'purchases', label: 'Purchases', hint: 'What brought it in' },
+              { id: 'variance', label: 'Lots', hint: 'What needs a recount' },
+            ]}
+          />
+        </div>
+
+        {loading && <div className="py-10 text-center text-sm text-muted">Loading inventory…</div>}
+
+        {/* STOCK TAB — master–detail */}
+        {!loading && tab === 'stock' && (
+          <div className="mt-5">
+            <div className="relative mb-3">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
+              <Input value={stockSearch} onChange={e => setStockSearch(e.target.value)} placeholder="Search item, category, lot…" className="pl-9" aria-label="Search stock" />
+              {stockSearch && (
+                <button type="button" onClick={() => setStockSearch('')} className="absolute top-1/2 right-3 -translate-y-1/2 text-subtle">
+                  <X size={14} />
                 </button>
-              </div>
-            ) : (purchases ?? []).map((p) => {
-              const status = paymentStatus(p);
-              return (
-                <div key={p.id} className="farm-card" style={{ padding: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{itemNameById.get(p.itemId) ?? p.itemId}</div>
-                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{p.supplier} · {p.quantity.toLocaleString()}</div>
-                    </div>
-                    <span className={`chip ${status === 'paid' ? 'chip-ok' : status === 'partial' ? 'chip-warning' : 'chip-critical'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{status.toUpperCase()}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{fmtDate(p.createdAt)}</span>
-                    <span style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {(purchases ?? []).length > 0 && (
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 20 }} onClick={() => setShowRecordPurchase(true)}>
-            <Plus size={16} /> Record a purchase
-          </button>
-          )}
-        </div>
-      )}
+              )}
+            </div>
+            <div className="mb-4">
+              <Chips value={cat} onChange={setCat} items={cats.map(c => ({ id: c, label: c }))} />
+            </div>
 
-      {/* VARIANCE TAB — staleness-based, not an expected-vs-actual gap (there is
-          no physical-counts table on this branch; see lib/inventory.ts). */}
-      {!loading && tab === 'variance' && (
-        <div className="px-screen">
-          <div style={{ padding: '10px 14px', background: 'rgba(var(--warning-rgb),0.08)', borderRadius: 12, marginBottom: 16, border: '1px solid rgba(var(--warning-rgb),0.25)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-warning)', marginBottom: 4 }}><AlertTriangle size={13} aria-hidden="true" /> Reconciliation Review</div>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>How long since each lot&apos;s on-hand figure was last confirmed (received or reason-adjusted). Lots stale past 30 days are flagged for a physical recount — there&apos;s no expected-vs-actual number to show without one.</div>
+            {(items ?? []).length === 0 ? (
+              <EmptyState
+                icon={<Wheat size={20} />}
+                title="Nothing in stock yet"
+                body="Record a purchase to bring feed, seed or medicine in. Feeding a batch later draws down from this."
+                action={<Button className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}><Plus size={14} /> Record a purchase</Button>}
+              />
+            ) : (
+              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.9fr)]">
+                <div className="min-w-0 rounded-xl bg-surface p-3 shadow-(--shadow-border) lg:p-4">
+                  <p className="px-1 text-xs text-muted">Quantity against reorder level. A short bar is the one to reorder first.</p>
+                  {sortedStock.length === 0 ? (
+                    <div className="py-10 text-center text-sm text-muted">No items match your filter.</div>
+                  ) : (
+                    <ul className="mt-3">
+                      {sortedStock.map((item) => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() => pickItem(item.id)}
+                            className={cn('flex w-full flex-col gap-2 rounded-lg px-3 py-3 text-left', selectedId === item.id ? 'bg-primary-soft' : 'hover:bg-surface-2')}
+                          >
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium"><CategoryIcon category={item.category} />{item.name}</span>
+                                <span className="block text-xs text-subtle">
+                                  {item.qtyOnHand.toLocaleString()} {item.unit} · {item.lots.length === 1 ? item.lots[0].lotNo : `${item.lots.length} lots`}
+                                </span>
+                              </span>
+                              <Badge variant={item.status === 'ok' ? 'success' : item.status === 'low' ? 'warning' : 'danger'}>{item.status.toUpperCase()}</Badge>
+                            </span>
+                            <span className="block h-1.5 overflow-hidden rounded-full bg-border">
+                              <span
+                                className={cn('block h-full rounded-full', item.status === 'expiring' ? 'bg-danger' : item.status === 'low' ? 'bg-warning' : 'bg-primary')}
+                                style={{ width: `${stockCoverPct(item)}%` }}
+                              />
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="hidden min-w-0 lg:block">
+                  {selectedItem ? (
+                    <Dossier
+                      kicker={selectedItem.category || 'Uncategorised'}
+                      title={selectedItem.name}
+                      lede={`${selectedItem.qtyOnHand.toLocaleString()} ${selectedItem.unit} on hand`}
+                      footer={<Button className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}>Record a purchase</Button>}
+                    >
+                      <StockDossierBody item={selectedItem} tenantId={tenantId} onAdjusted={loadItems} />
+                    </Dossier>
+                  ) : (
+                    <EmptyState icon={<Wheat size={20} />} title="Nothing selected" body="Pick a line on the left to see its lots and purchases." />
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-          <div style={{ marginBottom: 20 }}>
+        )}
+
+        {/* PURCHASES TAB */}
+        {!loading && tab === 'purchases' && (
+          <div className="mt-5">
+            {(purchases ?? []).length === 0 ? (
+              <EmptyState
+                icon={<Receipt size={20} />}
+                title="No purchases yet"
+                body="A purchase is how stock arrives. Record one to put feed, seed or medicine on the shelf."
+                action={<Button className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}><Plus size={14} /> Record a purchase</Button>}
+              />
+            ) : (
+              <>
+                <ul className="flex flex-col gap-2">
+                  {(purchases ?? []).map((p) => {
+                    const status = paymentStatus(p);
+                    return (
+                      <li key={p.id} className="rounded-xl bg-surface p-3.5 shadow-(--shadow-border)">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">{itemNameById.get(p.itemId) ?? p.itemId}</div>
+                            <div className="mt-0.5 text-xs text-muted">{p.supplier} · {p.quantity.toLocaleString()}</div>
+                          </div>
+                          <Badge variant={status === 'paid' ? 'success' : status === 'partial' ? 'warning' : 'danger'}>{status.toUpperCase()}</Badge>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-xs text-muted">{fmtDate(p.createdAt)}</span>
+                          <span className="font-display text-lg font-medium">KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <Button className="mt-4 w-full justify-center" onClick={() => setShowRecordPurchase(true)}>
+                  <Plus size={14} /> Record a purchase
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* LOTS TAB (D8: relabelled from "Variance" — staleness-based, not an
+            expected-vs-actual gap; there is no physical-counts table on this
+            branch, see lib/inventory.ts) */}
+        {!loading && tab === 'variance' && (
+          <div className="mt-5">
+            <div className="mb-4 rounded-xl bg-warning-soft px-3.5 py-3 shadow-(--shadow-border)">
+              <div className="flex items-center gap-1.5 text-sm font-medium text-warning"><AlertTriangle size={13} aria-hidden="true" /> Reconciliation review</div>
+              <p className="mt-1 text-xs leading-relaxed text-fg/80">How long since each lot&apos;s on-hand figure was last confirmed (received or reason-adjusted). Lots stale past 30 days are flagged for a physical recount — there&apos;s no expected-vs-actual number to show without one.</p>
+            </div>
             <DataTable
               rows={(variance ?? []) as unknown as Record<string, unknown>[]}
               columns={VARIANCE_COLS}
               rowKey={(r) => r.lotId as string}
               defaultPageSize={20}
               pageSizes={[10, 20, 50]}
-              bodyHeight={220}
+              bodyHeight={320}
               tableId="inventory-variance"
               emptyText="No lots recorded."
             />
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Mobile stock dossier */}
+      <Inspector
+        open={mobileOpen && !!selectedItem}
+        onOpenChange={setMobileOpen}
+        kicker={selectedItem?.category || 'Uncategorised'}
+        title={selectedItem?.name ?? 'Item'}
+        lede={selectedItem ? `${selectedItem.qtyOnHand.toLocaleString()} ${selectedItem.unit} on hand` : undefined}
+        footer={<Button className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}>Record a purchase</Button>}
+      >
+        {selectedItem && <StockDossierBody item={selectedItem} tenantId={tenantId} onAdjusted={loadItems} />}
+      </Inspector>
 
       {/* CSV Import Modal */}
       {showImport && (
@@ -722,21 +901,10 @@ export function InventoryScreen() {
       {/* An import that refused rows says which and why. Silently importing
           140 of 200 rows is the failure mode this replaces. */}
       {importReport && (
-        <div
-          style={{
-            position: 'fixed', left: 12, right: 12, bottom: 84, zIndex: 210,
-            background: 'var(--surface)', border: '1px solid rgba(var(--warning-rgb),0.35)',
-            borderRadius: 12, padding: '12px 14px', fontSize: 'var(--fs-xs)',
-            color: 'var(--text-secondary)', lineHeight: 1.5,
-            maxHeight: '40vh', overflowY: 'auto',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <span style={{ flex: 1 }}>{importReport}</span>
-            <button
-              onClick={() => setImportReport('')}
-              style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontWeight: 700, cursor: 'pointer', fontSize: 'var(--fs-xs)', flexShrink: 0 }}
-            >Dismiss</button>
+        <div className="fixed right-3 bottom-21 left-3 z-[210] max-h-[40vh] overflow-y-auto rounded-xl bg-surface p-3.5 text-xs leading-relaxed text-fg shadow-(--shadow-raised)">
+          <div className="flex items-start gap-2.5">
+            <span className="flex-1">{importReport}</span>
+            <button type="button" onClick={() => setImportReport('')} className="shrink-0 text-xs font-medium text-primary">Dismiss</button>
           </div>
         </div>
       )}
@@ -748,78 +916,12 @@ export function InventoryScreen() {
           categories={categoryNames}
           units={unitNames}
           paymentMethods={paymentMethodNames}
+          prefill={selectedItem ? { itemName: selectedItem.name, unit: selectedItem.unit, category: selectedItem.category } : undefined}
           farms={farms}
           activeFarmId={activeFarmId}
           onCreated={loadAll}
           onClose={() => setShowRecordPurchase(false)}
         />
-      )}
-    </div>
-  );
-}
-
-/* ── Per-lot adjust control — real PATCH /api/inventory/lots/[id], reason
- * required (the endpoint 400s without one). ── */
-function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onSaved: () => void }) {
-  const { showToast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [qty, setQty] = useState(String(lot.qtyOnHand));
-  const [reason, setReason] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  async function save() {
-    const newQty = Number(qty);
-    if (!Number.isFinite(newQty) || newQty < 0) { setError('Enter a valid quantity.'); return; }
-    if (!reason.trim()) { setError('A reason is required for this adjustment.'); return; }
-    setSaving(true);
-    setError('');
-    const res = await apiClient.patch(`/api/inventory/lots/${lot.id}?tenantId=${tenantId}`, {
-      qtyOnHand: Math.trunc(newQty),
-      reason: reason.trim(),
-    });
-    setSaving(false);
-    if (res.success) {
-      setOpen(false);
-      setReason('');
-      showToast(`${lot.lotNo} is now ${Math.trunc(newQty).toLocaleString()}.`, 'success');
-      onSaved();
-    } else {
-      setError(res.error || 'Could not adjust this lot.');
-    }
-  }
-
-  return (
-    <div style={{ padding: '10px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{lot.lotNo}</div>
-          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>
-            Received {fmtDate(lot.receivedDate) ?? '—'}{lot.expiryDate ? ` · Expires ${fmtDate(lot.expiryDate)}` : ''}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{lot.qtyOnHand.toLocaleString()}</div>
-          <button onClick={() => setOpen(o => !o)} style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 2 }}>
-            {open ? 'Cancel' : 'Adjust'}
-          </button>
-        </div>
-      </div>
-      {open && (
-        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>New Quantity</label>
-            <input className="farm-input" style={{ fontSize: 'var(--fs-sm)' }} type="number" value={qty} onChange={e => setQty(e.target.value)} />
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Reason * (required, goes to the audit trail)</label>
-            <input className="farm-input" style={{ fontSize: 'var(--fs-sm)' }} placeholder="e.g. physical recount, spoilage, theft" value={reason} onChange={e => setReason(e.target.value)} />
-          </div>
-          {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{error}</div>}
-          <button onClick={save} className="btn-primary" style={{ justifyContent: 'center', fontSize: 'var(--fs-sm)', padding: 9 }} disabled={saving || !reason.trim()}>
-            {saving ? 'Saving…' : 'Save Adjustment'}
-          </button>
-        </div>
       )}
     </div>
   );
@@ -834,8 +936,6 @@ export function InventoryDetailScreen() {
   // same real-data-not-invented sourcing as InventoryScreen's Purchases tab.
   const [purchases, setPurchases] = useState<ApiPurchase[] | null>(null);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState<ApiPurchase[] | null>(null);
 
   const load = useCallback(() => {
     apiClient.get<ApiInventoryItem[]>(`/api/inventory/items?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
@@ -848,26 +948,11 @@ export function InventoryDetailScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  function loadHistory() {
-    if (!id) return;
-    setShowHistory(h => {
-      const next = !h;
-      if (next && history === null) {
-        apiClient.get<ApiPurchase[]>(`/api/inventory/items/${id}/usage-history?tenantId=${tenantId}`).then(res => {
-          if (res.success) setHistory(res.data);
-        });
-      }
-      return next;
-    });
-  }
-
   if (items === null) {
     return (
       <div className="screen-content">
         <TopNav title="Item" showBack />
-        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading item…</div>
-        </div>
+        <div className="px-screen pt-10 text-center text-sm text-muted">Loading item…</div>
       </div>
     );
   }
@@ -877,16 +962,10 @@ export function InventoryDetailScreen() {
     return (
       <div className="screen-content">
         <TopNav title="Item" showBack />
-        <div className="px-screen" style={{ paddingTop: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-muted)' }}>Item not found.</div>
-        </div>
+        <div className="px-screen pt-10 text-center text-sm text-muted">Item not found.</div>
       </div>
     );
   }
-
-  const cost = avgUnitCostCents(item);
-  const expiry = nearestExpiry(item);
-  const isLow = item.qtyOnHand < item.lowStockThreshold;
 
   // Picker suggestions for RecordPurchaseSheet — same real-data sourcing as
   // InventoryScreen.
@@ -897,63 +976,16 @@ export function InventoryDetailScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title={item.name} subtitle={`${item.category || 'Uncategorised'} · ${item.lots.length} lot${item.lots.length === 1 ? '' : 's'}`} showBack />
-      <div className="px-screen" style={{ paddingTop: 16 }}>
-        <div className="farm-card" style={{ padding: 16, marginBottom: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div><div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: 'var(--primary-green)' }}>{item.qtyOnHand.toLocaleString()}<span style={{ fontSize: 'var(--fs-md)' }}>{item.unit}</span></div><div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>In Stock</div></div>
-            <div><div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: 'var(--text-primary)' }}>KSh {centsToMajor(cost).toLocaleString()}</div><div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>Avg per {item.unit}</div></div>
-          </div>
-          <div className="progress-track" style={{ marginBottom: 8 }}>
-            <div className={`progress-fill ${isLow ? 'progress-fill-red' : ''}`} style={{ width: `${item.lowStockThreshold > 0 ? Math.min((item.qtyOnHand / (item.lowStockThreshold * 3)) * 100, 100) : 100}%` }} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-            <span>Reorder at: {item.lowStockThreshold.toLocaleString()}{item.unit}</span>
-            <span>{expiry ? `Nearest expiry: ${fmtDate(expiry)}` : 'No expiry tracked'}</span>
-          </div>
-        </div>
-
-        <div className="btn-cluster" style={{ marginBottom: 20 }}>
-          <button className="btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowRecordPurchase(true)}>Record a purchase</button>
-          <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={loadHistory}>{showHistory ? 'Hide history' : 'Usage history'}</button>
-        </div>
-
-        {/* Lots — the merged qty above is the sum of these; adjustments are
-            per-lot because PATCH /api/inventory/lots/[id] takes a lot id. */}
-        <div className="farm-card" style={{ padding: 14, marginBottom: 16 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 4 }}>Lots</div>
-          {item.lots.length === 0 ? (
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '10px 0' }}>No lots recorded for this item.</div>
-          ) : item.lots.map(lot => (
-            <LotRow key={lot.id} lot={lot} tenantId={tenantId} onSaved={load} />
-          ))}
-        </div>
-
-        {/* Usage History — really the item's purchase/receipt history (see
-            app/api/inventory/items/[id]/usage-history/route.ts: there is no
-            consumption/feeding ledger on this branch to derive usage-out
-            from, so this honestly shows when stock came IN). */}
-        {showHistory && (
-          <div className="farm-card" style={{ padding: 14, marginBottom: 20 }}>
-            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Usage History (receipts)</div>
-            {history === null ? (
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>
-            ) : history.length === 0 ? (
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>No purchase history for this item yet.</div>
-            ) : history.map(p => (
-              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: 'var(--fs-xs)' }}>
-                <div>
-                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.supplier}</div>
-                  <div style={{ color: 'var(--text-muted)' }}>{fmtDate(p.createdAt)}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{p.quantity.toLocaleString()}{item.unit}</div>
-                  <div style={{ color: 'var(--text-muted)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      <TopNav title="" showBack />
+      <div className="px-screen pt-3 pb-10">
+        <Dossier
+          kicker={item.category || 'Uncategorised'}
+          title={item.name}
+          lede={`${item.qtyOnHand.toLocaleString()} ${item.unit} on hand`}
+          footer={<Button className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}>Record a purchase</Button>}
+        >
+          <StockDossierBody item={item} tenantId={tenantId} onAdjusted={load} />
+        </Dossier>
       </div>
 
       {showRecordPurchase && (
