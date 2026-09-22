@@ -1545,12 +1545,12 @@ export function BatchDetailScreen({ embedded = false, embeddedBatchId, embeddedB
       <div className={embedded ? '' : 'px-screen'} style={embedded ? undefined : { paddingTop: 14 }}>
 
         {/* Hero */}
-        <div className="farm-card farm-card-active" style={{ padding: 16, marginBottom: 14 }}>
+        <div className="rounded-xl bg-surface p-4 shadow-(--shadow-border)" style={{ marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               {cfg?.icon && <cfg.icon size={36} color="var(--text-primary)" aria-hidden="true" />}
               <div>
-                <span className={`chip ${batch.status === 'ACTIVE' ? 'chip-ok' : batch.status === 'QUARANTINE' ? 'chip-critical' : 'chip-info'}`}>{batch.status}</span>
+                <Badge variant={batch.status === 'ACTIVE' ? 'success' : batch.status === 'QUARANTINE' ? 'warning' : 'default'}>{batch.status}</Badge>
                 <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>
                   Stage: <span style={{ color: 'var(--primary-green)', fontWeight: 700 }}>{batch.stage || '—'}</span>
                   {/* Species (issue #301): moved out of the 3rd stat tile (which
@@ -1566,15 +1566,12 @@ export function BatchDetailScreen({ embedded = false, embeddedBatchId, embeddedB
               <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)' }}>{farm?.name ?? '—'}</div>
               {/* Editing a batch had no entry point anywhere — the API
                  accepted every field, the screen offered none of them. */}
-              <button
-                onClick={() => setShowEdit(true)}
-                style={{ marginTop: 6, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '4px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}
-              >Edit batch</button>
+              <Button variant="secondary" size="sm" style={{ marginTop: 6 }} onClick={() => setShowEdit(true)}>Edit batch</Button>
             </div>
           </div>
 
           {/* KPIs */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+          <div className="grid grid-cols-4 gap-2">
             {[
               { label: cfg?.type === 'crop' ? 'Plots' : 'Head', value: batch.currentQty.toLocaleString() },
               { label: cfg?.type === 'crop' ? 'Growth' : 'Mort. %', value: cfg?.type === 'crop' ? '—' : `${mort}%` },
@@ -1588,8 +1585,8 @@ export function BatchDetailScreen({ embedded = false, embeddedBatchId, embeddedB
               { label: cfg?.type === 'crop' ? 'Area' : 'FCR', value: '—' },
               { label: 'Cost KSh', value: `${(costKsh/1000).toFixed(0)}K` },
             ].map(s => (
-              <div key={s.label} style={{ background: 'var(--surface)', borderRadius: 8, padding: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>{s.value}</div>
+              <div key={s.label} className="rounded-lg bg-surface-2 p-2 text-center">
+                <div className="font-display text-lg font-medium tabular-nums">{s.value}</div>
                 <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 1 }}>{s.label}</div>
               </div>
             ))}
@@ -1887,18 +1884,18 @@ export function BatchDetailScreen({ embedded = false, embeddedBatchId, embeddedB
               opens Finance, which is where a sale is actually recorded; a
               sale of a product marked as coming out of the batch also takes
               it off this batch's head count (batch-ledger task). */}
-          <button className="btn-primary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => navigate('finance', { batch: batch.code })}>
+          <Button className="justify-center" onClick={() => navigate('finance', { batch: batch.code })}>
             Record Sale
-          </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => setShowAdvanceForm(f => !f)}>
+          </Button>
+          <Button variant="secondary" className="justify-center" onClick={() => setShowAdvanceForm(f => !f)}>
             Advance Stage
-          </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => navigate('tasks', { batch: batch.code })}>
+          </Button>
+          <Button variant="secondary" className="justify-center" onClick={() => navigate('tasks', { batch: batch.code })}>
             <ClipboardList size={13} aria-hidden="true" /> All Batch Tasks
-          </button>
-          <button className="btn-secondary" style={{ justifyContent: 'center', borderRadius: 12, padding: 12, fontSize: 'var(--fs-sm)' }} onClick={() => setShowEdit(true)}>
+          </Button>
+          <Button variant="secondary" className="justify-center" onClick={() => setShowEdit(true)}>
             Edit Batch
-          </button>
+          </Button>
         </div>
 
         {/* Per-unit task shortcuts */}
