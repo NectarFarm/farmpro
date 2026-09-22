@@ -309,6 +309,13 @@
       "when": 1790079407438,
       "tag": "0043_billing_currency_ksh",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790083229709,
+      "tag": "0044_record_photos_and_rejection_reason",
+      "breakpoints": true
     }
   ]
 }

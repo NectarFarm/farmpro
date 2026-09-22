@@ -96,6 +96,15 @@ export const employees = pgTable('employees', {
 // `mortalityPhotoThreshold` are expected to carry one, and this table does
 // not enforce that itself (see app/api/records/route.ts's POST handler
 // comment for why that check stays client-side for now).
+//
+// `photoUrls` (migration 0044, several-photos-per-record task): a record can
+// now carry up to 4 photos, not just one. `photoUrl` is kept exactly as it
+// was — POST /api/records still writes the FIRST photo there — so every
+// existing reader (approval detail's `record.photoUrl`, the mortality
+// report, anything server-side that never learned about `photoUrls`) keeps
+// working untouched. `photoUrls` is the one column new code should read;
+// `photoUrl` is a derived convenience, not a second source of truth. Default
+// `[]`, not nullable, so callers can always `.map()` it without a null check.
 export const records = pgTable('records', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
@@ -107,6 +116,7 @@ export const records = pgTable('records', {
   type: text('type').notNull(),
   data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
   photoUrl: text('photo_url'),
+  photoUrls: jsonb('photo_urls').$type<string[]>().notNull().default([]),
   createdAt: timestamp('created_at').defaultNow(),
 }, (t) => [
   index('idx_records_tenant').on(t.tenantId),
