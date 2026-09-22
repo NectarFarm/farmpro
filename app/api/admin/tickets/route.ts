@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm'
+import { and, desc, eq, ilike, isNull } from 'drizzle-orm'
 import { db } from '@/db'
 import { supportTickets, tenants } from '@/db/schemas'
 import { requirePlatformCapability } from '@/lib/api-auth'

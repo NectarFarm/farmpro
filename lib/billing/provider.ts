@@ -48,7 +48,12 @@ export interface PaymentProvider {
 export class ManualPaymentProvider implements PaymentProvider {
   readonly name = 'manual'
 
-  async submitPayment(_input: SubmitPaymentInput): Promise<SubmitPaymentResult> {
+  // No parameter: this implementation genuinely ignores every field of
+  // SubmitPaymentInput (there is nothing to submit anywhere) — a function
+  // with fewer parameters than the interface it implements is structurally
+  // compatible in TypeScript, so this satisfies PaymentProvider without an
+  // unused-parameter warning for a name nothing here needs.
+  async submitPayment(): Promise<SubmitPaymentResult> {
     return { status: 'pending' }
   }
 }
