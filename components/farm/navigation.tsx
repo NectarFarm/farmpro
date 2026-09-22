@@ -12,7 +12,7 @@ export type ScreenId =
   | 'notifications' | 'ai-chat'
   | 'worker-home' | 'worker-record' | 'worker-pay' | 'worker-profile'
   | 'admin-dashboard' | 'admin-farms' | 'admin-settings' | 'admin-onboarding' | 'admin-users'
-  | 'admin-enterprise-requests' | 'admin-tickets'
+  | 'admin-enterprise-requests' | 'admin-tickets' | 'admin-billing'
   | 'batch-detail' | 'crop-schedule' | 'inventory-detail'
   | 'people-detail'
   | 'notification-settings'
@@ -210,7 +210,7 @@ const ALL_SCREENS: ScreenId[] = [
   'notifications', 'ai-chat',
   'worker-home', 'worker-record', 'worker-pay', 'worker-profile',
   'admin-dashboard', 'admin-farms', 'admin-settings', 'admin-onboarding', 'admin-users',
-  'admin-enterprise-requests', 'admin-tickets',
+  'admin-enterprise-requests', 'admin-tickets', 'admin-billing',
   'batch-detail', 'crop-schedule', 'inventory-detail',
   'people-detail',
   'notification-settings',
@@ -1338,6 +1338,12 @@ export function AppSidebar() {
       { id: 'admin-farms' as ScreenId, label: 'Farms', icon: Building2 },
       { id: 'admin-onboarding' as ScreenId, label: 'Onboarding requests', icon: Users },
       { id: 'admin-enterprise-requests' as ScreenId, label: 'Enterprise requests', icon: Sprout },
+    ] },
+    { label: 'Billing', items: [
+      { id: 'admin-billing' as ScreenId, label: 'Payments', icon: DollarSign, params: { tab: 'payments' }, dataTour: 'nav-admin-billing-payments' },
+      { id: 'admin-billing' as ScreenId, label: 'Plans', icon: Layers, params: { tab: 'plans' } },
+      { id: 'admin-billing' as ScreenId, label: 'Discounts', icon: FileText, params: { tab: 'discounts' } },
+      { id: 'admin-billing' as ScreenId, label: 'Subscriptions', icon: ClipboardList, params: { tab: 'subscriptions' } },
     ] },
     { label: 'People', items: [
       { id: 'admin-users' as ScreenId, label: 'Users', icon: UserCheck },

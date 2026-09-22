@@ -3,6 +3,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { Building2, Users, ChevronRight, ChevronDown, AlertTriangle, Plus, X, Edit2, Archive, Trash2, RotateCcw, Check, Sprout } from './icons';
 import { apiClient } from '@/lib/request';
+import { useToast, useConfirm } from './ui-shared';
+import type { TenantOverview, AdminPlan, PlanPeriod, SubscriptionStatus } from '@/components/admin/types';
+import { centsToDisplay, fmtDate, fmtDateTime } from '@/components/admin/types';
 
 // ── Real backend wiring (issue #252) ────────────────────────────────────────
 // GET /api/admin/tenants and GET /api/admin/stats are new, minimal,
@@ -150,12 +153,200 @@ export function AdminDashboardScreen() {
   );
 }
 
+const SUB_STATUSES: SubscriptionStatus[] = ['trialing', 'pending_payment', 'active', 'past_due', 'cancelled', 'expired'];
+const PERIODS: PlanPeriod[] = ['monthly', 'quarterly', 'annual'];
+
+// ── Tenant overview (docs/backoffice-api.md §4: GET/PATCH /api/admin/
+// tenants/[id]) ── subscription card (change plan/period, extend trial or
+// period, apply a discount, set status directly), payment history, the
+// tenant's users, admin notes, and suspend/reactivate behind a confirm.
+function TenantOverviewSheet({ tenantId, tenantName, onClose, onChanged }: {
+  tenantId: string; tenantName: string; onClose: () => void; onChanged: () => void;
+}) {
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
+  const [data, setData] = useState<TenantOverview | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [plans, setPlans] = useState<AdminPlan[] | null>(null);
+  const [planId, setPlanId] = useState('');
+  const [period, setPeriod] = useState<PlanPeriod>('monthly');
+  const [discountCode, setDiscountCode] = useState('');
+  const [status, setStatus] = useState<SubscriptionStatus>('active');
+  const [subBusy, setSubBusy] = useState(false);
+  const [subError, setSubError] = useState('');
+  const [note, setNote] = useState('');
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [suspendBusy, setSuspendBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const res = await apiClient.get<TenantOverview>(`/api/admin/tenants/${tenantId}`);
+    if (res.success) {
+      setData(res.data); setLoadError('');
+      if (res.data.subscription) { setPlanId(res.data.subscription.planId); setPeriod(res.data.subscription.period); setStatus(res.data.subscription.status as SubscriptionStatus); }
+    } else setLoadError(res.error || 'Failed to load tenant overview.');
+  }, [tenantId]);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    apiClient.get<AdminPlan[]>('/api/admin/plans').then((res) => { if (res.success) setPlans(res.data); });
+  }, []);
+
+  async function patchSub(body: Record<string, unknown>) {
+    setSubBusy(true); setSubError('');
+    const res = await apiClient.patch(`/api/admin/subscriptions/${tenantId}`, body);
+    setSubBusy(false);
+    if (!res.success) { setSubError(res.error || 'Failed to update subscription.'); return; }
+    showToast('Subscription updated', 'success');
+    void load(); onChanged();
+  }
+
+  async function addNote() {
+    if (!note.trim()) return;
+    setNoteBusy(true);
+    const res = await apiClient.patch(`/api/admin/tenants/${tenantId}`, { note: note.trim() });
+    setNoteBusy(false);
+    if (!res.success) { showToast(res.error || 'Failed to add note.', 'error'); return; }
+    setNote(''); void load();
+  }
+
+  async function toggleSuspend(active: boolean) {
+    const ok = await confirm({
+      message: active ? `Reactivate ${tenantName}?` : `Suspend ${tenantName}?`,
+      detail: active ? 'Their users can sign in again immediately.' : 'Every user at this tenant is blocked from signing in until reactivated.',
+      variant: active ? 'info' : 'danger',
+      confirmLabel: active ? 'Reactivate' : 'Suspend',
+    });
+    if (!ok) return;
+    setSuspendBusy(true);
+    const res = await apiClient.patch(`/api/admin/tenants/${tenantId}`, { active });
+    setSuspendBusy(false);
+    if (!res.success) { showToast(res.error || 'Failed to update tenant status.', 'error'); return; }
+    void load(); onChanged();
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-end', zIndex: 250 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '94vh', overflowY: 'auto', border: '1px solid var(--border-subtle)', padding: 20 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>{tenantName}</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        {loadError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 12 }}>{loadError}</div>}
+        {!data && !loadError && <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>}
+
+        {data && (
+          <>
+            <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div className="section-eyebrow">Subscription</div>
+                <span className={`chip ${data.tenant.active ? 'chip-ok' : 'chip-critical'}`}>{data.tenant.active ? 'ACTIVE' : 'SUSPENDED'}</span>
+              </div>
+              {data.subscription ? (
+                <>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 10 }}>
+                    <strong>{data.subscription.planName}</strong> · {data.subscription.period} · status: <strong>{data.subscription.status}</strong>
+                    {data.subscription.trialEndsAt && <> · trial ends {fmtDate(data.subscription.trialEndsAt)}</>}
+                    {data.subscription.currentPeriodEnd && <> · period ends {fmtDate(data.subscription.currentPeriodEnd)}</>}
+                    {' '}· due {centsToDisplay(data.subscription.amountDueCents, plans?.[0]?.currency ?? 'UGX')}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                    <select className="farm-input" value={planId} onChange={(e) => setPlanId(e.target.value)}>
+                      {(plans ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <select className="farm-input" value={period} onChange={(e) => setPeriod(e.target.value as PlanPeriod)}>
+                      {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }} disabled={subBusy} onClick={() => patchSub({ planId, period })}>Change plan / period</button>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                    <button className="btn-secondary" disabled={subBusy} onClick={() => patchSub({ extendTrialDays: 7 })}>+7d trial</button>
+                    <button className="btn-secondary" disabled={subBusy} onClick={() => patchSub({ extendPeriodDays: 30 })}>+30d period</button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <input className="farm-input" value={discountCode} onChange={(e) => setDiscountCode(e.target.value)} placeholder="Discount code" style={{ flex: 1 }} />
+                    <button className="btn-secondary" disabled={subBusy || !discountCode.trim()} onClick={() => patchSub({ discountCode: discountCode.trim() })}>Apply</button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <select className="farm-input" value={status} onChange={(e) => setStatus(e.target.value as SubscriptionStatus)} style={{ flex: 1 }}>
+                      {SUB_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <button className="btn-secondary" disabled={subBusy} onClick={() => patchSub({ status })}>Set status</button>
+                  </div>
+                  {subError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginTop: 8 }}>{subError}</div>}
+                </>
+              ) : (
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>No subscription on record.</div>
+              )}
+              <button
+                onClick={() => void toggleSuspend(!data.tenant.active)}
+                disabled={suspendBusy}
+                className="btn-secondary"
+                style={{ width: '100%', justifyContent: 'center', marginTop: 12, color: data.tenant.active ? 'var(--status-critical)' : 'var(--status-ok)' }}
+              >
+                {suspendBusy ? 'Working…' : data.tenant.active ? 'Suspend tenant' : 'Reactivate tenant'}
+              </button>
+            </div>
+
+            <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Payments ({data.payments.length})</div>
+              {data.payments.length === 0 && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>No payments yet.</div>}
+              {data.payments.slice(0, 10).map((p) => (
+                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 'var(--fs-sm)', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <span>{centsToDisplay(p.amountCents, p.currency)} · {p.method}</span>
+                  <span className={`chip ${p.status === 'confirmed' ? 'chip-ok' : p.status === 'rejected' ? 'chip-critical' : 'chip-warning'}`}>{p.status}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Users ({data.users.length}) · {data.openTicketCount} open ticket{data.openTicketCount === 1 ? '' : 's'}</div>
+              {data.users.map((u) => (
+                <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 'var(--fs-sm)' }}>
+                  <span>{u.name} · {u.role}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{u.status}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 6 }}>Last activity: {fmtDateTime(data.lastActivityAt)}</div>
+            </div>
+
+            <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Admin notes</div>
+              {data.notes.map((n) => (
+                <div key={n.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: 'var(--fs-sm)' }}>{n.note}</div>
+                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>{n.authorName} · {fmtDateTime(n.createdAt)}</div>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input className="farm-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note…" style={{ flex: 1 }} />
+                <button className="btn-secondary" disabled={noteBusy || !note.trim()} onClick={() => void addNote()}>Add</button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function AdminFarmsScreen() {
   const [tenants, setTenants] = useState<ApiTenant[] | null>(null);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'suspended'>('all');
   const [expandedTenant, setExpandedTenant] = useState<string | null>(null);
-  const { navigate } = useNav();
+  const [overviewTenant, setOverviewTenant] = useState<{ id: string; name: string } | null>(null);
+  const { navigate, params } = useNav();
+
+  // Overview's "trials ending soon" tile deep-links here with ?tenantId= —
+  // open straight into that tenant's overview instead of leaving the admin
+  // to find the row themselves.
+  useEffect(() => {
+    if (params.tenantId && tenants) {
+      const t = tenants.find((x) => x.id === params.tenantId);
+      if (t) setOverviewTenant({ id: t.id, name: t.name });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.tenantId, tenants]);
 
   const load = useCallback(async () => {
     const res = await apiClient.get<ApiTenant[]>('/api/admin/tenants');
@@ -231,6 +422,13 @@ export function AdminFarmsScreen() {
                       ))}
                     </div>
                     <button
+                      onClick={() => setOverviewTenant({ id: t.id, name: t.name })}
+                      className="btn-secondary"
+                      style={{ width: '100%', justifyContent: 'center', marginBottom: 6 }}
+                    >
+                      View overview
+                    </button>
+                    <button
                       onClick={() => setExpandedTenant((cur) => (cur === t.id ? null : t.id))}
                       style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 0', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: expandedTenant === t.id ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)', border: '1px solid var(--border-subtle)', color: expandedTenant === t.id ? 'var(--primary-green)' : 'var(--text-muted)' }}
                     >
@@ -247,6 +445,14 @@ export function AdminFarmsScreen() {
           </>
         )}
       </div>
+      {overviewTenant && (
+        <TenantOverviewSheet
+          tenantId={overviewTenant.id}
+          tenantName={overviewTenant.name}
+          onClose={() => setOverviewTenant(null)}
+          onChanged={load}
+        />
+      )}
     </div>
   );
 }
