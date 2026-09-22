@@ -2,15 +2,24 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import {
-  Plus, CheckCircle2, Clock, AlertTriangle, Users,
-  X, Check, Filter, RefreshCw, ShieldCheck,
-  Trash2, ChevronDown, ChevronUp, Download, FileText,
-  ChevronLeft, ChevronRight, Calendar, List,
+  Plus, CheckCircle2, Users, Check, Filter, RefreshCw, ShieldCheck,
+  Trash2, Download, FileText, ChevronLeft, ChevronRight,
+  AlertTriangle,
 } from './icons';
 import { apiClient } from '@/lib/request';
 import { useToast } from './ui-shared';
 import { StatusTimeline } from './status-timeline';
-import { SearchBar } from './ui-shared';
+import { PageHeader, Kpi } from '@/components/ui-kit/page-header';
+import { Segmented, Chips } from '@/components/ui-kit/segmented';
+import { Badge } from '@/components/ui-kit/badge';
+import { Avatar } from '@/components/ui-kit/avatar';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
+import { Dossier, Inspector, Kv } from '@/components/ui-kit/inspector';
+import { Field, controlClass } from '@/components/ui-kit/field';
+import { cn } from '@/lib/utils';
 
 // ── Tasks screen, wired to /api/tasks (issue #244) ──────────────────────────
 // Replaces the previous mock-data-driven prototype (see components/farm/data.ts).
@@ -29,6 +38,17 @@ import { SearchBar } from './ui-shared';
 // encoding, and the backfill can only match the ones whose stored name still
 // matches an employee. `assigneeNameFor` below reads the column first and
 // falls back to the text, so neither generation of row loses its assignee.
+//
+// ── Redesign (ui/governance-reference-redesign, package D) ──
+// Ported the layout from the reference's src/components/tasks/tasks-page.tsx
+// (Queue/Crew/Week, D5 of docs/ui-migration-map.md) onto this exact same
+// backend: no request URL, payload shape or permission check changed. The
+// reference infers a "house" per task from a title regex against its own mock
+// unit list — our `tasks` table has no unit/house column at all (see above),
+// so that decoration is dropped rather than guessed at. Every reference
+// screen depends on `scoped` (farm+person+search filtered); this port keeps
+// that plus the two LOCAL filters that predate the redesign (status,
+// priority — see FilterSheet) since dropping them would be a feature loss.
 
 // ApiTask/splitNotes/buildNotes/ASSIGNEE_PREFIX and the status/formatting
 // helpers below are also imported by components/farm/worker.tsx's "My Tasks
@@ -74,7 +94,7 @@ export interface Approver {
 }
 
 // What the create sheet hands back. Kept as one object because every caller
-// (the + button, a calendar day, "schedule again" on a finished task) fills
+// (the + button, a week day, "schedule again" on a finished task) fills
 // in a different subset and the rest defaults.
 export interface TaskDraft {
   title: string;
@@ -112,10 +132,6 @@ export function buildNotes(assignee: string, rest: string): string | null {
   if (!trimmedAssignee) return trimmedRest;
   return `${ASSIGNEE_PREFIX}${trimmedAssignee}${trimmedRest ? `\n${trimmedRest}` : ''}`;
 }
-
-export const PRIORITY_COLOR: Record<string, string> = {
-  high: 'var(--status-critical)', medium: 'var(--status-warning)', low: 'var(--text-muted)',
-};
 
 export const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pending', DONE: 'Done', OVERDUE: 'Overdue',
@@ -156,6 +172,30 @@ export function fmtDueAt(iso: string | null): string {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ── Queue grouping (D5) — overdue -> today -> upcoming -> done. A task with
+// no due date reads as "upcoming" (there's nothing to be overdue against).
+// This is a pure client regroup of the same GET /api/tasks response the old
+// flat list used — no new fetch, matching the map's "EXISTS → regroup"
+// entry for Tasks §2.
+type Bucket = 'overdue' | 'today' | 'upcoming' | 'done';
+const BUCKET_LABEL: Record<Bucket, string> = { overdue: 'Overdue', today: 'Today', upcoming: 'Upcoming', done: 'Done' };
+const BUCKET_ORDER: Bucket[] = ['overdue', 'today', 'upcoming', 'done'];
+
+function taskBucket(t: ApiTask): Bucket {
+  const status = displayStatus(t);
+  if (status === 'DONE' || status === 'REJECTED') return 'done';
+  if (status === 'OVERDUE') return 'overdue';
+  if (!t.dueAt) return 'upcoming';
+  const due = ymd(new Date(t.dueAt));
+  const today = ymd(new Date());
+  if (due === today) return 'today';
+  return due < today ? 'overdue' : 'upcoming';
+}
+
 function exportTaskCSV(tasks: ApiTask[], filename = 'tasks_export.csv') {
   const cols = ['title', 'assignee', 'status', 'priority', 'dueAt', 'requiresApproval', 'notes'];
   const rows = [cols.join(','), ...tasks.map(t => {
@@ -170,14 +210,52 @@ function exportTaskCSV(tasks: ApiTask[], filename = 'tasks_export.csv') {
   URL.revokeObjectURL(url);
 }
 
-/* ── Task Detail Sheet ── */
-function TaskDetailSheet({
-  task, employees, approvers, onClose, onDone, onDelete, onUpdate, onScheduleAgain,
+function isNarrowViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
+}
+
+/* ── Task line — one row in Queue / Crew / Week's list ── */
+function TaskLine({ task, employees, active, onPick }: { task: ApiTask; employees: Employee[]; active: boolean; onPick: () => void }) {
+  const assignee = assigneeNameFor(task, employees);
+  const status = displayStatus(task);
+  const bucket = taskBucket(task);
+  // Amber ("needs you") for anything not yet closed and already due,
+  // primary green once done — red is reserved for real destructive actions
+  // elsewhere on this screen (delete), not for a task merely running late.
+  const dotClass = status === 'DONE' ? 'bg-primary' : (bucket === 'overdue' || bucket === 'today') ? 'bg-warning' : 'bg-border';
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      className={cn('flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left', active ? 'bg-primary-soft' : 'hover:bg-surface-2')}
+    >
+      <span className={cn('mt-1.5 size-2.5 shrink-0 rounded-full', dotClass)} />
+      <span className="min-w-0 flex-1">
+        <span className={cn('block text-sm font-medium', status === 'DONE' && 'text-muted line-through')}>{task.title}</span>
+        <span className="mt-0.5 block text-xs text-subtle">
+          {assignee ? assignee.split(' ')[0] : 'Unassigned'} · {fmtDueAt(task.dueAt)}
+        </span>
+      </span>
+      {task.priority === 'high' && <Badge variant="warning">High</Badge>}
+    </button>
+  );
+}
+
+function EmptyFile() {
+  return <EmptyState icon={<FileText size={18} />} title="Nothing selected" body="Pick a line on the left to read its file." />;
+}
+
+/* ── Task detail — shared body, rendered as a desktop Dossier or a mobile
+ * Inspector sheet by every one of Queue/Crew/Week (`as` picks which). ── */
+function TaskDetailPanel({
+  as, open, onOpenChange, task, employees, approvers, onDone, onDelete, onUpdate, onScheduleAgain,
 }: {
+  as: 'dossier' | 'inspector';
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   task: ApiTask;
   employees: Employee[];
   approvers: Approver[];
-  onClose: () => void;
   onDone: (task: ApiTask) => void;
   onDelete: (task: ApiTask) => void;
   onUpdate: (task: ApiTask, patch: Record<string, unknown>) => Promise<string | null>;
@@ -187,16 +265,23 @@ function TaskDetailSheet({
   const assignee = assigneeNameFor(task, employees);
   const status = displayStatus(task);
   const finished = task.status === 'DONE' || task.status === 'REJECTED';
+  const bucketLabel = BUCKET_LABEL[taskBucket(task)];
 
-  // Reassignment happens in place rather than through a separate edit
-  // screen: "who is doing this" is the field that changes most, and on a
-  // finished task it is the whole reason for opening it again.
   const [editing, setEditing] = useState(false);
   const [draftAssignee, setDraftAssignee] = useState(task.assigneeId ?? '');
   const [draftApprover, setDraftApprover] = useState(task.approverId ?? '');
   const [draftDue, setDraftDue] = useState(task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 16) : '');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+
+  // A different row was picked — drop any in-flight edit on the previous one.
+  useEffect(() => {
+    setEditing(false);
+    setDraftAssignee(task.assigneeId ?? '');
+    setDraftApprover(task.approverId ?? '');
+    setDraftDue(task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 16) : '');
+    setSaveError('');
+  }, [task.id, task.assigneeId, task.approverId, task.dueAt]);
 
   const approverName = task.approverId
     ? approvers.find(a => a.userId === task.approverId)?.name ?? 'Someone no longer on this farm'
@@ -215,157 +300,334 @@ function TaskDetailSheet({
     setEditing(false);
   }
 
-  return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '92%', overflowY: 'auto', border: '1px solid var(--border-subtle)', padding: 20 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-          <div style={{ flex: 1, marginRight: 8 }}>
-            <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, lineHeight: 1.3, color: 'var(--text-primary)', marginBottom: 4 }}>{task.title}</div>
-            <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{STATUS_LABEL[status] ?? status}</span>
-          </div>
-          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+  const body = (
+    <>
+      <dl>
+        <Kv label="Status" value={STATUS_LABEL[status] ?? status} />
+        <Kv label="Priority" value={<span className="capitalize">{task.priority}</span>} />
+        <Kv label="Assignee" value={assignee || 'Unassigned'} />
+        <Kv label="Due" value={fmtDueAt(task.dueAt)} />
+        <Kv label="Repeats" value={RECURRENCE_LABEL[task.recurrence ?? 'none'] ?? 'Does not repeat'} />
+        <Kv label="Approval" value={task.requiresApproval ? (task.approverId ? approverName : 'Anyone who can approve') : 'None'} />
+      </dl>
+      {task.requiresApproval && (
+        <div className="mt-3 flex items-center gap-2 rounded-lg bg-warning-soft px-3 py-2 text-xs font-medium text-warning">
+          <ShieldCheck size={13} aria-hidden="true" />
+          {task.approverId ? `${approverName} approves this before it counts as done` : 'Needs approval before it counts as done'}
         </div>
-
-        <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {[
-              ['Assigned To', assignee || 'Unassigned', 'var(--text-secondary)'],
-              ['Due', fmtDueAt(task.dueAt), status === 'OVERDUE' ? 'var(--status-critical)' : 'var(--text-secondary)'],
-              ['Priority', task.priority, PRIORITY_COLOR[task.priority]],
-              ['Repeats', RECURRENCE_LABEL[task.recurrence ?? 'none'] ?? 'Does not repeat', 'var(--text-secondary)'],
-            ].map(([k, v, c]) => (
-              <div key={k}>
-                <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{k}</div>
-                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: c }}>{v}</div>
-              </div>
-            ))}
-          </div>
-          {task.requiresApproval && (
-            <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(var(--warning-rgb),0.08)', borderRadius: 8, border: '1px solid rgba(var(--warning-rgb),0.25)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <ShieldCheck size={12} color="var(--accent-amber)" />
-              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-amber)', fontWeight: 600 }}>
-                {task.approverId ? `${approverName} approves this before it counts as done` : 'Needs approval before it counts as done'}
-              </span>
-            </div>
-          )}
-          {task.recurrenceParentId && (
-            <div style={{ marginTop: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>
-              Created automatically when the previous one was completed.
-            </div>
-          )}
-          {rest && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 10, padding: '8px 10px', background: 'var(--card)', borderRadius: 8, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              <FileText size={13} style={{ flexShrink: 0, marginTop: 3 }} aria-hidden="true" /> {rest}
-            </div>
-          )}
+      )}
+      {task.recurrenceParentId && (
+        <p className="mt-2 text-xs text-subtle">Created automatically when the previous one was completed.</p>
+      )}
+      {rest && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">
+          <FileText size={13} className="mt-0.5 shrink-0" aria-hidden="true" /> {rest}
         </div>
+      )}
 
-        {editing && (
-          <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
-            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Change who and when</div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assigned to</label>
-            <select className="farm-input" value={draftAssignee} onChange={e => setDraftAssignee(e.target.value)} style={{ marginBottom: 10 }}>
+      {editing && (
+        <div className="mt-4 rounded-lg bg-surface-2 p-3">
+          <p className="mb-2 text-xs font-medium tracking-wide text-subtle uppercase">Change who and when</p>
+          <Field label="Assigned to" className="mb-2">
+            <select className={controlClass} value={draftAssignee} onChange={e => setDraftAssignee(e.target.value)}>
               <option value="">Unassigned</option>
               {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.role})</option>)}
             </select>
-
-            {task.requiresApproval && (
-              <>
-                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Approved by</label>
-                <select className="farm-input" value={draftApprover} onChange={e => setDraftApprover(e.target.value)} style={{ marginBottom: 10 }}>
-                  <option value="">Anyone who can approve</option>
-                  {approvers.map(a => <option key={a.userId} value={a.userId}>{a.name} ({a.role})</option>)}
-                </select>
-              </>
-            )}
-
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due</label>
-            <input className="farm-input" type="datetime-local" value={draftDue} onChange={e => setDraftDue(e.target.value)} style={{ marginBottom: 10 }} />
-
-            {saveError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{saveError}</div>}
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-secondary" onClick={() => { setEditing(false); setSaveError(''); }} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
-              <button className="btn-primary" onClick={saveEdits} disabled={saving} style={{ flex: 1, justifyContent: 'center' }}>{saving ? 'Saving…' : 'Save'}</button>
-            </div>
+          </Field>
+          {task.requiresApproval && (
+            <Field label="Approved by" className="mb-2">
+              <select className={controlClass} value={draftApprover} onChange={e => setDraftApprover(e.target.value)}>
+                <option value="">Anyone who can approve</option>
+                {approvers.map(a => <option key={a.userId} value={a.userId}>{a.name} ({a.role})</option>)}
+              </select>
+            </Field>
+          )}
+          <Field label="Due">
+            <Input type="datetime-local" value={draftDue} onChange={e => setDraftDue(e.target.value)} />
+          </Field>
+          {saveError && <p className="mt-2 text-xs text-danger">{saveError}</p>}
+          <div className="mt-3 flex gap-2">
+            <Button variant="secondary" className="flex-1 justify-center" onClick={() => { setEditing(false); setSaveError(''); }}>Cancel</Button>
+            <Button className="flex-1 justify-center" onClick={saveEdits} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
           </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {/* A finished task used to be a dead end: you could look at it and
-             nothing else. Doing the same job again is the commonest thing an
-             owner wants from one, so it opens the create sheet prefilled from
-             this task rather than making them retype it. */}
-          {finished && (
-            <button
-              onClick={() => onScheduleAgain({
-                title: task.title,
-                assigneeId: task.assigneeId ?? '',
-                approverId: task.approverId ?? '',
-                priority: task.priority,
-                requiresApproval: task.requiresApproval,
-                notes: rest,
-                farmId: task.farmId ?? '',
-              })}
-              style={{ flex: 1, minWidth: 150, padding: '11px', borderRadius: 10, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-            >
-              <RefreshCw size={13} /> Schedule again
-            </button>
-          )}
-          {!editing && (
-            <button onClick={() => setEditing(true)} style={{ padding: '11px 14px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-              {finished ? 'Reassign' : 'Reassign / reschedule'}
-            </button>
-          )}
-          {task.status !== 'DONE' && task.status !== 'PENDING_APPROVAL' && (
-            <button onClick={() => { onDone(task); onClose(); }} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 'var(--fs-base)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--primary-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Check size={14} /> Mark Done
-            </button>
-          )}
-          {task.status !== 'DONE' && (
-            <button onClick={() => { onDelete(task); onClose(); }} style={{ padding: '11px 14px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Trash2 size={13} />
-            </button>
-          )}
-          <button onClick={onClose} style={{ padding: '11px 16px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>Close</button>
         </div>
+      )}
 
-        <StatusTimeline tenantId={task.tenantId} entity="task" entityId={task.id} />
+      <StatusTimeline tenantId={task.tenantId} entity="task" entityId={task.id} />
+    </>
+  );
+
+  const footer = !editing ? (
+    <div className="flex flex-wrap gap-2">
+      {finished && (
+        <Button
+          variant="secondary"
+          className="flex-1 justify-center"
+          onClick={() => onScheduleAgain({
+            title: task.title, assigneeId: task.assigneeId ?? '', approverId: task.approverId ?? '',
+            priority: task.priority, requiresApproval: task.requiresApproval, notes: rest, farmId: task.farmId ?? '',
+          })}
+        >
+          <RefreshCw size={13} /> Schedule again
+        </Button>
+      )}
+      <Button variant="secondary" onClick={() => setEditing(true)}>{finished ? 'Reassign' : 'Reassign / reschedule'}</Button>
+      {task.status !== 'DONE' && task.status !== 'PENDING_APPROVAL' && (
+        <Button className="flex-1 justify-center" onClick={() => onDone(task)}><Check size={13} /> Mark done</Button>
+      )}
+      {task.status !== 'DONE' && (
+        <Button variant="danger" size="icon-sm" aria-label="Delete task" onClick={() => onDelete(task)}><Trash2 size={13} /></Button>
+      )}
+    </div>
+  ) : null;
+
+  if (as === 'dossier') {
+    return (
+      <Dossier kicker={bucketLabel} title={task.title} lede={assignee ? `${assignee} · ${fmtDueAt(task.dueAt)}` : fmtDueAt(task.dueAt)} footer={footer}>
+        {body}
+      </Dossier>
+    );
+  }
+  return (
+    <Inspector
+      open={!!open}
+      onOpenChange={onOpenChange ?? (() => {})}
+      kicker={bucketLabel}
+      title={task.title}
+      lede={assignee || undefined}
+      footer={footer}
+    >
+      {body}
+    </Inspector>
+  );
+}
+
+/* ── Queue — grouped by due bucket, with the search + person chips that scope
+ * every one of Queue/Crew/Week (reference's shared `scoped`). ── */
+function Queue({
+  groups, employees, approvers, search, onSearch, peopleOptions, person, onPerson, picked, onPick, onDone, onDelete, onUpdate, onScheduleAgain,
+}: {
+  groups: { id: Bucket; items: ApiTask[] }[];
+  employees: Employee[];
+  approvers: Approver[];
+  search: string;
+  onSearch: (v: string) => void;
+  peopleOptions: { id: string; label: string }[];
+  person: string;
+  onPerson: (v: string) => void;
+  picked: ApiTask | null;
+  onPick: (t: ApiTask) => void;
+  onDone: (t: ApiTask) => void;
+  onDelete: (t: ApiTask) => void;
+  onUpdate: (task: ApiTask, patch: Record<string, unknown>) => Promise<string | null>;
+  onScheduleAgain: (draft: Partial<TaskDraft>) => void;
+}) {
+  return (
+    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.9fr)]">
+      <div className="min-w-0 rounded-xl bg-surface p-3 shadow-(--shadow-border) lg:p-4">
+        <Input value={search} onChange={e => onSearch(e.target.value)} placeholder="Search work or a name…" aria-label="Search tasks" />
+        <div className="mt-3">
+          <Chips value={person} onChange={onPerson} items={peopleOptions} />
+        </div>
+        {groups.length === 0 ? (
+          <p className="px-2 py-10 text-center text-sm text-muted">No work matches that filter.</p>
+        ) : (
+          groups.map(g => (
+            <section key={g.id} className="mt-4">
+              <h3 className="sticky top-0 z-10 bg-surface/90 px-2 py-1.5 text-xs font-medium tracking-[0.12em] text-subtle uppercase backdrop-blur-sm">
+                {BUCKET_LABEL[g.id]} · {g.items.length}
+              </h3>
+              <ul>
+                {g.items.map(t => (
+                  <li key={t.id}><TaskLine task={t} employees={employees} active={picked?.id === t.id} onPick={() => onPick(t)} /></li>
+                ))}
+              </ul>
+            </section>
+          ))
+        )}
+      </div>
+      <div className="hidden min-w-0 lg:block">
+        {picked ? (
+          <TaskDetailPanel as="dossier" task={picked} employees={employees} approvers={approvers} onDone={onDone} onDelete={onDelete} onUpdate={onUpdate} onScheduleAgain={onScheduleAgain} />
+        ) : <EmptyFile />}
       </div>
     </div>
   );
 }
 
-/* ── Task Card ── */
-function TaskCard({ task, employees, onOpen }: { task: ApiTask; employees: Employee[]; onOpen: (task: ApiTask) => void }) {
-  const assignee = assigneeNameFor(task, employees);
-  const status = displayStatus(task);
+/* ── Crew — grouped by assignee, load bar (D5, new view — no new fetch, built
+ * from the same GET /api/tasks + GET /api/employees Queue already loads). ── */
+interface CrewRow { id: string; name: string; role: string; open: number; late: number; items: ApiTask[] }
+
+function Crew({ crew, employees, maxOpen, picked, onPick }: {
+  crew: CrewRow[];
+  employees: Employee[];
+  maxOpen: number;
+  picked: ApiTask | null;
+  onPick: (t: ApiTask) => void;
+}) {
+  const selectedPerson = picked?.assigneeId ?? crew[0]?.id;
+  return (
+    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.9fr)]">
+      <div className="min-w-0 rounded-xl bg-surface p-3 shadow-(--shadow-border) lg:p-4">
+        <p className="px-1 text-xs text-muted">Open work per person. A full bar is a crew member carrying the load.</p>
+        {crew.length === 0 ? (
+          <p className="px-2 py-10 text-center text-sm text-muted">Nobody has open, assigned work right now.</p>
+        ) : (
+          <ul className="mt-3">
+            {crew.map(c => {
+              const active = c.id === selectedPerson;
+              return (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => { const first = c.items.find(t => t.status !== 'DONE') ?? c.items[0]; if (first) onPick(first); }}
+                    className={cn('flex w-full flex-col gap-2 rounded-lg px-3 py-3 text-left', active ? 'bg-primary-soft' : 'hover:bg-surface-2')}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Avatar name={c.name} size="sm" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium">{c.name}</span>
+                        <span className="block text-xs text-subtle">{c.role}</span>
+                      </span>
+                      <span className="text-xs tabular-nums text-muted">{c.open} open{c.late ? ` · ${c.late} late` : ''}</span>
+                    </span>
+                    <span className="block h-1.5 overflow-hidden rounded-full bg-border">
+                      <span className={cn('block h-full rounded-full', c.late ? 'bg-warning' : 'bg-primary')} style={{ width: `${Math.round((c.open / maxOpen) * 100)}%` }} />
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <div className="hidden min-w-0 lg:block">
+        {crew.find(c => c.id === selectedPerson) ? (
+          (() => {
+            const row = crew.find(c => c.id === selectedPerson)!;
+            return (
+              <Dossier kicker={row.role} title={row.name} lede={`${row.open} open · ${row.late} overdue`}>
+                <ul>{row.items.map(t => <li key={t.id}><TaskLine task={t} employees={employees} active={picked?.id === t.id} onPick={() => onPick(t)} /></li>)}</ul>
+              </Dossier>
+            );
+          })()
+        ) : (
+          <EmptyState icon={<Users size={18} />} title="No crew activity" body="Assign work to see it grouped by person here." />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Week — 7-day load strip + day drill-in (D5: replaces the month
+ * calendar; a prev/next-WEEK control keeps the "browse other periods"
+ * ability the month view had, at the week granularity the reference uses).
+ * Mobile: the strip itself IS the swipeable day picker (overflow-x-auto,
+ * no page-level horizontal scroll) — no separate mobile layout needed. ── */
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function startOfWeekMonday(d: Date): Date {
+  const copy = new Date(d);
+  const day = (copy.getDay() + 6) % 7;
+  copy.setDate(copy.getDate() - day);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+function addDays(d: Date, n: number): Date {
+  const copy = new Date(d);
+  copy.setDate(copy.getDate() + n);
+  return copy;
+}
+
+function Week({
+  tasks, employees, approvers, weekStart, onWeekChange, day, onDay, picked, onPick, onAddOn, onDone, onDelete, onUpdate, onScheduleAgain,
+}: {
+  tasks: ApiTask[];
+  employees: Employee[];
+  approvers: Approver[];
+  weekStart: Date;
+  onWeekChange: (d: Date) => void;
+  day: string | null;
+  onDay: (iso: string) => void;
+  picked: ApiTask | null;
+  onPick: (t: ApiTask) => void;
+  onAddOn: (isoDate: string) => void;
+  onDone: (t: ApiTask) => void;
+  onDelete: (t: ApiTask) => void;
+  onUpdate: (task: ApiTask, patch: Record<string, unknown>) => Promise<string | null>;
+  onScheduleAgain: (draft: Partial<TaskDraft>) => void;
+}) {
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  const counts = useMemo(() => days.map(d => tasks.filter(t => t.dueAt && ymd(new Date(t.dueAt)) === ymd(d))), [days, tasks]);
+  const max = Math.max(1, ...counts.map(c => c.length));
+  const todayKey = ymd(new Date());
+  const selectedKey = day ?? todayKey;
+  const ofDay = tasks.filter(t => t.dueAt && ymd(new Date(t.dueAt)) === selectedKey);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const emptyAhead = days.filter((d, i) => d >= startOfToday && counts[i].length === 0).length;
 
   return (
-    <div
-      className="farm-card"
-      style={{ padding: 14, borderLeft: `3px solid ${status === 'OVERDUE' ? 'var(--status-critical)' : status === 'DONE' ? 'var(--status-ok)' : PRIORITY_COLOR[task.priority]}`, cursor: 'pointer' }}
-      onClick={() => onOpen(task)}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, lineHeight: 1.3, color: task.status === 'DONE' ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: task.status === 'DONE' ? 'line-through' : 'none', flex: 1, marginRight: 8 }}>
-          {task.title}
+    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.9fr)]">
+      <div className="min-w-0 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+        <div className="flex items-center justify-between">
+          <button type="button" aria-label="Previous week" onClick={() => onWeekChange(addDays(weekStart, -7))} className="flex size-8 items-center justify-center rounded-md text-muted hover:bg-surface-2">
+            <ChevronLeft size={16} />
+          </button>
+          <p className="text-xs font-medium tracking-[0.12em] text-subtle uppercase">
+            {days[0]!.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} – {days[6]!.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+          </p>
+          <button type="button" aria-label="Next week" onClick={() => onWeekChange(addDays(weekStart, 7))} className="flex size-8 items-center justify-center rounded-md text-muted hover:bg-surface-2">
+            <ChevronRight size={16} />
+          </button>
         </div>
-        <span className={`chip ${statusChipClass(status)}`} style={{ fontSize: 'var(--fs-2xs)', flexShrink: 0 }}>{STATUS_LABEL[status] ?? status}</span>
+
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-7 lg:gap-2 lg:overflow-visible">
+          {days.map((d, i) => {
+            const key = ymd(d);
+            const n = counts[i]!;
+            const late = n.some(t => taskBucket(t) === 'overdue');
+            const on = key === selectedKey;
+            const h = 8 + Math.round((n.length / max) * 56);
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => { onDay(key); if (n[0]) onPick(n[0]); }}
+                className={cn('flex w-14 shrink-0 flex-col items-center gap-2 rounded-lg px-1 py-2 lg:w-auto', on ? 'bg-primary-soft' : 'hover:bg-surface-2')}
+              >
+                <span className="text-[10px] tracking-wide text-muted uppercase">{WEEKDAYS[i]}</span>
+                <span className="flex h-16 w-full items-end justify-center">
+                  <span className={cn('w-4 rounded-sm', late ? 'bg-warning' : n.length ? 'bg-primary' : 'bg-border')} style={{ height: n.length ? h : 4 }} />
+                </span>
+                <span className={cn('text-sm tabular-nums', key === todayKey && 'font-medium text-primary')}>{d.getDate()}</span>
+                <span className="text-[10px] tabular-nums text-subtle">{n.length || '—'}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {emptyAhead > 0 && (
+          <p className="mt-3 text-xs text-warning">{emptyAhead} day{emptyAhead === 1 ? '' : 's'} ahead this week with nothing scheduled.</p>
+        )}
+
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <p className="text-sm text-muted">
+            {ofDay.length ? `${ofDay.length} on ${new Date(`${selectedKey}T12:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}.` : 'Nothing assigned that day.'}
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => onAddOn(selectedKey)}><Plus size={12} /> Add</Button>
+        </div>
+        <ul className="mt-2">
+          {ofDay.map(t => <li key={t.id}><TaskLine task={t} employees={employees} active={picked?.id === t.id} onPick={() => onPick(t)} /></li>)}
+        </ul>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <Users size={11} color="var(--text-muted)" />
-          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{assignee || 'Unassigned'}</span>
-        </div>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <Clock size={11} color={status === 'OVERDUE' ? 'var(--status-critical)' : 'var(--text-muted)'} />
-          <span style={{ fontSize: 'var(--fs-xs)', color: status === 'OVERDUE' ? 'var(--status-critical)' : 'var(--text-muted)' }}>{fmtDueAt(task.dueAt)}</span>
-        </div>
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
-        <span style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 100, background: 'rgba(255,255,255,0.05)', color: PRIORITY_COLOR[task.priority], border: '1px solid var(--border-subtle)', textTransform: 'capitalize' }}>{task.priority}</span>
-        {task.requiresApproval && <span style={{ fontSize: 'var(--fs-2xs)', padding: '2px 6px', borderRadius: 100, background: 'rgba(var(--warning-rgb),0.1)', color: 'var(--accent-amber)', border: '1px solid rgba(var(--warning-rgb),0.3)' }}><ShieldCheck size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} />Approval</span>}
+      <div className="hidden min-w-0 lg:block">
+        {picked && ofDay.some(t => t.id === picked.id) ? (
+          <TaskDetailPanel as="dossier" task={picked} employees={employees} approvers={approvers} onDone={onDone} onDelete={onDelete} onUpdate={onUpdate} onScheduleAgain={onScheduleAgain} />
+        ) : (
+          <EmptyState icon={<CheckCircle2 size={18} />} title="Nothing selected" body="Tap a day, then a line, or Add to plan work for it." />
+        )}
       </div>
     </div>
   );
@@ -374,16 +636,9 @@ function TaskCard({ task, employees, onOpen }: { task: ApiTask; employees: Emplo
 /* ── Add Task Sheet ── */
 function AddTaskSheet({ employees, farms, activeFarmId, approvers, initial, onClose, onCreate }: {
   employees: Employee[];
-  // farm-scoped-data task: defaults to the shell's active farm; a task can
-  // also legitimately have NO farm (a tenant-level task, e.g. "renew
-  // business license" — see POST /api/tasks's header) so, unlike the
-  // purchase/lot forms, this picker is never forced to a value.
   farms: { id: string; name: string }[];
   activeFarmId: string;
   approvers: Approver[];
-  // Prefilled when the sheet is opened from a calendar day or from "schedule
-  // again" on a finished task, so the user isn't retyping what they just
-  // clicked on.
   initial?: Partial<TaskDraft>;
   onClose: () => void;
   onCreate: (payload: TaskDraft) => Promise<string | null>;
@@ -404,8 +659,6 @@ function AddTaskSheet({ employees, farms, activeFarmId, approvers, initial, onCl
 
   async function submit() {
     if (!title.trim()) { setError('Task title is required'); return; }
-    // The server refuses this too — saying it here saves a round trip and
-    // explains WHY, which a bare 400 in a toast doesn't.
     if (recurrence !== 'none' && !dueDate) { setError('A repeating task needs a due date — each repeat is counted from it'); return; }
     setSaving(true);
     setError('');
@@ -419,121 +672,112 @@ function AddTaskSheet({ employees, farms, activeFarmId, approvers, initial, onCl
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-end', zIndex: 100 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', maxHeight: '90%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>New Task</div>
-          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
-        </div>
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92vh]">
+      <SheetTitle className="sr-only">Assign work</SheetTitle>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="mb-4 font-display text-xl font-medium">Assign work</div>
 
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Task Title *</label>
-          <input className="farm-input" value={title} onChange={e => { setTitle(e.target.value); setError(''); }} placeholder="e.g. Morning feeding — House A1" />
-        </div>
+        <div className="flex flex-col gap-3">
+          <Field label="Work *">
+            <Input value={title} onChange={e => { setTitle(e.target.value); setError(''); }} placeholder="e.g. Afternoon feed — house 1" inputMode="text" />
+          </Field>
 
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
-          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
-            <option value="">No specific farm (tenant-wide)</option>
-            {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-          </select>
-        </div>
+          <Field label="Farm">
+            <select className={controlClass} value={farmId} onChange={e => setFarmId(e.target.value)}>
+              <option value="">No specific farm (tenant-wide)</option>
+              {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+          </Field>
 
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Assign To</label>
-          <select className="farm-input" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
-            <option value="">Unassigned</option>
-            {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.role})</option>)}
-          </select>
-        </div>
+          <Field label="Who">
+            <select className={controlClass} value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
+              <option value="">Unassigned</option>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.role})</option>)}
+            </select>
+          </Field>
 
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Repeats</label>
-          <select className="farm-input" value={recurrence} onChange={e => setRecurrence(e.target.value)}>
-            {Object.entries(RECURRENCE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
+          <Field label="Repeats">
+            <select className={controlClass} value={recurrence} onChange={e => setRecurrence(e.target.value)}>
+              {Object.entries(RECURRENCE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
           {recurrence !== 'none' && (
-            <div style={{ marginTop: 8 }}>
-              <label style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontWeight: 600, display: 'block', marginBottom: 3 }}>Stop repeating after (optional)</label>
-              <input className="farm-input" type="date" value={recurrenceUntil} onChange={e => setRecurrenceUntil(e.target.value)} />
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>
-                The next one is created when this one is completed — so a chore that nobody does doesn&apos;t quietly pile up unfinished copies.
-              </div>
-            </div>
+            <Field label="Stop repeating after (optional)">
+              <Input type="date" value={recurrenceUntil} onChange={e => setRecurrenceUntil(e.target.value)} />
+            </Field>
           )}
-        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due Date</label>
-            <input className="farm-input" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due Time</label>
-            <input className="farm-input" type="time" value={dueTime} onChange={e => setDueTime(e.target.value)} />
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Priority</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {(['high', 'medium', 'low'] as const).map(p => (
-              <button key={p} onClick={() => setPriority(p)} style={{ flex: 1, padding: '8px', borderRadius: 8, fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer', background: priority === p ? `${PRIORITY_COLOR[p]}20` : 'var(--card)', border: priority === p ? `1px solid ${PRIORITY_COLOR[p]}60` : '1px solid var(--border-subtle)', color: priority === p ? PRIORITY_COLOR[p] : 'var(--text-muted)', textTransform: 'capitalize' }}>{p}</button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Needs approval</div>
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>The assignee submits it for review instead of marking it done</div>
-            </div>
-            <button onClick={() => setRequiresApproval(x => !x)} style={{ width: 44, height: 24, borderRadius: 100, cursor: 'pointer', border: 'none', background: requiresApproval ? 'var(--primary-green)' : 'var(--border-subtle)', position: 'relative', flexShrink: 0 }}>
-              <div style={{ position: 'absolute', top: 2, left: requiresApproval ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: 'white', transition: 'left 0.15s' }} />
-            </button>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Due date">
+              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+            </Field>
+            <Field label="Due time">
+              <Input type="time" value={dueTime} onChange={e => setDueTime(e.target.value)} />
+            </Field>
           </div>
 
-          {/* Naming the approver is what turns "anyone with governance
-             rights" into one person's queue. Left blank it behaves exactly
-             as before, which is what every task created until now did. */}
-          {requiresApproval && (
-            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-subtle)' }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Who approves it</label>
-              <select className="farm-input" value={approverId} onChange={e => setApproverId(e.target.value)}>
-                <option value="">Anyone who can approve</option>
-                {approvers.map(a => <option key={a.userId} value={a.userId}>{a.name} ({a.role})</option>)}
-              </select>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>
-                {approverId
-                  ? 'Only this person sees it in their approvals queue and can sign it off. The owner can step in if they are unavailable.'
-                  : 'It goes to everyone who can approve, and any of them can sign it off.'}
+          <Field label="Priority">
+            <Chips
+              value={priority}
+              onChange={setPriority}
+              items={[{ id: 'high', label: 'High' }, { id: 'medium', label: 'Medium' }, { id: 'low', label: 'Low' }]}
+            />
+          </Field>
+
+          <div className="rounded-lg bg-surface-2 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Needs approval</div>
+                <div className="mt-0.5 text-xs text-muted">The assignee submits it for review instead of marking it done</div>
               </div>
-              {approvers.length === 0 && (
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-warning)', marginTop: 6, lineHeight: 1.5 }}>
-                  Nobody on this farm can approve yet — a person needs a login and a role with governance access.
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setRequiresApproval(x => !x)}
+                aria-pressed={requiresApproval}
+                className={cn('relative h-6 w-11 shrink-0 rounded-full transition-colors', requiresApproval ? 'bg-primary' : 'bg-border')}
+              >
+                <span className={cn('absolute top-0.5 size-5 rounded-full bg-surface transition-[left]', requiresApproval ? 'left-[22px]' : 'left-0.5')} />
+              </button>
             </div>
-          )}
+            {requiresApproval && (
+              <div className="mt-3 border-t border-border pt-3">
+                <Field label="Who approves it">
+                  <select className={controlClass} value={approverId} onChange={e => setApproverId(e.target.value)}>
+                    <option value="">Anyone who can approve</option>
+                    {approvers.map(a => <option key={a.userId} value={a.userId}>{a.name} ({a.role})</option>)}
+                  </select>
+                </Field>
+                <p className="mt-2 text-xs text-muted">
+                  {approverId
+                    ? 'Only this person sees it in their approvals queue and can sign it off. The owner can step in if they are unavailable.'
+                    : 'It goes to everyone who can approve, and any of them can sign it off.'}
+                </p>
+                {approvers.length === 0 && (
+                  <p className="mt-1.5 text-xs text-warning">Nobody on this farm can approve yet — a person needs a login and a role with governance access.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <Field label="Notes / instructions">
+            <textarea className={cn(controlClass, 'h-20 resize-none py-2')} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Instructions for the assignee…" />
+          </Field>
+
+          {error && <div className="flex items-center gap-1.5 text-xs text-danger"><AlertTriangle size={12} aria-hidden="true" /> {error}</div>}
+
+          <Button className="mt-1 justify-center" onClick={submit} disabled={saving}>
+            <Check size={14} /> {saving ? 'Assigning…' : 'Assign'}
+          </Button>
         </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes / Instructions</label>
-          <textarea className="farm-input" rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Instructions for the assignee…" style={{ resize: 'none' }} />
-        </div>
-
-        {error && <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}><AlertTriangle size={11} aria-hidden="true" /> {error}</div>}
-
-        <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={submit} disabled={saving}>
-          <Check size={14} /> {saving ? 'Creating…' : 'Create Task'}
-        </button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
-/* ── Filter Sheet ── */
+/* ── Filter Sheet — status/priority (a local feature that predates the
+ * redesign; the reference has no equivalent, since Queue's bucket grouping
+ * covers most of the same job, but priority filtering is still real and
+ * useful, so it stays). ── */
 function FilterSheet({
   filterStatus, setFilterStatus, filterPriority, setFilterPriority, onClose, onReset,
 }: {
@@ -542,189 +786,42 @@ function FilterSheet({
   onClose: () => void; onReset: () => void;
 }) {
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '80%', overflowY: 'auto', padding: 20, border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Filter Tasks</div>
-          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>Status</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[80vh]">
+      <SheetTitle className="sr-only">Filter tasks</SheetTitle>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="mb-4 font-display text-xl font-medium">Filter tasks</div>
+
+        <div className="mb-4">
+          <p className="mb-2 text-xs font-medium tracking-wide text-subtle uppercase">Status</p>
+          <div className="flex flex-wrap gap-1.5">
             {['All', 'PENDING', 'OVERDUE', 'PENDING_APPROVAL', 'DONE', 'REJECTED'].map(v => (
-              <button key={v} onClick={() => setFilterStatus(v)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: filterStatus === v ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: filterStatus === v ? '1px solid rgba(var(--primary-rgb),0.5)' : '1px solid var(--border-subtle)', color: filterStatus === v ? 'var(--primary-green)' : 'var(--text-muted)' }}>{STATUS_LABEL[v] ?? v}</button>
+              <button
+                key={v}
+                type="button"
+                onClick={() => setFilterStatus(v)}
+                className={cn('rounded-full px-3 py-1.5 text-xs font-medium', filterStatus === v ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-muted')}
+              >
+                {v === 'All' ? 'All' : (STATUS_LABEL[v] ?? v)}
+              </button>
             ))}
           </div>
         </div>
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>Priority</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {['All', 'high', 'medium', 'low'].map(v => (
-              <button key={v} onClick={() => setFilterPriority(v)} style={{ flex: 1, padding: '7px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: filterPriority === v ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: filterPriority === v ? '1px solid rgba(var(--primary-rgb),0.5)' : '1px solid var(--border-subtle)', color: filterPriority === v ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>{v}</button>
-            ))}
-          </div>
+
+        <div className="mb-6">
+          <p className="mb-2 text-xs font-medium tracking-wide text-subtle uppercase">Priority</p>
+          <Chips
+            value={filterPriority}
+            onChange={setFilterPriority}
+            items={[{ id: 'All', label: 'All' }, { id: 'high', label: 'High' }, { id: 'medium', label: 'Medium' }, { id: 'low', label: 'Low' }]}
+          />
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onReset} style={{ flex: 1, padding: '11px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 'var(--fs-base)', cursor: 'pointer' }}>Reset All</button>
-          <button onClick={onClose} className="btn-primary" style={{ flex: 2, justifyContent: 'center' }}>
-            <Check size={14} /> Apply Filters
-          </button>
+
+        <div className="flex gap-2">
+          <Button variant="secondary" className="flex-1 justify-center" onClick={onReset}>Reset all</Button>
+          <Button className="flex-[2] justify-center" onClick={onClose}><Check size={14} /> Apply filters</Button>
         </div>
       </div>
-    </div>
-  );
-}
-
-
-/* ── Schedule calendar ─────────────────────────────────────────────────────
- * The question this answers is the one a list cannot: not "what is on this
- * task" but "when is nobody doing anything". A farm's problem is rarely a
- * single forgotten job — it is a week with no feeding scheduled that nobody
- * noticed until the week arrived. So empty upcoming days are drawn as
- * something missing rather than as blank space, and counted in a line above
- * the grid.
- *
- * Built from the tasks already loaded for the current farm filter rather
- * than a second fetch: the list and the calendar must never disagree about
- * what is scheduled, and a month is a small slice of an already-small set. */
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function TaskCalendar({ tasks, employees, month, onMonthChange, onOpenTask, onAddOn }: {
-  tasks: ApiTask[];
-  employees: Employee[];
-  month: Date;
-  onMonthChange: (next: Date) => void;
-  onOpenTask: (task: ApiTask) => void;
-  onAddOn: (isoDate: string) => void;
-}) {
-  const [selected, setSelected] = useState<string | null>(null);
-
-  const byDay = useMemo(() => {
-    const map = new Map<string, ApiTask[]>();
-    for (const t of tasks) {
-      if (!t.dueAt) continue;
-      const key = ymd(new Date(t.dueAt));
-      const list = map.get(key);
-      if (list) list.push(t); else map.set(key, [t]);
-    }
-    return map;
-  }, [tasks]);
-
-  // A Monday-first grid: JS getDay() is Sunday-0, and a farm week that
-  // starts on Sunday reads wrong here.
-  const cells = useMemo(() => {
-    const first = new Date(month.getFullYear(), month.getMonth(), 1);
-    const lead = (first.getDay() + 6) % 7;
-    const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-    const out: (Date | null)[] = [];
-    for (let i = 0; i < lead; i++) out.push(null);
-    for (let d = 1; d <= daysInMonth; d++) out.push(new Date(month.getFullYear(), month.getMonth(), d));
-    while (out.length % 7 !== 0) out.push(null);
-    return out;
-  }, [month]);
-
-  const todayKey = ymd(new Date());
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-
-  // Only days still ahead count as "nothing scheduled" — an empty day last
-  // week is history, not a gap you can still fill.
-  const upcomingEmpty = cells.filter((d) => d && d >= startOfToday && !byDay.has(ymd(d))).length;
-
-  const selectedTasks = selected ? (byDay.get(selected) ?? []) : [];
-
-  return (
-    <div style={{ paddingBottom: 80 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <button className="btn-icon" aria-label="Previous month" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft size={16} /></button>
-        <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>
-          {month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
-        </div>
-        <button className="btn-icon" aria-label="Next month" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight size={16} /></button>
-      </div>
-
-      <div style={{ fontSize: 'var(--fs-xs)', color: upcomingEmpty > 0 ? 'var(--status-warning)' : 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-        {upcomingEmpty > 0
-          ? `${upcomingEmpty} upcoming day${upcomingEmpty === 1 ? '' : 's'} with nothing scheduled — tap one to plan work for it.`
-          : 'Every remaining day this month has work scheduled.'}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
-        {WEEKDAYS.map((w) => (
-          <div key={w} style={{ textAlign: 'center', fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase' }}>{w}</div>
-        ))}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-        {cells.map((day, i) => {
-          if (!day) return <div key={`pad-${i}`} />;
-          const key = ymd(day);
-          const dayTasks = byDay.get(key) ?? [];
-          const isToday = key === todayKey;
-          const isPast = day < startOfToday;
-          const emptyUpcoming = dayTasks.length === 0 && !isPast;
-          const overdueHere = dayTasks.some((t) => displayStatus(t) === 'OVERDUE');
-          return (
-            <button
-              key={key}
-              onClick={() => setSelected(selected === key ? null : key)}
-              style={{
-                minHeight: 58, padding: 4, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-                background: selected === key ? 'rgba(var(--primary-rgb),0.12)' : emptyUpcoming ? 'transparent' : 'var(--card)',
-                border: selected === key
-                  ? '1px solid var(--primary-green)'
-                  : emptyUpcoming
-                    ? '1px dashed var(--border-subtle)'
-                    : '1px solid var(--border-subtle)',
-                opacity: isPast && dayTasks.length === 0 ? 0.45 : 1,
-                display: 'flex', flexDirection: 'column', gap: 2,
-              }}
-            >
-              <span style={{
-                fontSize: 'var(--fs-2xs)', fontWeight: isToday ? 800 : 600,
-                color: isToday ? 'var(--primary-green)' : 'var(--text-muted)',
-              }}>{day.getDate()}</span>
-              {dayTasks.slice(0, 2).map((t) => (
-                <span key={t.id} style={{
-                  fontSize: 'var(--fs-2xs)', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  color: displayStatus(t) === 'DONE' ? 'var(--text-dim)' : PRIORITY_COLOR[t.priority],
-                }}>{t.title}</span>
-              ))}
-              {dayTasks.length > 2 && (
-                <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>+{dayTasks.length - 2} more</span>
-              )}
-              {overdueHere && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--status-critical)' }} />}
-            </button>
-          );
-        })}
-      </div>
-
-      {selected && (
-        <div className="farm-card" style={{ padding: 14, marginTop: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700 }}>
-              {new Date(`${selected}T12:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
-            </div>
-            <button className="btn-primary" style={{ padding: '6px 10px', fontSize: 'var(--fs-xs)' }} onClick={() => onAddOn(selected)}>
-              <Plus size={12} /> Add
-            </button>
-          </div>
-          {selectedTasks.length === 0 ? (
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Nothing scheduled. If work happens on this day, it isn&apos;t written down anywhere.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {selectedTasks.map((t) => <TaskCard key={t.id} task={t} employees={employees} onOpen={onOpenTask} />)}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    </Sheet>
   );
 }
 
@@ -738,27 +835,22 @@ export function TasksScreen() {
   const [approvers, setApprovers] = useState<Approver[]>([]);
   const [loadError, setLoadError] = useState('');
 
-  const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [view, setView] = useState<'queue' | 'crew' | 'week'>('queue');
   const [showAdd, setShowAdd] = useState(false);
-  // Prefill for the create sheet — set when it's opened from a calendar day
-  // or from "schedule again" on a finished task.
   const [addDraft, setAddDraft] = useState<Partial<TaskDraft> | undefined>(undefined);
-  const [calendarMonth, setCalendarMonth] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  });
+  const [weekStart, setWeekStart] = useState(() => startOfWeekMonday(new Date()));
+  const [weekDay, setWeekDay] = useState<string | null>(null);
   const [showFilter, setShowFilter] = useState(false);
-  const [openTask, setOpenTask] = useState<ApiTask | null>(null);
+
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   const [search, setSearch] = useState('');
+  const [person, setPerson] = useState('all');
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterPriority, setFilterPriority] = useState('All');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // farm-scoped-data task: re-fetches when the active farm changes.
-  // tasks.farmId is a direct column (migration 0019) — see GET /api/tasks's
-  // header for why a tenant-level task (farmId IS NULL) only shows under
-  // 'ALL', not folded into every farm's filtered view.
   const loadTasks = useCallback(async () => {
     const res = await apiClient.get<ApiTask[]>(`/api/tasks?tenantId=${tenantId}&farmId=${activeFarmId}`);
     if (res.success) { setTasks(res.data); setLoadError(''); }
@@ -776,61 +868,84 @@ export function TasksScreen() {
   }, [tenantId]);
 
   // Deep link from a notification (dashboard.tsx's handleNotifTap) or
-  // anywhere else that knows a specific task id: navigate('tasks', { taskId })
-  // used to land on this screen's unfiltered list with no way to tell which
-  // task the tap was actually about. Once the list has loaded, open that
-  // task's existing detail sheet the same way clicking its row would.
+  // anywhere else that knows a specific task id.
   useEffect(() => {
     if (!params.taskId || !tasks) return;
     const match = tasks.find(t => t.id === params.taskId);
-    if (match) setOpenTask(match);
+    if (match) { setPickedId(match.id); if (isNarrowViewport()) setMobileDetailOpen(true); }
   }, [params.taskId, tasks]);
 
   // crops.tsx's "All Batch Tasks" / per-unit shortcuts navigate('tasks', {
-  // batch, unit }) — tasks have no batch/unit column (see ApiTask's header:
-  // "no code/type/batch/unit/GPS/photo"), so there is no real relational
-  // filter to apply here, and pretending otherwise would be exactly the kind
-  // of fake affordance this codebase avoids elsewhere (see e.g. the removed
-  // "Sync Now" in settings.tsx). Best honest connection available: seed the
-  // free-text search with the batch/unit code, since a task made for that
-  // batch is likely to name it in its title — a real (if partial) text
-  // match, not the scoped list the button used to silently fail to produce.
+  // batch, unit }) — tasks have no batch/unit column, so the best honest
+  // connection is seeding the free-text search with the code (see the
+  // original header note this screen carried before the redesign).
   useEffect(() => {
     if (!params.batch) return;
-    // Unit is more specific than batch when both are present (the per-unit
-    // shortcut) — a single substring match, so combining them would require
-    // both codes verbatim in one title, which is less likely to match than
-    // just the more specific one.
     setSearch(params.unit || params.batch);
   }, [params.batch, params.unit]);
 
-  const activeFilters = [filterStatus !== 'All', filterPriority !== 'All'].filter(Boolean).length;
-
-  const filtered = useMemo(() => {
+  const statusFiltered = useMemo(() => {
     let ts = tasks ?? [];
-    if (search) {
+    if (filterStatus !== 'All') ts = ts.filter(t => displayStatus(t) === filterStatus);
+    if (filterPriority !== 'All') ts = ts.filter(t => t.priority === filterPriority);
+    return ts;
+  }, [tasks, filterStatus, filterPriority]);
+
+  // Shared across Queue/Crew/Week — same "scoped" idea the reference builds
+  // once in TasksPage and hands to all three views.
+  const scoped = useMemo(() => {
+    let ts = statusFiltered;
+    if (person !== 'all') ts = ts.filter(t => t.assigneeId === person);
+    if (search.trim()) {
       const q = search.toLowerCase();
       ts = ts.filter(t => t.title.toLowerCase().includes(q) || assigneeNameFor(t, employees).toLowerCase().includes(q));
     }
-    if (filterStatus !== 'All') ts = ts.filter(t => displayStatus(t) === filterStatus);
-    if (filterPriority !== 'All') ts = ts.filter(t => t.priority === filterPriority);
-    ts = [...ts].sort((a, b) => {
-      const av = a.dueAt ? new Date(a.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
-      const bv = b.dueAt ? new Date(b.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
-      return sortDir === 'asc' ? av - bv : bv - av;
-    });
-    return ts;
-  }, [tasks, search, filterStatus, filterPriority, sortDir, employees]);
+    return [...ts].sort((a, b) => (a.dueAt ? new Date(a.dueAt).getTime() : Number.MAX_SAFE_INTEGER) - (b.dueAt ? new Date(b.dueAt).getTime() : Number.MAX_SAFE_INTEGER));
+  }, [statusFiltered, person, search, employees]);
 
-  const all = tasks ?? [];
-  const overdue = all.filter(t => displayStatus(t) === 'OVERDUE').length;
-  const pending = all.filter(t => t.status === 'PENDING').length;
-  const done = all.filter(t => t.status === 'DONE').length;
-  const completionPct = all.length > 0 ? Math.round((done / all.length) * 100) : 0;
+  const groups = useMemo(() => {
+    const map: Record<Bucket, ApiTask[]> = { overdue: [], today: [], upcoming: [], done: [] };
+    for (const t of scoped) map[taskBucket(t)].push(t);
+    return BUCKET_ORDER.map(id => ({ id, items: map[id] })).filter(g => g.items.length > 0);
+  }, [scoped]);
 
-  // Returns the server's own message on failure so the sheet can show WHY
-  // next to the field, instead of a generic "please try again" that hides a
-  // perfectly clear 400.
+  const peopleOptions = useMemo(() => {
+    const ids = [...new Set(scoped.map(t => t.assigneeId).filter((id): id is string => !!id))];
+    return [{ id: 'all', label: 'Everyone' }, ...ids.map(id => ({ id, label: (employees.find(e => e.id === id)?.name ?? 'Unknown').split(' ')[0]! }))];
+  }, [scoped, employees]);
+
+  const crew = useMemo<CrewRow[]>(() => {
+    const ids = [...new Set(scoped.map(t => t.assigneeId).filter((id): id is string => !!id))];
+    return ids
+      .map((id) => {
+        const items = scoped.filter(t => t.assigneeId === id);
+        const openItems = items.filter(t => t.status !== 'DONE' && t.status !== 'REJECTED');
+        const emp = employees.find(e => e.id === id);
+        return { id, name: emp?.name ?? 'Unknown', role: emp?.role ?? '', open: openItems.length, late: openItems.filter(t => taskBucket(t) === 'overdue').length, items };
+      })
+      .sort((a, b) => b.open - a.open || b.late - a.late);
+  }, [scoped, employees]);
+  const maxOpen = Math.max(1, ...crew.map(c => c.open));
+
+  // Stats stay based on the status/priority filter only — search/person are
+  // "find one thing" filters, and the KPI row should keep answering "how
+  // much work is there" rather than vanish because of a name typed in.
+  const overdueCount = statusFiltered.filter(t => taskBucket(t) === 'overdue').length;
+  const todayCount = statusFiltered.filter(t => taskBucket(t) === 'today').length;
+  const upcomingCount = statusFiltered.filter(t => taskBucket(t) === 'upcoming').length;
+  const openCount = statusFiltered.filter(t => t.status !== 'DONE' && t.status !== 'REJECTED').length;
+  const openPeopleCount = new Set(statusFiltered.filter(t => t.status !== 'DONE' && t.status !== 'REJECTED' && t.assigneeId).map(t => t.assigneeId)).size;
+
+  const flat = scoped;
+  const picked = flat.find(t => t.id === pickedId) ?? null;
+
+  const activeFilters = [filterStatus !== 'All', filterPriority !== 'All'].filter(Boolean).length;
+
+  function pick(task: ApiTask) {
+    setPickedId(task.id);
+    if (isNarrowViewport()) setMobileDetailOpen(true);
+  }
+
   async function createTask(payload: TaskDraft): Promise<string | null> {
     const dueAt = payload.dueDate ? new Date(`${payload.dueDate}T${payload.dueTime || '00:00'}`).toISOString() : undefined;
     const res = await apiClient.post<ApiTask>('/api/tasks', {
@@ -839,7 +954,6 @@ export function TasksScreen() {
       dueAt,
       priority: payload.priority,
       requiresApproval: payload.requiresApproval,
-      // The assignee is a real column now; notes carry only notes.
       notes: payload.notes.trim() || undefined,
       farmId: payload.farmId || undefined,
       assigneeId: payload.assigneeId || undefined,
@@ -853,14 +967,10 @@ export function TasksScreen() {
     return null;
   }
 
-  // Reassigning, rescheduling or changing the approver from the detail
-  // sheet — including on a task that is already finished, which is where
-  // "do this one again, and let Peter do it this time" starts.
   async function updateTask(task: ApiTask, patch: Record<string, unknown>): Promise<string | null> {
     const res = await apiClient.patch<ApiTask>(`/api/tasks/${task.id}?tenantId=${tenantId}`, patch);
     if (!res.success) return res.error ?? 'Could not update task';
     await loadTasks();
-    setOpenTask((current) => (current && current.id === task.id ? res.data : current));
     return null;
   }
 
@@ -882,117 +992,88 @@ export function TasksScreen() {
     const res = await apiClient.delete(`/api/tasks/${task.id}?tenantId=${tenantId}`);
     if (!res.success) { showToast(res.error ?? 'Could not delete task', 'error'); return; }
     showToast('Task deleted', 'success');
+    setPickedId(current => (current === task.id ? null : current));
+    setMobileDetailOpen(false);
     await loadTasks();
   }
 
-  function resetFilters() { setFilterStatus('All'); setFilterPriority('All'); setSearch(''); }
+  function resetFilters() { setFilterStatus('All'); setFilterPriority('All'); }
 
   return (
     <div className="screen-content">
-      <TopNav
-        title="Tasks"
-        subtitle={`${filtered.length} shown${activeFilters > 0 ? ` · ${activeFilters} filter${activeFilters > 1 ? 's' : ''}` : ''}`}
-        rightEl={
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => loadTasks()} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Refresh">
-              <RefreshCw size={13} color="var(--text-muted)" />
-            </button>
-            <button onClick={() => exportTaskCSV(filtered)} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Export tasks to CSV">
-              <Download size={14} color="var(--text-muted)" />
-            </button>
-            <button className="btn-fab" style={{ width: 36, height: 36, borderRadius: 10 }} onClick={() => setShowAdd(true)}>
-              <Plus size={16} />
-            </button>
-          </div>
-        }
-      />
-
-      <div className="px-screen" style={{ paddingTop: 12 }}>
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-24">
         {loadError && (
-          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="mb-3 flex items-center gap-1.5 rounded-xl bg-danger-soft px-3.5 py-2.5 text-sm text-danger">
             <AlertTriangle size={13} /> {loadError}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          {[
-            { label: 'Overdue', value: overdue, color: 'var(--status-critical)', bg: 'rgba(var(--critical-rgb),0.1)' },
-            { label: 'Pending', value: pending, color: 'var(--status-warning)', bg: 'rgba(var(--warning-rgb),0.1)' },
-            { label: 'Done', value: done, color: 'var(--status-ok)', bg: 'rgba(var(--primary-rgb),0.1)' },
-          ].map(s => (
-            <div key={s.label} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: '12px 8px', textAlign: 'center', border: `1px solid ${s.color}30` }}>
-              <div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
-            </div>
-          ))}
+        <PageHeader
+          kicker="Daily"
+          title="Tasks"
+          lede="Who is carrying what, and by when. The queue is for the day. Crew is for load. Week is for the days ahead."
+          actions={<Button onClick={() => setShowAdd(true)}><Plus size={14} /> Assign work</Button>}
+        />
+
+        <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <Kpi label="Overdue" value={overdueCount} hint={overdueCount ? 'Still open past due' : 'Queue is clear'} tone={overdueCount ? 'warn' : 'ok'} onClick={() => setView('queue')} />
+          <Kpi label="Today" value={todayCount} hint={new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} onClick={() => setView('queue')} />
+          <Kpi label="Coming" value={upcomingCount} hint="After today" onClick={() => setView('queue')} />
+          <Kpi label="On the crew" value={openCount} hint={`${openPeopleCount} people with open work`} onClick={() => setView('crew')} />
         </div>
 
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Completion</span>
-            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{completionPct}%</span>
-          </div>
-          <div className="progress-track"><div className="progress-fill" style={{ width: `${completionPct}%` }} /></div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-          {([['list', 'List', List], ['calendar', 'Schedule', Calendar]] as const).map(([value, label, Icon]) => (
-            <button
-              key={value}
-              onClick={() => setView(value)}
-              style={{
-                flex: 1, padding: '8px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                background: view === value ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)',
-                border: view === value ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
-                color: view === value ? 'var(--primary-green)' : 'var(--text-muted)',
-              }}
-            >
-              <Icon size={13} /> {label}
-            </button>
-          ))}
-        </div>
-
-        {view === 'list' && <SearchBar value={search} onChange={setSearch} placeholder="Search tasks, assignees…" />}
-
-        {view === 'calendar' ? (
-          <TaskCalendar
-            tasks={tasks ?? []}
-            employees={employees}
-            month={calendarMonth}
-            onMonthChange={setCalendarMonth}
-            onOpenTask={setOpenTask}
-            onAddOn={(isoDate) => { setAddDraft({ dueDate: isoDate }); setShowAdd(true); }}
+        <div className="mt-5">
+          <Segmented
+            value={view}
+            onChange={setView}
+            items={[
+              { id: 'queue', label: 'Queue', hint: 'By when it is due' },
+              { id: 'crew', label: 'Crew', hint: 'Who is carrying it' },
+              { id: 'week', label: 'Week', hint: 'Load on the days' },
+            ]}
           />
-        ) : (
-        <>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-          <button onClick={() => setShowFilter(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer', background: activeFilters > 0 ? 'rgba(var(--primary-rgb),0.12)' : 'var(--card)', border: activeFilters > 0 ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: activeFilters > 0 ? 'var(--primary-green)' : 'var(--text-muted)', flexShrink: 0 }}>
-            <Filter size={13} /> Filters {activeFilters > 0 && `(${activeFilters})`}
-          </button>
-          <button onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-            Due {sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </button>
-          {activeFilters > 0 && (
-            <button onClick={resetFilters} style={{ flexShrink: 0, padding: '6px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>Clear</button>
-          )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 80 }}>
+        <div className="mt-4 flex items-center gap-2 overflow-x-auto pb-1">
+          <Button variant="secondary" size="icon-sm" aria-label="Refresh" onClick={() => loadTasks()}><RefreshCw size={14} /></Button>
+          <Button variant="secondary" size="icon-sm" aria-label="Export tasks to CSV" onClick={() => exportTaskCSV(scoped)}><Download size={14} /></Button>
+          <Button variant={activeFilters > 0 ? 'default' : 'secondary'} size="sm" onClick={() => setShowFilter(true)}>
+            <Filter size={13} /> Filters {activeFilters > 0 && `(${activeFilters})`}
+          </Button>
+          {activeFilters > 0 && <Button variant="ghost" size="sm" onClick={resetFilters}>Clear</Button>}
+        </div>
+
+        <div className="mt-5">
           {tasks === null ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading tasks…</div>
-          ) : filtered.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-              <CheckCircle2 size={32} style={{ marginBottom: 10, opacity: 0.4 }} />
-              <div style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>No tasks match your filters</div>
-              <button onClick={resetFilters} style={{ marginTop: 12, padding: '8px 16px', borderRadius: 10, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Clear Filters</button>
-            </div>
+            <p className="py-10 text-center text-sm text-muted">Loading tasks…</p>
+          ) : view === 'queue' ? (
+            <Queue
+              groups={groups} employees={employees} approvers={approvers}
+              search={search} onSearch={setSearch} peopleOptions={peopleOptions} person={person} onPerson={setPerson}
+              picked={picked} onPick={pick}
+              onDone={markDone} onDelete={deleteTask} onUpdate={updateTask}
+              onScheduleAgain={(draft) => { setAddDraft(draft); setShowAdd(true); }}
+            />
+          ) : view === 'crew' ? (
+            <Crew crew={crew} employees={employees} maxOpen={maxOpen} picked={picked} onPick={pick} />
           ) : (
-            filtered.map(t => <TaskCard key={t.id} task={t} employees={employees} onOpen={setOpenTask} />)
+            <Week
+              tasks={scoped}
+              employees={employees}
+              approvers={approvers}
+              weekStart={weekStart}
+              onWeekChange={setWeekStart}
+              day={weekDay}
+              onDay={setWeekDay}
+              picked={picked}
+              onPick={pick}
+              onAddOn={(isoDate) => { setAddDraft({ dueDate: isoDate }); setShowAdd(true); }}
+              onDone={markDone} onDelete={deleteTask} onUpdate={updateTask}
+              onScheduleAgain={(draft) => { setAddDraft(draft); setShowAdd(true); }}
+            />
           )}
         </div>
-        </>
-        )}
       </div>
 
       {showAdd && (
@@ -1011,16 +1092,18 @@ export function TasksScreen() {
           onReset={resetFilters}
         />
       )}
-      {openTask && (
-        <TaskDetailSheet
-          task={openTask}
+      {picked && (
+        <TaskDetailPanel
+          as="inspector"
+          open={mobileDetailOpen}
+          onOpenChange={setMobileDetailOpen}
+          task={picked}
           employees={employees}
           approvers={approvers}
-          onClose={() => setOpenTask(null)}
           onDone={markDone}
           onDelete={deleteTask}
           onUpdate={updateTask}
-          onScheduleAgain={(draft) => { setOpenTask(null); setAddDraft(draft); setShowAdd(true); }}
+          onScheduleAgain={(draft) => { setMobileDetailOpen(false); setAddDraft(draft); setShowAdd(true); }}
         />
       )}
     </div>

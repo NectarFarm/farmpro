@@ -7,9 +7,9 @@ import {
   attachAdminSessionCookie,
   attachSessionCookie,
   createImpersonationSession,
-  getSessionUser,
   SESSION_COOKIE,
 } from '@/lib/auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 import { writeAuditLog } from '@/lib/audit'
 
 // ── POST /api/admin/users/[id]/impersonate (admin user-management feature) ─
@@ -41,9 +41,9 @@ const badFields = (fields: Record<string, string>, status = 400) => {
 const ALLOWED_MINUTES = [5, 10, 15, 30] as const
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('impersonate')
+  if ('error' in auth) return auth.error
+  const { session } = auth
 
   const { id } = await params
 

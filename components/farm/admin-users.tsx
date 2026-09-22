@@ -16,8 +16,24 @@ import {
   UserCheck, ShieldAlert, ChevronRight, Mail, Phone, LogOut,
 } from './icons';
 import { apiClient } from '@/lib/request';
+import {
+  CAPABILITIES, CAPABILITY_LABEL, CAPABILITY_DESCRIPTION, CAPABILITY_PRESETS, type Capability,
+} from '@/components/admin/capabilities';
 
 /* ── Types ── */
+interface StaffMember {
+  userId: string;
+  name: string;
+  email: string;
+  status: string;
+  hasRow: boolean;
+  title: string;
+  capabilities: Capability[];
+  active: boolean;
+  createdBy: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
 interface AdminUser {
   id: string;
   tenantId: string | null;
@@ -596,10 +612,206 @@ function ImpersonationLogTab() {
 }
 
 /* ================================================================
+ * Staff & roles — platform staff capability management
+ * (docs/backoffice-api.md §1: GET/POST /api/admin/staff, PATCH/DELETE
+ * /api/admin/staff/[id]). Presets/labels/descriptions come from
+ * components/admin/capabilities.ts so this stays in sync with any other
+ * screen that references the same capability list.
+ * ================================================================ */
+function CapabilityChecklist({ value, onChange }: { value: Capability[]; onChange: (v: Capability[]) => void }) {
+  function toggle(cap: Capability) {
+    onChange(value.includes(cap) ? value.filter((c) => c !== cap) : [...value, cap]);
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {CAPABILITY_PRESETS.map((p) => (
+          <button key={p.id} type="button" onClick={() => onChange(p.capabilities)}
+            style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '5px 10px', borderRadius: 100, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {CAPABILITIES.map((cap) => {
+          const on = value.includes(cap);
+          return (
+            <label key={cap} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', borderRadius: 8, background: on ? 'rgba(var(--primary-rgb),0.08)' : 'var(--card)', border: `1px solid ${on ? 'rgba(var(--primary-rgb),0.3)' : 'var(--border-subtle)'}`, cursor: 'pointer' }}>
+              <input type="checkbox" checked={on} onChange={() => toggle(cap)} style={{ marginTop: 2 }} />
+              <span>
+                <span style={{ display: 'block', fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{CAPABILITY_LABEL[cap]}</span>
+                <span style={{ display: 'block', fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{CAPABILITY_DESCRIPTION[cap]}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StaffFormSheet({ staff, onClose, onSaved }: { staff: StaffMember | null; onClose: () => void; onSaved: (created?: { email: string; password: string }) => void }) {
+  const [name, setName] = useState(staff?.name ?? '');
+  const [email, setEmail] = useState(staff?.email ?? '');
+  const [title, setTitle] = useState(staff?.title ?? '');
+  const [caps, setCaps] = useState<Capability[]>(staff?.capabilities ?? ['support.handle']);
+  const [active, setActive] = useState(staff?.active ?? true);
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true); setError(''); setErrors({});
+    if (staff) {
+      const res = await apiClient.patch<StaffMember>(`/api/admin/staff/${staff.userId}`, { title: title.trim(), capabilities: caps, active });
+      setSaving(false);
+      if (!res.success) { setError(res.error || 'Failed to save.'); return; }
+      onSaved();
+    } else {
+      const res = await apiClient.post<{ email: string; tempPassword: string }>('/api/admin/staff', { name: name.trim(), email: email.trim(), title: title.trim(), capabilities: caps });
+      setSaving(false);
+      if (!res.success) { setErrors(res.fields ?? {}); setError(res.error || 'Failed to create staff account.'); return; }
+      onSaved({ email: res.data.email, password: res.data.tempPassword });
+    }
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-end', zIndex: 210 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '92%', overflowY: 'auto', border: '1px solid var(--border-subtle)', padding: 20 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>{staff ? `Edit ${staff.name}` : 'New staff member'}</div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+        {!staff && (
+          <>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Name</label>
+              <input className="farm-input" value={name} onChange={(e) => setName(e.target.value)} />
+              {errors.name && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.name}</div>}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Email</label>
+              <input className="farm-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              {errors.email && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.email}</div>}
+            </div>
+          </>
+        )}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Title <span style={{ fontWeight: 400, color: 'var(--text-dim)' }}>(optional)</span></label>
+          <input className="farm-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Support lead" />
+        </div>
+        {staff && (
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', marginBottom: 6, cursor: 'pointer' }}>
+            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700 }}>Active</span>
+            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+          </label>
+        )}
+        <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8 }}>Capabilities</div>
+        <CapabilityChecklist value={caps} onChange={setCaps} />
+        {error && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', margin: '12px 0' }}>{error}</div>}
+        <button onClick={() => void save()} disabled={saving} className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 14 }}>
+          {saving ? 'Saving…' : staff ? 'Save Changes' : 'Create Staff Account'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StaffTab() {
+  const [rows, setRows] = useState<StaffMember[] | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [editing, setEditing] = useState<StaffMember | null | 'new'>(null);
+  const [deactivating, setDeactivating] = useState<StaffMember | null>(null);
+  const [deactivateError, setDeactivateError] = useState('');
+  const [deactivateBusy, setDeactivateBusy] = useState(false);
+  const [tempPassword, setTempPassword] = useState<{ email: string; password: string } | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await apiClient.get<StaffMember[]>('/api/admin/staff');
+    if (res.success) { setRows(res.data); setLoadError(''); } else setLoadError(res.error || 'Failed to load staff.');
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function confirmDeactivate() {
+    if (!deactivating) return;
+    setDeactivateBusy(true); setDeactivateError('');
+    const res = await apiClient.delete(`/api/admin/staff/${deactivating.userId}`);
+    setDeactivateBusy(false);
+    if (!res.success) { setDeactivateError(res.error || 'Failed to deactivate.'); return; }
+    setDeactivating(null);
+    void load();
+  }
+
+  if (loadError) return <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', padding: 14 }}>{loadError}</div>;
+  if (rows === null) return <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>Loading staff…</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 60 }}>
+      <button onClick={() => setEditing('new')} className="btn-primary" style={{ justifyContent: 'center', marginBottom: 4 }}>
+        + New staff member
+      </button>
+      {rows.map((s) => (
+        <button key={s.userId} onClick={() => setEditing(s)} className="farm-card" style={{ padding: 14, textAlign: 'left', cursor: 'pointer' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+            <div>
+              <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700 }}>{s.name}{s.title ? ` · ${s.title}` : ''}</div>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{s.email}</div>
+            </div>
+            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: s.active ? 'rgba(var(--primary-rgb),0.1)' : 'rgba(var(--critical-rgb),0.1)', color: s.active ? 'var(--primary-green)' : 'var(--status-critical)' }}>
+              {s.active ? (s.hasRow ? 'ACTIVE' : 'FULL (NO ROW)') : 'DEACTIVATED'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {s.capabilities.map((c) => (
+              <span key={c} style={{ fontSize: 'var(--fs-2xs)', padding: '2px 8px', borderRadius: 100, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>{CAPABILITY_LABEL[c]}</span>
+            ))}
+          </div>
+          {s.active && (
+            <span
+              role="button"
+              onClick={(e) => { e.stopPropagation(); setDeactivateError(''); setDeactivating(s); }}
+              style={{ display: 'inline-block', marginTop: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--status-critical)', cursor: 'pointer' }}
+            >
+              Deactivate
+            </span>
+          )}
+        </button>
+      ))}
+
+      {editing !== null && (
+        <StaffFormSheet
+          staff={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={(created) => { setEditing(null); void load(); if (created) setTempPassword(created); }}
+        />
+      )}
+      {deactivating && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 220, padding: 20 }} onClick={() => !deactivateBusy && setDeactivating(null)}>
+          <div className="farm-card" style={{ padding: 18, width: '100%', maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, marginBottom: 8, color: 'var(--status-critical)' }}>Deactivate {deactivating.name}?</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
+              This suspends their account and ends every live session. It can be reversed later by editing them and switching Active back on.
+            </div>
+            {deactivateError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{deactivateError}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setDeactivating(null)} disabled={deactivateBusy} className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+              <button onClick={() => void confirmDeactivate()} disabled={deactivateBusy} style={{ flex: 1, padding: 10, borderRadius: 10, fontWeight: 700, background: 'var(--status-critical)', border: 'none', color: '#fff', cursor: 'pointer' }}>
+                {deactivateBusy ? 'Working…' : 'Deactivate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {tempPassword && <TempPasswordModal email={tempPassword.email} password={tempPassword.password} onClose={() => setTempPassword(null)} />}
+    </div>
+  );
+}
+
+/* ================================================================
  * Main screen
  * ================================================================ */
-type Tab = 'users' | 'password-resets' | 'impersonation-log';
-const VALID_TABS = new Set<Tab>(['users', 'password-resets', 'impersonation-log']);
+type Tab = 'users' | 'staff' | 'password-resets' | 'impersonation-log';
+const VALID_TABS = new Set<Tab>(['users', 'staff', 'password-resets', 'impersonation-log']);
 // Mirrors CropsScreen's initialCropsTab(params.tab) — a sidebar row (see
 // navigation.tsx's admin People & Access group) can deep-link straight into
 // Password Resets or the Impersonation Log instead of always landing on
@@ -650,6 +862,7 @@ export function AdminUsersScreen() {
         <div className="chip-row" style={{ marginBottom: 14 }}>
           {([
             { id: 'users' as Tab, label: 'Users' },
+            { id: 'staff' as Tab, label: 'Staff & Roles' },
             { id: 'password-resets' as Tab, label: 'Password Resets' },
             { id: 'impersonation-log' as Tab, label: 'Impersonation Log' },
           ]).map((t) => (
@@ -725,6 +938,7 @@ export function AdminUsersScreen() {
           </>
         )}
 
+        {tab === 'staff' && <StaffTab />}
         {tab === 'password-resets' && <PasswordResetsTab />}
         {tab === 'impersonation-log' && <ImpersonationLogTab />}
       </div>

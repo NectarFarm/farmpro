@@ -3,7 +3,8 @@ import { randomBytes } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { passwordResetRequests, users } from '@/db/schemas'
-import { getSessionUser, hashSecret } from '@/lib/auth'
+import { hashSecret } from '@/lib/auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 import { writeAuditLog } from '@/lib/audit'
 
 // ── POST /api/admin/users/[id]/reset-password (admin user-management feature) ──
@@ -20,9 +21,9 @@ const bad = (msg: string, status = 400) =>
   NextResponse.json({ success: false, error: msg }, { status })
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('users.manage')
+  if ('error' in auth) return auth.error
+  const { session } = auth
 
   const { id } = await params
   const rows = await db.select().from(users).where(eq(users.id, id)).limit(1)

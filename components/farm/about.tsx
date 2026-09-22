@@ -3,8 +3,11 @@ import React from 'react';
 import { TopNav } from './navigation';
 import { Leaf, Home, Layers, CheckSquare, Package, DollarSign, CreditCard, Shield, CloudSun, Users, WifiOff } from './icons';
 import { ENTERPRISE_REGISTRY } from './data';
+import { PageHeader } from '@/components/ui-kit/page-header';
+import { Badge } from '@/components/ui-kit/badge';
 
-// ── About IFMS (ui-polish-theme-weather; refreshed feat/email-notifications) ─
+// ── About IFMS (ui-polish-theme-weather; refreshed feat/email-notifications;
+// restyled onto ui-kit for settings-redesign, package G) ────────────────────
 // Settings' "About IFMS" row used to be a single non-tappable line: "About
 // IFMS · Version X.Y.Z". Real, but not a page — just a fact with nowhere to
 // go. This is that page, reached from Settings → About IFMS.
@@ -46,57 +49,56 @@ export function AboutScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="About IFMS" showBack />
+      <TopNav title="" showBack />
       <div className="px-screen" style={{ paddingTop: 16, paddingBottom: 32 }}>
+        <PageHeader kicker="About" title="IFMS" lede="Integrated Farm Management System" />
 
-        <div className="farm-card" style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 6, marginBottom: 16 }}>
-          <div style={{ width: 56, height: 56, borderRadius: 16, background: 'var(--card-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
-            <Leaf size={28} color="var(--primary-green)" strokeWidth={2.2} />
+        <div className="mt-5 flex flex-col items-center gap-2 rounded-xl bg-surface p-6 text-center shadow-(--shadow-border)">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-surface-2">
+            <Leaf size={28} className="text-primary" strokeWidth={2.2} />
           </div>
-          <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 800, color: 'var(--text-primary)' }}>IFMS</div>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Integrated Farm Management System</div>
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 4 }}>Version {version}</div>
+          <div className="mt-1 text-xs text-subtle">Version {version}</div>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>What it does</div>
-          <div className="farm-card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+        <div className="mt-5">
+          <p className="mb-2 text-xs font-medium tracking-widest text-muted uppercase">What it does</p>
+          <div className="rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+            <p className="text-sm leading-relaxed text-fg">
               IFMS runs the day-to-day of a multi-farm business from one app: batches and
               production units, stock and purchases, a double-entry ledger, payroll, tasks
               and approvals, all filtered per farm and gated by role — built to work on an
               ordinary Android phone in the field as well as at a desk.
-            </div>
+            </p>
           </div>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Modules</div>
-          <div className="farm-card" style={{ overflow: 'hidden' }}>
+        <div className="mt-5">
+          <p className="mb-2 text-xs font-medium tracking-widest text-muted uppercase">Modules</p>
+          <div className="overflow-hidden rounded-xl bg-surface shadow-(--shadow-border)">
             {MODULES.map((m, i) => (
-              <div key={m.label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: i < MODULES.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--card-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <m.icon size={16} color="var(--primary-green)" />
+              <div key={m.label} className={i < MODULES.length - 1 ? 'flex items-center gap-3 border-b border-border/70 px-4 py-3' : 'flex items-center gap-3 px-4 py-3'}>
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-2">
+                  <m.icon size={16} className="text-primary" />
                 </div>
                 <div>
-                  <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{m.label}</div>
-                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{m.desc}</div>
+                  <div className="text-sm font-medium">{m.label}</div>
+                  <div className="mt-0.5 text-xs text-muted">{m.desc}</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Enterprises supported</div>
-          <div className="farm-card" style={{ padding: 14, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className="mt-5">
+          <p className="mb-2 text-xs font-medium tracking-widest text-muted uppercase">Enterprises supported</p>
+          <div className="flex flex-wrap gap-1.5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
             {ENTERPRISES.map((label) => (
-              <span key={label} className="chip chip-ok" style={{ fontSize: 'var(--fs-xs)' }}>{label}</span>
+              <Badge key={label} variant="success">{label}</Badge>
             ))}
           </div>
         </div>
 
-        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textAlign: 'center', lineHeight: 1.6 }}>
+        <div className="mt-5 text-center text-xs text-subtle">
           Version {version} · built on Next.js
         </div>
       </div>

@@ -6,6 +6,8 @@ import {
   Wheat, BarChart3, ClipboardList, Package, Skull, Bird,
   type LucideIcon,
 } from './icons';
+import { PageHeader } from '@/components/ui-kit/page-header';
+import { Badge } from '@/components/ui-kit/badge';
 
 /* ── AI farm advisor — real backend (issues #258/#259/#260) ────────────────
  * This screen used to keyword-match against a table of canned replies, with
@@ -161,15 +163,14 @@ export function AIChatScreen({ userName }: { userName?: string }) {
   if (!allowed) {
     return (
       <div className="screen-content">
-        <TopNav title="AI Farm Assistant" subtitle="Not available for your role" />
-        <div className="px-screen" style={{ paddingTop: 14 }}>
-          <div className="farm-card" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-            <Bot size={20} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
+        <TopNav title="" />
+        <div className="px-screen pt-3">
+          <PageHeader kicker="Daily" title="Advisor" lede="Not available for your role" />
+          <div className="mt-5 flex items-start gap-3 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+            <Bot size={20} className="mt-0.5 shrink-0 text-muted" aria-hidden="true" />
             <div>
-              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-                The advisor is limited to owners and managers
-              </div>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.55 }}>
+              <div className="mb-1 text-sm font-semibold text-fg">The advisor is limited to owners and managers</div>
+              <div className="text-sm leading-relaxed text-muted">
                 It answers using the whole farm&apos;s financial and production records, which your role
                 doesn&apos;t have access to. Everything you can see in your own tabs is live and up to date —
                 ask your farm owner or manager if you need something from the wider records.
@@ -182,22 +183,19 @@ export function AIChatScreen({ userName }: { userName?: string }) {
   }
 
   return (
-    <div className="screen-content" style={{ display: 'flex', flexDirection: 'column' }}>
-      <TopNav
-        title="AI Farm Assistant"
-        subtitle="Answers from your recorded data"
-        rightEl={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 100, background: 'rgba(var(--primary-rgb),0.12)', border: '1px solid rgba(var(--primary-rgb),0.3)' }}>
-            <Sparkles size={10} color="var(--primary-green)" aria-hidden="true" />
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)' }}>
-              {activeFarmId === 'ALL' ? 'All farms' : 'This farm'}
-            </span>
-          </div>
-        }
-      />
+    <div className="screen-content flex flex-col">
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-2">
+        <PageHeader
+          kicker="Daily"
+          title="Advisor"
+          lede="Answers from your recorded data — batches, stock, feeding and tasks."
+          actions={<Badge variant="primary"><Sparkles size={10} className="mr-1" aria-hidden="true" />{activeFarmId === 'ALL' ? 'All farms' : 'This farm'}</Badge>}
+        />
+      </div>
 
       {/* Chat messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+      <div className="min-h-0 flex-1 overflow-y-auto px-screen py-3">
         {/* The context strip that used to sit here is deliberately gone.
             #259 task 2 asked whether it needed a new summary field on
             /api/dashboard/kpis or should be dropped: dropped. It claimed
@@ -206,27 +204,30 @@ export function AIChatScreen({ userName }: { userName?: string }) {
             from real records when asked — a decorative strip would be a
             second source of truth for the same numbers. */}
 
-        {messages.map((msg) => (
-          <div key={msg.id} style={{ marginBottom: 12, display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+        {messages.map((msg, i) => (
+          <div key={msg.id} className={`mb-3 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {msg.role === 'assistant' && (
-              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: 8, marginTop: 2 }}>
-                <Bot size={14} color="var(--primary-green)" />
+              <div className="mt-0.5 mr-2 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary-soft">
+                <Bot size={14} className="text-primary" />
               </div>
             )}
-            <div style={{ maxWidth: '78%' }}>
-              <div style={{
-                padding: '10px 14px', borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                background: msg.role === 'user' ? 'rgba(var(--primary-rgb),0.2)' : 'var(--card)',
-                border: msg.role === 'user' ? '1px solid rgba(var(--primary-rgb),0.35)' : '1px solid var(--border-subtle)',
-                fontSize: 'var(--fs-base)', lineHeight: 1.55, color: 'var(--text-secondary)',
-              }}>
-                {renderText(msg.text)}
-              </div>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 4, textAlign: msg.role === 'user' ? 'right' : 'left' }}>{msg.time}</div>
+            <div className="max-w-[78%]">
+              {msg.role === 'assistant' && i === 0 ? (
+                <p className="font-display text-xl leading-snug font-medium text-fg">{renderText(msg.text)}</p>
+              ) : (
+                <div
+                  className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed text-fg ${
+                    msg.role === 'user' ? 'rounded-br-md bg-primary-soft' : 'rounded-bl-md bg-surface shadow-(--shadow-border)'
+                  }`}
+                >
+                  {renderText(msg.text)}
+                </div>
+              )}
+              <div className={`mt-1 text-[11px] text-subtle ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>{msg.time}</div>
             </div>
             {msg.role === 'user' && (
-              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(var(--info-rgb),0.15)', border: '1px solid rgba(var(--info-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 8, marginTop: 2 }}>
-                <User size={14} color="var(--accent-blue)" />
+              <div className="mt-0.5 ml-2 flex size-7 shrink-0 items-center justify-center rounded-lg bg-surface-2">
+                <User size={14} className="text-muted" />
               </div>
             )}
           </div>
@@ -234,31 +235,34 @@ export function AIChatScreen({ userName }: { userName?: string }) {
 
         {/* Typing indicator */}
         {isTyping && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Bot size={14} color="var(--primary-green)" />
+          <div className="mb-3 flex items-center gap-2">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary-soft">
+              <Bot size={14} className="text-primary" />
             </div>
-            <div style={{ padding: '10px 14px', background: 'var(--card)', borderRadius: '18px 18px 18px 4px', border: '1px solid var(--border-subtle)', display: 'flex', gap: 4, alignItems: 'center' }}>
+            <div className="flex items-center gap-1 rounded-2xl rounded-bl-md bg-surface px-3.5 py-2.5 shadow-(--shadow-border)">
               {[0, 1, 2].map((i) => (
-                <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--primary-green)', opacity: 0.6, animation: `pulse 1.2s ease-in-out ${i * 0.3}s infinite` }} />
+                <div key={i} className="size-1.5 rounded-full bg-primary/60" style={{ animation: `pulse 1.2s ease-in-out ${i * 0.3}s infinite` }} />
               ))}
             </div>
           </div>
         )}
 
-        {/* Quick prompts (only when few messages) */}
+        {/* Suggested prompts (only while the conversation hasn't started) — real
+            questions the grounded context can answer from records, not canned
+            advice (see QUICK_PROMPTS' own header comment). */}
         {messages.length <= 2 && (
-          <div>
-            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8, textAlign: 'center' }}>Ask about</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
+          <div className="mt-1">
+            <div className="mb-2 text-center text-xs font-medium text-subtle">Ask about</div>
+            <div className="grid grid-cols-2 gap-2">
               {QUICK_PROMPTS.map((p) => (
                 <button
                   key={p.label}
+                  type="button"
                   onClick={() => sendMessage(p.question)}
-                  style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--card)', border: '1px solid var(--border-subtle)', cursor: 'pointer', display: 'flex', gap: 7, alignItems: 'center', textAlign: 'left' }}
+                  className="flex items-center gap-2 rounded-lg bg-surface px-3 py-2.5 text-left shadow-(--shadow-border) transition-colors hover:bg-surface-2"
                 >
-                  <p.icon size={16} color="var(--text-muted)" aria-hidden="true" />
-                  <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-secondary)', lineHeight: 1.3 }}>{p.label}</span>
+                  <p.icon size={16} className="shrink-0 text-muted" aria-hidden="true" />
+                  <span className="text-xs leading-snug font-medium text-fg">{p.label}</span>
                 </button>
               ))}
             </div>
@@ -266,15 +270,16 @@ export function AIChatScreen({ userName }: { userName?: string }) {
         )}
 
         {error && (
-          <div role="alert" style={{ padding: '10px 12px', marginBottom: 12, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', borderRadius: 12 }}>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', lineHeight: 1.5 }}>{error}</div>
+          <div role="alert" className="mt-3 rounded-xl border border-danger/30 bg-danger-soft p-3">
+            <div className="text-sm leading-relaxed text-danger">{error}</div>
             <button
+              type="button"
               onClick={() => {
                 // Retry the last question the user actually asked.
                 const lastUser = [...messages].reverse().find((m) => m.role === 'user');
                 if (lastUser) { setMessages((m) => m.filter((x) => x.id !== lastUser.id)); sendMessage(lastUser.text); }
               }}
-              style={{ marginTop: 7, padding: '5px 12px', borderRadius: 8, fontSize: 'var(--fs-xs)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.14)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', cursor: 'pointer' }}
+              className="mt-2 rounded-md bg-danger/15 px-3 py-1.5 text-xs font-semibold text-danger"
             >
               Try again
             </button>
@@ -284,12 +289,15 @@ export function AIChatScreen({ userName }: { userName?: string }) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input bar */}
-      <div style={{ padding: '10px 14px 14px', borderTop: '1px solid var(--border-subtle)', background: 'var(--surface)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+      {/* Composer — pinned above the mobile tab bar (a flex-shrink-0 sibling
+          inside .screen-content, which is itself the scroll container; see
+          app/global.css's ".screen-content"/".bottom-nav" comments), with the
+          safe-area inset honoured for phones that lack a bottom bar here
+          (desktop/tablet, where the sidebar replaces it). */}
+      <div className="shrink-0 border-t border-border bg-surface px-screen pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="flex items-end gap-2">
           <textarea
-            className="farm-input"
-            style={{ flex: 1, resize: 'none', minHeight: 40, maxHeight: 100, lineHeight: 1.4 }}
+            className="min-h-10 max-h-24 flex-1 resize-none rounded-md bg-surface-2 px-3 py-2.5 text-[16px] leading-snug text-fg outline-none placeholder:text-subtle focus-visible:ring-2 focus-visible:ring-ring/30"
             rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -297,20 +305,20 @@ export function AIChatScreen({ userName }: { userName?: string }) {
             placeholder="Ask about your farm…"
           />
           <button
+            type="button"
             onClick={() => sendMessage(input)}
             disabled={!input.trim() || isTyping}
-            style={{
-              width: 40, height: 40, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: input.trim() && !isTyping ? 'var(--primary-green)' : 'var(--border-subtle)',
-              border: 'none', cursor: input.trim() && !isTyping ? 'pointer' : 'default', flexShrink: 0, transition: 'background 0.2s',
-            }}
+            className={`flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors ${
+              input.trim() && !isTyping ? 'bg-primary' : 'bg-surface-2'
+            }`}
+            aria-label="Send"
           >
-            <Send size={16} color={input.trim() && !isTyping ? '#0f1a0e' : 'var(--text-muted)'} />
+            <Send size={16} className={input.trim() && !isTyping ? 'text-primary-fg' : 'text-subtle'} />
           </button>
         </div>
-        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 5, textAlign: 'center' }}>
+        <p className="mt-1.5 text-center text-[11px] text-subtle">
           Advisory only, and not a substitute for a vet. Figures come from your own records — verify anything before acting on it.
-        </div>
+        </p>
       </div>
     </div>
   );

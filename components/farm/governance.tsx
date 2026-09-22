@@ -1,57 +1,107 @@
 'use client';
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import {
   Shield, ShieldCheck, Check, X, Plus,
   AlertTriangle, CheckCircle2, Edit2, Trash2,
   Eye, EyeOff, ChevronDown, ChevronUp,
-  Activity,
+  Activity, Search, Download, Users, ClipboardList,
 } from './icons';
 import { apiClient } from '@/lib/request';
-import { useToast, SearchBar } from './ui-shared';
+import { useToast } from './ui-shared';
+import { cn } from '@/lib/utils';
+import { PageHeader, Kpi } from '@/components/ui-kit/page-header';
+import { Segmented, Chips } from '@/components/ui-kit/segmented';
+import { Badge } from '@/components/ui-kit/badge';
+import { Avatar } from '@/components/ui-kit/avatar';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
+import { Kv } from '@/components/ui-kit/inspector';
+import type { ReportPayload } from '@/lib/report-types';
+import { downloadReportCsv, downloadReportPdf, type ExportOptions } from '@/lib/report-export';
+import { periodDateRange } from '@/lib/period-range';
 
-// ── Governance screen, wired to /api/approvals, /api/role-permissions and the
-// new /api/audit-log (issue #244) ───────────────────────────────────────────
-// Replaces the previous mock-data-driven prototype (see components/farm/data.ts).
+// ── Governance screen, redesigned onto the reference (ui/governance-
+// reference-redesign) but wired to the exact same backend as before:
+// /api/approvals, /api/role-permissions and /api/audit-log. This section
+// documents what maps to what; the "keep every API call exactly as it is"
+// rule from the redesign brief holds throughout — nothing below changes a
+// request URL, payload shape, or a permission check. One read-only ADD: a
+// GET /api/employees fetch (already used elsewhere, e.g. components/farm/
+// people.tsx) powers the reference's "People on roles" tile and the Roles
+// tab's member chips with real headcounts — both are new UI, and inventing
+// their numbers instead of fetching them would be exactly the fake-data
+// failure mode this codebase's other screens go out of their way to avoid.
 //
-// ── Approvals tab ──
+// ── Layout: page header + 4 stat tiles + a 3-segment tab bar ──
+// PageHeader (ui-kit) renders the eyebrow/serif-title/lede/actions block;
+// Segmented (ui-kit) is the Approvals / Roles & rules / Audit trail switcher,
+// each segment carrying a one-line description like the reference. Both are
+// pure presentation — the tab state (`tab`) and every count they show are the
+// same state this screen has always computed.
+//
+// ── Approvals tab: master–detail ──
 // GET /api/approvals + POST /api/approvals/[id]/approve|reject (issue #243).
+// Left: filter pills (Queue/Approved/Rejected/All) + a row per request.
+// Right (desktop) / below (mobile, same reference layout — this tab has no
+// separate mobile sheet, the reference stacks list-then-detail in one column
+// under `lg:`): the selected request's full detail, which now shows the
+// underlying record's fields (mortality count, variance reason, photo — via
+// GET /api/records) INLINE rather than behind a second "Review & decide" tap.
+// That extra tap existed only to force loading the full record before a
+// decision could be made; a master–detail selection already does that the
+// moment a row is picked, so the information guarantee is unchanged — only
+// the number of taps to reach it is.
 // The mock had a 3rd "Hold" outcome — the real `approval_requests.status`
 // column only ever holds pending|approved|rejected (db/schemas/governance.ts),
-// so Hold is dropped rather than faked; flagged as a follow-on in the PR.
+// so Hold stays dropped.
 //
-// ── Role Builder tab ──
+// ── Roles & rules tab: master–detail ──
 // GET/PUT /api/role-permissions (issue #243) is a real per-tenant, per-(role,
 // module) config store — an owner's PUT replaces the tenant's whole matrix in
-// one transaction. Feature-permission editing (Hidden/View/Edit cycle) and
-// per-module "requires approval" both map directly onto real columns
-// (`access`, `approval_required`) and persist through this screen.
+// one transaction. Left: a role card per configured role (name + real member
+// count from GET /api/employees). Right: the role's header (name, description
+// stays generic since the backend has none, member chips) and a permission
+// matrix. The reference's matrix has Create/Read/Update/Delete/Approve
+// columns; our backend only has Hidden/View/Edit + a separate approval-
+// required flag per module, so the matrix here has three real columns
+// (View/Edit/Approval) instead of inventing two the API can't answer for.
+// Feature-permission editing (Hidden/View/Edit cycle) and per-module
+// "requires approval" both still map directly onto real columns (`access`,
+// `approval_required`) through RoleBuilderSheet, unchanged.
 //
-// ── CRUD Rules tab (removed, ui-polish-theme-weather) ──
-// This used to be its own tab: a module-centric view over
-// `role_permissions.approval_required`, toggled inline, module-by-module.
-// But RoleBuilderSheet's "Modules Requiring Owner Approval" chips (below)
-// write that exact same field, role-by-role, through the same PUT — two
-// tabs editing one column from opposite pivots, which is the kind of
-// in-screen duplication the brief asked Governance to shed. Removed the
-// tab; the summary strip's "Approval rules" tile (still real, still
-// computed from the same data) now points at Roles instead.
-//
-// ── Activity Log tab ──
-// GET /api/audit-log (new in this issue) — tenant-scoped, newest-first,
-// paginated. Replaces the mock activity feed; each row already carries a
-// resolved `actorName` (the route joins `users`), so entries show a real
-// person, not a raw actor id. The role-filter chip row (issue #302) filters
-// on `actorRole`, which the route resolves via that same `users` join.
+// ── Audit trail tab: master–detail ──
+// GET /api/audit-log — tenant-scoped, newest-first, paginated. Search box +
+// role filter chips (issue #302) + entity filter chips, entries grouped by
+// day. Selecting one shows: the action key, actor/role/timestamp, a plain
+// key/value dump of any record fields carried in `meta`, a "What changed"
+// diff — rendered ONLY when `meta.changes` is the `{field: {old, new}}` shape
+// several routes already write (lib/audit.ts's writer; see e.g. PATCH
+// /api/farms/[id], PATCH /api/employees/[id], PUT /api/role-permissions) —
+// and "Same burst": other loaded entries sharing the same `entityId`, i.e.
+// derived from data already on the client, never a second fetch.
 //
 // ── Summary strip ──
-// The 4th tile ("Approval rules") is the sum of `approvalRequired.length`
-// across every role in the already-loaded `roles` state — exactly the count
-// of the tenant's real `role_permissions` rows with `approval_required =
-// true` (GET /api/role-permissions groups those rows onto
-// `RoleMatrixEntry.approvalRequired`, one entry per true row). Tapping it
-// jumps to the Roles tab, the one place that count is still edited from
-// (see the CRUD Rules tab note above).
+// "Waiting on you" / "Approved — this season" come from the already-loaded
+// `approvals` state (season = the current quarter, lib/period-range.ts's
+// periodDateRange('quarter') — the same "quarter" this app already calls a
+// budget period elsewhere; there is no dedicated farm "season" concept to
+// borrow instead). "People on roles" is the new GET /api/employees count.
+// "Approval rules" is unchanged: sum of `approvalRequired.length` across
+// every loaded role (GET /api/role-permissions groups those rows onto
+// `RoleMatrixEntry.approvalRequired`, one entry per true row).
+//
+// ── Export trail ──
+// Client-side only, no new backend route (per the redesign brief: an export
+// must be a designed document, not a bare CSV). Builds a `ReportPayload` from
+// the currently-loaded/filtered audit entries and reuses lib/report-export.ts
+// — the SAME masthead/banner/table/footer renderer components/farm/reports.tsx
+// already uses for every other export in this app — so "Export trail"
+// produces the same kind of letterhead document as a P&L or mortality report,
+// not a plain spreadsheet. CSV is offered too, as a secondary option next to
+// it, never as the only format.
 
 /* ── Feature modules (mirrors GET/PUT /api/role-permissions' `module` keys) ── */
 const FEATURE_GROUPS = [
@@ -98,6 +148,7 @@ const ROLE_COLOR: Record<string, string> = {
   owner: 'var(--primary-green)', manager: 'var(--accent-purple)', worker: 'var(--accent-cyan)',
   vet: 'var(--accent-blue)', auditor: 'var(--accent-amber)',
 };
+const ROLE_FILTERS = ['owner', 'manager', 'worker', 'vet', 'auditor'] as const;
 
 /* ── Real shapes: GET/PUT /api/role-permissions and GET /api/approvals/api/audit-log ── */
 interface RoleMatrixEntry {
@@ -144,6 +195,14 @@ interface AuditLogRow {
   meta: Record<string, unknown> | null;
   at: string;
 }
+// GET /api/employees — already used by components/farm/people.tsx; only the
+// three fields this screen actually reads are typed here.
+interface EmployeeRow {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+}
 
 // Exported for tests/audit-log-reason.test.ts (issue #309) — pure, so it's
 // testable without a component render harness (see
@@ -155,10 +214,64 @@ export function auditReason(meta: Record<string, unknown> | null): string | null
   return typeof reason === 'string' && reason.trim().length > 0 ? reason : null;
 }
 
+// The "What changed" diff — present ONLY when `meta.changes` is the
+// `{ field: { old, new } }` shape lib/audit.ts's callers write (PATCH
+// /api/farms/[id], PATCH /api/employees/[id], PUT /api/role-permissions and
+// others). Approval decisions and record-creation audit rows don't carry
+// this shape, and correctly render no diff section at all — degrading
+// honestly instead of inventing a before/after out of unrelated meta keys.
+export function auditChanges(meta: Record<string, unknown> | null): [string, { old: unknown; new: unknown }][] | null {
+  if (!meta) return null;
+  const changes = meta.changes;
+  if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return null;
+  const entries = Object.entries(changes as Record<string, unknown>).filter(
+    (entry): entry is [string, { old: unknown; new: unknown }] => {
+      const v = entry[1];
+      return !!v && typeof v === 'object' && 'old' in v && 'new' in v;
+    },
+  );
+  return entries.length > 0 ? entries : null;
+}
+
+function fmtValue(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '—';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
 function fmtTimestamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+}
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toISOString().slice(0, 10);
+}
+function relativeTime(iso: string): string {
+  const d = new Date(iso).getTime();
+  if (Number.isNaN(d)) return iso;
+  const diffMs = Date.now() - d;
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+  const months = Math.round(days / 30);
+  return `${months} month${months === 1 ? '' : 's'} ago`;
 }
 
 function actionIcon(action: string): { icon: React.ReactNode; bg: string } {
@@ -204,77 +317,82 @@ function RoleBuilderSheet({
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '90%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
-        <div style={{ padding: '18px 18px 0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>{isNew ? 'Create Role' : `Edit: ${role?.role}`}</div>
-            <button className="btn-icon" onClick={onClose}><X size={16} /></button>
-          </div>
-
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role Name *</label>
-            <input className="farm-input" value={name} onChange={e => { setName(e.target.value); setNameError(''); }} placeholder="e.g. night_watchman, harvest_lead…" disabled={!isNew} />
-            {nameError && <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginTop: 4 }}><AlertTriangle size={11} aria-hidden="true" /> {nameError}</div>}
-          </div>
-
-          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
-            Feature Permissions &nbsp;<span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>tap to cycle: Hidden → View → Edit</span>
-          </div>
-
-          {FEATURE_GROUPS.map(g => (
-            <div key={g.group} style={{ marginBottom: 8 }}>
-              <button onClick={() => setExpandedGroup(expandedGroup === g.group ? null : g.group)}
-                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '9px 12px', cursor: 'pointer' }}>
-                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{g.group}</span>
-                {expandedGroup === g.group ? <ChevronUp size={14} color="var(--text-muted)" /> : <ChevronDown size={14} color="var(--text-muted)" />}
-              </button>
-              {expandedGroup === g.group && (
-                <div style={{ marginTop: 4, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-                  {g.features.map((f, i) => {
-                    const perm = perms[f.key] ?? 'hidden';
-                    return (
-                      <div key={f.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: PERM_BG[perm], borderBottom: i < g.features.length - 1 ? '1px solid var(--border-subtle)' : 'none', cursor: 'pointer' }} onClick={() => cyclePermission(f.key)}>
-                        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>{f.label}</span>
-                        <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: PERM_BG[perm], color: PERM_COLOR[perm], border: `1px solid ${PERM_COLOR[perm]}40`, textTransform: 'uppercase' }}>
-                          {perm === 'hidden' ? <EyeOff size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} /> : perm === 'view' ? <Eye size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} /> : <Edit2 size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />}
-                          {perm}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ))}
-
-          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 16, marginBottom: 10 }}>
-            Modules Requiring Owner Approval
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
-            {ALL_MODULES.map(f => {
-              const active = approvals.includes(f.key);
-              return (
-                <button key={f.key} onClick={() => toggleApproval(f.key)} style={{ padding: '6px 12px', borderRadius: 100, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: active ? 'rgba(var(--warning-rgb),0.15)' : 'var(--card)', border: active ? '1px solid rgba(var(--warning-rgb),0.5)' : '1px solid var(--border-subtle)', color: active ? 'var(--accent-amber)' : 'var(--text-muted)' }}>
-                  {active && <Check size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />}
-                  {f.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 24 }} onClick={handleSave} disabled={saving}>
-            <Check size={14} /> {saving ? 'Saving…' : isNew ? 'Create Role' : 'Save Changes'}
-          </button>
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92vh]">
+      <SheetTitle className="sr-only">{isNew ? 'Create role' : `Edit ${role?.role}`}</SheetTitle>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="font-display text-xl font-medium">{isNew ? 'Create Role' : `Edit: ${role?.role}`}</div>
         </div>
+
+        <label className="mb-4 grid gap-1.5 text-sm">
+          <span className="text-xs font-medium text-muted">Role Name *</span>
+          <Input value={name} onChange={e => { setName(e.target.value); setNameError(''); }} placeholder="e.g. night_watchman, harvest_lead…" disabled={!isNew} />
+          {nameError && <div className="mt-1 flex items-center gap-1.5 text-xs text-danger"><AlertTriangle size={11} aria-hidden="true" /> {nameError}</div>}
+        </label>
+
+        <div className="mb-2.5 text-xs font-medium tracking-wide text-subtle uppercase">
+          Feature Permissions <span className="normal-case text-subtle/80">— tap to cycle: Hidden → View → Edit</span>
+        </div>
+
+        {FEATURE_GROUPS.map(g => (
+          <div key={g.group} className="mb-2">
+            <button type="button" onClick={() => setExpandedGroup(expandedGroup === g.group ? null : g.group)}
+              className="flex w-full items-center justify-between rounded-lg bg-surface-2 px-3 py-2.5 text-left shadow-(--shadow-border)">
+              <span className="text-sm font-medium">{g.group}</span>
+              {expandedGroup === g.group ? <ChevronUp size={14} className="text-subtle" /> : <ChevronDown size={14} className="text-subtle" />}
+            </button>
+            {expandedGroup === g.group && (
+              <div className="mt-1 overflow-hidden rounded-lg border border-border">
+                {g.features.map((f, i) => {
+                  const perm = perms[f.key] ?? 'hidden';
+                  return (
+                    <div key={f.key}
+                      className={cn('flex cursor-pointer items-center justify-between px-3 py-2.5', i < g.features.length - 1 && 'border-b border-border')}
+                      style={{ background: PERM_BG[perm] }}
+                      onClick={() => cyclePermission(f.key)}>
+                      <span className="text-sm text-fg">{f.label}</span>
+                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase" style={{ background: PERM_BG[perm], color: PERM_COLOR[perm], border: `1px solid ${PERM_COLOR[perm]}40` }}>
+                        {perm === 'hidden' ? <EyeOff size={10} /> : perm === 'view' ? <Eye size={10} /> : <Edit2 size={10} />}
+                        {perm}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+
+        <div className="mt-4 mb-2.5 text-xs font-medium tracking-wide text-subtle uppercase">
+          Modules Requiring Owner Approval
+        </div>
+        <div className="mb-6 flex flex-wrap gap-1.5">
+          {ALL_MODULES.map(f => {
+            const active = approvals.includes(f.key);
+            return (
+              <button type="button" key={f.key} onClick={() => toggleApproval(f.key)}
+                className={cn(
+                  'rounded-full px-3 py-1.5 text-xs font-bold',
+                  active ? 'bg-warning-soft text-warning' : 'bg-surface-2 text-muted',
+                )}>
+                {active && <Check size={10} className="mr-1 inline align-middle" />}
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <Button className="mb-2 w-full justify-center" onClick={handleSave} disabled={saving}>
+          <Check size={14} /> {saving ? 'Saving…' : isNew ? 'Create Role' : 'Save Changes'}
+        </Button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
 /* ── Main screen ── */
 export function GovernanceScreen() {
-  const { tenantId, role: sessionRole } = useNav();
+  const { tenantId, role: sessionRole, activeFarmId, farms } = useNav();
   const { showToast } = useToast();
 
   const [tab, setTab] = useState<'approvals' | 'roles' | 'audit'>('approvals');
@@ -283,20 +401,47 @@ export function GovernanceScreen() {
   const [approvals, setApprovals] = useState<ApprovalRequestRow[] | null>(null);
   const [roles, setRoles] = useState<RoleMatrixEntry[] | null>(null);
   const [auditLog, setAuditLog] = useState<AuditLogRow[] | null>(null);
+  const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [loadError, setLoadError] = useState('');
 
   const [editRole, setEditRole] = useState<RoleMatrixEntry | null | 'new' | undefined>(undefined);
-  const [expandedRole, setExpandedRole] = useState<string | null>(null);
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [deleteRoleConfirm, setDeleteRoleConfirm] = useState<string | null>(null);
-  const [approvalFilter, setApprovalFilter] = useState('all');
+  const [approvalFilter, setApprovalFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
   const [activitySearch, setActivitySearch] = useState('');
   const [activityRoleFilter, setActivityRoleFilter] = useState('all');
+  const [activityEntityFilter, setActivityEntityFilter] = useState('all');
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [mobileEventOpen, setMobileEventOpen] = useState(false);
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [approvers, setApprovers] = useState<ApproverRow[]>([]);
-  // The approval currently open for review. Decisions are only reachable from
-  // inside this sheet — see the Review button below for why.
-  const [reviewing, setReviewing] = useState<ApprovalRequestRow | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+
+  // Tenant identity/formatting for the "Export trail" document — same
+  // GET /api/settings + active-farm-from-nav pattern components/farm/
+  // reports.tsx already uses, so the exported trail carries the same
+  // masthead identity a P&L or mortality export would.
+  const [exportOpts, setExportOpts] = useState<ExportOptions>({});
+  const [orgName, setOrgName] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<{ accentColor?: string; currencySymbol?: string; weightUnit?: string; orgName?: string }>(`/api/settings?tenantId=${tenantId}`).then(res => {
+      if (!cancelled && res.success) {
+        setExportOpts(prev => ({ ...prev, accentColor: res.data.accentColor || undefined }));
+        setOrgName(res.data.orgName || '');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+  const activeFarm = activeFarmId === 'ALL' ? undefined : farms.find(f => f.id === activeFarmId);
+  const fullExportOpts: ExportOptions = {
+    ...exportOpts,
+    farmName: activeFarm?.name || orgName || undefined,
+    farmCode: activeFarm?.code,
+    location: activeFarm?.location,
+    preparedFor: sessionRole.charAt(0).toUpperCase() + sessionRole.slice(1).replace('_', ' '),
+  };
 
   // Scoping, not decoration: anyone other than the owner is sent only the
   // requests that are actually theirs — named on them, or unassigned and so
@@ -331,6 +476,11 @@ export function GovernanceScreen() {
     // Who am I — needed to tell "waiting on me" from "waiting on Grace".
     apiClient.get<{ id: string }>('/api/auth/session').then((res) => {
       if (res.success) setMyUserId(res.data.id);
+    });
+    // "People on roles" tile + Roles tab member chips (new UI — see header
+    // comment). Read-only, already-existing endpoint; no write path here.
+    apiClient.get<EmployeeRow[]>(`/api/employees?tenantId=${tenantId}`).then((res) => {
+      if (res.success) setEmployees(res.data.filter(e => e.status === 'ACTIVE'));
     });
   }, [tenantId]);
   useEffect(() => { loadRoles(); }, [loadRoles]);
@@ -372,17 +522,36 @@ export function GovernanceScreen() {
     setDeleteRoleConfirm(null);
     if (ok) {
       showToast(`Role "${roleName}" deleted`, 'warning');
+      if (selectedRole === roleName) setSelectedRole(null);
       await loadAuditLog();
     }
   }
 
   const pending = (approvals ?? []).filter(a => a.status === 'pending').length;
-  const approvedCount = (approvals ?? []).filter(a => a.status === 'approved').length;
+  // "Approved — This season": the current quarter, computed from the
+  // approvals data already fetched (see header comment for why "quarter").
+  const seasonRange = useMemo(() => periodDateRange('quarter'), []);
+  const approvedThisSeason = (approvals ?? []).filter(a =>
+    a.status === 'approved' && !!a.decidedAt && a.decidedAt.slice(0, 10) >= seasonRange.from && a.decidedAt.slice(0, 10) <= seasonRange.to,
+  ).length;
+  const peopleOnRoles = employees.length;
+
   const approverName = useCallback((userId: string | null) => {
     if (!userId) return null;
     if (userId === myUserId) return 'you';
     return approvers.find((p) => p.userId === userId)?.name ?? 'someone no longer on this farm';
   }, [approvers, myUserId]);
+  // Best-effort requester name: `requestedBy` is a raw user id (approval_
+  // requests.requestedBy — db/schemas/governance.ts), not a display name.
+  // Resolved through the same approvers/session lookup as decidedBy/
+  // assignedApproverId above when possible (an owner/manager requester is
+  // always in the approvers list); falls back to a generic label rather than
+  // printing a raw uuid.
+  const requesterName = useCallback((userId: string) => approverName(userId) ?? 'a worker on this farm', [approverName]);
+  const requesterInitials = useCallback((userId: string) => {
+    const resolved = approverName(userId);
+    return resolved && resolved !== 'you' ? resolved : '?';
+  }, [approverName]);
 
   // Can I actually decide this one? Mirrors approverCanDecide in
   // lib/governance.ts — the server is still the authority, this only decides
@@ -393,299 +562,354 @@ export function GovernanceScreen() {
     return sessionRole === 'owner';
   }, [myUserId, sessionRole]);
 
+  const approvalCounts = useMemo(() => {
+    const rows = approvals ?? [];
+    return {
+      pending: rows.filter(a => a.status === 'pending').length,
+      approved: rows.filter(a => a.status === 'approved').length,
+      rejected: rows.filter(a => a.status === 'rejected').length,
+      all: rows.length,
+    };
+  }, [approvals]);
   const filteredApprovals = useMemo(() => {
     const rows = approvals ?? [];
-    switch (approvalFilter) {
-      case 'all': return rows;
-      case 'mine': return rows.filter(a => a.status === 'pending' && canDecide(a));
-      case 'decided': return rows.filter(a => a.decidedBy && a.decidedBy === myUserId);
-      default: return rows.filter(a => a.status === approvalFilter);
-    }
-  }, [approvals, approvalFilter, canDecide, myUserId]);
+    // Pending-first within a filter, same as the reference — the thing that
+    // needs a signature belongs above things that already have one.
+    const sorted = [...rows].sort((a, b) => {
+      const order: Record<string, number> = { pending: 0, approved: 1, rejected: 2 };
+      return (order[a.status] ?? 3) - (order[b.status] ?? 3) || b.requestedAt.localeCompare(a.requestedAt);
+    });
+    return approvalFilter === 'all' ? sorted : sorted.filter(a => a.status === approvalFilter);
+  }, [approvals, approvalFilter]);
+  const selectedApproval = filteredApprovals.find(a => a.id === selectedApprovalId) ?? filteredApprovals[0] ?? null;
 
   // Sum of every role's approvalRequired list = count of the tenant's real
-  // role_permissions rows with approval_required = true (see comment above).
+  // role_permissions rows with approval_required = true (see header comment).
   const crudRulesCount = (roles ?? []).reduce((sum, r) => sum + r.approvalRequired.length, 0);
+  const selectedRoleEntry = (roles ?? []).find(r => r.role === selectedRole) ?? (roles ?? [])[0] ?? null;
 
   const filteredActivity = useMemo(() => {
     let entries = auditLog ?? [];
     if (activityRoleFilter !== 'all') entries = entries.filter(e => e.actorRole === activityRoleFilter);
-    if (activitySearch) {
-      const q = activitySearch.toLowerCase();
+    if (activityEntityFilter !== 'all') entries = entries.filter(e => e.entity === activityEntityFilter);
+    if (activitySearch.trim()) {
+      const q = activitySearch.trim().toLowerCase();
       entries = entries.filter(e =>
         e.action.toLowerCase().includes(q) ||
         e.entity.toLowerCase().includes(q) ||
+        e.entityId.toLowerCase().includes(q) ||
         (e.actorName ?? '').toLowerCase().includes(q)
       );
     }
     return entries;
-  }, [auditLog, activityRoleFilter, activitySearch]);
+  }, [auditLog, activityRoleFilter, activityEntityFilter, activitySearch]);
+  const activityEntities = useMemo(() => {
+    const set = new Set((auditLog ?? []).map(e => e.entity));
+    return Array.from(set).sort();
+  }, [auditLog]);
+  const activityGroups = useMemo(() => {
+    const byDay = new Map<string, AuditLogRow[]>();
+    for (const e of filteredActivity) {
+      const key = dayKey(e.at);
+      const list = byDay.get(key) ?? [];
+      list.push(e);
+      byDay.set(key, list);
+    }
+    return Array.from(byDay.entries());
+  }, [filteredActivity]);
+  const selectedEvent = filteredActivity.find(e => e.id === selectedEventId) ?? filteredActivity[0] ?? null;
+  const sameBurst = useMemo(() => {
+    if (!selectedEvent) return [];
+    return filteredActivity.filter(e => e.id !== selectedEvent.id && e.entityId === selectedEvent.entityId).slice(0, 8);
+  }, [filteredActivity, selectedEvent]);
+
+  function pickEvent(id: string) {
+    setSelectedEventId(id);
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) setMobileEventOpen(true);
+  }
+
+  function handleExportTrail(format: 'pdf' | 'csv') {
+    const rows = filteredActivity;
+    const dates = rows.map(r => r.at.slice(0, 10)).sort();
+    const report: ReportPayload = {
+      title: 'Audit Trail',
+      meta: {
+        periodLabel: dates.length ? (dates[0] === dates[dates.length - 1] ? fmtDate(rows[0].at) : `${dates[0]} – ${dates[dates.length - 1]}`) : 'All time',
+      },
+      columns: ['Timestamp', 'Actor', 'Role', 'Action', 'Entity', 'Entity ID', 'Reason'],
+      rows: rows.map(e => [
+        fmtTimestamp(e.at), e.actorName ?? e.actorEmail ?? e.actor, e.actorRole ?? '—',
+        e.action, e.entity, e.entityId, auditReason(e.meta) ?? '',
+      ]),
+      headline: [
+        { label: 'Entries exported', value: String(rows.length) },
+        { label: 'Waiting on you', value: String(pending) },
+        { label: 'Approved this season', value: String(approvedThisSeason) },
+      ],
+      basis: 'Compiled from this tenant’s real audit_log entries currently loaded in the Activity tab, respecting whatever search, role and entity filters are applied.',
+      notes: [
+        ...(activityRoleFilter !== 'all' ? [`Filtered to role: ${activityRoleFilter}.`] : []),
+        ...(activityEntityFilter !== 'all' ? [`Filtered to entity: ${activityEntityFilter}.`] : []),
+        ...(activitySearch.trim() ? [`Filtered to entries matching "${activitySearch.trim()}".`] : []),
+      ],
+    };
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (format === 'pdf') {
+      downloadReportPdf(report, `audit-trail-${stamp}.pdf`, fullExportOpts);
+      showToast('Audit trail exported.', 'success');
+    } else {
+      downloadReportCsv(report, `audit-trail-${stamp}.csv`, fullExportOpts);
+      showToast('CSV downloaded.', 'success');
+    }
+  }
 
   return (
     <div className="screen-content">
-      <TopNav title="Approvals" subtitle="Roles, who can do what, and the audit trail" />
-
-      <div className="px-screen" style={{ paddingTop: 12 }}>
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-10">
         {loadError && (
-          <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="mb-3 flex items-center gap-1.5 rounded-xl border border-danger/25 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">
             <AlertTriangle size={13} /> {loadError}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          {[
-            { label: 'Pending', value: pending, color: 'var(--status-warning)', bg: 'rgba(var(--warning-rgb),0.1)', onClick: () => setTab('approvals') },
-            { label: 'Approved', value: approvedCount, color: 'var(--status-ok)', bg: 'rgba(var(--primary-rgb),0.08)', onClick: () => setTab('approvals') },
-            { label: 'Roles', value: (roles ?? []).length, color: 'var(--accent-purple)', bg: 'rgba(168,85,247,0.08)', onClick: () => setTab('roles') },
-            // Was its own "CRUD Rules" tab — a role-by-role edit sheet
-            // (RoleBuilderSheet's "Modules Requiring Owner Approval" chips,
-            // below) already edits this exact same `approvalRequired` field,
-            // just per-role instead of per-module. Two tabs writing the same
-            // column from opposite pivots was the "duplicates work" case the
-            // ui-polish-theme-weather brief called out — removed the second
-            // one rather than the data itself. This tile is still real,
-            // still clickable, just points at the one editor that's left.
-            { label: 'Approval rules', value: crudRulesCount, color: 'var(--accent-amber)', bg: 'rgba(var(--warning-rgb),0.06)', onClick: () => setTab('roles') },
-          ].map(s => (
-            <button key={s.label} onClick={s.onClick} style={{ flex: 1, background: s.bg, borderRadius: 12, padding: '10px 4px', textAlign: 'center', border: `1px solid ${s.color}30`, cursor: 'pointer' }}>
-              <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
-            </button>
-          ))}
+        <PageHeader
+          kicker="Company"
+          title="Governance"
+          lede="Who can do what, what still needs a second look, and a full trail of every change across the group."
+          actions={(
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={() => handleExportTrail('pdf')}>
+                <Download size={14} /> Export trail
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => handleExportTrail('csv')}>CSV</Button>
+            </div>
+          )}
+        />
+
+        <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <Kpi
+            label="Waiting on you"
+            value={pending}
+            hint={pending === 0 ? 'Queue is clear' : 'Open the queue'}
+            tone={pending > 0 ? 'warn' : 'ok'}
+            icon={<ClipboardList size={14} />}
+            onClick={() => { setTab('approvals'); setApprovalFilter('pending'); }}
+          />
+          <Kpi label="Approved" value={approvedThisSeason} hint="This season" icon={<Check size={14} />} onClick={() => setTab('approvals')} />
+          <Kpi label="People on roles" value={peopleOnRoles} hint={`${(roles ?? []).length} role${(roles ?? []).length === 1 ? '' : 's'}`} icon={<Users size={14} />} onClick={() => setTab('roles')} />
+          <Kpi label="Approval rules" value={crudRulesCount} hint="CRUD gates" icon={<ShieldCheck size={14} />} onClick={() => setTab('roles')} />
         </div>
 
-        <div style={{ display: 'flex', gap: 5, marginBottom: 14, overflowX: 'auto', scrollbarWidth: 'none' }}>
-          {[['approvals', 'Approvals'], ['roles', 'Roles'], ['audit', 'Activity Log']].map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id as typeof tab)} style={{ flexShrink: 0, padding: '8px 12px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: tab === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)' }}>
-              {label}{id === 'approvals' && pending > 0 ? ` (${pending})` : ''}
-            </button>
-          ))}
+        <div className="mt-5">
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            items={[
+              { id: 'approvals', label: 'Approvals', hint: 'What still needs a signature' },
+              { id: 'roles', label: 'Roles & rules', hint: 'Who can create, change, or sign' },
+              { id: 'audit', label: 'Audit trail', hint: 'Every change, with the diff' },
+            ]}
+          />
         </div>
 
         {/* ── APPROVALS TAB ── */}
         {tab === 'approvals' && (
-          <div style={{ paddingBottom: 80 }}>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
-              {[
-                ['all', 'All'], ['mine', 'Waiting on me'], ['decided', 'I decided'],
-                ['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected'],
-              ].map(([f, label]) => (
-                <button key={f} onClick={() => setApprovalFilter(f)} style={{ flexShrink: 0, padding: '5px 11px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: approvalFilter === f ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: approvalFilter === f ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: approvalFilter === f ? 'var(--primary-green)' : 'var(--text-muted)' }}>{label}</button>
-              ))}
-            </div>
-            {approvals === null ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading approvals…</div>
-            ) : (
-              <>
-                {filteredApprovals.map(a => (
-                  <div key={a.id} style={{ marginBottom: 12, padding: 14, borderRadius: 16, border: `1px solid ${a.status === 'pending' ? 'rgba(var(--warning-rgb),0.3)' : a.status === 'approved' ? 'rgba(var(--primary-rgb),0.25)' : 'rgba(var(--critical-rgb),0.25)'}`, background: a.status === 'pending' ? 'rgba(var(--warning-rgb),0.05)' : a.status === 'approved' ? 'rgba(var(--primary-rgb),0.04)' : 'rgba(var(--critical-rgb),0.04)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <div>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
-                          <span className="chip chip-info" style={{ fontSize: 'var(--fs-2xs)' }}>{a.type}</span>
-                          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontWeight: 600, fontFamily: 'monospace' }}>{a.id.slice(0, 8)}</span>
-                        </div>
-                        <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>{a.title}</div>
-                      </div>
-                      <span className={`chip ${a.status === 'pending' ? 'chip-warning' : a.status === 'approved' ? 'chip-ok' : 'chip-critical'}`} style={{ fontSize: 'var(--fs-2xs)', flexShrink: 0 }}>
-                        {a.status.toUpperCase()}
-                      </span>
-                    </div>
-                    {a.details && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.5 }}>{a.details}</div>}
-                    <div style={{ display: 'flex', gap: 12, marginBottom: a.status === 'pending' ? 10 : 0, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>By: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{a.requestedBy}</span></span>
-                      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>{fmtTimestamp(a.requestedAt)}</span>
-                      {a.status === 'pending' && (
-                        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-                          Waiting on: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{approverName(a.assignedApproverId) ?? 'anyone who can approve'}</span>
-                        </span>
-                      )}
-                      {a.status !== 'pending' && a.decidedBy && (
-                        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-                          {a.status === 'approved' ? 'Approved' : 'Rejected'} by <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{approverName(a.decidedBy)}</span>
-                          {a.decidedAt ? ` · ${fmtTimestamp(a.decidedAt)}` : ''}
-                        </span>
-                      )}
-                    </div>
-                    {a.status === 'pending' && !canDecide(a) && (
-                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', lineHeight: 1.5 }}>
-                        {approverName(a.assignedApproverId)} was named to decide this one.
-                      </div>
-                    )}
-                    {a.status === 'pending' && canDecide(a) && (
-                      // ── Open it before you sign it off ────────────────────
-                      // Approve/Reject used to sit right here, so a queue could
-                      // be cleared without ever reading what was submitted. The
-                      // approval row carries only `data.cause` in `details` —
-                      // the worker's count, variance reason, notes and photo
-                      // live on the record itself. Deciding from the list was
-                      // deciding on a summary.
-                      //
-                      // The decision buttons now live inside the review sheet,
-                      // which loads the full record first. One extra tap, and
-                      // it is the tap that makes the approval mean something.
-                      <button
-                        disabled={decidingId === a.id}
-                        onClick={() => setReviewing(a)}
-                        style={{ width: '100%', padding: '9px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--warning-rgb),0.12)', border: '1px solid rgba(var(--warning-rgb),0.4)', color: 'var(--accent-amber)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
-                      >
-                        <Eye size={13} /> Review &amp; decide
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {filteredApprovals.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
-                    <CheckCircle2 size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
-                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600 }}>No {approvalFilter !== 'all' ? approvalFilter : ''} requests</div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ── ROLE BUILDER TAB ── */}
-        {tab === 'roles' && (
-          <div style={{ paddingBottom: 80 }}>
-            <div style={{ padding: '10px 14px', background: 'rgba(168,85,247,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(168,85,247,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              <ShieldCheck size={12} style={{ verticalAlign: 'middle', marginRight: 5 }} color="var(--accent-purple)" />
-              Roles define what each employee can see and do, including which modules need owner approval before an action takes effect (Edit a role → Modules Requiring Owner Approval). All role changes are logged in the Activity Log.
-              {!canEditRoles && ' Only an owner can make changes.'}
-            </div>
-            {canEditRoles && (
-              <button onClick={() => setEditRole('new')} style={{ width: '100%', marginBottom: 12, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, cursor: 'pointer', background: 'rgba(var(--primary-rgb),0.1)', border: '1px dashed rgba(var(--primary-rgb),0.4)', color: 'var(--primary-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <Plus size={15} /> Create New Role
-              </button>
-            )}
-
-            {roles === null ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading roles…</div>
-            ) : roles.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>No roles configured yet.</div>
-            ) : roles.map(r => {
-              const expanded = expandedRole === r.role;
-              const editableCount = Object.values(r.permissions).filter(p => p === 'edit').length;
-              const viewCount = Object.values(r.permissions).filter(p => p === 'view').length;
-              return (
-                <div key={r.role} style={{ marginBottom: 10, borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-                  {deleteRoleConfirm === r.role && (
-                    <div style={{ padding: '12px 14px', background: 'rgba(var(--critical-rgb),0.08)', borderBottom: '1px solid rgba(var(--critical-rgb),0.2)' }}>
-                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--status-critical)', marginBottom: 8 }}>Delete &quot;{r.role}&quot;? This cannot be undone.</div>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setDeleteRoleConfirm(null)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Cancel</button>
-                        <button onClick={() => deleteRole(r.role)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'rgba(var(--critical-rgb),0.15)', border: '1px solid rgba(var(--critical-rgb),0.4)', color: 'var(--status-critical)', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>Delete</button>
-                      </div>
-                    </div>
-                  )}
-
-                  <button onClick={() => setExpandedRole(expanded ? null : r.role)} style={{ width: '100%', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--card)', border: 'none', cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <div style={{ width: 10, height: 10, borderRadius: '50%', background: ROLE_COLOR[r.role] ?? 'var(--accent-purple)', flexShrink: 0 }} />
-                      <div style={{ textAlign: 'left' }}>
-                        <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{r.role}</div>
-                        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{editableCount} edit · {viewCount} view · {r.approvalRequired.length} need approval</div>
-                      </div>
-                    </div>
-                    {canEditRoles && (
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <button onClick={e => { e.stopPropagation(); setEditRole(r); }} style={{ padding: '5px 10px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>Edit</button>
-                        <button onClick={e => { e.stopPropagation(); setDeleteRoleConfirm(deleteRoleConfirm === r.role ? null : r.role); }} style={{ padding: '5px 8px', borderRadius: 8, fontSize: 'var(--fs-2xs)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', color: 'var(--status-critical)', cursor: 'pointer' }}>
-                          <Trash2 size={11} />
-                        </button>
-                        {expanded ? <ChevronUp size={14} color="var(--text-muted)" /> : <ChevronDown size={14} color="var(--text-muted)" />}
-                      </div>
-                    )}
+          <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+            <div className="rounded-xl bg-surface p-2 shadow-(--shadow-border)">
+              <div className="flex gap-1 overflow-x-auto px-1 pt-1 pb-2">
+                {([['pending', 'Queue'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['all', 'All']] as const).map(([id, label]) => (
+                  <button key={id} type="button" onClick={() => setApprovalFilter(id)}
+                    className={cn('shrink-0 rounded-md px-2 py-1 text-xs', approvalFilter === id ? 'bg-primary-soft text-primary font-medium' : 'text-muted')}>
+                    {label} <span className="ml-1 tabular-nums">{approvalCounts[id]}</span>
                   </button>
+                ))}
+              </div>
+              {approvals === null ? (
+                <div className="py-10 text-center text-sm text-muted">Loading approvals…</div>
+              ) : filteredApprovals.length === 0 ? (
+                <EmptyState icon={<CheckCircle2 size={20} />} title="Nothing waiting" body="New requests that hit a rule will land here for a signature." />
+              ) : (
+                <ul className="mt-1 flex flex-col gap-1">
+                  {filteredApprovals.map((a) => {
+                    const active = selectedApproval?.id === a.id;
+                    return (
+                      <li key={a.id}>
+                        <button type="button" onClick={() => setSelectedApprovalId(a.id)}
+                          className={cn('flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors', active ? 'bg-primary-soft' : 'hover:bg-surface-2')}>
+                          <Avatar name={requesterInitials(a.requestedBy)} size="sm" />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span className="truncate text-sm font-medium">{a.title}</span>
+                              <Badge variant={a.status === 'pending' ? 'warning' : a.status === 'approved' ? 'success' : 'danger'}>{a.status}</Badge>
+                            </span>
+                            <span className="mt-0.5 block truncate text-xs text-muted">
+                              {requesterName(a.requestedBy)} · {a.type} · {relativeTime(a.requestedAt)}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
 
-                  {expanded && (
-                    <div style={{ background: 'var(--surface)', borderTop: '1px solid var(--border-subtle)', padding: '12px 14px' }}>
-                      {FEATURE_GROUPS.map(g => (
-                        <div key={g.group} style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>{g.group}</div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                            {g.features.map(f => {
-                              const perm = r.permissions[f.key] ?? 'hidden';
-                              if (perm === 'hidden') return null;
-                              return (
-                                <span key={f.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: PERM_BG[perm], color: PERM_COLOR[perm], border: `1px solid ${PERM_COLOR[perm]}40` }}>
-                                  {perm === 'edit' ? <Edit2 size={9} aria-hidden="true" /> : <Eye size={9} aria-hidden="true" />} {f.label}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                      {r.approvalRequired.length > 0 && (
-                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)' }}>
-                          <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--accent-amber)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Requires Owner Approval</div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                            {r.approvalRequired.map(m => (
-                              <span key={m} style={{ fontSize: 'var(--fs-2xs)', padding: '3px 9px', background: 'rgba(var(--warning-rgb),0.1)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 100, color: 'var(--accent-amber)', fontWeight: 600 }}>{m.replace(/-/g, ' ')}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {selectedApproval ? (
+              <ApprovalDetail
+                key={selectedApproval.id}
+                approval={selectedApproval}
+                tenantId={tenantId}
+                busy={decidingId === selectedApproval.id}
+                approverName={approverName}
+                requesterName={requesterName}
+                canDecide={canDecide(selectedApproval)}
+                isOverride={!!selectedApproval.assignedApproverId && selectedApproval.assignedApproverId !== myUserId}
+                onDecide={(decision) => decide(selectedApproval, decision)}
+              />
+            ) : approvals !== null && (
+              <EmptyState icon={<CheckCircle2 size={20} />} title="Nothing selected" body="Pick a request on the left to see its detail." />
+            )}
           </div>
         )}
 
-        {/* ── ACTIVITY LOG TAB ── */}
-        {tab === 'audit' && (
-          <div style={{ paddingBottom: 80 }}>
-            <SearchBar value={activitySearch} onChange={setActivitySearch} placeholder="Search actions, users, entities…" />
-            <div style={{ display: 'flex', gap: 5, marginBottom: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
-              {['all', ...Object.keys(ROLE_COLOR)].map(id => (
-                <button key={id} onClick={() => setActivityRoleFilter(id)} style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer', background: activityRoleFilter === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)', border: activityRoleFilter === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)', color: activityRoleFilter === id ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize' }}>
-                  {id === 'all' ? 'All Roles' : id}
-                </button>
-              ))}
+        {/* ── ROLES & RULES TAB ── */}
+        {tab === 'roles' && (
+          <div className="mt-5 grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+            <ul className="flex gap-1 overflow-x-auto lg:flex-col">
+              {roles === null ? (
+                <div className="py-6 text-sm text-muted">Loading roles…</div>
+              ) : roles.length === 0 ? (
+                <div className="py-6 text-sm text-muted">No roles configured yet.</div>
+              ) : roles.map((r) => {
+                const count = employees.filter(e => e.role === r.role).length;
+                const active = r.role === selectedRoleEntry?.role;
+                return (
+                  <li key={r.role} className="shrink-0">
+                    <button type="button" onClick={() => setSelectedRole(r.role)}
+                      className={cn(
+                        'flex w-full min-w-40 items-center justify-between gap-3 rounded-xl px-3 py-3 text-left shadow-(--shadow-border) transition-colors lg:min-w-0',
+                        active ? 'bg-primary text-primary-fg' : 'bg-surface hover:bg-surface-2',
+                      )}>
+                      <span>
+                        <span className="block text-sm font-medium">{r.role}</span>
+                        <span className={cn('block text-xs', active ? 'text-primary-fg/75' : 'text-muted')}>{count} {count === 1 ? 'person' : 'people'}</span>
+                      </span>
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: active ? 'currentColor' : (ROLE_COLOR[r.role] ?? 'var(--accent-purple)') }} />
+                    </button>
+                  </li>
+                );
+              })}
+              {canEditRoles && (
+                <li className="shrink-0">
+                  <button type="button" onClick={() => setEditRole('new')}
+                    className="flex min-h-[52px] w-full min-w-40 items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/40 px-3 py-3 text-sm font-medium text-primary lg:min-w-0">
+                    <Plus size={14} /> New role
+                  </button>
+                </li>
+              )}
+            </ul>
+
+            <div className="flex flex-col gap-4">
+              {!canEditRoles && (
+                <div className="rounded-xl bg-surface-2 px-3.5 py-2.5 text-xs text-muted">Only an owner can make changes. All role changes are logged in the Audit trail.</div>
+              )}
+              {selectedRoleEntry ? (
+                <RoleDetail
+                  entry={selectedRoleEntry}
+                  members={employees.filter(e => e.role === selectedRoleEntry.role)}
+                  canEdit={canEditRoles}
+                  deleteConfirm={deleteRoleConfirm === selectedRoleEntry.role}
+                  onEdit={() => setEditRole(selectedRoleEntry)}
+                  onDeleteRequest={() => setDeleteRoleConfirm(selectedRoleEntry.role)}
+                  onDeleteCancel={() => setDeleteRoleConfirm(null)}
+                  onDeleteConfirm={() => deleteRole(selectedRoleEntry.role)}
+                />
+              ) : roles !== null && roles.length === 0 && canEditRoles ? (
+                <EmptyState icon={<Shield size={20} />} title="No roles yet" body="Create your first role to start assigning permissions." />
+              ) : null}
             </div>
-            {auditLog === null ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading activity…</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {filteredActivity.map(entry => {
-                  const { icon, bg } = actionIcon(entry.action);
-                  const reason = auditReason(entry.meta);
-                  return (
-                    <div key={entry.id} className="farm-card" style={{ padding: 12 }}>
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                        <div style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          {icon}
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{entry.action}</div>
-                            <span style={{ fontSize: 'var(--fs-2xs)', padding: '2px 7px', borderRadius: 100, background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)', fontWeight: 700, flexShrink: 0, marginLeft: 6 }}>{entry.entity}</span>
-                          </div>
-                          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{entry.entityId}</div>
-                          {reason && (
-                            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary, var(--text-primary))', marginTop: 4, fontStyle: 'italic' }}>
-                              Reason: {reason}
-                            </div>
-                          )}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                            <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{entry.actorName ?? entry.actorEmail ?? entry.actor}</span>
-                            <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontFamily: 'monospace' }}>{fmtTimestamp(entry.at)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {filteredActivity.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
-                    <Activity size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
-                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600 }}>No activity found</div>
-                  </div>
-                )}
+          </div>
+        )}
+
+        {/* ── AUDIT TRAIL TAB ── */}
+        {tab === 'audit' && (
+          <div className="mt-5 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.9fr)]">
+            <div className="min-w-0 rounded-xl bg-surface p-3 shadow-(--shadow-border) lg:p-4">
+              <div className="relative">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
+                <Input value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} placeholder="Search actions, people, entities…" className="pl-9" aria-label="Search audit trail" />
               </div>
-            )}
+              <div className="mt-3">
+                <Chips value={activityRoleFilter} onChange={setActivityRoleFilter} items={[{ id: 'all', label: 'Everyone' }, ...ROLE_FILTERS.map(r => ({ id: r, label: r.charAt(0).toUpperCase() + r.slice(1) }))]} />
+              </div>
+              {activityEntities.length > 0 && (
+                <div className="mt-2">
+                  <Chips value={activityEntityFilter} onChange={setActivityEntityFilter} items={[{ id: 'all', label: 'All entities' }, ...activityEntities.map(e => ({ id: e, label: e }))]} />
+                </div>
+              )}
+
+              <div className="mt-4">
+                {auditLog === null ? (
+                  <div className="py-10 text-center text-sm text-muted">Loading activity…</div>
+                ) : activityGroups.length === 0 ? (
+                  <div className="flex flex-col items-center px-2 py-10 text-center">
+                    <Activity size={22} className="mb-2 text-subtle" />
+                    <p className="text-sm text-muted">No events match those filters.</p>
+                  </div>
+                ) : activityGroups.map(([day, entries]) => (
+                  <section key={day} className="mb-5">
+                    <h3 className="sticky top-0 z-10 bg-surface/90 px-2 py-1.5 text-xs font-medium tracking-[0.12em] text-subtle uppercase backdrop-blur-sm">
+                      {fmtDate(entries[0].at)}
+                    </h3>
+                    <ol className="relative ml-3 flex flex-col gap-1 border-l border-border">
+                      {entries.map((e) => {
+                        const active = selectedEvent?.id === e.id;
+                        const { icon } = actionIcon(e.action);
+                        return (
+                          <li key={e.id} className="relative py-0.5 pl-5">
+                            <span className={cn('absolute top-4 -left-1.5 size-3 rounded-full border-2 border-surface', active ? 'bg-primary' : 'bg-border')} />
+                            <button type="button" onClick={() => pickEvent(e.id)}
+                              className={cn('flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors', active ? 'bg-primary-soft' : 'hover:bg-surface-2')}>
+                              <Avatar name={e.actorName ?? e.actorEmail ?? '?'} size="sm" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-sm">
+                                  <span className="font-medium">{e.actorName ?? e.actorEmail ?? 'Someone'}</span>{' '}
+                                  <span className="text-muted">{e.action}</span>
+                                </span>
+                                <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-subtle">
+                                  <span>{fmtTime(e.at)}</span>
+                                  {e.actorRole && <span className="capitalize">{e.actorRole}</span>}
+                                  <span>{e.entity}</span>
+                                </span>
+                              </span>
+                              <span className="shrink-0">{icon}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </section>
+                ))}
+              </div>
+            </div>
+
+            <div className="hidden min-w-0 lg:block">
+              {selectedEvent ? (
+                <AuditInspector event={selectedEvent} siblings={sameBurst} onPick={pickEvent} />
+              ) : (
+                <EmptyState icon={<Activity size={20} />} title="No activity yet" body="Changes across the group will appear here as they happen." />
+              )}
+            </div>
+
+            <Sheet open={mobileEventOpen} onOpenChange={setMobileEventOpen} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+              <SheetTitle className="sr-only">Event detail</SheetTitle>
+              {selectedEvent && (
+                <div className="max-h-[85vh] overflow-y-auto p-5">
+                  <AuditInspector event={selectedEvent} siblings={sameBurst} onPick={pickEvent} />
+                </div>
+              )}
+            </Sheet>
           </div>
         )}
       </div>
@@ -698,140 +922,307 @@ export function GovernanceScreen() {
           onSave={saveRole}
         />
       )}
-
-      {reviewing && (
-        <ApprovalReviewSheet
-          approval={reviewing}
-          tenantId={tenantId}
-          busy={decidingId === reviewing.id}
-          approverName={approverName}
-          isOverride={!!reviewing.assignedApproverId && reviewing.assignedApproverId !== myUserId}
-          onClose={() => setReviewing(null)}
-          onDecide={async (decision) => {
-            await decide(reviewing, decision);
-            setReviewing(null);
-          }}
-        />
-      )}
     </div>
   );
 }
 
-/* ── Approval review sheet ─────────────────────────────────────────────────
+/* ── Approvals: detail panel ─────────────────────────────────────────────────
  * The only place an approval can be decided. Loads the underlying record
  * first, because an approval_requests row carries just `data.cause` in
  * `details` while the worker's actual submission — the count, the variance
  * reason, their notes, the photo they were asked for — lives on the record.
- * A queue cleared from the list was a queue signed off on titles.
+ * Selecting a row in the master–detail layout IS the "load the full record
+ * before deciding" step now (this used to require a second "Review & decide"
+ * tap into a modal — the master–detail layout already shows the full record
+ * the moment a row is picked, so the extra tap is gone, not the guarantee).
  *
  * It renders whatever keys the record's `data` blob actually has rather than a
  * fixed field list: `data` is deliberately loose per record type
  * (db/schemas/people.ts), so a hardcoded set would silently hide whatever a
- * future record type puts there — the exact failure this sheet exists to fix. */
+ * future record type puts there — the exact failure this panel exists to fix. */
 const DATA_LABELS: Record<string, string> = {
   count: 'Deaths reported', deaths: 'Deaths reported', cause: 'Cause given',
   counted: 'Head counted', varianceReason: 'Reason for the variance',
   notes: 'Worker notes', treatment: 'Treatment given', dose: 'Dose',
   weight: 'Weight (kg)', averageKg: 'Average weight (kg)', sampleSize: 'Samples taken',
 };
+const HIDDEN_KEYS = new Set(['pendingApproval', 'batchId', 'unitId', 'itemId', 'productId', 'items', 'feedItems', 'samples']);
 
-function ApprovalReviewSheet({ approval, tenantId, busy, onDecide, onClose, approverName, isOverride }: {
+function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requesterName, isOverride, canDecide }: {
   approval: ApprovalRequestRow;
   tenantId: string;
   busy: boolean;
   onDecide: (decision: 'approve' | 'reject') => void;
-  onClose: () => void;
   approverName: (id: string | null) => string | null;
+  requesterName: (id: string) => string;
   isOverride: boolean;
+  canDecide: boolean;
 }) {
   const [record, setRecord] = useState<{ id: string; type: string; data: Record<string, unknown>; photoUrl: string | null; createdAt: string } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
+    setRecord(null);
+    setLoadFailed(false);
     if (!approval.entityId) { setLoadFailed(true); return; }
+    let cancelled = false;
     apiClient.get<{ id: string; type: string; data: Record<string, unknown>; photoUrl: string | null; createdAt: string }[]>(
       `/api/records?tenantId=${tenantId}&id=${approval.entityId}`,
     ).then((res) => {
+      if (cancelled) return;
       if (res.success && res.data.length > 0) setRecord(res.data[0]);
       else setLoadFailed(true);
     });
+    return () => { cancelled = true; };
   }, [approval.entityId, tenantId]);
 
-  // Internal bookkeeping the approver does not need, and the pending flag the
-  // route sets on a deferred record — shown as a state, not as a data row.
-  const HIDDEN_KEYS = new Set(['pendingApproval', 'batchId', 'unitId', 'itemId', 'productId', 'items', 'feedItems', 'samples']);
   const entries = Object.entries(record?.data ?? {})
     .filter(([k, v]) => !HIDDEN_KEYS.has(k) && v !== null && v !== undefined && v !== '')
     .map(([k, v]) => [DATA_LABELS[k] ?? k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase()), typeof v === 'object' ? JSON.stringify(v) : String(v)] as [string, string]);
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-end', zIndex: 210 }} onClick={() => !busy && onClose()}>
-      <div style={{ background: 'var(--surface)', borderRadius: '22px 22px 0 0', width: '100%', maxHeight: '92%', overflowY: 'auto', border: '1px solid var(--border-subtle)' }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ padding: '16px 18px 20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
-            <div style={{ minWidth: 0 }}>
-              <span className="chip chip-info" style={{ fontSize: 'var(--fs-2xs)' }}>{approval.type}</span>
-              <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: 'var(--text-primary)', marginTop: 5, lineHeight: 1.25 }}>{approval.title}</div>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 3 }}>
-                Submitted by {approval.requestedBy}
-              </div>
-            </div>
-            <button className="btn-icon" onClick={onClose} disabled={busy}><X size={16} /></button>
-          </div>
-
-          <div className="section-eyebrow" style={{ marginBottom: 7 }}>What the worker submitted</div>
-          {record === null && !loadFailed && (
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', padding: '10px 0' }}>Loading the full submission…</div>
-          )}
-          {loadFailed && (
-            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
-              The underlying record could not be loaded, so only the summary below is available. Decide with care — or reject and ask the worker to resubmit.
-            </div>
-          )}
-          {record !== null && (
-            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 12 }}>
-              {entries.length === 0 && (
-                <div style={{ padding: '11px 13px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>This record carries no extra detail beyond its title.</div>
-              )}
-              {entries.map(([label, value], i) => (
-                <div key={label} style={{ padding: '10px 13px', display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: i < entries.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', flexShrink: 0 }}>{label}</span>
-                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 650, color: 'var(--text-primary)', textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {record?.photoUrl && (
-            <>
-              <div className="section-eyebrow" style={{ marginBottom: 7 }}>Photo the worker attached</div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={record.photoUrl} alt="Photo submitted with this record" style={{ width: '100%', borderRadius: 12, border: '1px solid var(--border-subtle)', marginBottom: 12 }} />
-            </>
-          )}
-
-          {approval.details && (
-            <div style={{ padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 10, fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
-              {approval.details}
-            </div>
-          )}
-
-          {isOverride && (
-            <div style={{ padding: '9px 11px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.3)', borderRadius: 10, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
-              {approverName(approval.assignedApproverId)} was named to decide this. Deciding it yourself is recorded as an override.
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button disabled={busy} onClick={() => onDecide('reject')} style={{ flex: 1, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--critical-rgb),0.1)', border: '1px solid rgba(var(--critical-rgb),0.3)', color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-              <X size={13} /> Reject
-            </button>
-            <button disabled={busy} onClick={() => onDecide('approve')} style={{ flex: 1, padding: '11px', borderRadius: 12, fontSize: 'var(--fs-sm)', fontWeight: 700, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--status-ok)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-              <Check size={13} /> {busy ? 'Working…' : 'Approve'}
-            </button>
-          </div>
+    <article className="rounded-xl bg-surface p-5 shadow-(--shadow-border) lg:p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Badge variant={approval.status === 'pending' ? 'warning' : approval.status === 'approved' ? 'success' : 'danger'}>{approval.status}</Badge>
+          <h2 className="font-display mt-3 text-2xl leading-tight font-medium">{approval.title}</h2>
+          {approval.details && <p className="mt-2 text-sm leading-relaxed text-muted">{approval.details}</p>}
         </div>
       </div>
-    </div>
+
+      <dl className="mt-6 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+        <Kv label="Requested by" value={requesterName(approval.requestedBy)} />
+        <Kv label="Type" value={approval.type} />
+        <Kv label="Opened" value={fmtTimestamp(approval.requestedAt)} />
+        <Kv label="Resolved" value={approval.decidedAt ? fmtTimestamp(approval.decidedAt) : 'Still open'} />
+        {approval.status !== 'pending' && approval.decidedBy && (
+          <Kv label={approval.status === 'approved' ? 'Approved by' : 'Rejected by'} value={approverName(approval.decidedBy) ?? '—'} />
+        )}
+        {approval.status === 'pending' && (
+          <Kv label="Waiting on" value={approverName(approval.assignedApproverId) ?? 'anyone who can approve'} />
+        )}
+      </dl>
+
+      <div className="mt-6 text-xs font-medium tracking-wide text-subtle uppercase">What the worker submitted</div>
+      {record === null && !loadFailed && <div className="py-2.5 text-sm text-muted">Loading the full submission…</div>}
+      {loadFailed && (
+        <div className="mt-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2.5 text-xs leading-relaxed text-fg">
+          The underlying record could not be loaded, so only the summary above is available. Decide with care — or reject and ask the worker to resubmit.
+        </div>
+      )}
+      {record !== null && (
+        <div className="mt-2 overflow-hidden rounded-lg border border-border">
+          {entries.length === 0 && <div className="px-3 py-2.5 text-sm text-muted">This record carries no extra detail beyond its title.</div>}
+          {entries.map(([label, value], i) => (
+            <div key={label} className={cn('flex justify-between gap-3 px-3 py-2.5 text-sm', i < entries.length - 1 && 'border-b border-border')}>
+              <span className="shrink-0 text-subtle">{label}</span>
+              <span className="text-right font-medium break-words">{value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {record?.photoUrl && (
+        <>
+          <div className="mt-4 text-xs font-medium tracking-wide text-subtle uppercase">Photo the worker attached</div>
+          {/* eslint-config's @next/next/no-img-element is off repo-wide (see eslint.config.mjs) — this app serves user-uploaded photos, not next/image-optimisable static assets. */}
+          <img src={record.photoUrl} alt="Photo submitted with this record" className="mt-2 w-full rounded-lg border border-border" />
+        </>
+      )}
+
+      {isOverride && approval.status === 'pending' && (
+        <div className="mt-4 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2.5 text-xs leading-relaxed text-fg">
+          {approverName(approval.assignedApproverId)} was named to decide this. Deciding it yourself is recorded as an override.
+        </div>
+      )}
+      {approval.status === 'pending' && !canDecide && (
+        <div className="mt-4 text-xs leading-relaxed text-subtle">{approverName(approval.assignedApproverId)} was named to decide this one.</div>
+      )}
+
+      {approval.status === 'pending' && canDecide && (
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Button onClick={() => onDecide('approve')} disabled={busy}>
+            <Check size={14} /> {busy ? 'Working…' : 'Approve'}
+          </Button>
+          <Button variant="outline" onClick={() => onDecide('reject')} disabled={busy}>
+            <X size={14} /> Reject
+          </Button>
+        </div>
+      )}
+    </article>
+  );
+}
+
+/* ── Roles: detail panel — header card + real permission matrix ──
+ * Reference's matrix has Create/Read/Update/Delete/Approve columns; our
+ * backend only answers Hidden/View/Edit + a separate approval-required flag
+ * per module (GET /api/role-permissions), so the matrix below has three real
+ * columns instead of inventing two the API has no data for: View (checked
+ * when access is 'view' or 'edit' — edit implies you can also see it), Edit
+ * (checked only when access is 'edit'), and Approval (checked when the
+ * module is in this role's `approvalRequired` list). */
+function RoleDetail({ entry, members, canEdit, deleteConfirm, onEdit, onDeleteRequest, onDeleteCancel, onDeleteConfirm }: {
+  entry: RoleMatrixEntry;
+  members: EmployeeRow[];
+  canEdit: boolean;
+  deleteConfirm: boolean;
+  onEdit: () => void;
+  onDeleteRequest: () => void;
+  onDeleteCancel: () => void;
+  onDeleteConfirm: () => void;
+}) {
+  return (
+    <>
+      <section className="rounded-xl bg-surface p-5 shadow-(--shadow-border)">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-display text-2xl font-medium capitalize">{entry.role}</h2>
+            <p className="mt-1 max-w-xl text-sm text-muted">
+              {Object.values(entry.permissions).filter(p => p === 'edit').length} full-edit modules · {entry.approvalRequired.length} need owner approval
+            </p>
+          </div>
+          {canEdit && (
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" onClick={onEdit}><Edit2 size={13} /> Edit</Button>
+              <Button variant="outline" size="sm" onClick={onDeleteRequest}><Trash2 size={13} /></Button>
+            </div>
+          )}
+        </div>
+        {deleteConfirm && (
+          <div className="mt-4 rounded-lg border border-danger/30 bg-danger-soft p-3">
+            <div className="mb-2 text-sm font-medium text-danger">Delete &quot;{entry.role}&quot;? This cannot be undone.</div>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" className="flex-1 justify-center" onClick={onDeleteCancel}>Cancel</Button>
+              <Button variant="danger" size="sm" className="flex-1 justify-center" onClick={onDeleteConfirm}>Delete</Button>
+            </div>
+          </div>
+        )}
+        {members.length > 0 ? (
+          <ul className="mt-4 flex flex-wrap gap-2">
+            {members.map((m) => (
+              <li key={m.id} className="flex items-center gap-2 rounded-full bg-surface-2 py-1 pr-3 pl-1 text-xs">
+                <Avatar name={m.name} size="sm" /> {m.name}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-4 text-xs text-subtle">Nobody is on this role yet.</p>
+        )}
+      </section>
+
+      <section className="overflow-x-auto rounded-xl bg-surface p-2 shadow-(--shadow-border)">
+        <table className="w-full min-w-2xl text-sm">
+          <thead>
+            <tr className="text-left text-xs text-subtle">
+              <th className="px-3 py-2 font-medium">Module</th>
+              <th className="px-2 py-2 text-center font-medium">View</th>
+              <th className="px-2 py-2 text-center font-medium">Edit</th>
+              <th className="px-2 py-2 text-center font-medium">Approval</th>
+            </tr>
+          </thead>
+          <tbody>
+            {FEATURE_GROUPS.map((g) => (
+              <React.Fragment key={g.group}>
+                <tr>
+                  <td colSpan={4} className="px-3 pt-3 pb-1 text-xs font-medium tracking-wide text-subtle uppercase">{g.group}</td>
+                </tr>
+                {g.features.map((f) => {
+                  const perm = entry.permissions[f.key] ?? 'hidden';
+                  const view = perm === 'view' || perm === 'edit';
+                  const edit = perm === 'edit';
+                  const approvalOn = entry.approvalRequired.includes(f.key);
+                  return (
+                    <tr key={f.key} className="border-t border-border">
+                      <td className="px-3 py-2.5">{f.label}</td>
+                      <MatrixCell on={view} />
+                      <MatrixCell on={edit} />
+                      <MatrixCell on={approvalOn} tone="warn" />
+                    </tr>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </>
+  );
+}
+
+function MatrixCell({ on, tone = 'ok' }: { on: boolean; tone?: 'ok' | 'warn' }) {
+  return (
+    <td className="px-2 py-2.5 text-center">
+      <span className={cn(
+        'inline-flex size-6 items-center justify-center rounded-full',
+        on ? (tone === 'warn' ? 'bg-warning-soft text-warning' : 'bg-primary-soft text-primary') : 'text-border',
+      )}>
+        {on ? <Check size={14} /> : <span className="size-1 rounded-full bg-border" />}
+      </span>
+    </td>
+  );
+}
+
+/* ── Audit trail: inspector panel ── */
+function AuditInspector({ event, siblings, onPick }: { event: AuditLogRow; siblings: AuditLogRow[]; onPick: (id: string) => void }) {
+  const changes = auditChanges(event.meta);
+  const reason = auditReason(event.meta);
+  // Everything else in `meta` that isn't the `changes`/`reason` keys already
+  // rendered above — the same "show whatever is actually there" rule
+  // ApprovalDetail's record dump follows, not a fixed field list.
+  const extra = Object.entries(event.meta ?? {}).filter(([k, v]) =>
+    k !== 'changes' && k !== 'reason' && v !== null && v !== undefined && v !== '' && typeof v !== 'object',
+  );
+  return (
+    <article className="rounded-xl bg-surface p-5 shadow-(--shadow-border)">
+      <div className="flex items-center gap-2 text-xs text-subtle">
+        <Shield size={13} /> {event.action}
+      </div>
+      <h2 className="font-display mt-2 text-2xl leading-tight font-medium">{event.entity}</h2>
+      <p className="mt-1 text-sm text-muted">
+        {event.actorName ?? event.actorEmail ?? event.actor} {event.actorRole ? `· ${event.actorRole}` : ''} · {fmtTimestamp(event.at)}
+      </p>
+
+      <dl className="mt-5 text-sm">
+        <Kv label="Entity ID" value={<span className="font-mono text-xs">{event.entityId}</span>} />
+        {reason && <Kv label="Reason" value={reason} />}
+        {extra.map(([k, v]) => (
+          <Kv key={k} label={k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase())} value={fmtValue(v)} />
+        ))}
+      </dl>
+
+      {changes && (
+        <>
+          <h3 className="mt-6 text-xs font-medium tracking-[0.12em] text-subtle uppercase">What changed</h3>
+          <ul className="mt-2 divide-y divide-border">
+            {changes.map(([field, { old: oldVal, new: newVal }]) => (
+              <li key={field} className="flex flex-col gap-1 py-2.5 sm:flex-row sm:items-baseline sm:justify-between">
+                <span className="text-sm">{field.replace(/([a-z0-9])([A-Z])/g, '$1 $2')}</span>
+                <span className="text-sm">
+                  <span className="text-subtle line-through">{fmtValue(oldVal)}</span>
+                  <span className="mx-2 text-subtle">→</span>
+                  <span className="font-medium">{fmtValue(newVal)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {siblings.length > 0 && (
+        <div className="mt-5">
+          <h3 className="text-xs font-medium tracking-[0.12em] text-subtle uppercase">Same burst</h3>
+          <ul className="mt-2 flex flex-col gap-1">
+            {siblings.map((s) => (
+              <li key={s.id}>
+                <button type="button" onClick={() => onPick(s.id)}
+                  className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-xs hover:bg-surface-2">
+                  <span>{fmtTimestamp(s.at)} · {s.action}</span>
+                  <Badge variant="outline">{s.actorName ?? s.actorEmail ?? 'unknown'}</Badge>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </article>
   );
 }

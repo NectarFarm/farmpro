@@ -1,5 +1,5 @@
 'use client';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
@@ -7,9 +7,16 @@ import {
   CloudSun, Sun, Cloud, CloudFog, CloudRain, CloudLightning, Snowflake,
   Droplets, Wind, Thermometer, Info, MapPin, RefreshCw,
   Sprout, Wheat, Leaf, Package, Syringe, Home, DollarSign, Sparkles,
-  ExternalLink, AlertTriangle, type LucideIcon,
+  ExternalLink, AlertTriangle, ClipboardList, Check, type LucideIcon,
 } from './icons';
 import type { WeatherData, WeatherIconKeyLike } from '@/lib/weather-types';
+import { PageHeader } from '@/components/ui-kit/page-header';
+import { Badge } from '@/components/ui-kit/badge';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { Field, controlClass } from '@/components/ui-kit/field';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { Continue } from '@/components/ui-kit/continue';
 
 /* ── Farm recommendations ──────────────────────────────────────────────────
  * Cards from GET /api/weather/advice: what to do over the next few days,
@@ -21,7 +28,16 @@ import type { WeatherData, WeatherIconKeyLike } from '@/lib/weather-types';
  * records" and "general guidance" carry completely different authority, and a
  * farmer deciding whether to act on a card needs to know which one they are
  * reading — the same rule the reports and the advisor already follow. A card
- * sourced from the open web says so, and links out. */
+ * sourced from the open web says so, and links out.
+ *
+ * ── Redesign (pkg/e-weather-advisor) ────────────────────────────────────────
+ * Reference's weather.tsx (scratchpad/grok/src/routes/weather.tsx) makes the
+ * current-temp card the hero and buries "what the houses need" as a plain
+ * list under it. Lead call: here the recommendations ARE the hero — "what
+ * this weather means for the farm today" — with the forecast strip demoted
+ * to a compact strip beneath. Every field/endpoint below is unchanged; only
+ * the layout and the one-tap "Assign this" (new, reusing POST /api/tasks
+ * exactly as tasks.tsx already calls it) are new. */
 type Activity = 'plant' | 'harvest' | 'weed' | 'irrigate' | 'feed' | 'health' | 'stock' | 'shelter' | 'sell' | 'other';
 
 interface Recommendation {
@@ -38,10 +54,10 @@ const ACTIVITY_ICON: Record<Activity, LucideIcon> = {
   sell: DollarSign, other: Sparkles,
 };
 
-const URGENCY_STYLE: Record<Recommendation['urgency'], { label: string; color: string; bg: string }> = {
-  today: { label: 'Today', color: 'var(--status-critical)', bg: 'rgba(var(--critical-rgb),0.12)' },
-  soon:  { label: 'This week', color: 'var(--accent-amber)', bg: 'rgba(var(--warning-rgb),0.12)' },
-  plan:  { label: 'Plan ahead', color: 'var(--text-muted)', bg: 'var(--card)' },
+const URGENCY_STYLE: Record<Recommendation['urgency'], { label: string; badge: 'danger' | 'warning' | 'default'; iconBg: string; iconColor: string }> = {
+  today: { label: 'Today', badge: 'danger', iconBg: 'var(--color-danger-soft)', iconColor: 'var(--color-danger)' },
+  soon: { label: 'This week', badge: 'warning', iconBg: 'var(--color-warning-soft)', iconColor: 'var(--color-warning)' },
+  plan: { label: 'Plan ahead', badge: 'default', iconBg: 'var(--color-surface-2)', iconColor: 'var(--color-muted)' },
 };
 
 const BASIS_LABEL: Record<Recommendation['basis'], string> = {
@@ -56,47 +72,72 @@ function fmtRange(from: string, to: string): string {
   return from === to ? d(f) : `${d(f)} – ${d(t)}`;
 }
 
-function RecommendationCard({ r }: { r: Recommendation }) {
+// Best-effort due date for the one-tap task: 8am on the recommendation's
+// start day. `from` is always "YYYY-MM-DD" per the advisor's own prompt
+// contract (lib/farm-advice.ts) but this degrades to "no due date" rather
+// than crash if a future model ever drifts from that shape.
+function dueAtFromRecommendation(from: string): string | undefined {
+  const d = new Date(`${from}T08:00:00`);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+const URGENCY_PRIORITY: Record<Recommendation['urgency'], 'high' | 'medium' | 'low'> = {
+  today: 'high', soon: 'medium', plan: 'low',
+};
+
+function RecommendationCard({
+  r, canAssign, busy, assigned, onAssign,
+}: {
+  r: Recommendation; canAssign: boolean; busy: boolean; assigned: boolean; onAssign: () => void;
+}) {
   const Icon = ACTIVITY_ICON[r.activity] ?? Sparkles;
   const u = URGENCY_STYLE[r.urgency];
   return (
-    <div className="farm-card" style={{ padding: 13, marginBottom: 8 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <div style={{ width: 30, height: 30, borderRadius: 9, background: u.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Icon size={15} color={u.color} aria-hidden="true" />
+    <li className="border-b border-border py-4 last:border-0">
+      <div className="flex items-start gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg" style={{ background: u.iconBg }}>
+          <Icon size={16} color={u.iconColor} aria-hidden="true" />
         </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 3 }}>
-            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 750, color: 'var(--text-primary)' }}>{r.title}</span>
-            <span style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: u.color }}>{u.label}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-sm font-medium text-fg">{r.title}</span>
+            <Badge variant={u.badge}>{u.label}</Badge>
           </div>
-          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 5 }}>
+          <div className="mt-0.5 text-xs text-subtle">
             {fmtRange(r.from, r.to)}
             {r.enterprise ? ` · ${r.enterprise.replace(/_/g, ' ')}` : ''}
           </div>
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>{r.action}</div>
-          {r.why && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 4 }}>{r.why}</div>}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 7 }}>
-            <span className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>{BASIS_LABEL[r.basis]}</span>
+          <p className="mt-1.5 text-sm leading-relaxed text-muted">{r.action}</p>
+          {r.why && <p className="mt-1 text-xs leading-relaxed text-subtle">{r.why}</p>}
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-muted">{BASIS_LABEL[r.basis]}</span>
             {r.sourceUrl && (
               <a href={r.sourceUrl} target="_blank" rel="noopener noreferrer"
-                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--primary-green)', textDecoration: 'none' }}>
-                <ExternalLink size={10} aria-hidden="true" /> {r.sourceTitle || 'Read more'}
+                 className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                <ExternalLink size={11} aria-hidden="true" /> {r.sourceTitle || 'Read more'}
               </a>
+            )}
+            {canAssign && (
+              <Button
+                type="button" variant={assigned ? 'secondary' : 'outline'} size="sm"
+                className="ml-auto"
+                onClick={onAssign}
+                disabled={busy || assigned}
+              >
+                {assigned ? <><Check size={12} /> Assigned</> : <><ClipboardList size={12} /> {busy ? 'Assigning…' : 'Assign this'}</>}
+              </Button>
             )}
           </div>
         </div>
       </div>
-    </div>
+    </li>
   );
 }
 
-// ── Weather Screen (ui-polish-theme-weather) ────────────────────────────────
-// Replaces the old zero-network "not available yet" placeholder with a real
-// call to GET /api/weather, which fetches Open-Meteo (free, keyless) server
+// ── Weather Screen (ui-polish-theme-weather; redesigned pkg/e-weather-advisor)
+// Calls GET /api/weather, which fetches Open-Meteo (free, keyless) server
 // side. See that route's header for the coordinate story: farms.latitude/
-// longitude is a NEW column (this task) — most existing farms have neither,
-// so "no coordinates yet" is a first-class, honest state here, not an error.
+// longitude is a NEW column — most existing farms have neither, so "no
+// coordinates yet" is a first-class, honest state here, not an error.
 
 const ICONS: Record<WeatherIconKeyLike, React.ComponentType<{ size?: number; color?: string }>> = {
   sun: Sun,
@@ -108,7 +149,7 @@ const ICONS: Record<WeatherIconKeyLike, React.ComponentType<{ size?: number; col
   storm: CloudLightning,
 };
 
-function WeatherIcon({ icon, size = 26, color = 'var(--text-primary)' }: { icon: string; size?: number; color?: string }) {
+function WeatherIcon({ icon, size = 26, color = 'var(--color-fg)' }: { icon: string; size?: number; color?: string }) {
   const Cmp = ICONS[icon as WeatherIconKeyLike] ?? Cloud;
   return <Cmp size={size} color={color} />;
 }
@@ -120,8 +161,18 @@ function dayLabel(iso: string, index: number): string {
   return d.toLocaleDateString(undefined, { weekday: 'short' });
 }
 
+function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex flex-col items-center gap-1 text-center">
+      {icon}
+      <span className="text-sm font-medium text-fg tabular-nums">{value}</span>
+      <span className="text-[10px] font-medium tracking-wide text-subtle uppercase">{label}</span>
+    </div>
+  );
+}
+
 export function WeatherScreen() {
-  const { farms, activeFarmId, tenantId, role } = useNav();
+  const { farms, activeFarmId, tenantId, role, navigate } = useNav();
   const { showToast } = useToast();
 
   // Weather is inherently per-farm — 'ALL' doesn't resolve to coordinates.
@@ -145,7 +196,8 @@ export function WeatherScreen() {
   const [adviceError, setAdviceError] = useState('');
   const [adviceBusy, setAdviceBusy] = useState(false);
   // Owner/manager only, matching the endpoint — these read the farm's batches,
-  // stock and open work, so a worker would just get a 403.
+  // stock and open work, so a worker would just get a 403. The one-tap
+  // "assign this" reuses POST /api/tasks, which the same roles can call.
   const canSeeAdvice = role === 'owner' || role === 'manager';
 
   const loadAdvice = useCallback((refresh = false) => {
@@ -164,6 +216,30 @@ export function WeatherScreen() {
   }, [canSeeAdvice, effectiveFarmId, tenantId]);
 
   useEffect(() => { loadAdvice(false); }, [loadAdvice]);
+
+  // One-tap "Assign this" (§2 Weather PARTIAL row) — reuses the exact same
+  // POST /api/tasks call tasks.tsx's create-task sheet makes; no new payload
+  // shape, no new endpoint. Keyed by title+index since recommendations have
+  // no id of their own.
+  const [assigningKey, setAssigningKey] = useState<string | null>(null);
+  const [assignedKeys, setAssignedKeys] = useState<Set<string>>(new Set());
+  async function assignRecommendation(key: string, r: Recommendation) {
+    if (!effectiveFarmId) return;
+    setAssigningKey(key);
+    const res = await apiClient.post('/api/tasks', {
+      tenantId,
+      title: r.title,
+      notes: [r.action, r.why].filter(Boolean).join('\n\n') || undefined,
+      priority: URGENCY_PRIORITY[r.urgency],
+      dueAt: dueAtFromRecommendation(r.from),
+      farmId: effectiveFarmId,
+    });
+    setAssigningKey(null);
+    if (!res.success) { showToast(res.error ?? 'Could not create the task', 'error'); return; }
+    setAssignedKeys(prev => new Set(prev).add(key));
+    showToast('Task created', 'success');
+  }
+
   const [savingPin, setSavingPin] = useState(false);
   const [manualLat, setManualLat] = useState('');
   const [manualLng, setManualLng] = useState('');
@@ -214,70 +290,95 @@ export function WeatherScreen() {
     savePin(lat, lng);
   }
 
+  const rainHeadline = data?.current
+    ? (data.current.rainy ? 'Rain right now' : (data.daily?.[0]?.rainy ? `${data.daily[0].precipitationProbabilityPct}% chance of rain today` : 'No rain expected today'))
+    : '';
+  const rainDetail = data?.current
+    ? [
+        data.current.precipitationMm > 0 ? `${data.current.precipitationMm.toFixed(1)}mm falling now` : '',
+        data.daily?.[0] ? `${data.daily[0].precipitationSumMm.toFixed(1)}mm expected today` : '',
+      ].filter(Boolean).join(' · ')
+    : '';
+
+  const forecastScale = useMemo(() => {
+    const days = data?.daily ?? [];
+    return {
+      maxHi: Math.max(...days.map(d => d.tempMaxC), 1),
+      maxRain: Math.max(...days.map(d => d.precipitationSumMm), 1),
+    };
+  }, [data?.daily]);
+
   return (
     <div className="screen-content">
-      <TopNav title="Weather" subtitle={farm?.location ?? 'Select a farm'} />
-      <div className="px-screen" style={{ paddingTop: 16, paddingBottom: 32 }}>
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-10">
+        <PageHeader
+          kicker="Daily"
+          title="Weather"
+          lede={`Not a city forecast — what the sky does to ${farm?.name ?? 'the farm'}, and what it means for today's work.`}
+        />
 
         {/* No active farm selected and this tenant has more than one: pick one. */}
         {!effectiveFarmId && farms.length > 1 && (
-          <div className="farm-card" style={{ padding: 16, marginBottom: 14 }}>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>Which farm?</div>
-            <select className="farm-input" value={pickedFarmId} onChange={e => setPickedFarmId(e.target.value)}>
-              <option value="" disabled>Select a farm…</option>
-              {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
+          <div className="mt-5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+            <Field label="Which farm?">
+              <select className={controlClass} value={pickedFarmId} onChange={e => setPickedFarmId(e.target.value)}>
+                <option value="" disabled>Select a farm…</option>
+                {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </Field>
           </div>
         )}
 
-        {!effectiveFarmId && farms.length <= 1 && farms.length === 0 && (
-          <EmptyCard icon={<Info size={22} color="var(--text-muted)" />} title="No farm on this account yet"
-            body="Weather needs a farm to attach a location to. Add a farm first." />
+        {!effectiveFarmId && farms.length === 0 && (
+          <div className="mt-5">
+            <EmptyState icon={<Info size={20} />} title="No farm on this account yet" body="Weather needs a farm to attach a location to. Add a farm first." />
+          </div>
         )}
 
         {effectiveFarmId && (
           <>
             {loading && !data && (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 'var(--fs-base)' }}>Loading weather…</div>
+              <div className="mt-5 py-10 text-center text-sm text-muted">Loading weather…</div>
             )}
 
             {error && (
-              <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 12, background: 'var(--chip-critical-bg)', border: '1px solid var(--status-critical)', fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger">
                 <span>{error}</span>
-                <button className="btn-icon" style={{ width: 28, height: 28, flexShrink: 0 }} onClick={load}><RefreshCw size={13} /></button>
+                <Button type="button" variant="outline" size="icon-sm" onClick={load} aria-label="Retry"><RefreshCw size={13} /></Button>
               </div>
             )}
 
             {data && (!data.hasCoordinates || editingPin) && (
-              <div className="farm-card" style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 12 }}>
-                <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--card-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <MapPin size={26} color="var(--text-muted)" />
+              <div className="mt-5 flex flex-col items-center gap-3 rounded-xl bg-surface p-6 text-center shadow-(--shadow-border)">
+                <div className="flex size-14 items-center justify-center rounded-full bg-surface-2">
+                  <MapPin size={24} className="text-muted" />
                 </div>
-                <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>
+                <div className="text-lg font-medium text-fg">
                   {data.hasCoordinates ? `Update location for ${data.farmName}` : `No location set for ${data.farmName}`}
                 </div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, maxWidth: 320 }}>
+                <div className="max-w-sm text-sm leading-relaxed text-muted">
                   {data.hasCoordinates
                     ? 'Set a new GPS pin — this replaces the one on file.'
                     : <>Weather comes from this farm&apos;s GPS coordinates, and none are on file yet.{canSetCoordinates ? ' Set one below.' : ' Ask an owner or manager to set one.'}</>}
                 </div>
 
                 {canSetCoordinates && (
-                  <div style={{ width: '100%', maxWidth: 320, marginTop: 8, textAlign: 'left' }}>
-                    <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 10 }} onClick={useCurrentLocation} disabled={savingPin}>
+                  <div className="mt-2 w-full max-w-xs text-left">
+                    <Button type="button" className="w-full justify-center" onClick={useCurrentLocation} disabled={savingPin}>
                       <MapPin size={14} /> {savingPin ? 'Getting location…' : 'Use my current location'}
-                    </button>
-                    <div className="farm-divider" style={{ margin: '10px 0' }} />
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginBottom: 6 }}>Or enter coordinates manually</div>
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                      <input className="farm-input" placeholder="Latitude" inputMode="decimal" value={manualLat} onChange={e => setManualLat(e.target.value)} />
-                      <input className="farm-input" placeholder="Longitude" inputMode="decimal" value={manualLng} onChange={e => setManualLng(e.target.value)} />
+                    </Button>
+                    <div className="my-3 border-t border-border" />
+                    <div className="mb-1.5 text-xs text-subtle">Or enter coordinates manually</div>
+                    <div className="mb-2 flex gap-2">
+                      <Input placeholder="Latitude" inputMode="decimal" value={manualLat} onChange={e => setManualLat(e.target.value)} />
+                      <Input placeholder="Longitude" inputMode="decimal" value={manualLng} onChange={e => setManualLng(e.target.value)} />
                     </div>
-                    <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={submitManual} disabled={savingPin}>
+                    <Button type="button" variant="secondary" className="w-full justify-center" onClick={submitManual} disabled={savingPin}>
                       {savingPin ? 'Saving…' : 'Save location'}
-                    </button>
+                    </Button>
                     {data.hasCoordinates && (
-                      <button onClick={() => setEditingPin(false)} style={{ width: '100%', textAlign: 'center', marginTop: 8, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', cursor: 'pointer', padding: 6 }}>
+                      <button type="button" onClick={() => setEditingPin(false)} className="mt-2 w-full py-1.5 text-center text-sm text-muted">
                         Cancel
                       </button>
                     )}
@@ -288,166 +389,164 @@ export function WeatherScreen() {
 
             {data && data.hasCoordinates && !editingPin && data.current && (
               <>
-                <div className="farm-card" style={{ padding: 20, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ minWidth: 0 }}>
-                    {/* Farm name, then the place this forecast is actually for.
-                        The free-text location is a label somebody typed at
-                        signup; the forecast comes from the farm's GPS pin, and
-                        the two can disagree — a pin one valley over from the
-                        town in the label reads as a forecast for the wrong
-                        place with nothing on screen to reveal it. Showing the
-                        coordinates makes the mismatch visible, and the button
-                        below is how it gets corrected. */}
-                    <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 2 }}>{data.farmName}</div>
-                    {(data.location || data.latitude != null) && (
-                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {data.location}
-                        {data.location && data.latitude != null ? ' · ' : ''}
-                        {data.latitude != null && data.longitude != null && (
-                          <span style={{ fontFamily: 'monospace' }}>{data.latitude.toFixed(4)}, {data.longitude.toFixed(4)}</span>
+                {/* Compact "right now" strip — demoted on purpose (lead call):
+                    the recommendations below are the hero, not the temperature. */}
+                <div className="mt-5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+                  <div className="flex items-start gap-4">
+                    <WeatherIcon icon={data.current.icon} size={44} color={data.current.rainy ? 'var(--color-primary)' : 'var(--color-warning)'} />
+                    <div className="min-w-0 flex-1">
+                      {/* Farm name, then the place this forecast is actually
+                          for — the free-text location can disagree with the
+                          GPS pin (see savePin's flow below). */}
+                      <div className="truncate text-xs font-medium text-subtle">
+                        {data.farmName}
+                        {(data.location || data.latitude != null) && (
+                          <>
+                            {' · '}
+                            {data.location}
+                            {data.location && data.latitude != null ? ' · ' : ''}
+                            {data.latitude != null && data.longitude != null && (
+                              <span className="font-mono">{data.latitude.toFixed(3)}, {data.longitude.toFixed(3)}</span>
+                            )}
+                          </>
                         )}
                       </div>
-                    )}
-                    <div className="weather-temp">{Math.round(data.current.temperatureC)}°</div>
-                    <div style={{ fontSize: 'var(--fs-base)', color: 'var(--text-secondary)', fontWeight: 600, marginTop: 2 }}>{data.current.label}</div>
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 2 }}>Feels like {Math.round(data.current.apparentTemperatureC)}°</div>
+                      <div className="mt-0.5 flex items-baseline gap-2">
+                        <span className="font-display text-4xl leading-none tabular-nums">{Math.round(data.current.temperatureC)}°</span>
+                        <span className="text-sm text-muted">{data.current.label}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-muted">
+                        {rainHeadline}{rainDetail ? ` · ${rainDetail}` : ''}
+                      </div>
+                    </div>
                   </div>
-                  <WeatherIcon icon={data.current.icon} size={56} color={data.current.rainy ? 'var(--status-info)' : 'var(--accent-amber)'} />
-                </div>
-
-                {/* Rain expectation — the one number the brief says matters more
-                   than the icon: is it raining/about to, and how much. */}
-                <div className="farm-card" style={{ padding: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <Droplets size={20} color="var(--status-info)" />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {data.current.rainy ? 'Rain right now' : (data.daily?.[0]?.rainy ? `${data.daily[0].precipitationProbabilityPct}% chance of rain today` : 'No rain expected today')}
-                    </div>
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>
-                      {data.current.precipitationMm > 0 ? `${data.current.precipitationMm.toFixed(1)}mm falling now · ` : ''}
-                      {data.daily?.[0] ? `${data.daily[0].precipitationSumMm.toFixed(1)}mm expected today` : ''}
-                    </div>
+                  <div className="mt-4 grid grid-cols-3 gap-2 border-t border-border pt-3">
+                    <MiniStat icon={<Thermometer size={14} className="text-danger" />} label="Feels like" value={`${Math.round(data.current.apparentTemperatureC)}°`} />
+                    <MiniStat icon={<Droplets size={14} className="text-primary" />} label="Humidity" value={`${Math.round(data.current.humidityPct)}%`} />
+                    <MiniStat icon={<Wind size={14} className="text-muted" />} label="Wind" value={`${Math.round(data.current.windKph)} km/h`} />
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                  <StatChip icon={<Droplets size={14} color="var(--status-info)" />} label="Humidity" value={`${Math.round(data.current.humidityPct)}%`} />
-                  <StatChip icon={<Wind size={14} color="var(--text-muted)" />} label="Wind" value={`${Math.round(data.current.windKph)} km/h`} />
-                  <StatChip icon={<Thermometer size={14} color="var(--accent-red)" />} label="Feels like" value={`${Math.round(data.current.apparentTemperatureC)}°`} />
-                </div>
-
+                {/* ── HERO: what this weather means for the farm today ── */}
                 {canSeeAdvice && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8, gap: 8 }}>
-                      <div className="section-eyebrow">What to do next</div>
+                  <section className="mt-5 rounded-xl bg-surface p-5 shadow-(--shadow-border) lg:p-6">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-medium tracking-widest text-muted uppercase">What this weather means</p>
+                        <h2 className="font-display mt-1 text-2xl leading-tight font-medium">Today at {farm?.name ?? 'your farm'}</h2>
+                      </div>
                       <button
+                        type="button"
                         onClick={() => loadAdvice(true)}
                         disabled={adviceBusy}
-                        style={{ background: 'none', border: 'none', color: 'var(--primary-green)', cursor: adviceBusy ? 'default' : 'pointer', fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: 0, opacity: adviceBusy ? 0.6 : 1 }}
+                        className="text-xs font-semibold text-primary disabled:opacity-50"
                       >
                         {adviceBusy ? 'Thinking…' : 'Refresh'}
                       </button>
                     </div>
 
                     {advice === null && adviceBusy && (
-                      <div className="farm-card" style={{ padding: 14, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
-                        Reading your batches, stock and the forecast…
-                      </div>
+                      <div className="mt-4 py-6 text-center text-sm text-muted">Reading your batches, stock and the forecast…</div>
                     )}
 
                     {adviceError && (
-                      <div className="farm-card" style={{ padding: '11px 13px', display: 'flex', gap: 9, alignItems: 'flex-start', border: '1px solid rgba(var(--warning-rgb),0.3)' }}>
-                        <AlertTriangle size={14} color="var(--accent-amber)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
-                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.55 }}>{adviceError}</div>
+                      <div className="mt-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-soft px-3.5 py-3 text-xs leading-relaxed text-fg">
+                        <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+                        {adviceError}
                       </div>
                     )}
 
-                    {advice?.map((r, i) => <RecommendationCard key={`${r.title}-${i}`} r={r} />)}
+                    {advice && advice.length > 0 && (
+                      <ul className="mt-3">
+                        {advice.map((r, i) => {
+                          const key = `${r.title}-${i}`;
+                          return (
+                            <RecommendationCard
+                              key={key} r={r} canAssign={canSeeAdvice}
+                              busy={assigningKey === key} assigned={assignedKeys.has(key)}
+                              onAssign={() => assignRecommendation(key, r)}
+                            />
+                          );
+                        })}
+                      </ul>
+                    )}
 
                     {advice !== null && advice.length === 0 && !adviceBusy && !adviceError && (
-                      <div className="farm-card" style={{ padding: 14, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                      <p className="mt-4 text-sm leading-relaxed text-muted">
                         Nothing urgent from your records and this week&rsquo;s forecast. Record more of your day-to-day work and these get sharper.
-                      </div>
+                      </p>
                     )}
 
                     {adviceAt && advice && advice.length > 0 && (
-                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 6, lineHeight: 1.5 }}>
+                      <p className="mt-4 text-xs leading-relaxed text-subtle">
                         {/* Always dated. Advice whose age is hidden invites
                             acting on a three-day-old plan as if it were today's. */}
                         Prepared {new Date(adviceAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                         {adviceStale ? ' · could not refresh just now, so these may be out of date' : ''}
                         . Advisory only — check against what you can see on the ground.
-                      </div>
+                      </p>
                     )}
-                  </div>
+                  </section>
                 )}
 
+                {/* ── Forecast strip, beneath the hero on purpose ── */}
                 {data.daily && data.daily.length > 0 && (
-                  <div style={{ marginBottom: 14 }}>
-                    <div className="section-eyebrow" style={{ marginBottom: 8 }}>5-day forecast</div>
-                    <div className="farm-card" style={{ overflow: 'hidden' }}>
-                      {/* Header row. Without it the columns were unlabelled:
-                          two bare numbers on the right are only obviously
-                          "high / low" once you already know, and the lone
-                          percentage was anyone's guess. */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface)' }}>
-                        <div style={{ width: 44, fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Day</div>
-                        <div style={{ width: 20 }} aria-hidden="true" />
-                        <div style={{ flex: 1, fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Conditions</div>
-                        <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Rain</div>
-                        <div style={{ width: 62, textAlign: 'right', fontSize: 'var(--fs-2xs)', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Hi / Lo</div>
-                      </div>
+                  <section className="mt-5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+                    <p className="text-xs font-medium tracking-widest text-muted uppercase">5-day forecast</p>
+                    <div className="mt-3 flex items-end gap-2">
                       {data.daily.map((d, i) => (
-                        <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < data.daily!.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                          <div style={{ width: 44, fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{dayLabel(d.date, i)}</div>
-                          <WeatherIcon icon={d.icon} size={20} color={d.rainy ? 'var(--status-info)' : 'var(--text-muted)'} />
-                          <div style={{ flex: 1, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{d.label}</div>
-                          <span style={{ fontSize: 'var(--fs-2xs)', color: d.rainy ? 'var(--status-info)' : 'var(--text-dim)', fontWeight: 700, flexShrink: 0, minWidth: 30, textAlign: 'right' }}>
-                            {d.precipitationProbabilityPct}%
+                        <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
+                          <span className="text-[10px] tabular-nums text-muted">{Math.round(d.tempMaxC)}°</span>
+                          <span className="flex h-16 w-full items-end justify-center gap-0.5">
+                            <span className="w-1.5 rounded-sm bg-primary/25" style={{ height: `${Math.max(0, d.tempMinC / forecastScale.maxHi) * 64}px` }} />
+                            <span className="w-2 rounded-sm bg-primary" style={{ height: `${Math.max(0, d.tempMaxC / forecastScale.maxHi) * 64}px` }} />
+                            {d.precipitationSumMm > 0 ? (
+                              <span className="w-1.5 rounded-sm bg-warning" style={{ height: `${(d.precipitationSumMm / forecastScale.maxRain) * 48}px` }} />
+                            ) : null}
                           </span>
-                          <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)', flexShrink: 0, width: 62, textAlign: 'right' }}>
-                            {Math.round(d.tempMaxC)}° <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>{Math.round(d.tempMinC)}°</span>
-                          </div>
+                          <span className="text-[10px] font-medium text-muted uppercase">{dayLabel(d.date, i)}</span>
                         </div>
                       ))}
                     </div>
-                  </div>
+                    <p className="mt-2 text-[10px] text-subtle">Forest = high. Pale = low. Amber = rain (mm).</p>
+
+                    <div className="mt-4 divide-y divide-border border-t border-border">
+                      {data.daily.map((d, i) => (
+                        <div key={d.date} className="flex items-center gap-3 py-2.5 text-sm">
+                          <span className="w-11 shrink-0 font-medium text-fg">{dayLabel(d.date, i)}</span>
+                          <WeatherIcon icon={d.icon} size={18} color={d.rainy ? 'var(--color-primary)' : 'var(--color-muted)'} />
+                          <span className="min-w-0 flex-1 truncate text-xs text-muted">{d.label}</span>
+                          <span className={`w-9 shrink-0 text-right text-xs font-medium ${d.rainy ? 'text-primary' : 'text-subtle'}`}>{d.precipitationProbabilityPct}%</span>
+                          <span className="w-16 shrink-0 text-right text-sm font-medium text-fg">
+                            {Math.round(d.tempMaxC)}° <span className="font-normal text-subtle">{Math.round(d.tempMinC)}°</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
                 )}
 
                 {canSetCoordinates && (
-                  <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }} onClick={() => setEditingPin(true)}>
+                  <Button type="button" variant="secondary" className="mt-5 w-full justify-center" onClick={() => setEditingPin(true)}>
                     <MapPin size={13} /> Not the right spot? Update the pin
-                  </button>
+                  </Button>
                 )}
 
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textAlign: 'center' }}>
+                <p className="mt-3 text-center text-[11px] text-subtle">
                   Forecast by Open-Meteo{data.updatedAt ? ` · updated ${new Date(data.updatedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : ''}
-                </div>
+                </p>
+
+                <Continue
+                  items={[
+                    { label: 'See who is carrying it', hint: 'Tasks assigned from a recommendation land on the queue.', onClick: () => navigate('tasks') },
+                    { label: 'Ask the advisor', hint: 'Ground a question in tonight’s forecast and your own records.', onClick: () => navigate('ai-chat') },
+                  ]}
+                />
               </>
             )}
           </>
         )}
       </div>
-    </div>
-  );
-}
-
-function StatChip({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="farm-card" style={{ flex: 1, padding: '10px 8px', textAlign: 'center' }}>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>{icon}</div>
-      <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{value}</div>
-      <div className="kpi-label" style={{ marginTop: 2 }}>{label}</div>
-    </div>
-  );
-}
-
-function EmptyCard({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
-  return (
-    <div className="farm-card" style={{ padding: 28, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 12 }}>
-      <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--card-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</div>
-      <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>{title}</div>
-      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5, maxWidth: 280 }}>{body}</div>
     </div>
   );
 }

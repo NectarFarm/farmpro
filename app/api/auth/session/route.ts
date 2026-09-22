@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { users } from '@/db/schemas'
 import { getSessionDetails } from '@/lib/auth'
+import { computeAccessState } from '@/lib/billing/access-state'
+import { getCurrentSubscription, toSnapshot } from '@/lib/billing/subscriptions'
 
 // ── GET /api/auth/session (issue #220/#221; extended for admin user-management) ──
 // The shell's bootstrap calls this on load. 200 + the session user
@@ -19,6 +21,16 @@ import { getSessionDetails } from '@/lib/auth'
 // `impersonatedBy: null`; every field a normal session already returned is
 // unchanged, so existing callers that only read id/name/email/role/tenantId
 // keep working exactly as before.
+//
+// Additive extension (SaaS back-office backend): tenant-scoped sessions
+// (role !== 'super_admin', tenantId set) also carry `subscription` — status
+// run through lib/billing/access-state.ts (never the raw, possibly-stale DB
+// column), the plan name, trialEndsAt/currentPeriodEnd, and `needsPlan`. The
+// UI is expected to route to plan selection before the dashboard when
+// needsPlan is true — deliberately NOT enforced at the API level here (no
+// route currently blocks farm data on an unpaid subscription); see
+// docs/backoffice-api.md for that follow-up. A super_admin session gets
+// `subscription: null` — the concept doesn't apply to a platform account.
 
 export async function GET() {
   const details = await getSessionDetails()
@@ -43,8 +55,28 @@ export async function GET() {
     }
   }
 
+  let subscription: {
+    status: string
+    planName: string | null
+    trialEndsAt: string | null
+    currentPeriodEnd: string | null
+    needsPlan: boolean
+  } | null = null
+
+  if (user.tenantId) {
+    const sub = await getCurrentSubscription(user.tenantId)
+    const access = computeAccessState(sub ? toSnapshot(sub) : null, new Date())
+    subscription = {
+      status: access.status,
+      planName: sub?.plan.name ?? null,
+      trialEndsAt: sub?.trialEndsAt?.toISOString() ?? null,
+      currentPeriodEnd: sub?.currentPeriodEnd?.toISOString() ?? null,
+      needsPlan: access.needsPlan,
+    }
+  }
+
   return NextResponse.json(
-    { success: true, data: { ...user, impersonatedBy: impersonatedByInfo } },
+    { success: true, data: { ...user, impersonatedBy: impersonatedByInfo, subscription } },
     { status: 200 }
   )
 }

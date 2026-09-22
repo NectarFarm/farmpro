@@ -272,10 +272,13 @@ describe('components/farm/settings.tsx — controls that tell the truth', () => 
 
   it('marks Sound Alerts coming soon, because nothing plays audio', () => {
     // It persisted sound_alerts_enabled and nothing read it — the same
-    // situation as Push Notifications, but presented as working.
-    const soundRow = source.slice(source.indexOf("label: 'Sound Alerts'"))
+    // situation as Push Notifications, but presented as working. Settings-
+    // redesign (package G) moved this row from an object-literal array into
+    // a <ToggleRow label="Sound alerts" .../> component call — same
+    // `comingSoon` behaviour, different (component-prop) syntax.
+    const soundRow = source.slice(source.indexOf('label="Sound alerts"'))
       .slice(0, 400)
-    expect(soundRow).toMatch(/comingSoon: true/)
+    expect(soundRow).toMatch(/comingSoon/)
   })
 
   it('stops claiming currency and weight unit apply everywhere', () => {
@@ -287,7 +290,10 @@ describe('components/farm/settings.tsx — controls that tell the truth', () => 
 
   it('renders owner-only settings read-only for everyone else', () => {
     expect(source).toMatch(/const ownerOnlyNote = role === 'owner' \|\| role === 'super_admin'/)
-    expect(source).toMatch(/disabled=\{!!item\.readOnly\}/)
+    // Settings-redesign (package G): the old generic `item.readOnly` row
+    // renderer became per-field `disabled={!!ownerOnlyNote}` selects — same
+    // gate, inlined instead of indirected through a SettingsRow object.
+    expect(source).toMatch(/disabled=\{!!ownerOnlyNote\}/)
   })
 
   it('the account card opens Security & access, not the whole People roster (owner-roast finding #4)', () => {
@@ -344,7 +350,82 @@ describe('nav badge vs screen notification counts agree (owner-roast finding #5)
     expect(nav).toMatch(/refreshBadges: \(\) => void/)
     expect(nav).toMatch(/const refreshBadges = useCallback\(\(\) => \{ setBadgesNonce\(\(n\) => n \+ 1\); \}, \[\]\)/)
     expect(nav).toMatch(/\}, \[tenantId, activeFarmId, role, badgesNonce\]\)/)
-    expect(nav).toMatch(/refreshBadges,\s*userName \}\}>/)
+    expect(nav).toMatch(/refreshBadges,\s*userName[, \w]*\}\}>/)
+  })
+
+  it('marking a notification read (one or all) calls refreshBadges so the nav badge cannot go stale', () => {
+    const screen = dashboard.slice(dashboard.indexOf('export function NotificationsScreen'))
+    const markReadBlock = screen.slice(screen.indexOf('const markRead'), screen.indexOf('function markAllRead'))
+    expect(markReadBlock).toMatch(/refreshBadges\(\);/)
+    const markAllBlock = screen.slice(screen.indexOf('function markAllRead'), screen.indexOf('function handleNotifTap'))
+    expect(markAllBlock).toMatch(/refreshBadges\(\);/)
+  })
+})
+
+describe('components/farm/finance.tsx — nothing recorded is not the same as losing money (owner-roast finding #3)', () => {
+  const source = read('components/farm/finance.tsx')
+
+  it('treats a period with zero sales/purchases/payroll as genuinely empty, not a zeroed Net tile', () => {
+    // transactionCount is the real row count behind the period (lib/reports.ts's
+    // computePlReport), not a re-derivation of revenue/expense being zero.
+    expect(source).toMatch(/const periodTransactionCount = Number\(budgetReport\?\.meta\.transactionCount \?\? 0\)/)
+    expect(source).toMatch(/const hasFinanceActivity = budgetReport !== null && periodTransactionCount > 0/)
+    expect(source).toMatch(/Nothing recorded for \{periodLabel\} yet/)
+  })
+
+  it('explains a real negative net instead of leaving a bare red number', () => {
+    expect(source).toMatch(/\{margin < 0 && \(/)
+    expect(source).toMatch(/You spent more than you took in for \{periodLabel\}/)
+  })
+
+})
+
+describe('per-field validation (owner-roast findings #9/#10/#11) shares one mechanism', () => {
+  const shared = read('components/farm/ui-shared.tsx')
+  const crops = read('components/farm/crops.tsx')
+  const finance = read('components/farm/finance.tsx')
+  const inventory = read('components/farm/inventory.tsx')
+
+  it('ui-shared.tsx exports the one fieldErrorStyle/FieldError mechanism', () => {
+    expect(shared).toMatch(/export function fieldErrorStyle\(hasError: boolean\)/)
+    expect(shared).toMatch(/export function FieldError\(/)
+  })
+
+  it('finding #9: Add house/field blames only the empty fields, not a filled-in farm', () => {
+    expect(crops).not.toMatch(/Farm, type, and name are required/)
+    expect(crops).toMatch(/if \(!farmId\) errs\.farmId = 'Select a farm'/)
+    expect(crops).toMatch(/if \(!type\.trim\(\)\) errs\.type = 'Unit type is required'/)
+    expect(crops).toMatch(/if \(!name\.trim\(\)\) errs\.name = 'Name is required'/)
+    expect(crops).toMatch(/fieldErrorStyle\(!!fieldErrors\.farmId\)/)
+  })
+
+  it('finding #10: purchase forms (Finance and Inventory) default a single farm and check every field together', () => {
+    for (const src of [finance, inventory]) {
+      expect(src).toMatch(/farms\.length === 1 \? farms\[0\]\.id : ''/)
+      expect(src).toMatch(/if \(!farmId\) errs\.farmId = 'Select which farm this stock is for'/)
+      expect(src).toMatch(/if \(!supplier\.trim\(\)\) errs\.supplier = 'Supplier is required'/)
+      expect(src).toMatch(/if \(!itemName\.trim\(\)\) errs\.itemName = 'Item is required'/)
+      expect(src).toMatch(/if \(!unit\.trim\(\)\) errs\.unit = 'Unit is required'/)
+      expect(src).not.toMatch(/Supplier, item, and unit are required/)
+    }
+  })
+
+  it('finding #11: a sale of 0 is rejected explicitly and marked on the Amount field', () => {
+    expect(finance).toMatch(/errs\.amount = 'Amount must be a positive number — 0 is not a sale'/)
+    expect(finance).toMatch(/fieldErrorStyle\(!!fieldErrors\.amount\)/)
+    expect(finance).toMatch(/type="number" min="0\.01" step="0\.01" placeholder="0" value=\{amount\}/)
+  })
+})
+
+describe('nav badge vs screen notification counts agree (owner-roast finding #5)', () => {
+  const nav = read('components/farm/navigation.tsx')
+  const dashboard = read('components/farm/dashboard.tsx')
+
+  it('NavProvider exposes a refreshBadges that re-runs the badge-count effect', () => {
+    expect(nav).toMatch(/refreshBadges: \(\) => void/)
+    expect(nav).toMatch(/const refreshBadges = useCallback\(\(\) => \{ setBadgesNonce\(\(n\) => n \+ 1\); \}, \[\]\)/)
+    expect(nav).toMatch(/\}, \[tenantId, activeFarmId, role, badgesNonce\]\)/)
+    expect(nav).toMatch(/refreshBadges,\s*userName[, \w]*\}\}>/)
   })
 
   it('marking a notification read (one or all) calls refreshBadges so the nav badge cannot go stale', () => {

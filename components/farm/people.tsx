@@ -8,6 +8,22 @@ import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import { StatusTimeline } from './status-timeline';
 import { parseMoneyToCents, formatMoney, centsToMajor } from '@/lib/money';
+import { PageHeader, Kpi } from '@/components/ui-kit/page-header';
+import { Chips, Segmented } from '@/components/ui-kit/segmented';
+import { Badge } from '@/components/ui-kit/badge';
+import { Avatar } from '@/components/ui-kit/avatar';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { Kv } from '@/components/ui-kit/inspector';
+import { cn } from '@/lib/utils';
+
+// ── People screen — redesigned onto the reference's avatar-led roster list
+// (ui/governance-reference-redesign), same backend as before (GET/POST
+// /api/employees). Hero: the crew roster — role, status, phone and assigned
+// batches at a glance. Per-employee permission overrides, payroll history
+// and worker PIN provisioning are unchanged and stay inside
+// PeopleDetailScreen (see docs/ui-migration-map.md §2 People).
 
 // ── Real API shapes (issue #248 — wired to GET/POST /api/employees,
 // GET/PATCH /api/employees/[id], GET/PUT /api/role-permissions from #247/#243).
@@ -140,6 +156,22 @@ export function PeopleScreen() {
   const [loadError, setLoadError] = useState('');
   const [batches, setBatches] = useState<ApiBatchLite[]>([]);
   const [viewMode, setViewMode] = usePersistedView<'card' | 'table'>('people', 'card');
+  // "On today" (additive, read-only): the tenant's own due-today tasks, same
+  // GET /api/tasks?due=today endpoint dashboard.tsx already calls — grouped
+  // client-side by assigneeId so the roster can honestly say what someone is
+  // on today only where a task actually names them; nothing invented for
+  // anyone task data doesn't link to.
+  const [todayTasks, setTodayTasks] = useState<{ id: string; title: string; assigneeId: string | null; status: string }[]>([]);
+  useEffect(() => {
+    apiClient.get<{ id: string; title: string; assigneeId: string | null; status: string }[]>(
+      `/api/tasks?tenantId=${tenantId}&farmId=${activeFarmId}&due=today`,
+    ).then((res) => { if (res.success) setTodayTasks(res.data); });
+  }, [tenantId, activeFarmId]);
+  const onTodayFor = useCallback((employeeId: string) => {
+    const mine = todayTasks.filter((t) => t.assigneeId === employeeId && t.status !== 'DONE' && t.status !== 'CANCELLED');
+    if (mine.length === 0) return null;
+    return mine.length === 1 ? mine[0].title : `${mine.length} tasks today`;
+  }, [todayTasks]);
 
   // farm-scoped-data task: employees.farmId is a direct column
   // (migration 0019) — re-fetches when the active farm changes.
@@ -210,143 +242,120 @@ export function PeopleScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="People" subtitle="Staff, roles & access"
-        rightEl={
-          <div className="btn-cluster">
-            {/* Card / Table toggle */}
-            <div style={{ display: 'flex', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-              {(['card','table'] as const).map((m) => (
-                <button key={m} onClick={() => setViewMode(m)} style={{
-                  width: 32, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                  background: viewMode === m ? 'rgba(var(--primary-rgb),0.15)' : 'var(--surface)', border: 'none',
-                  color: viewMode === m ? 'var(--primary-green)' : 'var(--text-dim)', fontSize: 'var(--fs-md)',
-                }} title={m === 'card' ? 'Card view' : 'Table view'}>
-                  {m === 'card' ? <Grid3X3 size={15} aria-hidden="true" /> : <List size={15} aria-hidden="true" />}
-                </button>
-              ))}
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-10">
+        <PageHeader
+          kicker="Farm"
+          title="People"
+          lede="Everyone on the roster — role, status and who to reach."
+          actions={(
+            <div className="flex items-center gap-2">
+              <div className="flex overflow-hidden rounded-md shadow-(--shadow-border)">
+                {(['card', 'table'] as const).map((m) => (
+                  <button key={m} type="button" onClick={() => setViewMode(m)}
+                    className={cn('flex size-9 items-center justify-center', viewMode === m ? 'bg-primary-soft text-primary' : 'bg-surface text-muted')}
+                    title={m === 'card' ? 'Card view' : 'Table view'}>
+                    {m === 'card' ? <Grid3X3 size={15} aria-hidden="true" /> : <List size={15} aria-hidden="true" />}
+                  </button>
+                ))}
+              </div>
+              <Button variant="secondary" size="icon-sm" onClick={() => setShowImport(true)} title="Import employees CSV" aria-label="Import employees CSV">
+                <Upload size={14} />
+              </Button>
+              <Button onClick={() => setShowAdd(true)}><Plus size={14} /> Add person</Button>
             </div>
-            <button onClick={() => setShowImport(true)} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Import employees CSV">
-              <Upload size={13} color="var(--text-muted)" />
-            </button>
-            <button className="btn-fab" style={{ width: 36, height: 36, borderRadius: 10 }} onClick={() => setShowAdd(true)}>
-              <Plus size={16} />
-            </button>
-          </div>
-        }
-      />
+          )}
+        />
 
-      <div className="px-screen" style={{ paddingTop: 12 }}>
         {/* Summary — also doubles as the Active/Inactive filter (farms/employees
             CRUD task): deactivated staff must stay findable, not disappear
             once toggled off. */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          {([
-            { label: 'Active', value: list.filter((e) => e.status === 'ACTIVE').length, color: 'var(--status-ok)', target: 'Active' as const },
-            { label: 'Inactive', value: list.filter((e) => e.status !== 'ACTIVE').length, color: 'var(--text-muted)', target: 'Inactive' as const },
-            { label: 'Total', value: list.length, color: 'var(--accent-blue)', target: 'All' as const },
-          ]).map((s) => (
-            <button
-              key={s.label}
-              onClick={() => setStatusFilter((cur) => (cur === s.target ? 'All' : s.target))}
-              style={{
-                flex: 1, background: 'var(--card)', borderRadius: 12, padding: '10px 8px', textAlign: 'center', cursor: 'pointer',
-                border: statusFilter === s.target ? `1px solid ${s.color}` : '1px solid var(--border-subtle)',
-              }}
-            >
-              <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
-            </button>
-          ))}
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <Kpi label="Active" value={list.filter((e) => e.status === 'ACTIVE').length} tone="ok" onClick={() => setStatusFilter((cur) => (cur === 'Active' ? 'All' : 'Active'))} />
+          <Kpi label="Inactive" value={list.filter((e) => e.status !== 'ACTIVE').length} onClick={() => setStatusFilter((cur) => (cur === 'Inactive' ? 'All' : 'Inactive'))} />
+          <Kpi label="Total" value={list.length} onClick={() => setStatusFilter('All')} />
         </div>
 
-        {loadError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{loadError}</div>}
+        {loadError && <div className="mt-3 text-sm text-danger">{loadError}</div>}
 
-        {/* Search */}
-        <div style={{ position: 'relative', marginBottom: 10 }}>
-          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <input className="farm-input" style={{ paddingLeft: 34, fontSize: 'var(--fs-base)' }} placeholder="Search name, id, phone…" value={search} onChange={e => setSearch(e.target.value)} />
-          {search && <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}><X size={14} /></button>}
+        <div className="relative mt-5 mb-3">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, id, phone…" className="pl-9" aria-label="Search staff" />
+          {search && (
+            <button type="button" onClick={() => setSearch('')} className="absolute top-1/2 right-3 -translate-y-1/2 text-subtle"><X size={14} /></button>
+          )}
         </div>
 
-        {/* Filter */}
-        <div className="chip-row" style={{ marginBottom: 14 }}>
-          {roles.map((r) => (
-            <button key={r} onClick={() => setFilter(r)} className={`filter-chip ${filter === r ? 'active' : ''}`}>{r === 'All' ? 'All' : roleLabel(r)}</button>
-          ))}
+        <div className="mb-4">
+          <Chips value={filter} onChange={setFilter} items={roles.map(r => ({ id: r, label: r === 'All' ? 'All' : roleLabel(r) }))} />
         </div>
 
         {employees === null && !loadError && (
-          <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading staff…</div>
+          <div className="py-10 text-center text-sm text-muted">Loading staff…</div>
         )}
 
-        {/* Employee list: card view or table view */}
+        {/* Roster: card view (hero) or table view */}
         {employees !== null && viewMode === 'table' ? (
-          <div style={{ marginBottom: 80 }}>
-            <DataTable
-              rows={filtered as unknown as Record<string, unknown>[]}
-              columns={PEOPLE_COLS}
-              rowKey={(r) => r.id as string}
-              onRowClick={(r) => navigate('people-detail', { id: r.id as string })}
-              defaultPageSize={20}
-              pageSizes={[10, 20, 50, 100, 200]}
-              bodyHeight={380}
-              tableId="people-staff"
-              emptyText="No staff match your search."
-            />
-          </div>
+          <DataTable
+            rows={filtered as unknown as Record<string, unknown>[]}
+            columns={PEOPLE_COLS}
+            rowKey={(r) => r.id as string}
+            onRowClick={(r) => navigate('people-detail', { id: r.id as string })}
+            defaultPageSize={20}
+            pageSizes={[10, 20, 50, 100, 200]}
+            bodyHeight={380}
+            tableId="people-staff"
+            emptyText="No staff match your search."
+          />
         ) : employees !== null && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 80 }}>
+          <>
             {filtered.length === 0 && list.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '28px 16px' }}>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No people yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>Add someone before you can give them a login or assign a batch.</div>
-                <button type="button" className="btn-primary" onClick={() => setShowAdd(true)}><Plus size={14} /> Add a person</button>
-              </div>
+              <EmptyState icon={<Key size={20} />} title="No people yet" body="Add someone before you can give them a login or assign a batch."
+                action={<Button className="w-full justify-center" onClick={() => setShowAdd(true)}><Plus size={14} /> Add a person</Button>} />
             )}
-            {filtered.length === 0 && list.length > 0 && <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>No one matches that search.</div>}
-            {filtered.map((emp) => (
-              <button key={emp.id} onClick={() => navigate('people-detail', { id: emp.id })}
-                className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer' }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                    background: `${getRoleColor(emp.role)}20`,
-                    border: `1px solid ${getRoleColor(emp.role)}40`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 'var(--fs-lg)', fontWeight: 700, color: getRoleColor(emp.role),
-                  }}>
-                    {initials(emp.name)}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
-                      <span style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{emp.name}</span>
-                      {emp.status !== 'ACTIVE' && <span style={{ fontSize: 'var(--fs-2xs)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)', padding: '1px 6px', borderRadius: 100, fontWeight: 600 }}>{emp.status}</span>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span className={`chip ${getRoleBadge(emp.role)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{roleLabel(emp.role)}</span>
-                      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{emp.phone || '—'}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-                      {emp.userId && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-                          <Key size={10} /> Account linked
-                        </span>
+            {filtered.length === 0 && list.length > 0 && (
+              <div className="py-10 text-center text-sm text-muted">No one matches that search.</div>
+            )}
+            {filtered.length > 0 && (
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {filtered.map((emp) => (
+                  <li key={emp.id}>
+                    <button type="button" onClick={() => navigate('people-detail', { id: emp.id })}
+                      className="flex w-full flex-col gap-2.5 rounded-xl bg-surface px-4 py-3.5 text-left shadow-(--shadow-border) hover:shadow-(--shadow-border-hover)">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={emp.name} size="lg" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium">{emp.name}</span>
+                            {emp.status !== 'ACTIVE' && <Badge variant="default">{emp.status}</Badge>}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                            <Badge variant="primary">{roleLabel(emp.role)}</Badge>
+                            <span className="text-xs text-muted">{emp.phone || '—'}</span>
+                            {emp.userId && (
+                              <span className="flex items-center gap-1 text-xs text-subtle"><Key size={10} /> Linked</span>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight size={16} className="shrink-0 text-subtle" />
+                      </div>
+                      {onTodayFor(emp.id) && (
+                        <p className="pl-[3.25rem] text-xs text-primary">On today: {onTodayFor(emp.id)}</p>
                       )}
-                    </div>
-                  </div>
-                  <ChevronRight size={16} color="var(--text-dim)" />
-                </div>
-                {emp.assignedBatchIds.length > 0 && (
-                  <div style={{ marginTop: 10, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {emp.assignedBatchIds.slice(0, 4).map((b) => (
-                      <span key={b} style={{ padding: '2px 8px', borderRadius: 100, background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.15)', fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>{batchLabel(b)}</span>
-                    ))}
-                    {emp.assignedBatchIds.length > 4 && <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>+{emp.assignedBatchIds.length - 4} more</span>}
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
+                      {emp.assignedBatchIds.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pl-[3.25rem]">
+                          {emp.assignedBatchIds.slice(0, 4).map((b) => (
+                            <span key={b} className="rounded-full bg-primary-soft px-2.5 py-0.5 text-xs font-medium text-primary">{batchLabel(b)}</span>
+                          ))}
+                          {emp.assignedBatchIds.length > 4 && <span className="text-xs text-muted">+{emp.assignedBatchIds.length - 4} more</span>}
+                        </div>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </div>
 
@@ -806,172 +815,152 @@ export function PeopleDetailScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title={employee.name} subtitle={`${roleName} · ${employee.status === 'ACTIVE' ? 'Active' : 'Inactive'}`} showBack />
-      <div className="px-screen" style={{ paddingTop: 16 }}>
-        {/* Avatar & header */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 20 }}>
-          <div style={{
-            width: 72, height: 72, borderRadius: '50%',
-            background: `${getRoleColor(employee.role)}20`, border: `2px solid ${getRoleColor(employee.role)}50`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 'var(--fs-4xl)', fontWeight: 700, color: getRoleColor(employee.role), marginBottom: 10,
-          }}>{initials(employee.name)}</div>
-          <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--text-primary)' }}>{employee.name}</div>
-          <span className={`chip ${getRoleBadge(employee.role)}`} style={{ marginTop: 6 }}>{roleName}</span>
+      <TopNav title="" showBack />
+      <div className="px-screen pt-3 pb-10">
+        {/* Header */}
+        <div className="flex flex-col items-center gap-2 pb-1 text-center">
+          <Avatar name={employee.name} size="lg" className="size-16 text-xl" />
+          <h1 className="font-display text-2xl font-medium">{employee.name}</h1>
+          <div className="flex items-center gap-2">
+            <Badge variant="primary">{roleName}</Badge>
+            {employee.status !== 'ACTIVE' && <Badge variant="default">{employee.status}</Badge>}
+          </div>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-          {(['profile','permissions','payroll'] as const).map((t) => (
-            <button key={t} onClick={() => setActiveSection(t)} style={{
-              flex: 1, padding: '8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
-              background: activeSection === t ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
-              border: activeSection === t ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
-              color: activeSection === t ? 'var(--primary-green)' : 'var(--text-muted)', textTransform: 'capitalize',
-            }}>{t}</button>
-          ))}
+        <div className="mt-5">
+          <Segmented
+            value={activeSection}
+            onChange={setActiveSection}
+            items={[
+              { id: 'profile', label: 'Profile', hint: 'Contact, role, sign-in' },
+              { id: 'permissions', label: 'Permissions', hint: 'What this role can do' },
+              { id: 'payroll', label: 'Payroll', hint: 'Pay history' },
+            ]}
+          />
         </div>
 
         {activeSection === 'profile' && (
-          <div>
+          <div className="mt-5 flex flex-col gap-4">
             {/* Role Assignment */}
-            <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
-              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Role Assignment</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <section className="rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+              <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{roleName}</div>
-                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
+                  <div className="text-sm font-medium">{roleName}</div>
+                  <p className="mt-0.5 text-xs text-muted">
                     {assignedRole ? `${Object.values(assignedRole.permissions).filter(p => p === 'edit').length} edit · ${assignedRole.approvalRequired.length} need approval` : 'No permissions configured for this role yet'}
-                  </div>
+                  </p>
                 </div>
-                <button disabled={busy} onClick={() => setShowRoleDropdown(s => !s)}
-                  style={{ padding: '7px 12px', borderRadius: 10, fontSize: 'var(--fs-sm)', fontWeight: 700, cursor: 'pointer',
-                    background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)' }}>
-                  {showRoleDropdown ? 'Cancel' : 'Change Role'}
-                </button>
+                <Button variant="secondary" size="sm" disabled={busy} onClick={() => setShowRoleDropdown(s => !s)}>
+                  {showRoleDropdown ? 'Cancel' : 'Change role'}
+                </Button>
               </div>
               {roleSaved && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--status-ok)', fontWeight: 700 }}><CheckCircle2 size={12} aria-hidden="true" /> Role updated successfully</div>
+                <div className="mt-2.5 flex items-center gap-1.5 text-xs font-medium text-success"><CheckCircle2 size={12} aria-hidden="true" /> Role updated successfully</div>
               )}
               {showRoleDropdown && (
-                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginBottom: 4 }}>Select a role to assign:</div>
+                <div className="mt-3 flex flex-col gap-1.5">
+                  <p className="mb-1 text-xs text-subtle">Select a role to assign:</p>
                   {availableRoles.map((r) => (
-                    <button key={r} onClick={() => handleSaveRole(r)}
-                      style={{ padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
-                        background: employee.role === r ? 'rgba(var(--primary-rgb),0.12)' : 'var(--surface)',
-                        border: employee.role === r ? '2px solid var(--primary-green)' : '1px solid var(--border-subtle)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <div style={{ width: 10, height: 10, borderRadius: '50%', background: getRoleColor(r), flexShrink: 0 }} />
-                          <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: employee.role === r ? 'var(--primary-green)' : 'var(--text-primary)' }}>{roleLabel(r)}</span>
-                        </div>
-                        {employee.role === r && <Check size={13} color="var(--primary-green)" />}
-                      </div>
+                    <button key={r} type="button" onClick={() => handleSaveRole(r)}
+                      className={cn('flex items-center justify-between rounded-lg px-3 py-2.5 text-left', employee.role === r ? 'bg-primary-soft' : 'bg-surface-2 hover:bg-surface-2/70')}>
+                      <span className="flex items-center gap-2">
+                        <span className="size-2.5 shrink-0 rounded-full" style={{ background: getRoleColor(r) }} />
+                        <span className={cn('text-sm font-medium', employee.role === r && 'text-primary')}>{roleLabel(r)}</span>
+                      </span>
+                      {employee.role === r && <Check size={13} className="text-primary" />}
                     </button>
                   ))}
                 </div>
               )}
-            </div>
+            </section>
 
-            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-              {[
-                { label: 'Employee ID', value: employee.id.slice(0, 8) },
-                { label: 'Phone', value: employee.phone || '—' },
-                // "Account linked" was as far as this went — see the Sign-in
-                // card below, which is where an owner can actually do
-                // something about it.
-                { label: 'Login', value: employee.userId ? 'Account linked' : 'No login account' },
-                { label: 'Photo threshold', value: `${employee.mortalityPhotoThreshold}+ deaths` },
-                { label: 'Monthly salary', value: employee.monthlySalaryCents > 0 ? formatMoney(employee.monthlySalaryCents) : 'Not set' },
-                { label: 'Assigned batches', value: employee.assignedBatchIds.length > 0 ? employee.assignedBatchIds.map(batchLabel).join(', ') : 'None' },
-              ].map((row, i, arr) => (
-                <div key={row.label} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                  <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', flexShrink: 0 }}>{row.label}</span>
-                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-primary)', textAlign: 'right', fontFamily: row.label === 'Employee ID' ? 'monospace' : undefined }}>{row.value}</span>
-                </div>
-              ))}
-            </div>
+            <section className="rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+              <dl>
+                <Kv label="Employee ID" value={<span className="font-mono text-xs">{employee.id.slice(0, 8)}</span>} />
+                <Kv label="Phone" value={employee.phone || '—'} />
+                <Kv label="Login" value={employee.userId ? 'Account linked' : 'No login account'} />
+                <Kv label="Photo threshold" value={`${employee.mortalityPhotoThreshold}+ deaths`} />
+                <Kv label="Monthly salary" value={employee.monthlySalaryCents > 0 ? formatMoney(employee.monthlySalaryCents) : 'Not set'} />
+                <Kv label="Assigned batches" value={employee.assignedBatchIds.length > 0 ? employee.assignedBatchIds.map(batchLabel).join(', ') : 'None'} />
+              </dl>
+            </section>
+
             <WorkerLoginCard employee={employee} tenantId={tenantId} onLinked={loadEmployee} />
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-              <button className="btn-secondary" style={{ justifyContent: 'center', padding: 12, borderRadius: 12 }} onClick={() => setShowEdit(true)}>Edit Details</button>
-              <button disabled={busy} onClick={() => { setToggleError(''); setShowToggleConfirm(true); }} style={{ padding: 12, borderRadius: 12, fontSize: 'var(--fs-base)', fontWeight: 700, background: employee.status === 'ACTIVE' ? 'rgba(var(--critical-rgb),0.1)' : 'rgba(var(--primary-rgb),0.1)', border: `1px solid ${employee.status === 'ACTIVE' ? 'rgba(var(--critical-rgb),0.3)' : 'rgba(var(--primary-rgb),0.3)'}`, color: employee.status === 'ACTIVE' ? 'var(--status-critical)' : 'var(--status-ok)', cursor: 'pointer' }}>
+            <div className="grid grid-cols-2 gap-2.5">
+              <Button variant="secondary" className="justify-center" onClick={() => setShowEdit(true)}>Edit details</Button>
+              <Button variant={employee.status === 'ACTIVE' ? 'danger' : 'default'} disabled={busy} className="justify-center" onClick={() => { setToggleError(''); setShowToggleConfirm(true); }}>
                 {employee.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
         {activeSection === 'permissions' && (
-          <div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
-              Permissions inherited from the <strong style={{ color: 'var(--text-secondary)' }}>{roleName}</strong> role. Go to Governance → Role Builder to edit role permissions.
-            </div>
-            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
+          <div className="mt-5">
+            <p className="mb-3 text-sm text-muted">
+              Permissions inherited from the <strong className="text-fg">{roleName}</strong> role. Go to Governance → Roles &amp; rules to edit role permissions.
+            </p>
+            <section className="rounded-xl bg-surface p-2 shadow-(--shadow-border)">
               {assignedRole ? (
-                Object.entries(assignedRole.permissions).map(([key, perm], i, arr) => (
-                  <div key={key} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                    <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>{key.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
-                    <span className={`chip ${perm === 'edit' ? 'chip-ok' : perm === 'view' ? 'chip-info' : 'chip-critical'}`} style={{ fontSize: 'var(--fs-2xs)' }}>
-                      {perm === 'edit' ? 'Editable' : perm === 'view' ? 'Read-only' : 'Hidden'}
-                    </span>
-                  </div>
-                ))
+                <ul className="divide-y divide-border">
+                  {Object.entries(assignedRole.permissions).map(([key, perm]) => (
+                    <li key={key} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                      <span className="text-sm">{key.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
+                      <Badge variant={perm === 'edit' ? 'success' : perm === 'view' ? 'default' : 'danger'}>
+                        {perm === 'edit' ? 'Editable' : perm === 'view' ? 'Read-only' : 'Hidden'}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
               ) : (
-                <div style={{ padding: '14px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', textAlign: 'center' }}>No role permissions configured</div>
+                <div className="py-6 text-center text-sm text-muted">No role permissions configured</div>
               )}
-            </div>
+            </section>
             {assignedRole && assignedRole.approvalRequired.length > 0 && (
-              <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
-                <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--accent-amber)', marginBottom: 8, textTransform: 'uppercase' }}>Requires Owner Approval</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <section className="mt-4 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+                <p className="mb-2.5 text-xs font-medium tracking-wide text-warning uppercase">Requires owner approval</p>
+                <div className="flex flex-wrap gap-1.5">
                   {assignedRole.approvalRequired.map(a => (
-                    <span key={a} style={{ padding: '4px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700,
-                      background: 'rgba(var(--warning-rgb),0.1)', border: '1px solid rgba(var(--warning-rgb),0.3)', color: 'var(--accent-amber)' }}>
-                      {a.replace(/-/g, ' ')}
-                    </span>
+                    <Badge key={a} variant="warning">{a.replace(/-/g, ' ')}</Badge>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
           </div>
         )}
 
         {activeSection === 'payroll' && (
-          <div>
+          <div className="mt-5">
             {employee.monthlySalaryCents === 0 && (
-              <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+              <div className="mb-4 rounded-xl bg-warning-soft px-3.5 py-2.5 text-xs text-fg">
                 No monthly salary set — this employee is skipped by every payroll run until one is set in Edit Details.
               </div>
             )}
-            {payslipsError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{payslipsError}</div>}
+            {payslipsError && <div className="mb-3 text-sm text-danger">{payslipsError}</div>}
             {!payslipsError && payslips === null && (
-              <div style={{ padding: 20, textAlign: 'center', fontSize: 'var(--fs-sm)', color: 'var(--text-dim)' }}>Loading…</div>
+              <div className="py-10 text-center text-sm text-muted">Loading…</div>
             )}
             {!payslipsError && payslips !== null && payslips.length === 0 && (
-              <div className="farm-card" style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No pay history yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  This employee hasn&apos;t been paid in a payroll run. Run payroll from Finance → Payroll to pay them for the first time.
-                </div>
-              </div>
+              <EmptyState icon={<CheckCircle2 size={20} />} title="No pay history yet" body="This employee hasn't been paid in a payroll run. Run payroll from Finance → Payroll to pay them for the first time." />
             )}
             {!payslipsError && payslips !== null && payslips.length > 0 && (
-              <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-                {payslips.map((p, i, arr) => (
-                  <div key={p.id} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                    <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>{fmtDate(p.periodStart)} – {fmtDate(p.periodEnd)}</span>
-                    <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(p.amountCents)}</span>
-                  </div>
-                ))}
-              </div>
+              <section className="rounded-xl bg-surface p-2 shadow-(--shadow-border)">
+                <ul className="divide-y divide-border">
+                  {payslips.map((p) => (
+                    <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                      <span className="text-sm text-muted">{fmtDate(p.periodStart)} – {fmtDate(p.periodEnd)}</span>
+                      <span className="font-display text-base font-medium">{formatMoney(p.amountCents)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
           </div>
         )}
 
         {/* Status Timeline */}
-        <div style={{ marginBottom: 14 }}>
+        <div className="mt-5">
           <StatusTimeline tenantId={tenantId} entity="employee" entityId={employee.id} />
         </div>
       </div>

@@ -3,97 +3,128 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ── Theme tokens (design-system-revamp) ─────────────────────────────────────
- * Full rewrite of the palette/type/radius layer. What changed and why:
+/* ── Theme tokens (ui/governance-reference-redesign) ─────────────────────────
+ * Second rewrite of the palette/type/radius layer, this time adopting a real
+ * shipped reference design (a Vite/TanStack build of the same product,
+ * `grok/` in the redesign PR) token-for-token rather than inventing a
+ * palette from scratch. What changed and why:
  *
- * 1. TYPEFACE — the app never chose one; it fell back to the OS default
- *    (`ui-sans-serif, system-ui…`). app/layout.tsx now self-hosts Schibsted
- *    Grotesk via next/font/google (build-time, no runtime fetch — matters for
- *    the offline APK) and exposes it as --font-schibsted; --font-sans below
- *    is that font with the old system stack kept only as a fallback chain.
+ * 1. PALETTE — light-farm (:root, the default) and dark-farm now use the
+ *    reference's exact hex values (warm off-white ground, cream cards, a
+ *    deep forest-green primary #2a5340, warm amber/brick warning/critical).
+ *    This supersedes the previous design-system-revamp's light palette,
+ *    which was deliberately cool/non-cream — that rationale is superseded
+ *    by this task's explicit instruction to match the reference. Scope was
+ *    deliberately narrowed to light+dark: high-contrast and sun-mode are
+ *    UNTOUCHED (still the previous palette) — they were not part of the
+ *    reference and still need to keep working exactly as before.
  *
- * 2. DARK THEME STOPPED GLOWING — near-black (#0a0f0a) + acid green
- *    (#4ade80) is a generated-design cliché. dark-farm below is a warm
- *    charcoal ground with a desaturated sage green that reads as a material,
- *    not a light source.
+ * 2. STATUS COLOUR CONVENTION — the reference keeps --color-success constant
+ *    across its themes (always the same green, independent of --color-
+ *    primary). This codebase's existing convention is different and is KEPT:
+ *    --status-ok tracks --primary-green per theme, the same invariant every
+ *    existing theme block already relies on (e.g. the old dark-farm had
+ *    status-ok === primary-green exactly). Diverging from the reference here
+ *    on purpose — switching that invariant would be a much bigger, riskier
+ *    change across the ~460 rgba(var(--primary-rgb)) call sites than this
+ *    task calls for.
  *
- * 3. RGB-TRIPLET TOKENS (--primary-rgb, --critical-rgb, --warning-rgb,
- *    --info-rgb, --purple-rgb) are new. Before this, ~460 rgba(...) tints
- *    scattered across components/farm/*.tsx were hardcoded to the OLD
- *    dark-theme hex values (rgba(74,222,128,…) etc.) REGARDLESS of the active
- *    theme — every "selected", "active" and status-tinted surface in the app
- *    rendered the same acid-green/red/amber/blue wash in all four themes.
- *    That is a real reason the app "feels random" independent of any single
- *    screen: switching themes never actually changed those surfaces. Those
- *    call sites now read `rgba(var(--primary-rgb), α)` etc., so every one of
- *    them tracks the active theme's real palette. See the sed pass in the
- *    PR description for the mechanical, one-time rewrite.
+ * 3. TWO TYPEFACES — Outfit (body/UI) + Fraunces (serif display headings),
+ *    both self-hosted via next/font/google in app/layout.tsx and exposed
+ *    here as --font-sans / --font-display (new). Replaces the previous
+ *    single-typeface system (Schibsted Grotesk for everything).
  *
- * 4. DOMAIN TINTS (--tint-sage/-sand/-sky/-straw) give colour a job: sage for
- *    crops/livestock, sand for finance, sky for weather, straw for stock —
- *    used sparingly (an icon tile, a left accent rule), never as a full-card
- *    wash. Each theme defines its own ink/soft/border so the device works
- *    identically (same class names) in all four, including high-contrast and
- *    sun-mode where the "soft" wash is intentionally minimal.
+ * 4. TAILWIND-FACING ALIASES — the reference's components (ported into
+ *    components/ui-kit/*) are written with Tailwind utility classes reading
+ *    token names like `bg-surface`, `text-muted`, `bg-primary-soft`,
+ *    `bg-sidebar`. The `@theme inline` block below defines a `--color-*`
+ *    alias for each of those names, pointed at the SAME semantic variables
+ *    every existing inline-style call site already reads (`--surface`,
+ *    `--text-muted`, …). This is the one mechanism that makes "adopt the
+ *    palette as tokens so the whole app shifts consistently" true: a ui-kit
+ *    component using `bg-surface` and an old screen using
+ *    `style={{ background: 'var(--surface)' }}` render the exact same colour
+ *    from the exact same source, in every theme, without either one
+ *    hardcoding the other's convention.
  *
- * 5. RADIUS NOW VARIES BY HIERARCHY — --radius-card (18px), --radius-control
- *    (10px), --radius-chip (999px) replace the old "everything is ~10px"
- *    flatness.
+ * 5. SIDEBAR IS PERMANENTLY DARK — the reference's sidebar/rail is a fixed
+ *    dark near-black-green regardless of the active theme (light or dark).
+ *    --sidebar-bg/-fg/-muted/-hover/-active are defined ONCE, here, not
+ *    inside any per-theme block, so they never change when the operational
+ *    theme does.
+ *
+ * 6. RGB-TRIPLET TOKENS (--primary-rgb, --critical-rgb, --warning-rgb,
+ *    --info-rgb, --purple-rgb) still exist and are still load-bearing for
+ *    every `rgba(var(--x-rgb), α)` call site — recomputed here from the new
+ *    hex values, nothing about the mechanism itself changed.
+ *
+ * 7. RADIUS SCALE WIDENED to match the reference's --radius-xs…--radius-2xl
+ *    (4/8/12/18/24/32px). --radius-card (18px) and --radius-chip (999px) are
+ *    unchanged in VALUE (18px already matched); --radius-control moved
+ *    10px -> 12px to align with the reference's --radius-md, which every
+ *    ui-kit control (button/input) is built on.
  *
  * :root below IS "light-farm" (the operational default before any theme is
- * read from settings, and while data-theme="light-farm" is set). The other
- * three themes each override the full set of role tokens beneath it. */
+ * read from settings, and while data-theme="light-farm" is set). dark-farm
+ * overrides the ground/ink/primary layer below it; high-contrast and
+ * sun-mode are unchanged from the previous revamp. */
 :root {
-  /* Light is the PRIMARY theme — a field app used in daylight. Cool
-   * off-white ground (deliberately not a warm cream, which is its own
-   * generated-design tell), deep green-black ink instead of a flat #111. */
-  --background: #f6f7f3;
-  --surface: #ffffff;
-  --card: #ffffff;
-  --card-hover: #eff2ea;
-  --border-subtle: #e1e5dc;
-  --border-hover: #9fbea6;
+  /* Reference default (light) palette — warm off-white ground, cream
+   * surfaces, deep forest-green primary. */
+  --background: #efece3;
+  --background-sunken: #e4e0d4;
+  --surface: #fbfaf6;
+  --card: #fbfaf6;
+  --card-hover: #f3f0e6;
+  --border-subtle: #d6d1c3;
+  /* Formula, not a fixed hex, from here down: a themed tint of the current
+   * --primary-green so hover borders track whichever theme is active
+   * instead of needing their own per-theme value. */
+  --border-hover: color-mix(in srgb, var(--primary-green) 45%, transparent);
 
-  --primary-green: #2f6f3e;
+  --primary-green: #2a5340;
   /* Hover/pressed shade of --primary-green — was a hardcoded #285f35 baked
    * into .btn-primary:hover, so a theme that made --primary-green bright
    * (dark/high-contrast/sun) still darkened toward this one fixed shade on
    * hover, which looked wrong or, worse, barely changed at all. */
-  --primary-green-strong: #24592f;
+  --primary-green-strong: #1e3f30;
   /* Text/icon colour placed ON TOP of a --primary-green fill (buttons, the
    * FAB, the active step indicator, the brand mark). */
-  --on-primary: #ffffff;
+  --on-primary: #f6f3eb;
   --accent-lime: #6d9f45;
-  --accent-amber: #956319;
-  --accent-red: #b9443f;
+  --accent-amber: #7a5c28;
+  --accent-red: #8b3d36;
   --accent-blue: #2866a3;
   /* Legacy aliases retain meaning without decorative colour. */
   --accent-purple: #5f685f;
   --accent-cyan: #2866a3;
 
-  --text-primary: #16201a;
-  --text-secondary: #33513b;
-  --text-muted: #5c6a5f;
-  --text-dim: #6a726a;
+  --text-primary: #1b2118;
+  --text-secondary: #3b4237;
+  --text-muted: #5c6457;
+  --text-dim: #8a9183;
 
-  /* Semantic status */
-  --status-ok: #2f7c42;
-  --status-warning: #956319;
-  --status-critical: #b9443f;
+  /* Semantic status — status-ok tracks --primary-green (see header note 2);
+   * warning/critical reuse the reference's warning/danger hexes. */
+  --status-ok: #2a5340;
+  --status-warning: #7a5c28;
+  --status-critical: #8b3d36;
   --status-info: #2866a3;
 
-  /* RGB triplets for rgba(var(--x-rgb), α) call sites — see header note 3. */
-  --primary-rgb: 47, 111, 62;
-  --critical-rgb: 185, 68, 63;
-  --warning-rgb: 149, 99, 25;
+  /* RGB triplets for rgba(var(--x-rgb), α) call sites — see header note 6. */
+  --primary-rgb: 42, 83, 64;
+  --critical-rgb: 139, 61, 54;
+  --warning-rgb: 122, 92, 40;
   --info-rgb: 40, 102, 163;
   --purple-rgb: 95, 104, 95;
 
-  /* Domain tints — see header note 4. Used for an icon tile background/ink
-   * or a card's left accent rule; never a full card wash. */
-  --tint-sage-ink: #2f6f3e;
-  --tint-sage-soft: rgba(47, 111, 62, 0.1);
-  --tint-sage-border: rgba(47, 111, 62, 0.28);
+  /* Domain tints — tied to the theme's own primary/warning inks via
+   * color-mix rather than a fixed hex, so they track whichever theme is
+   * active. Used for an icon tile background/ink or a card's left accent
+   * rule; never a full card wash. */
+  --tint-sage-ink: var(--primary-green);
+  --tint-sage-soft: color-mix(in srgb, var(--primary-green) 10%, transparent);
+  --tint-sage-border: color-mix(in srgb, var(--primary-green) 28%, transparent);
   --tint-sand-ink: #8a6a2e;
   --tint-sand-soft: rgba(138, 106, 46, 0.1);
   --tint-sand-border: rgba(138, 106, 46, 0.28);
@@ -106,27 +137,74 @@
 
   /* Chip/badge tints — background only; foreground stays the theme-aware
    * --status-* token above. */
-  --chip-ok-bg: #e8f3e9;
-  --chip-warning-bg: #fbf0dc;
-  --chip-critical-bg: #fbe9e7;
+  --chip-ok-bg: #d7e4db;
+  --chip-warning-bg: #efe4cc;
+  --chip-critical-bg: #f1ddd9;
   --chip-info-bg: #e9f0f8;
-  --chip-neutral-bg: #f0f2ee;
+  --chip-neutral-bg: #f3f0e6;
 
-  --gradient-primary: #2f6f3e;
-  --gradient-warm: #956319;
-  --gradient-hero: #f6f7f3;
+  --gradient-primary: #2a5340;
+  --gradient-warm: #7a5c28;
+  --gradient-hero: #efece3;
 
-  /* .farm-viewport's backdrop behind the device frame. */
-  --viewport-bg: #e9ece4;
+  /* .farm-viewport's backdrop behind the device frame — same value as
+   * --background-sunken (the reference's own "one step down from bg" tone). */
+  --viewport-bg: #e4e0d4;
+
+  /* ── Sidebar — permanently dark, independent of the active theme. See
+   * header note 5. Only referenced by components/farm/navigation.tsx's
+   * .farm-sidebar / .bottom-nav-adjacent rail styles. */
+  --sidebar-bg: #141a16;
+  --sidebar-fg: #e7ece6;
+  --sidebar-muted: #9aa396;
+  --sidebar-hover: #1d261f;
+  --sidebar-active: #24342b;
+  /* Extra pair for the two cases a plain sidebar-fg/-muted pairing can't
+   * cover: a decorative accent LINE drawn straight onto the dark rail (the
+   * active-row left bar) needs a LIGHTENED green, the same reasoning
+   * dark-farm's own --primary-green is lightened for — the deep forest
+   * green that works fine as a light-background ink is too close to the
+   * rail's own colour to read as an accent. --sidebar-danger is the same
+   * idea for the Sign out row's icon/text, which previously read
+   * `var(--status-critical)` — correct on the theme-following top nav bar,
+   * wrong here now that the rail no longer follows the active theme. */
+  --sidebar-accent: #8fbea3;
+  --sidebar-danger: #e08585;
+
+  /* ── Elevation — ported verbatim from the reference. Deliberately
+   * theme-invariant (the reference does not redefine these per theme
+   * either): a thin 1px "border" shadow standing in for a real border on
+   * borderless ui-kit surfaces, a slightly stronger hover step, and a raised
+   * shadow for anything that floats above the page (dialogs, sheets,
+   * dropdowns). Consumed via Tailwind's arbitrary-value shadow utility,
+   * e.g. `shadow-(--shadow-border)`. */
+  --shadow-border:
+    0px 0px 0px 1px rgba(27, 33, 24, 0.06),
+    0px 1px 2px -1px rgba(27, 33, 24, 0.06),
+    0px 2px 4px 0px rgba(27, 33, 24, 0.04);
+  --shadow-border-hover:
+    0px 0px 0px 1px rgba(27, 33, 24, 0.08),
+    0px 1px 2px -1px rgba(27, 33, 24, 0.08),
+    0px 2px 4px 0px rgba(27, 33, 24, 0.06);
+  --shadow-raised:
+    0px 0px 0px 1px rgba(27, 33, 24, 0.06),
+    0px 8px 24px -12px rgba(27, 33, 24, 0.18);
 
   --nav-height: 64px;
   --bottom-nav-height: 68px;
   --radius: 0.75rem;
 
-  /* ── Radius scale — varies by hierarchy on purpose. One radius on
-   * everything is the generated-design tell this replaces. */
-  --radius-card: 18px;
-  --radius-control: 10px;
+  /* ── Radius scale — see header note 7. --radius-card/-control/-chip are
+   * this app's own semantic names, aliased onto the reference's raw scale
+   * just below so both naming conventions resolve to the same values. */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-2xl: 32px;
+  --radius-card: var(--radius-lg);
+  --radius-control: var(--radius-md);
   --radius-chip: 999px;
 
   /* ── Type scale (ui-polish-theme-weather) ──────────────────────────────────
@@ -153,11 +231,14 @@
   --fs-6xl: 2.25rem;    /* 36px */
   --fs-hero: 3.25rem;   /* 52px */
 
-  /* Shadcn compat */
+  /* Shadcn compat (unused directly by any component per a repo-wide grep for
+   * var(--ring)/var(--primary)/etc. — kept only so nothing that expects these
+   * shadcn CSS-variable names to exist breaks; --primary/--ring recomputed to
+   * the new #2a5340 forest green's HSL so they at least agree with it). */
   --foreground: 120 12% 11%;
   --popover: 222.2 84% 4.9%;
   --popover-foreground: 210 40% 98%;
-  --primary: 132 40% 31%;
+  --primary: 152 33% 25%;
   --primary-foreground: 0 0% 100%;
   --secondary: 90 14% 96%;
   --secondary-foreground: 120 12% 11%;
@@ -169,25 +250,30 @@
   --destructive-foreground: 210 40% 98%;
   --border: 90 10% 89%;
   --input: 90 10% 89%;
-  --ring: 132 40% 31%;
+  --ring: 152 33% 25%;
   --radius: 0.75rem;
 }
 
-/* ── Dark Farm ── low-light view. Warm charcoal, not near-black; a
- * desaturated sage green that reads as a material rather than a light
- * source. This replaces the #0a0f0a + #4ade80 combination that is one of the
- * most recognisable generated-design signatures there is. */
+/* ── Dark Farm ── low-light view, now the reference's own dark palette: a
+ * warm-black ground (#121612, not the old #1a1e1a) and a lighter sage-green
+ * primary (#8fbea3 — a dark UI needs a LIGHTENED accent to stay legible,
+ * unlike light-farm where the deep forest green itself has enough contrast).
+ * Accent-lime/amber/red/blue/purple/cyan and every tint- / chip- background
+ * below are UNCHANGED from the previous design-system-revamp pass — the reference does
+ * not specify them, and they were already tuned for contrast on a dark
+ * ground, so there is nothing to gain by touching them here. */
 :root[data-theme='dark-farm'] {
-  --background: #1a1e1a;
-  --surface: #1f231f;
-  --card: #222822;
-  --card-hover: #272e27;
-  --border-subtle: rgba(255,255,255,0.08);
-  --border-hover: rgba(127,182,130,0.35);
+  --background: #121612;
+  --background-sunken: #0d100d;
+  --surface: #1b211c;
+  --card: #1b211c;
+  --card-hover: #232a24;
+  --border-subtle: #2c352e;
+  --border-hover: color-mix(in srgb, var(--primary-green) 45%, transparent);
 
-  --primary-green: #7fb682;
-  --primary-green-strong: #6ba06e;
-  --on-primary: #12241a;
+  --primary-green: #8fbea3;
+  --primary-green-strong: #6f9c85;
+  --on-primary: #121612;
   --accent-lime: #a8c97e;
   --accent-amber: #d9a552;
   --accent-red: #e08585;
@@ -195,25 +281,25 @@
   --accent-purple: #b79bd1;
   --accent-cyan: #7fb0e0;
 
-  --text-primary: #e7efe6;
-  --text-secondary: #afc9af;
-  --text-muted: #8a9a88;
-  --text-dim: #6d7a6a;
+  --text-primary: #e7ece6;
+  --text-secondary: #c0c7c0;
+  --text-muted: #9aa396;
+  --text-dim: #6f776c;
 
-  --status-ok: #7fb682;
+  --status-ok: #8fbea3;
   --status-warning: #d9a552;
   --status-critical: #e08585;
   --status-info: #7fb0e0;
 
-  --primary-rgb: 127, 182, 130;
+  --primary-rgb: 143, 190, 163;
   --critical-rgb: 224, 133, 133;
   --warning-rgb: 217, 165, 82;
   --info-rgb: 127, 176, 224;
   --purple-rgb: 183, 155, 209;
 
-  --tint-sage-ink: #9cc89e;
-  --tint-sage-soft: rgba(127,182,130,0.15);
-  --tint-sage-border: rgba(127,182,130,0.34);
+  --tint-sage-ink: var(--primary-green);
+  --tint-sage-soft: color-mix(in srgb, var(--primary-green) 15%, transparent);
+  --tint-sage-border: color-mix(in srgb, var(--primary-green) 34%, transparent);
   --tint-sand-ink: #cbb98a;
   --tint-sand-soft: rgba(203,185,138,0.14);
   --tint-sand-border: rgba(203,185,138,0.32);
@@ -224,16 +310,16 @@
   --tint-straw-soft: rgba(211,187,106,0.15);
   --tint-straw-border: rgba(211,187,106,0.34);
 
-  --chip-ok-bg: rgba(127,182,130,0.16);
+  --chip-ok-bg: rgba(143,190,163,0.16);
   --chip-warning-bg: rgba(217,165,82,0.14);
   --chip-critical-bg: rgba(224,133,133,0.14);
   --chip-info-bg: rgba(127,176,224,0.14);
   --chip-neutral-bg: rgba(255,255,255,0.06);
 
-  --gradient-primary: #7fb682;
+  --gradient-primary: #8fbea3;
   --gradient-warm: #d9a552;
-  --gradient-hero: #1a1e1a;
-  --viewport-bg: #121512;
+  --gradient-hero: #121612;
+  --viewport-bg: #0d100d;
 }
 
 /* ── High Contrast ── black & white, maximum legibility. Accents stay
@@ -244,6 +330,7 @@
  * on it never loses contrast against pure black. */
 :root[data-theme='high-contrast'] {
   --background: #000000;
+  --background-sunken: #000000;
   --surface: #0a0a0a;
   --card: #101010;
   --card-hover: #1c1c1c;
@@ -306,6 +393,7 @@
  * a dim room. */
 :root[data-theme='sun-mode'] {
   --background: #1a1200;
+  --background-sunken: #120c00;
   --surface: #231800;
   --card: #2a1e00;
   --card-hover: #34260a;
@@ -364,13 +452,12 @@
 }
 
 @theme inline {
-  /* Schibsted Grotesk, self-hosted at build time by next/font/google
-   * (app/layout.tsx sets --font-schibsted on <html>). The old value here —
-   * `ui-sans-serif, system-ui, -apple-system, 'Segoe UI'` — was the OS
-   * default and the single biggest reason the app had no typographic
-   * personality; the fallback chain below only fires before the font file
-   * is parsed or if it somehow fails to load. */
-  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Outfit (body/UI) + Fraunces (serif display headings), self-hosted at
+   * build time by next/font/google — app/layout.tsx sets --font-outfit and
+   * --font-fraunces on <html>. See the header comment (note 3) for why this
+   * replaced the previous single-typeface (Schibsted Grotesk) system. */
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, 'Times New Roman', serif;
   --font-mono: ui-monospace, 'JetBrains Mono', monospace;
   --color-background: var(--background);
   --color-foreground: var(--text-primary);
@@ -386,13 +473,60 @@
   --color-border: var(--border-subtle);
   --color-primary: var(--primary-green);
   --color-primary-foreground: var(--on-primary);
-  --color-muted: var(--surface);
   --color-muted-foreground: var(--text-muted);
   --color-destructive: var(--status-critical);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+
+  /* ── Reference-named aliases (ui/governance-reference-redesign, header
+   * note 4) — components/ui-kit/* and the reference-ported screens use
+   * Tailwind utilities under these exact names (`bg-surface`, `text-muted`,
+   * `bg-primary-soft`, `bg-sidebar`, …). Every one of them points at the
+   * SAME semantic variable an old inline-style call site already reads, so
+   * both conventions render identically, in every theme, from one source. */
+  --color-bg: var(--background);
+  --color-bg-sunken: var(--background-sunken);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--card-hover);
+  --color-fg: var(--text-primary);
+  --color-fg-secondary: var(--text-secondary);
+  --color-muted-text: var(--text-muted);
+  --color-subtle: var(--text-dim);
+  --color-primary-fg: var(--on-primary);
+  --color-primary-soft: var(--chip-ok-bg);
+  --color-ring: var(--primary-green);
+  --color-sidebar: var(--sidebar-bg);
+  --color-sidebar-fg: var(--sidebar-fg);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-warning: var(--status-warning);
+  --color-warning-soft: var(--chip-warning-bg);
+  --color-danger: var(--status-critical);
+  --color-danger-soft: var(--chip-critical-bg);
+  --color-success: var(--status-ok);
+  --color-success-soft: var(--chip-ok-bg);
+  /* Tailwind's built-in `text-muted`/`bg-muted` utilities read --color-muted
+   * (a BACKGROUND token above, kept for shadcn compat). The reference's own
+   * components use a bare `text-muted` utility meaning "muted TEXT colour" —
+   * there is no such shadcn utility name collision in practice because nothing
+   * in this codebase consumes `text-muted`/`bg-muted` as shadcn intended it
+   * (verified: no component references bg-muted/text-muted-foreground/etc.
+   * as Tailwind classes anywhere outside this file), so --muted below is safe
+   * to define as the reference's plain colour utility instead. */
+  --color-muted: var(--text-muted);
+
+  /* ── Radius scale — see header note 7. Literal px (not calc()-derived from
+   * a single base, and NOT `var(--radius-lg)` etc. self-references, which
+   * would be a circular custom-property definition): these are what
+   * register Tailwind's rounded-xs/-sm/-md/-lg/-xl/-2xl utilities at the
+   * reference's values. The plain :root block above additionally exposes
+   * the same values as --radius-card/-control/-chip for this app's existing
+   * non-Tailwind (inline-style) call sites. */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-2xl: 32px;
 }
 
 @layer base {
@@ -528,15 +662,19 @@
     width: 200px;
     flex-shrink: 0;
     height: 100%;
-    background: var(--surface);
-    border-right: 1px solid var(--border-subtle);
+    /* Permanently dark rail — see app/global.css's --sidebar-* token comment
+     * (ui/governance-reference-redesign): the reference's sidebar does not
+     * follow the operational light/dark/high-contrast/sun theme, it is
+     * always this near-black green. */
+    background: var(--sidebar-bg);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
   }
   .farm-sidebar-brand {
     display: flex;
     align-items: center;
     gap: 6px;
     padding: 12px 10px 12px 12px;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     flex-shrink: 0;
   }
   .bottom-nav { display: none; }
@@ -577,7 +715,7 @@
 .sidebar-brand-name {
   font-size: var(--fs-md);
   font-weight: 800;
-  color: var(--text-primary);
+  color: var(--sidebar-fg);
   letter-spacing: -0.015em;
   white-space: nowrap;
   overflow: hidden;
@@ -585,7 +723,7 @@
 }
 .sidebar-brand-meta {
   font-size: var(--fs-2xs);
-  color: var(--text-muted);
+  color: var(--sidebar-muted);
   margin-top: 1px;
   white-space: nowrap;
   overflow: hidden;
@@ -597,7 +735,7 @@
   border-radius: var(--radius-control);
   border: 1px solid transparent;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--sidebar-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -605,8 +743,8 @@
   flex-shrink: 0;
 }
 .sidebar-collapse-btn:hover {
-  background: var(--card-hover);
-  color: var(--text-primary);
+  background: var(--sidebar-hover);
+  color: var(--sidebar-fg);
 }
 .farm-sidebar-nav {
   flex: 1;
@@ -626,8 +764,9 @@
   padding: 10px 10px 5px;
   font-size: var(--fs-xs);
   font-weight: 650;
-  color: var(--text-dim);
-  letter-spacing: 0.01em;
+  color: var(--sidebar-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .sidebar-row {
   width: 100%;
@@ -644,19 +783,22 @@
   background: transparent;
   border: none;
   border-left: 3px solid transparent;
-  color: var(--text-muted);
+  color: var(--sidebar-muted);
   font-weight: 500;
   font-size: var(--fs-base);
 }
 .sidebar-row.is-nested { padding-left: 18px; }
 .sidebar-row:hover {
-  background: var(--card-hover);
-  color: var(--text-primary);
+  background: var(--sidebar-hover);
+  color: var(--sidebar-fg);
 }
 .sidebar-row.is-active {
-  background: rgba(var(--primary-rgb), 0.1);
-  border-left-color: var(--primary-green);
-  color: var(--primary-green);
+  background: var(--sidebar-active);
+  /* --sidebar-accent, not --primary-green: a decorative line drawn straight
+   * onto the dark rail needs the lightened accent regardless of which
+   * operational theme is active (see the --sidebar-accent token comment). */
+  border-left-color: var(--sidebar-accent);
+  color: var(--sidebar-fg);
   font-weight: 700;
 }
 .sidebar-row-label {
@@ -685,7 +827,7 @@
 .sidebar-progress { flex-shrink: 0; }
 .farm-sidebar-footer {
   padding: 10px 10px 12px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -695,7 +837,7 @@
 .sidebar-farm-label {
   display: block;
   font-size: var(--fs-2xs);
-  color: var(--text-dim);
+  color: var(--sidebar-muted);
   margin-bottom: 3px;
 }
 .sidebar-farm-filter select {
@@ -703,31 +845,32 @@
   min-height: 36px;
   padding: 7px 8px;
   border-radius: var(--radius-control);
-  border: 1px solid var(--border-subtle);
-  background: var(--card);
-  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--sidebar-hover);
+  color: var(--sidebar-fg);
   font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
 }
+.sidebar-farm-filter select option { background: var(--sidebar-bg); color: var(--sidebar-fg); }
 .sidebar-user { padding: 4px 10px 2px; min-width: 0; }
 .sidebar-user-name {
   font-size: var(--fs-sm);
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--sidebar-fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .sidebar-user-role {
   font-size: var(--fs-2xs);
-  color: var(--text-dim);
+  color: var(--sidebar-muted);
   margin-top: 1px;
 }
-.sidebar-signout { color: var(--status-critical); }
+.sidebar-signout { color: var(--sidebar-danger); }
 .sidebar-signout:hover {
-  background: rgba(var(--critical-rgb), 0.08);
-  color: var(--status-critical);
+  background: var(--sidebar-hover);
+  color: var(--sidebar-danger);
 }
 .logout-icon-btn {
   width: 32px;
@@ -833,6 +976,7 @@
  * matters in a fixed 68px bar. */
 .bottom-nav-item {
   flex: 1;
+  min-height: 44px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -930,6 +1074,29 @@
   overflow-y: auto;
   padding: 0 12px 14px;
 }
+
+/* ── MobileMoreSheet ("More" tab, ui/governance-reference-redesign) ──
+ * Reuses .tab-menu-sheet/-handle/-head/-title's LAYOUT but not their theme-
+ * following colours: this sheet renders the sidebar's own .sidebar-row/
+ * .sidebar-group-label/.farm-sidebar-footer classes verbatim (see
+ * MobileMoreSheet in navigation.tsx), which are styled for the permanently
+ * dark rail (--sidebar-* tokens) — so the sheet chrome around them (background,
+ * title, handle, close button) is darkened to match instead of sitting light
+ * cream text-on-cream. */
+.more-sheet {
+  background: var(--sidebar-bg);
+  max-height: 88%;
+}
+.more-sheet .tab-menu-handle { background: var(--sidebar-hover); }
+.more-sheet .tab-menu-title { color: var(--sidebar-fg); }
+.more-sheet .btn-icon {
+  background: var(--sidebar-hover);
+  border-color: transparent;
+  color: var(--sidebar-fg);
+}
+.more-sheet .btn-icon:hover { color: var(--sidebar-accent); border-color: transparent; }
+.more-sheet-groups { flex: 1; padding-top: 4px; }
+.more-sheet .farm-sidebar-footer { flex-shrink: 0; }
 .tab-menu-row {
   width: 100%;
   min-height: 52px;

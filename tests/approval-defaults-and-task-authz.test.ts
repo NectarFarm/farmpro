@@ -170,9 +170,9 @@ describe('components/farm/worker.tsx — a deferred record does not claim to be 
   })
 
   it('derives the chip from the record’s own approval state', () => {
-    expect(source).toMatch(/RECORD_STATE_CHIP\[recordApprovalState\(r\.data\)\]/)
-    expect(source).toMatch(/pending: \{ label: 'WAITING'/)
-    expect(source).toMatch(/rejected: \{ label: 'REJECTED'/)
+    expect(source).toMatch(/RECORD_STATE_BADGE\[recordApprovalState\(r\.data\)\]/)
+    expect(source).toMatch(/pending: \{ label: 'Waiting'/)
+    expect(source).toMatch(/rejected: \{ label: 'Rejected'/)
   })
 
   it('reads the flags POST /api/records and lib/governance.ts actually write', () => {

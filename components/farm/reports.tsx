@@ -5,16 +5,26 @@ import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange } from '@/lib/period-range';
+import { downloadReportCsv, downloadReportPdf, type ExportOptions } from '@/lib/report-export';
+import { ReportDocumentPreview } from './report-document';
 import {
-  columnAlignFor, documentHeader, downloadReportCsv, downloadReportPdf, formatCell,
-  formatTotalsCell, hasTotalsRow, initialsFor, parseAccentColor, presentableMeta,
-  textColorFor, HEADER_META_KEYS, type ExportOptions,
-} from '@/lib/report-export';
-import {
-  FileText, Download,
+  FileText, Download, ChevronLeft,
   DollarSign, BarChart3, ClipboardList, Syringe, Wheat, Users, PieChart, Scale,
   type LucideIcon,
 } from './icons';
+import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/ui-kit/page-header';
+import { Badge } from '@/components/ui-kit/badge';
+import { Button } from '@/components/ui-kit/button';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+
+// ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
+// Ports src/components/reports/reports-page.tsx's picker+document layout:
+// a report catalogue on the left, the report as a designed "document" (paper
+// panel, masthead, sections, totals) as the hero on the right, export
+// actions attached to that document. Mobile: picker -> full-screen document
+// -> sticky export bar. No data call, endpoint, report type or export format
+// below changed — only the layout around the already-real ReportDocumentPreview.
 
 // ── Real-data wiring (issue #263) ───────────────────────────────────────────
 // Seven of the eight report types below now have real backing endpoints:
@@ -233,13 +243,18 @@ export function ReportsScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Reports" subtitle="Export & share" />
-      <div className="px-screen" style={{ paddingTop: 14 }}>
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-10">
+        <PageHeader
+          kicker="Company"
+          title="Reports"
+          lede="Working packs from the same ledger as Finance. Unaudited — for you, the bank, and a read-only link."
+        />
 
         {/* Date range picker */}
-        <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+        <div className="mt-5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
           <div className="section-eyebrow" style={{ marginBottom: 10 }}>Date Range</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>From</label>
               <input className="farm-input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
@@ -251,89 +266,83 @@ export function ReportsScreen() {
           </div>
         </div>
 
-        {/* Report type selector */}
-        <div className="section-eyebrow" style={{ marginBottom: 10 }}>Select a Report</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-          {REPORT_TYPES.map((r) => {
-            const isSel = selected === r.id;
-            // owner-roast finding #7: 'labour' used to be selectable exactly
-            // like every real report — tapping it just moved `selected` to a
-            // dead end that only THEN told you it doesn't work. A report with
-            // no real endpoint (REPORT_ENDPOINTS) is now a dead door you can
-            // see is closed, not one that opens onto disappointment.
-            const isUnavailable = !REPORT_ENDPOINTS[r.id];
-            return (
-              <button key={r.id}
-                type="button"
-                disabled={isUnavailable}
-                aria-disabled={isUnavailable}
-                onClick={() => { if (!isUnavailable) setSelected(isSel ? null : r.id); }}
-                className="farm-card"
-                style={{
-                  padding: 12, textAlign: 'left',
-                  cursor: isUnavailable ? 'not-allowed' : 'pointer',
-                  opacity: isUnavailable ? 0.55 : 1,
-                  borderLeft: `3px solid ${r.color}`,
-                  background: isSel ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
-                  borderTop: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
-                  borderRight: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
-                  borderBottom: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
-                }}>
-                <span className="icon-tile sm" style={{ background: `color-mix(in srgb, ${r.color} 16%, var(--card))`, color: r.color, marginBottom: 8 }}>
-                  <r.icon size={16} aria-hidden="true" />
-                </span>
-                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: isSel ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.2, marginBottom: 3 }}>{r.name}</div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</div>
-                {isUnavailable && (
-                  <div style={{ marginTop: 6 }}>
-                    <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Not available</span>
-                    {NOT_AVAILABLE_REASONS[r.id] && (
-                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.4, marginTop: 4 }}>{NOT_AVAILABLE_REASONS[r.id]}</div>
+        {/* Picker (catalogue) + document (hero), reference's two-pane shape.
+            Mobile: only one pane shows at a time — picker until a report is
+            selected, then the document full-screen with a back link. */}
+        <div className="mt-5 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+          <nav className={cn('min-w-0 rounded-xl bg-surface p-2 shadow-(--shadow-border)', selected && 'hidden lg:block')}>
+            {REPORT_TYPES.map((r) => {
+              const isSel = selected === r.id;
+              // owner-roast finding #7: 'labour' used to be selectable exactly
+              // like every real report — tapping it just moved `selected` to a
+              // dead end that only THEN told you it doesn't work. A report with
+              // no real endpoint (REPORT_ENDPOINTS) is now a dead door you can
+              // see is closed, not one that opens onto disappointment.
+              const isUnavailable = !REPORT_ENDPOINTS[r.id];
+              return (
+                <button key={r.id}
+                  type="button"
+                  disabled={isUnavailable}
+                  aria-disabled={isUnavailable}
+                  onClick={() => { if (!isUnavailable) setSelected(isSel ? null : r.id); }}
+                  className={cn(
+                    'flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left',
+                    isUnavailable ? 'cursor-not-allowed opacity-55' : isSel ? 'bg-primary-soft' : 'hover:bg-surface-2',
+                  )}
+                >
+                  <span className="icon-tile sm shrink-0" style={{ background: `color-mix(in srgb, ${r.color} 16%, var(--card))`, color: r.color }}>
+                    <r.icon size={16} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-sm font-medium">{r.name}</span>
+                      {isUnavailable && <Badge variant="warning">Not available</Badge>}
+                      {isSel && !isUnavailable && <Badge variant="success">Selected</Badge>}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted">{r.desc}</span>
+                    {isUnavailable && NOT_AVAILABLE_REASONS[r.id] && (
+                      <span className="mt-1 block text-xs text-subtle">{NOT_AVAILABLE_REASONS[r.id]}</span>
                     )}
-                  </div>
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className={cn('min-w-0', !selected && 'hidden lg:block')}>
+            {!selected && (
+              <EmptyState icon={<FileText size={20} />} title="Pick a report" body="Choose a report on the left to see it rendered as a document you can export or share." />
+            )}
+            {selected && isRealType && (
+              <>
+                <button type="button" onClick={() => setSelected(null)} className="mb-3 inline-flex items-center gap-1 text-sm text-muted lg:hidden">
+                  <ChevronLeft size={14} /> All reports
+                </button>
+                {loading && (
+                  <div className="rounded-xl bg-surface p-4 text-sm text-muted shadow-(--shadow-border)">Generating report…</div>
                 )}
-                {isSel && !isUnavailable && (
-                  <div style={{ marginTop: 6, display: 'flex', gap: 4 }}>
-                    <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Selected</span>
-                  </div>
+                {!loading && reportError && (
+                  <div className="rounded-xl bg-surface p-4 text-sm text-danger shadow-(--shadow-border)">{reportError}</div>
                 )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* owner-roast finding #7: the "Not available yet" explanation used
-            to live in a panel that only appeared after selecting an
-            unavailable report — but that selection is no longer possible
-            (the card itself is disabled above, reason and all), so there is
-            nothing left that can reach this state. */}
-
-        {/* Real report: loading / error / document preview + export */}
-        {selected && isRealType && (
-          <>
-            {loading && (
-              <div className="farm-card" style={{ padding: 14, marginBottom: 16, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Generating report…</div>
+                {!loading && !reportError && report && (
+                  <>
+                    <ReportDocumentPreview report={report} opts={fullExportOpts} farmLabel={activeFarmName} />
+                    {/* Export actions attached to the document; sticky above
+                        the mobile bottom tab bar (matches ui-customise.tsx's
+                        sticky save-bar convention: bottom: 80 clears it and
+                        its safe-area inset). */}
+                    {canExport && (
+                      <div className="flex gap-2 rounded-xl bg-surface p-2 shadow-(--shadow-raised) lg:static lg:shadow-(--shadow-border)" style={{ position: 'sticky', bottom: 80 }}>
+                        <Button className="flex-1 justify-center" onClick={handleExportPdf}><Download size={14} /> Export PDF</Button>
+                        <Button variant="secondary" className="flex-1 justify-center" onClick={handleExportCsv}>Export CSV</Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
             )}
-            {!loading && reportError && (
-              <div className="farm-card" style={{ padding: 14, marginBottom: 16, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{reportError}</div>
-            )}
-            {!loading && !reportError && report && (
-              <ReportDocumentPreview report={report} opts={fullExportOpts} farmLabel={activeFarmName} />
-            )}
-          </>
-        )}
-
-        {/* Export buttons */}
-        {canExport && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <button className="btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleExportPdf}>
-              <Download size={14} /> Export PDF
-            </button>
-            <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleExportCsv}>
-              Export CSV
-            </button>
           </div>
-        )}
+        </div>
 
         {/* Auditor link */}
         <div className="farm-card" style={{ padding: 14, marginBottom: 14, border: '1px solid rgba(var(--purple-rgb),0.3)' }}>
@@ -400,245 +409,3 @@ export function ReportsScreen() {
   );
 }
 
-/* ── On-screen document preview (#376 Gap 7; SaaS reporting-template pass) ────
- * The preview used to be a chip strip over a cramped 8-row HTML table — the
- * same "debug dump" look the issue complains about in the exports, just on
- * screen. It now renders the SAME document shape lib/report-export.ts prints:
- * accent masthead with issuer identity, document-type banner, boxed
- * metadata panels, a strip of large headline figures ABOVE the table, an
- * itemised table with a header band / zebra rows / right-aligned numerics /
- * an inverted totals row, and the basis+notes as an accent-ruled callout.
- *
- * Everything it shows comes from the same helpers the export uses
- * (documentHeader, columnAlignFor, formatCell, formatTotalsCell,
- * parseAccentColor, textColorFor), so "what you see" and "what you export"
- * cannot drift apart — including the tenant's own accent colour.
- *
- * Mobile first (this ships as an Android APK): every grid is auto-fit so it
- * collapses to one or two columns on a narrow viewport, the table scrolls
- * horizontally inside its own container rather than widening the page, and
- * the masthead's long strings ellipsise instead of wrapping into the badge.
- */
-const PREVIEW_ROW_CAP = 12;
-
-// Small-caps label used for panel titles and section bars, matching the PDF's
-// letter-spaced eyebrows.
-const eyebrowStyle: React.CSSProperties = {
-  fontSize: 'var(--fs-2xs)', fontWeight: 700, letterSpacing: '0.1em',
-  textTransform: 'uppercase', color: 'var(--text-muted)',
-};
-
-// The PDF draws its section bars in near-black, which works because a page is
-// always light. On screen the theme decides: a near-black band vanishes into a
-// dark-farm card, and inverting it (background: var(--text-primary)) puts a
-// glaring WHITE band in the middle of a dark UI. An accent tint plus an accent
-// left rule reads as the same device in every theme.
-function PreviewSectionBar({ label, accent }: { label: string; accent: [number, number, number] }) {
-  return (
-    <div style={{
-      background: `rgba(${accent.join(',')},0.14)`, color: 'var(--text-primary)',
-      borderLeft: `3px solid rgb(${accent.join(',')})`, borderRadius: 6,
-      padding: '5px 10px', marginBottom: 8,
-      fontSize: 'var(--fs-2xs)', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-    }}>{label}</div>
-  );
-}
-
-function PreviewPanel({ title, rows, children }: { title: string; rows?: [string, string][]; children?: React.ReactNode }) {
-  return (
-    <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '8px 10px', minWidth: 0 }}>
-      <div style={{ ...eyebrowStyle, paddingBottom: 5, borderBottom: '1px solid var(--border-subtle)', marginBottom: 6 }}>{title}</div>
-      {(rows ?? []).map(([label, value]) => (
-        <div key={label} style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 3 }}>
-          <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em', minWidth: 52, flexShrink: 0 }}>{label}</span>
-          <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-primary)', minWidth: 0, overflowWrap: 'anywhere' }}>{value}</span>
-        </div>
-      ))}
-      {children}
-    </div>
-  );
-}
-
-function ReportDocumentPreview({ report, opts, farmLabel }: { report: ReportPayload; opts: ExportOptions; farmLabel?: string }) {
-  const accent = parseAccentColor(opts.accentColor);
-  const accentCss = `rgb(${accent.join(',')})`;
-  const inkOnAccent = `rgb(${textColorFor(accent).join(',')})`;
-  const header = documentHeader(report, opts);
-  const issuer = opts.farmName || 'Integrated Farm Management System';
-  const codeLine = [opts.farmCode, opts.location].filter(Boolean).join(' · ');
-  // The remaining machine-facing meta — everything the header panels don't
-  // already say. Still routed through presentableMeta(), which is what keeps
-  // tenantId and any raw UUID out of what gets rendered; collapsed by default
-  // so the document reads as a document and the raw fields stay available for
-  // anyone reconciling a figure.
-  const dataFields = presentableMeta(report, { farmLabel, exclude: HEADER_META_KEYS });
-  const shownRows = report.rows.slice(0, PREVIEW_ROW_CAP);
-  const showTotals = hasTotalsRow(report);
-
-  return (
-    <div className="farm-card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-      {/* Masthead — full-bleed, exactly as the PDF prints it. */}
-      <div style={{ background: accentCss, color: inkOnAccent, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <div style={{
-          width: 34, height: 34, borderRadius: 8, background: 'rgba(255,255,255,0.94)', color: accentCss,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          fontSize: 'var(--fs-sm)', fontWeight: 800, letterSpacing: '0.04em',
-        }} aria-hidden="true">{initialsFor(opts.farmName)}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 'var(--fs-md)', fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{issuer}</div>
-          {/* Wraps rather than ellipsises: on a 360px phone the registration
-              line is the part that says WHAT issued this, and "INTEGRATED FARM
-              MANAGEME…" reads like a bug. */}
-          <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.85, marginTop: 2, lineHeight: 1.3 }}>
-            {opts.farmName ? 'Integrated Farm Management System' : 'Farm management reporting'}
-          </div>
-          {codeLine && (
-            <div style={{ fontSize: 'var(--fs-2xs)', opacity: 0.9, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{codeLine}</div>
-          )}
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.8 }}>Reference</div>
-          <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, fontFamily: 'monospace', marginTop: 2 }}>{header.reportNo}</div>
-        </div>
-      </div>
-
-      <div style={{ padding: 12 }}>
-        {/* Document-type banner. */}
-        <div style={{
-          background: accentCss, color: inkOnAccent, borderRadius: 6, padding: '7px 10px', textAlign: 'center',
-          fontSize: 'var(--fs-sm)', fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 10,
-        }}>{report.title}</div>
-
-        {/* Metadata panels. auto-fit collapses these to one column on a phone. */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 12 }}>
-          <PreviewPanel title="Report details" rows={[['No.', header.reportNo], ['Period', header.periodText], ['Entries', header.entriesText]]} />
-          <PreviewPanel title="Scope & source" rows={[['Scope', header.scopeText], ['Source', header.sourceText]]} />
-          <PreviewPanel title="Status">
-            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 2 }}>
-              <span style={{
-                border: `1px solid ${accentCss}`, color: accentCss, borderRadius: 6, padding: '4px 10px',
-                fontSize: 'var(--fs-2xs)', fontWeight: 800, letterSpacing: '0.1em',
-              }}>UNAUDITED</span>
-            </div>
-          </PreviewPanel>
-        </div>
-
-        {/* Headline figures — the same server-formatted strings the PDF sets
-            large above the table. */}
-        {report.headline && report.headline.length > 0 && (
-          <>
-            <PreviewSectionBar label="Headline figures" accent={accent} />
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))', gap: 8, marginBottom: 12 }}>
-              {report.headline.slice(0, 4).map((figure, i) => (
-                <div key={i} style={{
-                  background: 'var(--card-hover)', border: '1px solid var(--border-subtle)', borderRadius: 8,
-                  borderTop: `3px solid ${accentCss}`, padding: '8px 10px', minWidth: 0,
-                }}>
-                  <div style={{ ...eyebrowStyle, fontSize: 'var(--fs-2xs)' }}>{figure.label}</div>
-                  <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 800, color: 'var(--text-primary)', marginTop: 3, lineHeight: 1.15, overflowWrap: 'anywhere' }}>{figure.value}</div>
-                  {figure.caption && (
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 3, lineHeight: 1.35 }}>{figure.caption}</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Itemised detail. The table scrolls inside this container — a wide
-            report must never widen the screen on a phone. */}
-        <PreviewSectionBar label="Itemised detail" accent={accent} />
-        <div style={{ overflowX: 'auto', border: '1px solid var(--border-subtle)', borderRadius: 8, marginBottom: 12 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
-            <thead>
-              <tr>
-                {report.columns.map((column, j) => (
-                  <th key={column} style={{
-                    background: accentCss, color: inkOnAccent, padding: '7px 9px', whiteSpace: 'nowrap',
-                    textAlign: columnAlignFor(report, j), fontSize: 'var(--fs-2xs)', fontWeight: 700,
-                    letterSpacing: '0.06em', textTransform: 'uppercase',
-                  }}>{column}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {shownRows.map((row, i) => (
-                <tr key={i} style={{ background: i % 2 === 1 ? 'var(--card-hover)' : 'transparent' }}>
-                  {row.map((cell, j) => (
-                    <td key={j} style={{
-                      padding: '7px 9px', whiteSpace: 'nowrap', color: 'var(--text-primary)',
-                      borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)',
-                      textAlign: columnAlignFor(report, j),
-                      fontVariantNumeric: 'tabular-nums',
-                    }}>{formatCell(cell, report.columnFormats?.[j], opts)}</td>
-                  ))}
-                </tr>
-              ))}
-              {report.rows.length === 0 && (
-                <tr><td colSpan={report.columns.length} style={{ padding: '12px 9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No records in this period.</td></tr>
-              )}
-            </tbody>
-            {/* Totals row. Same reason as PreviewSectionBar: the PDF's dark
-                band is wrong on a dark theme, so on screen it is the
-                spreadsheet convention instead — an accent rule above a tinted
-                band, in bold primary ink. */}
-            {showTotals && (
-              <tfoot>
-                <tr>
-                  {report.totals!.map((cell, j) => (
-                    <td key={j} style={{
-                      padding: '8px 9px', background: `rgba(${accent.join(',')},0.12)`,
-                      borderTop: `2px solid ${accentCss}`, color: 'var(--text-primary)',
-                      fontWeight: 800, whiteSpace: 'nowrap', textAlign: columnAlignFor(report, j),
-                      fontVariantNumeric: 'tabular-nums',
-                    }}>{formatTotalsCell(cell, report.columnFormats?.[j], opts)}</td>
-                  ))}
-                </tr>
-              </tfoot>
-            )}
-          </table>
-          {report.rows.length > PREVIEW_ROW_CAP && (
-            <div style={{ padding: '7px 9px', fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)' }}>
-              Showing {PREVIEW_ROW_CAP} of {report.rows.length} rows — the export carries the full set.
-            </div>
-          )}
-        </div>
-
-        {/* Basis + notes as the document's accent-ruled callout. */}
-        {(report.basis || (report.notes && report.notes.length > 0)) && (
-          <div style={{
-            background: 'var(--card-hover)', border: '1px solid var(--border-subtle)',
-            borderLeft: `3px solid ${accentCss}`, borderRadius: 8, padding: '9px 11px', marginBottom: 10,
-          }}>
-            <div style={{ ...eyebrowStyle, marginBottom: 5 }}>Notes &amp; basis of preparation</div>
-            {report.basis && (
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: report.notes?.length ? 6 : 0 }}>{report.basis}</div>
-            )}
-            {(report.notes ?? []).map((note, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 3 }}>
-                <span aria-hidden="true" style={{ color: accentCss, fontWeight: 800 }}>•</span>
-                <span>{note}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Raw returned fields, collapsed — see the dataFields comment above. */}
-        {dataFields.length > 0 && (
-          <details style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
-            {/* Native disclosure marker kept deliberately — it is the only
-                affordance saying this row expands. */}
-            <summary style={{ ...eyebrowStyle, cursor: 'pointer' }}>
-              Data fields returned ({dataFields.length})
-            </summary>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-              {dataFields.map((entry) => (
-                <span key={entry.label} className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>{entry.label}: {entry.value}</span>
-              ))}
-            </div>
-          </details>
-        )}
-      </div>
-    </div>
-  );
-}

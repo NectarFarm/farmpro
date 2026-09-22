@@ -1,19 +1,30 @@
 import type { Metadata, Viewport } from 'next';
-import { Schibsted_Grotesk } from 'next/font/google';
+import { Fraunces, Outfit } from 'next/font/google';
 import './global.css';
 
-// One real typeface, self-hosted at build time (next/font/google downloads
-// and serves it from this app — no runtime fetch to Google, which matters
-// for an app that ships as an offline-capable Android APK). Schibsted
-// Grotesk: a humanist grotesque with open apertures that stays legible at
-// small sizes in bright sunlight, and has actual character in its a/g/k —
-// see app/global.css's --font-sans for how this is wired into the token
-// layer (kept as --font-schibsted, not --font-sans directly, so global.css
-// fully controls the fallback chain).
-const schibstedGrotesk = Schibsted_Grotesk({
+// Two real typefaces, self-hosted at build time (next/font/google downloads
+// and serves them from this app — no runtime fetch to Google, which matters
+// for an app that ships as an offline-capable Android APK).
+//
+// ui/governance-reference-redesign: replaces the previous single-typeface
+// system (Schibsted Grotesk for everything) with the reference design's
+// pairing — Outfit is the body/UI grotesque, Fraunces is the serif used for
+// display headings (page titles, dossier/detail headings). Both are wired
+// into app/global.css as --font-sans / --font-display so every screen picks
+// the pairing up through the token layer, not by importing a font directly.
+const outfit = Outfit({
   subsets: ['latin'],
-  variable: '--font-schibsted',
+  variable: '--font-outfit',
   display: 'swap',
+});
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  variable: '--font-fraunces',
+  display: 'swap',
+  // Fraunces is a variable-optical-size family; 'soft' softens the default
+  // display-cut terminals slightly so large headings don't read as a wedding
+  // invitation next to Outfit's plain body text.
+  axes: ['opsz', 'SOFT'],
 });
 
 export const metadata: Metadata = {
@@ -25,6 +36,10 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  // Reference palette's primary green (app/global.css's --primary-green) —
+  // colours the browser/PWA chrome (Android task switcher, status bar) to
+  // match the app instead of the OS default white/black.
+  themeColor: '#2a5340',
 };
 
 export default function RootLayout({
@@ -33,7 +48,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning className={schibstedGrotesk.variable}>
+    <html lang="en" suppressHydrationWarning className={`${outfit.variable} ${fraunces.variable}`}>
       <body>{children}</body>
     </html>
   );

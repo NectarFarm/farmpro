@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { desc, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { passwordResetRequests, users } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 
 // ── GET /api/admin/password-resets (admin user-management feature) ─────────
 // super_admin only. The pending queue POST /api/auth/forgot-password feeds —
@@ -11,13 +11,9 @@ import { getSessionUser } from '@/lib/auth'
 // round trip. Only the safe user columns are joined in (name/email/role) —
 // no credential columns.
 
-const bad = (msg: string, status = 400) =>
-  NextResponse.json({ success: false, error: msg }, { status })
-
 export async function GET() {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('users.manage')
+  if ('error' in auth) return auth.error
 
   const rows = await db
     .select({

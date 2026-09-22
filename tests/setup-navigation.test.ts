@@ -83,11 +83,17 @@ describe('the setup card gets out of the way', () => {
 })
 
 describe('the tabs say what is behind them', () => {
-  it('no longer labels the settings hub "More"', () => {
-    // Anchored to the tab definition, not to prose: the comment above it
-    // quotes the old label deliberately.
-    expect(navigation).not.toMatch(/label: 'More'/)
-    expect(navigation).toMatch(/id: 'settings' as ScreenId, label: NAV.manage/)
+  // ui/governance-reference-redesign (final decision) reverses this file's
+  // own earlier "More told them nothing" call: the mobile bottom bar's 5th
+  // tab is now literally "More" (NAV.more), and it opens MobileMoreSheet —
+  // the full role-gated sidebar IA (including Settings), not the narrower
+  // TAB_MENUS.settings sheet the old "Manage" tab opened. NAV.manage itself
+  // is kept (still TAB_MENUS.settings' own title), so this only asserts the
+  // TAB label changed, not that NAV.manage stopped existing.
+  it('labels the bottom bar’s 5th tab "More", opening the full sidebar sheet', () => {
+    expect(navigation).toMatch(/id: 'settings' as ScreenId, label: NAV.more, icon: MoreVertical/)
+    expect(navigation).toMatch(/function MobileMoreSheet/)
+    expect(navigation).not.toMatch(/id: 'settings' as ScreenId, label: NAV\.manage, icon: Settings/)
   })
 
   it('keeps the tab IDs, so every data-tour anchor and deep link still works', () => {

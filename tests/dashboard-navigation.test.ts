@@ -115,18 +115,26 @@ describe('Batch processes read real routines, and approvals must be opened', () 
     expect(read('components/farm/navigation.tsx')).not.toMatch(/'process-config'/)
   })
 
+  // ui/governance-reference-redesign: the Approvals tab is now a master–
+  // detail layout (list on the left, full detail on the right/below), not a
+  // list that opens a second "review" modal. The guarantee this test exists
+  // to protect — decide() is never reachable directly from a list row, only
+  // from a panel that has already loaded the full record — still holds: a
+  // list row's onClick only selects a row (`setSelectedApprovalId`); decide()
+  // is wired to ApprovalDetail's onDecide callback, and ApprovalDetail is the
+  // component that fetches GET /api/records before any Approve/Reject button
+  // exists at all.
   it('an approval cannot be decided from the list', () => {
-    // decide() must not be reachable from a row — only from the review sheet,
-    // which loads the full record first.
     expect(gov).not.toMatch(/onClick=\{\(\) => decide\(a, 'approve'\)\}/)
     expect(gov).not.toMatch(/onClick=\{\(\) => decide\(a, 'reject'\)\}/)
-    expect(gov).toMatch(/onClick=\{\(\) => setReviewing\(a\)\}/)
+    expect(gov).toMatch(/onClick=\{\(\) => setSelectedApprovalId\(a\.id\)\}/)
+    expect(gov).toMatch(/onDecide=\{\(decision\) => decide\(selectedApproval, decision\)\}/)
   })
 
-  it('the review sheet loads the worker\'s whole submission', () => {
+  it('the detail panel loads the worker\'s whole submission', () => {
     // The approval row carries only data.cause in `details`; the count,
     // variance reason, notes and photo live on the record.
-    expect(gov).toMatch(/ApprovalReviewSheet/)
+    expect(gov).toMatch(/function ApprovalDetail/)
     expect(gov).toMatch(/\/api\/records\?tenantId=\$\{tenantId\}&id=\$\{approval\.entityId\}/)
     expect(gov).toMatch(/record\?\.photoUrl/)
   })
@@ -140,7 +148,7 @@ describe('Batch processes read real routines, and approvals must be opened', () 
   it('GET /api/records supports the single-record lookup, tenant-scoped', () => {
     const route = read('app/api/records/route.ts')
     expect(route).toMatch(/const recordId = url\.searchParams\.get\('id'\)/)
-    const condAt = route.indexOf("const conditions = [eq(records.tenantId, tenantId)]")
+    const condAt = route.indexOf('const conditions = [eq(records.tenantId, tenantId)]')
     const idAt = route.indexOf('if (recordId) conditions.push')
     expect(condAt).toBeGreaterThan(-1)
     expect(idAt).toBeGreaterThan(condAt)

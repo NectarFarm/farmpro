@@ -16,13 +16,17 @@ import React, { useState, useEffect } from 'react';
 import { ENTERPRISE_REGISTRY } from './data';
 import {
   Eye, EyeOff, Check, AlertTriangle, Phone, Mail,
-  MapPin, Leaf, Hash,
+  MapPin, Leaf, Shield, DollarSign,
 } from './icons';
 import { type Role } from './navigation';
 import { apiClient } from '@/lib/request';
 import { detectGpsLocation } from '@/lib/geolocation';
 import { gpsRequirementError, GPS_REQUIRED_MESSAGE } from '@/lib/validation';
 import { useConfirm } from './ui-shared';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { Segmented } from '@/components/ui-kit/segmented';
+import { cn } from '@/lib/utils';
 
 /* ── Shared GPS + Map block ──────────────────────────────────────────────── */
 export function GpsMapBlock({
@@ -139,26 +143,49 @@ export function useReverseGeocode(lat: string, lng: string, onResult: (addr: str
 }
 
 export function AuthShell({ children }: { children: React.ReactNode }) {
-  return <div className="auth-shell">{children}</div>;
+  return <div className="mx-auto w-full min-w-0 max-w-md overflow-x-hidden px-1 py-9">{children}</div>;
 }
 
-/* Wide screens: the form stays 420px. The empty sea around it was a
- * wireframe. This rail is public copy — no tenant data, no "who is
+/* Wide screens: a dark brand panel (same sidebar tokens the logged-in app's
+ * nav uses, so the two never clash) fills the space that used to be an empty
+ * wireframe sea. This rail is public copy — no tenant data, no "who is
  * registered" leak — so the desktop has something to read without widening
- * the form into the logged-in app's measure. Hidden below 900px. */
+ * the form into the logged-in app's measure. Hidden below 1024px, where the
+ * form is the whole screen. */
 export function AuthStage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="auth-stage">
-      <aside className="auth-aside">
-        <div className="auth-aside-kicker">IFMS</div>
-        <p className="auth-aside-lede">The farm record. Animals, harvests and money in one place.</p>
-        <ul className="auth-aside-list">
-          <li><strong>Stock</strong> What came onto the farm.</li>
-          <li><strong>Harvest</strong> What left — milk, grain, animals.</li>
-          <li><strong>Money</strong> What it cost, and what it made.</li>
-        </ul>
+    <div className="mx-auto flex w-full max-w-6xl flex-col lg:grid lg:min-h-dvh lg:grid-cols-[1.05fr_0.95fr] lg:items-stretch">
+      <aside className="hidden flex-col justify-between bg-sidebar px-12 py-14 text-sidebar-fg lg:flex">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <span className="brand-mark" style={{ width: 30, height: 30, borderRadius: 10 }}>
+              <Leaf size={16} color="var(--on-primary)" aria-hidden="true" />
+            </span>
+            <span className="font-display text-lg">IFMS</span>
+          </div>
+          <p className="font-display mt-16 max-w-sm text-3xl leading-[1.15] text-sidebar-fg">
+            The farm record. Animals, harvests and money in one place.
+          </p>
+          <ul className="mt-10 flex max-w-sm flex-col gap-4">
+            {[
+              { icon: Shield, title: 'Stock', body: 'What came onto the farm.' },
+              { icon: DollarSign, title: 'Harvest', body: 'What left — milk, grain, animals.' },
+              { icon: Phone, title: 'Money', body: 'What it cost, and what it made.' },
+            ].map((item) => (
+              <li key={item.title} className="flex gap-3 text-sm text-sidebar-muted">
+                <item.icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <span><span className="block font-medium text-sidebar-fg">{item.title}</span>{item.body}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="max-w-sm text-xs leading-relaxed text-sidebar-muted">
+          Accounts are issued per farm. Field staff sign in with a PIN, never a shared password.
+        </p>
       </aside>
-      {children}
+      <div className="flex min-w-0 flex-1 items-center justify-center px-4 py-8 lg:px-14">
+        {children}
+      </div>
     </div>
   );
 }
@@ -197,30 +224,16 @@ function useLockout() {
 
 export function AuthMasthead({ eyebrow, headline, lede }: { eyebrow: string; headline: string; lede?: string }) {
   return (
-    <div className="auth-masthead">
-      <div className="auth-masthead-horizon" aria-hidden="true">
-        <svg width="100%" height="150" viewBox="0 0 400 150" preserveAspectRatio="none" fill="none">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <path
-              key={i}
-              d={`M-20 ${38 + i * 21} C 70 ${18 + i * 21}, 150 ${58 + i * 21}, 230 ${34 + i * 21} S 360 ${12 + i * 21}, 420 ${40 + i * 21}`}
-              stroke="var(--primary-green)"
-              strokeOpacity={0.16 - i * 0.022}
-              strokeWidth="1"
-            />
-          ))}
-        </svg>
+    <div className="mb-6 w-full">
+      <div className="mb-5 flex items-center gap-2.5 lg:hidden">
+        <span className="brand-mark" style={{ width: 26, height: 26, borderRadius: 9 }}>
+          <Leaf size={15} color="var(--on-primary)" aria-hidden="true" />
+        </span>
+        <span className="text-sm font-semibold text-fg">IFMS</span>
       </div>
-      <div style={{ position: 'relative' }}>
-        <div className="auth-masthead-row">
-          <span className="brand-mark" style={{ width: 26, height: 26, borderRadius: 9 }}>
-            <Leaf size={15} color="var(--on-primary)" aria-hidden="true" />
-          </span>
-          <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 750, color: 'var(--text-primary)' }}>{eyebrow}</span>
-        </div>
-        <h1>{headline}</h1>
-        {lede ? <p className="auth-lede">{lede}</p> : null}
-      </div>
+      <p className="text-xs font-medium tracking-widest text-muted uppercase">{eyebrow}</p>
+      <h1 className="font-display mt-1 text-3xl leading-tight font-medium tracking-tight text-fg">{headline}</h1>
+      {lede ? <p className="mt-2 text-sm leading-relaxed text-muted">{lede}</p> : null}
     </div>
   );
 }
@@ -280,9 +293,9 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
       <AuthStage>
       <AuthShell>
         <AuthMasthead eyebrow="IFMS" headline="Request sent" lede="If those details match an account, your admin has it. You see this same page either way — this form never says whether an email is registered." />
-        <div className="auth-lede" style={{ marginBottom: 12 }}>{ack}</div>
-        <p className="auth-hint" style={{ marginBottom: 20 }}>It usually takes a working day. There is nothing more to tap here.</p>
-        <button type="button" onClick={onBack} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>Back to sign in</button>
+        <p className="mb-3 text-sm leading-relaxed text-muted">{ack}</p>
+        <p className="mb-5 text-xs text-subtle">It usually takes a working day. There is nothing more to tap here.</p>
+        <Button className="w-full justify-center" onClick={onBack}>Back to sign in</Button>
       </AuthShell>
       </AuthStage>
     );
@@ -296,41 +309,39 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
         headline="Need help signing in?"
         lede="Your admin resets the password. Give the email and the phone on the account. You get the same confirmation either way, so this page never says whether an account exists."
       />
-      <form onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }}>
-        <div className="auth-field">
-          <label htmlFor="fp-email" className="auth-label">Email</label>
-          <input
-            id="fp-email" className="farm-input"
-            style={fieldErrors.email ? { border: '1px solid var(--status-critical)' } : undefined}
+      <form onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }} className="grid gap-3.5">
+        <div>
+          <label htmlFor="fp-email" className="mb-1.5 block text-xs font-medium text-muted">Email</label>
+          <Input
+            id="fp-email"
             value={email} onChange={e => setEmail(e.target.value)}
             placeholder="you@email.com" type="email" autoComplete="email"
             aria-invalid={!!fieldErrors.email} aria-describedby={fieldErrors.email ? 'fp-email-error' : undefined}
           />
-          {fieldErrors.email && <div id="fp-email-error" className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.email}</div>}
+          {fieldErrors.email && <div id="fp-email-error" className="mt-1 text-xs text-danger">{fieldErrors.email}</div>}
         </div>
-        <div className="auth-field">
-          <label htmlFor="fp-phone" className="auth-label">Phone on the account</label>
-          <input
-            id="fp-phone" className="farm-input"
-            style={fieldErrors.phone ? { border: '1px solid var(--status-critical)' } : undefined}
+        <div>
+          <label htmlFor="fp-phone" className="mb-1.5 block text-xs font-medium text-muted">Phone on the account</label>
+          <Input
+            id="fp-phone"
             value={phone} onChange={e => setPhone(e.target.value)}
             placeholder="07XXXXXXXX" type="tel" inputMode="tel" autoComplete="tel"
             aria-invalid={!!fieldErrors.phone} aria-describedby={fieldErrors.phone ? 'fp-phone-error' : undefined}
           />
-          {fieldErrors.phone && <div id="fp-phone-error" className="auth-hint" style={{ color: 'var(--status-critical)' }}>{fieldErrors.phone}</div>}
+          {fieldErrors.phone && <div id="fp-phone-error" className="mt-1 text-xs text-danger">{fieldErrors.phone}</div>}
         </div>
         {locked && (
-          <div className="auth-error" role="status" aria-live="polite">
+          <div className="rounded-lg bg-danger-soft px-3.5 py-2.5 text-sm text-danger" role="status" aria-live="polite">
             Too many attempts. Try again in {formatLockRemain(remain)}. Extra taps will not get this through sooner.
           </div>
         )}
-        {generalError && !locked && <div className="auth-error">{generalError}</div>}
-        <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy || locked}>
+        {generalError && !locked && <div className="rounded-lg bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{generalError}</div>}
+        <Button type="submit" size="lg" className="mt-1 w-full justify-center" disabled={busy || locked}>
           {busy ? 'Sending…' : locked ? `Wait ${formatLockRemain(remain)}` : 'Notify my admin'}
-        </button>
+        </Button>
       </form>
-      <p className="auth-hint" style={{ marginTop: 12 }}>They will see this under Password resets. We do not email you a reset link — a person has to do it.</p>
-      <button type="button" onClick={onBack} style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', fontWeight: 600, cursor: 'pointer' }}>
+      <p className="mt-3 text-xs text-muted">They will see this under Password resets. We do not email you a reset link — a person has to do it.</p>
+      <button type="button" onClick={onBack} className="mt-2.5 w-full text-sm font-semibold text-muted">
         Back to sign in
       </button>
     </AuthShell>
@@ -404,104 +415,96 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
     <AuthShell>
       <AuthMasthead eyebrow="IFMS" headline="Animals, harvests and money — one farm record" />
 
-      <div role="tablist" aria-label="How you sign in" className="auth-doors">
-        {([
-          { id: 'email' as const, label: 'Email', hint: 'Email and password', icon: Mail },
-          { id: 'pin' as const, label: 'Worker', hint: 'Phone and PIN', icon: Hash },
-        ]).map((opt) => {
-          const active = tab === opt.id;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              className={`auth-door${active ? ' is-on' : ''}`}
-              onClick={() => { setTab(opt.id); setError(''); setPhoneError(''); }}
-            >
-              <opt.icon size={15} color={active ? 'var(--primary-green)' : 'var(--text-dim)'} aria-hidden="true" />
-              <span className="auth-door-label">{opt.label}</span>
-              <span className="auth-door-hint">{opt.hint}</span>
-            </button>
-          );
-        })}
+      <div className="mb-1">
+        <Segmented
+          value={tab}
+          onChange={(id) => { setTab(id); setError(''); setPhoneError(''); }}
+          items={[
+            { id: 'email' as const, label: 'Email', hint: 'Email and password' },
+            { id: 'pin' as const, label: 'Worker', hint: 'Phone and PIN' },
+          ]}
+        />
       </div>
+      <p className="mt-2 mb-5 text-xs text-subtle sm:hidden">
+        {tab === 'email' ? 'Email and password' : 'Phone and PIN'}
+      </p>
 
       {tab === 'email' ? (
-        <form onSubmit={(e) => { e.preventDefault(); handleEmailLogin(); }}>
-          <div className="auth-field">
-            <label htmlFor="login-email" className="auth-label">Email</label>
-            <div style={{ position: 'relative' }}>
-              <Mail size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} aria-hidden="true" />
-              <input id="login-email" className="farm-input" style={{ paddingLeft: 34 }} value={email} onChange={e => setEmail(e.target.value)}
+        <form onSubmit={(e) => { e.preventDefault(); handleEmailLogin(); }} className="mt-4 grid gap-3.5">
+          <div>
+            <label htmlFor="login-email" className="mb-1.5 block text-xs font-medium text-muted">Email</label>
+            <div className="relative">
+              <Mail size={14} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" aria-hidden="true" />
+              <Input id="login-email" className="pl-9" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="you@email.com" type="email" autoComplete="email" />
             </div>
           </div>
-          <div className="auth-field" style={{ marginBottom: 6 }}>
-            <label htmlFor="login-password" className="auth-label">Password</label>
-            <div style={{ position: 'relative' }}>
-              <input id="login-password" className="farm-input" style={{ paddingRight: 40 }} value={password} onChange={e => setPassword(e.target.value)}
+          <div>
+            <label htmlFor="login-password" className="mb-1.5 block text-xs font-medium text-muted">Password</label>
+            <div className="relative">
+              <Input id="login-password" className="pr-10" value={password} onChange={e => setPassword(e.target.value)}
                 type={showPwd ? 'text' : 'password'} placeholder="Your password" autoComplete="current-password" />
               <button
                 type="button"
                 onClick={() => setShowPwd((s) => !s)}
                 aria-label={showPwd ? 'Hide password' : 'Show password'}
-                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                className="absolute top-1/2 right-2.5 -translate-y-1/2 text-muted"
               >
                 {showPwd ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
               </button>
             </div>
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <button type="button" onClick={onForgotPassword}
-              style={{ background: 'none', border: 'none', color: 'var(--primary-green)', fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+          <div className="-mt-1 flex justify-end">
+            <button type="button" onClick={onForgotPassword} className="text-xs font-semibold text-primary">
               Need help signing in?
             </button>
           </div>
           {lock.locked && (
-            <div className="auth-error" role="status" aria-live="polite">
+            <div className="rounded-lg bg-danger-soft px-3.5 py-2.5 text-sm text-danger" role="status" aria-live="polite">
               Too many failed attempts. Try again in {formatLockRemain(lock.remain)}. Extra taps will not get you in sooner.
             </div>
           )}
-          {error && !lock.locked && <div className="auth-error">{error}</div>}
-          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy || lock.locked}>
+          {error && !lock.locked && <div className="rounded-lg bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{error}</div>}
+          <Button type="submit" size="lg" className="mt-1 w-full justify-center" disabled={busy || lock.locked}>
             {busy ? 'Signing in…' : lock.locked ? `Wait ${formatLockRemain(lock.remain)}` : 'Sign in'}
-          </button>
+          </Button>
         </form>
       ) : (
-        <form onSubmit={(e) => { e.preventDefault(); handlePinLogin(); }}>
-          <div className="auth-field">
-            <label htmlFor="login-phone" className="auth-label">Phone</label>
-            <div style={{ position: 'relative' }}>
-              <Phone size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} aria-hidden="true" />
-              <input
-                id="login-phone" className="farm-input"
-                style={{ paddingLeft: 34, ...(phoneError ? { border: '1px solid var(--status-critical)' } : {}) }}
+        <form onSubmit={(e) => { e.preventDefault(); handlePinLogin(); }} className="mt-4 grid gap-3.5">
+          <div>
+            <label htmlFor="login-phone" className="mb-1.5 block text-xs font-medium text-muted">Phone</label>
+            <div className="relative">
+              <Phone size={14} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" aria-hidden="true" />
+              <Input
+                id="login-phone" className="pl-9"
                 value={phone} onChange={e => { setPhone(e.target.value); setPhoneError(''); }}
                 placeholder="07XXXXXXXX" type="tel" inputMode="tel" autoComplete="tel"
                 aria-invalid={!!phoneError} aria-describedby={phoneError ? 'login-phone-error' : undefined}
               />
             </div>
-            {phoneError && <div id="login-phone-error" className="auth-hint" style={{ color: 'var(--status-critical)' }}>{phoneError}</div>}
+            {phoneError && <div id="login-phone-error" className="mt-1 text-xs text-danger">{phoneError}</div>}
           </div>
-          <div className="auth-label" id="login-pin-label">PIN</div>
-          <div className="auth-pin-dots" role="img" aria-labelledby="login-pin-label" aria-label={`${pin.length} of 4 digits entered`}>
+          <div className="mb-1 text-xs font-medium text-muted" id="login-pin-label">PIN</div>
+          <div className="mb-1 flex justify-center gap-3.5" role="img" aria-labelledby="login-pin-label" aria-label={`${pin.length} of 4 digits entered`}>
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className={`auth-pin-dot${i < pin.length ? ' is-on' : ''}`} />
+              <div key={i} className={cn('size-3.5 rounded-full border-2', i < pin.length ? 'border-primary bg-primary' : 'border-border bg-transparent')} />
             ))}
           </div>
           {lock.locked && (
-            <div className="auth-error" role="status" aria-live="polite">
+            <div className="rounded-lg bg-danger-soft px-3.5 py-2.5 text-sm text-danger" role="status" aria-live="polite">
               Too many failed attempts. Try again in {formatLockRemain(lock.remain)}. Extra taps will not get you in sooner.
             </div>
           )}
-          {error && !lock.locked && <div className="auth-error">{error}</div>}
-          <div className="auth-pin-pad">
+          {error && !lock.locked && <div className="rounded-lg bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{error}</div>}
+          <div className="grid grid-cols-3 gap-2.5">
             {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'DEL', '0'].map((d) => (
               <button
                 key={d}
                 type="button"
-                className={`auth-pin-key${d === 'DEL' ? ' is-clear' : ''}`}
+                className={cn(
+                  'min-h-13 rounded-xl bg-surface text-lg font-semibold text-fg shadow-(--shadow-border) active:not-disabled:scale-[0.96] disabled:opacity-45',
+                  d === 'DEL' && 'text-sm text-muted',
+                )}
                 onClick={() => handlePinKey(d)}
                 disabled={busy || lock.locked}
                 aria-label={d === 'DEL' ? 'Delete last digit' : d}
@@ -509,19 +512,19 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
                 {d === 'DEL' ? 'Delete' : d}
               </button>
             ))}
-            <div className="auth-pin-key is-blank" aria-hidden="true" />
+            <div aria-hidden="true" className="pointer-events-none" />
           </div>
-          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} disabled={busy || lock.locked}>
+          <Button type="submit" size="lg" className="mt-1 w-full justify-center" disabled={busy || lock.locked}>
             {busy ? 'Signing in…' : lock.locked ? `Wait ${formatLockRemain(lock.remain)}` : 'Sign in'}
-          </button>
+          </Button>
         </form>
       )}
 
-      <div className="auth-apply">
-        <div className="auth-hint" style={{ marginBottom: 10 }}>No account yet?</div>
-        <button type="button" className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={onRegister}>
+      <div className="mt-7 border-t border-border pt-5 text-center">
+        <div className="mb-2.5 text-xs text-muted">No account yet?</div>
+        <Button variant="secondary" className="w-full justify-center" onClick={onRegister}>
           Apply for access
-        </button>
+        </Button>
       </div>
     </AuthShell>
     </AuthStage>

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { count, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { onboardRequests, tenants, users } from '@/db/schemas'
-import { getSessionUser } from '@/lib/auth'
+import { requirePlatformCapability } from '@/lib/api-auth'
 
 // ── GET /api/admin/stats (issue #252) ───────────────────────────────────────
 // super_admin-only. Real aggregate platform counts for AdminDashboardScreen —
@@ -15,15 +15,11 @@ import { getSessionUser } from '@/lib/auth'
 // Response envelope matches app/api/onboard-requests/route.ts / lib/api-response.ts
 // ({ success, data | error }).
 
-const bad = (msg: string, status = 400) =>
-  NextResponse.json({ success: false, error: msg }, { status })
-
 const ONBOARD_STATUSES = ['pending', 'approved', 'rejected', 'info-needed'] as const
 
 export async function GET() {
-  const session = await getSessionUser()
-  if (!session) return bad('Unauthorized', 401)
-  if (session.role !== 'super_admin') return bad('Forbidden', 403)
+  const auth = await requirePlatformCapability('analytics.view')
+  if ('error' in auth) return auth.error
 
   const [[{ count: totalTenants }], [{ count: activeTenants }], [{ count: totalUsers }], onboardByStatusRows] =
     await Promise.all([
