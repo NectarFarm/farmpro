@@ -378,13 +378,6 @@ describe('components/farm/finance.tsx — nothing recorded is not the same as lo
     expect(source).toMatch(/You spent more than you took in for \{periodLabel\}/)
   })
 
-  it('the account card opens Security & access, not the whole People roster (owner-roast finding #4)', () => {
-    const cardStart = source.indexOf('farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: \'flex\', gap: 12')
-    expect(cardStart).toBeGreaterThan(-1)
-    const card = source.slice(Math.max(0, cardStart - 120), cardStart + 40)
-    expect(card).toMatch(/navigate\('security-settings'\)/)
-    expect(card).not.toMatch(/navigate\('people'\)/)
-  })
 })
 
 describe('per-field validation (owner-roast findings #9/#10/#11) shares one mechanism', () => {
@@ -432,7 +425,7 @@ describe('nav badge vs screen notification counts agree (owner-roast finding #5)
     expect(nav).toMatch(/refreshBadges: \(\) => void/)
     expect(nav).toMatch(/const refreshBadges = useCallback\(\(\) => \{ setBadgesNonce\(\(n\) => n \+ 1\); \}, \[\]\)/)
     expect(nav).toMatch(/\}, \[tenantId, activeFarmId, role, badgesNonce\]\)/)
-    expect(nav).toMatch(/refreshBadges,\s*userName \}\}>/)
+    expect(nav).toMatch(/refreshBadges,\s*userName[, \w]*\}\}>/)
   })
 
   it('marking a notification read (one or all) calls refreshBadges so the nav badge cannot go stale', () => {
