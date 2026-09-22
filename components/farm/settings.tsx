@@ -14,9 +14,18 @@ import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { requestTour } from './tour';
 import { apiClient } from '@/lib/request';
+import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/ui-kit/page-header';
+import { Avatar } from '@/components/ui-kit/avatar';
+import { Badge } from '@/components/ui-kit/badge';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { Field, controlClass } from '@/components/ui-kit/field';
+import { Kv } from '@/components/ui-kit/inspector';
+import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dialog';
 import {
-  ChevronRight, DoorOpen, Check, X, Lock, Eye, EyeOff,
-  Palette,
+  ChevronRight, ChevronLeft, DoorOpen, Check, Lock, Eye, EyeOff,
+  Palette, SlidersHorizontal, Shield, Globe, UserCircle, Bell,
   Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, ClipboardList, Layers,
   type LucideIcon,
 } from './icons';
@@ -229,6 +238,86 @@ const SESSION_TIMEOUT_OPTIONS: { value: string; label: string }[] = [
   { value: '10080', label: '7 days' },
 ];
 
+/* ── Settings hub: a calm list of grouped sections (settings-redesign, package
+ * G). Reference's 4 flat tabs (Structure/Appearance/Access/Account) don't
+ * scale to local's 7 real groups, so instead of tabs this hub behaves like
+ * Android's Settings app: a row per section, each drilling into its own full
+ * view on a phone (`mobileOpen`, below); on desktop the same rows sit in a
+ * fixed left rail next to the selected section's content, both always
+ * visible — no separate route needed, every field/handler here is the exact
+ * one the old flat sections array used, just regrouped. */
+type SectionId = 'profile' | 'regional' | 'appearance' | 'notifications' | 'security' | 'stages' | 'about';
+interface SectionMeta { id: SectionId; label: string; hint: string; icon: LucideIcon }
+
+const SECTIONS: SectionMeta[] = [
+  { id: 'profile', label: 'Farm profile', hint: 'You, your role and this farm', icon: UserCircle },
+  { id: 'regional', label: 'Regional', hint: 'Currency, weight, timezone, dates', icon: Globe },
+  { id: 'appearance', label: 'Appearance', hint: 'Theme, text size, modules & branding', icon: Palette },
+  { id: 'notifications', label: 'Notifications', hint: 'Alerts and offline recording', icon: Bell },
+  { id: 'security', label: 'Security', hint: 'Password, sessions, worker PINs', icon: Lock },
+  { id: 'stages', label: 'Stages', hint: 'Batch stages and farm structure', icon: Layers },
+  { id: 'about', label: 'About', hint: 'Version, walkthrough, setup guide', icon: Info },
+  // Package H2 (admin/back-office console + customer portal, see
+  // docs/backoffice-api.md) will append two more rows here once it lands —
+  // "Plan & billing" and "Help & support" don't exist yet and this package
+  // does not build them. Same `{ id, label, hint, icon }` shape as the rows
+  // above; dropping entries into this array is the only change needed here
+  // (plus a `case` in SettingsScreen's section-content switch).
+  // { id: 'billing', label: 'Plan & billing', hint: 'Subscription, invoices, usage', icon: CreditCard },
+  // { id: 'support', label: 'Help & support', hint: 'Contact support, open a ticket', icon: HelpCircle },
+];
+
+/* One label/toggle row, shared by every "coming soon" control in the
+ * Notifications section — same optimistic-disabled treatment the old flat
+ * sections array used (#376 Gap 5: no push/sound/offline infra exists). */
+function ToggleRow({
+  label, desc, value, onToggle, comingSoon, last,
+}: { label: string; desc?: string; value: boolean; onToggle?: () => void; comingSoon?: boolean; last?: boolean }) {
+  return (
+    <div className={cn('flex items-center gap-3 px-3.5 py-3', !last && 'border-b border-border/70')}>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">{label}</span>
+          {comingSoon && <Badge>Coming soon</Badge>}
+        </div>
+        {desc && <p className="mt-0.5 text-xs text-muted">{desc}</p>}
+      </div>
+      <button
+        type="button"
+        aria-disabled={comingSoon}
+        onClick={() => { if (!comingSoon) onToggle?.(); }}
+        className={cn(
+          'relative h-6 w-11 shrink-0 rounded-full transition-colors',
+          comingSoon ? 'cursor-not-allowed opacity-45' : 'cursor-pointer',
+          value ? 'bg-primary' : 'bg-surface-2',
+        )}
+      >
+        <span className={cn('absolute top-0.5 size-5 rounded-full bg-white transition-[left]', value ? 'left-[22px]' : 'left-0.5')} />
+      </button>
+    </div>
+  );
+}
+
+/* One tappable link row — the shape every "goes to its own screen" item in
+ * this hub shares (UI Customise, Security & access, Notification settings,
+ * Stages, Farm structure, About IFMS, etc). */
+function LinkRow({ icon: Icon, label, desc, onClick }: { icon: LucideIcon; label: string; desc?: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-xl bg-surface p-4 text-left shadow-(--shadow-border) transition-colors hover:bg-surface-2"
+    >
+      <Icon size={17} className="shrink-0 text-muted" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{label}</span>
+        {desc && <span className="block text-xs text-muted">{desc}</span>}
+      </span>
+      <ChevronRight size={16} className="shrink-0 text-subtle" aria-hidden="true" />
+    </button>
+  );
+}
+
 export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   // `pendingApprovals` is no longer read here: the Governance row that carried
   // its badge moved to the Manage tab's menu (navigation.tsx's TabMenuSheet),
@@ -243,15 +332,6 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
       if (res.success) setMe({ name: res.data.name ?? '', email: res.data.email ?? '' });
     });
   }, []);
-
-  // Initials from the real name. Two words give two letters, one word gives
-  // one — no padding with a letter the person does not have.
-  const initials = (me?.name ?? '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('') || '·';
 
   // The farm this session is looking at. "All farms" is only worth saying
   // when there is more than one; with a single farm its name is the honest
@@ -326,175 +406,221 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   const ownerOnlyNote = role === 'owner' || role === 'super_admin'
     ? undefined
     : 'Only the farm owner can change this';
+  const isOwnerish = role === 'owner' || role === 'super_admin';
 
-  type SettingsRow = {
-    label: string; desc?: string; action?: () => void; badge?: string; icon?: LucideIcon;
-    toggle?: boolean; value?: boolean; onToggle?: () => void;
-    // #376 Gap 5: renders the control visibly disabled with a "Coming soon"
-    // chip instead of letting a toggle that persists-but-does-nothing imply
-    // working infrastructure (no push service / no sync engine exists yet).
-    comingSoon?: boolean;
-    select?: { value: string; options: { value: string; label: string }[]; onChange: (v: string) => void };
-    // PATCH /api/settings is owner/super_admin-only, but a MANAGER also has
-    // this screen. Rather than offer a control the API will always refuse and
-    // report the refusal after the fact, the control renders read-only with
-    // the reason attached. The API is still the authority — this only stops
-    // the UI from inviting an action it knows cannot succeed.
-    readOnly?: string;
-  };
+  // Drill state (settings-redesign): `activeSection` is shared by both
+  // layouts — it is desktop's permanently-selected right-pane content AND
+  // the section a phone opens into. `mobileOpen` only matters below `lg`: it
+  // is what makes the list vs. the section content mutually exclusive there
+  // (Android Settings-style), while desktop always shows both at once.
+  const [activeSection, setActiveSection] = useState<SectionId>('profile');
+  const [mobileOpen, setMobileOpen] = useState(false);
+  function openSection(id: SectionId) { setActiveSection(id); setMobileOpen(true); }
 
-  /* ── The mobile "Farm Management" hub that used to sit here is gone ──
-   * It listed Inventory / Weather / People / Daily routines / Governance /
-   * Reports / AI Farm Assistant, because a phone had no sidebar and the tab
-   * that reaches this screen was labelled "More" — so this list was the only
-   * way to those seven screens below 768px.
-   *
-   * The Manage tab now opens that list itself (navigation.tsx's TAB_MENUS),
-   * with the same destinations and a line each saying what they are for. Which
-   * left this screen repeating, under a heading, the exact list the user had
-   * just tapped through to get here — and made "App settings" in that menu
-   * lead to a screen whose first section was the menu again. One list, in the
-   * place people tap.
-   *
-   * Nothing lost any route: every destination that was here is in the tab
-   * menu, and the .settings-hub-mobile-only rule in app/global.css went with
-   * it. `pendingApprovals` still reaches the Governance row — see its badge in
-   * TabMenuSheet's caller.
-   */
-  const sections: { label: string; items: SettingsRow[] }[] = [
-    // UI Customise has no sidebar entry anywhere and no other path to it —
-    // unlike the mobileHubItems above, hiding this on desktop would strand
-    // an owner/super_admin's only way to reach it, not just declutter a
-    // duplicate. Kept visible on every breakpoint, still gated the same way
-    // its old "Farm Management" row was.
-    // Farm Configuration is owner-only for the same reason its own screen and
-    // PUT /api/stages are: renaming or reordering a stage changes what every
-    // batch's `stage` value means and what the batch route will accept into
-    // it. This row is the only way to reach that screen — it has no sidebar
-    // entry — so it stays visible on every breakpoint, same as UI Customise.
-    ...(role === 'super_admin' || role === 'owner' ? [{
-      label: 'Farm Setup',
-      items: [
-        { label: 'Stages', icon: Layers, desc: 'When a batch moves from one stage to the next', action: () => navigate('farm-config') },
-        { label: 'UI Customise', icon: Palette, desc: 'Module toggles & farm branding', action: () => navigate('ui-customise') },
-      ],
-    }] : []),
-    {
-      // Currency/weight unit used to live inside UI Customise's "branding"
-      // tab, gated the same as UI Customise itself — but they are
-      // operational (every amount and weight in the app displays in them),
-      // not branding, and every role that can see Settings should at least
-      // see what they're set to. Timezone/date format are new: every record
-      // in this app is timestamped and there was previously no way to say
-      // what zone a farm runs in. All four write through the same
-      // owner/super_admin-gated PATCH the rest of this screen already uses.
-      label: 'Regional & Units',
-      items: [
-        // These two descriptions used to read "Used wherever an amount/weight
-        // is displayed", which was not true. The tenant's currencySymbol is
-        // read by report exports only (lib/reports.ts, components/farm/
-        // reports.tsx); every in-app amount goes through formatMoney's
-        // hardcoded 'KSh' default because no call site passes the tenant
-        // symbol. weightUnit is the same story — the worker screens label kg
-        // directly. Threading both through every call site is real work;
-        // claiming it is already done is the part that had to stop.
-        { label: 'Currency', desc: 'Used in reports and exports', readOnly: ownerOnlyNote, select: { value: currencySymbol, options: CURRENCY_OPTIONS.map((c) => ({ value: c, label: c })), onChange: (v) => updateSetting('currencySymbol', v) } },
-        { label: 'Weight unit', desc: 'Used in reports and exports', readOnly: ownerOnlyNote, select: { value: weightUnit, options: WEIGHT_UNIT_OPTIONS.map((u) => ({ value: u, label: u })), onChange: (v) => updateSetting('weightUnit', v) } },
-        { label: 'Timezone', desc: 'Used to render every timestamp in the app', readOnly: ownerOnlyNote, select: { value: timezone, options: TIMEZONE_OPTIONS, onChange: (v) => updateSetting('timezone', v) } },
-        { label: 'Date format', desc: 'Day/month order for displayed dates', readOnly: ownerOnlyNote, select: { value: dateFormat, options: DATE_FORMAT_OPTIONS, onChange: (v) => updateSetting('dateFormat', v as DateFormat) } },
-      ],
-    },
-    {
-      // Reports group: one control, and it belongs to the person whose name is
-      // on the document. The notes are honest by default; a farm handing a
-      // report to a buyer may not want its bookkeeping caveats printed on the
-      // page, and that is their call to make. Figures never change either way,
-      // and the food-safety line on the treatment report is not part of this
-      // toggle (see lib/reports.ts) — it cannot be switched off.
-      label: 'Reports',
-      items: [
-        { label: 'Print notes on reports', desc: 'The "notes & basis" block explaining what the figures do and don\u2019t cover', toggle: true, value: reportNotes, onToggle: () => toggleSetting('reportNotesEnabled') },
-      ],
-    },
-    {
-      label: 'Notifications',
-      items: [
-        // #376 Gap 5: there is no push service anywhere in this codebase
-        // (notifications are in-app only via GET /api/notifications), so this
-        // toggle used to persist a flag nothing consumes. Disabled + labelled
-        // rather than silently inert.
-        { label: 'Push Notifications', desc: 'Alerts arrive in-app today — push delivery is coming soon', toggle: true, value: false, comingSoon: true },
-        // Same situation as Push, and it was the one presented as working:
-        // the flag persists to tenant_settings.sound_alerts_enabled and
-        // NOTHING reads it. There is no `new Audio`, no `.play()`, no
-        // AudioContext and no navigator.vibrate anywhere in app/, components/
-        // or lib/ — so a farm that switched this on got silence and no way to
-        // tell whether the app or their phone was at fault. Disabled and
-        // labelled, exactly like Push Notifications and Offline Mode.
-        //
-        // The stored column is left alone rather than reset: a tenant who
-        // already turned this on has recorded a real preference, and it should
-        // take effect the day playback lands instead of being wiped now.
-        { label: 'Sound Alerts', desc: `Alerts are silent today — audible alerts are coming soon${soundAlerts ? ' (your preference is saved)' : ''}`, toggle: true, value: false, comingSoon: true },
-        { label: 'Notification Settings', desc: 'Per-type controls, SMS, quiet hours', action: () => navigate('notification-settings') },
-      ],
-    },
-    {
-      label: 'Offline & Sync',
-      items: [
-        // #376 Gap 5: no service worker / cache / write queue exists — a
-        // worker who relied on this during a dropout would lose every
-        // submission. Same treatment as Push Notifications; the adjacent
-        // 'Sync Now' row was removed for exactly this reason earlier.
-        { label: 'Offline Mode', desc: 'Recording needs internet today — offline caching is coming soon', toggle: true, value: false, comingSoon: true },
-        // 'Sync Now' used to sit here (action: () => {}) — there is no
-        // offline cache/sync engine anywhere in this codebase for it to
-        // trigger (no service worker, no IndexedDB queue), so it did
-        // nothing but looked functional beside a toggle that actually
-        // persists. Removed rather than wired to a fake delay/spinner.
-      ],
-    },
-    {
-      label: 'Security',
-      items: [
-        { label: 'Change Password', action: () => setShowPasswordModal(true) },
-        { label: 'Security & access', desc: 'Worker PINs, signed-in devices & backup', action: () => navigate('security-settings') },
-        // Farm offices share devices — this bounds how long a session
-        // issued to this tenant stays valid (enforced in
-        // app/api/auth/login/route.ts at sign-in time, not just stored).
-        { label: 'Session timeout', desc: 'How long a shared device stays signed in', readOnly: ownerOnlyNote, select: { value: sessionTimeoutMinutes === null ? 'default' : String(sessionTimeoutMinutes), options: SESSION_TIMEOUT_OPTIONS, onChange: (v) => updateSetting('sessionTimeoutMinutes', v === 'default' ? null : Number(v)) } },
-      ],
-    },
-    {
-      label: 'App',
-      items: [
-        // Help & Support and Privacy Policy used to sit here as
-        // action: () => {} — no real support address or privacy policy
-        // exists to point them at, so they were removed rather than
-        // wired to something invented. About IFMS is real: the version
-        // below is the actual package.json version, inlined at build
-        // time (next.config.ts) — no fabricated build number.
-        // The walkthrough runs itself once, on a person's first sign-in, and
-        // then never again — which is exactly when it is least useful,
-        // because nothing has been set up yet and none of it means anything.
-        // This is how you get it back after you have some data to look at.
-        // It closes Settings first: the tour points at the navigation, and
-        // reading "open Workers" while the Settings list is still covering
-        // the screen is the kind of thing that makes a walkthrough feel
-        // broken.
-        { label: 'Show me around', icon: HelpCircle, desc: 'Replay the guided walkthrough of the app', action: () => { navigate('dashboard'); requestTour(); } },
-        // The same list emailed on approval (lib/onboarding-guide.ts) —
-        // for anyone who deleted that email or just wants to check what's
-        // next without digging through their inbox.
-        { label: 'Set up your farm', icon: ClipboardList, desc: 'The nine steps, and how far through them you are', action: () => navigate('getting-started') },
-        // This row has always been inert — it described the About screen and
-        // never opened it, which made it read as a dead label rather than a
-        // link. AboutScreen has existed and been routed the whole time
-        // (app/page.tsx's 'about' case); nothing was pointing at it.
-        { label: 'About IFMS', icon: Info, desc: `Version ${process.env.NEXT_PUBLIC_APP_VERSION ?? '—'}`, action: () => navigate('about') },
-      ],
-    },
-  ];
+  const visibleSections = SECTIONS.filter((s) => s.id !== 'stages' || isOwnerish);
+  const activeMeta = SECTIONS.find((s) => s.id === activeSection) ?? SECTIONS[0];
+
+  function renderSectionContent() {
+    switch (activeSection) {
+      case 'profile':
+        return (
+          <div className="grid gap-4">
+            <div className="rounded-xl bg-surface p-5 shadow-(--shadow-border)">
+              <div className="flex items-center gap-4">
+                <Avatar name={me?.name || 'Your account'} size="lg" />
+                <div className="min-w-0">
+                  <div className="truncate text-lg font-medium">{me?.name || 'Your account'}</div>
+                  <div className="text-sm text-muted">
+                    {role === 'owner' ? 'Owner' : role === 'manager' ? 'Manager' : role === 'worker' ? 'Worker' : role === 'super_admin' ? 'Platform admin' : 'Staff'}
+                    {farmLabel ? ` · ${farmLabel}` : ''}
+                  </div>
+                </div>
+              </div>
+              <dl className="mt-4">
+                {me?.email && <Kv label="Email" value={me.email} />}
+                <Kv label="Role" value={<Badge variant="warning">{role.toUpperCase()}</Badge>} />
+                {farmLabel && <Kv label="Farm" value={farmLabel} />}
+              </dl>
+            </div>
+            {/* There is no plan/tier anywhere in the schema (db/schemas/auth.ts's
+               `tenants` is id, name, active, createdAt) — no invented badge here. */}
+            <Button variant="danger" className="w-full justify-center" onClick={onLogout}>
+              <DoorOpen size={16} /> Sign out
+            </Button>
+          </div>
+        );
+
+      case 'regional':
+        return (
+          <div className="rounded-xl bg-surface p-5 shadow-(--shadow-border)">
+            <p className="text-sm text-muted">Currency, weight and time formatting used across this farm&apos;s reports and exports.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Field label="Currency">
+                <select className={controlClass} value={currencySymbol} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(e) => updateSetting('currencySymbol', e.target.value)}>
+                  {CURRENCY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Field>
+              <Field label="Weight unit">
+                <select className={controlClass} value={weightUnit} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(e) => updateSetting('weightUnit', e.target.value)}>
+                  {WEIGHT_UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </Field>
+              <Field label="Timezone">
+                <select className={controlClass} value={timezone} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(e) => updateSetting('timezone', e.target.value)}>
+                  {TIMEZONE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Date format">
+                <select className={controlClass} value={dateFormat} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(e) => updateSetting('dateFormat', e.target.value as DateFormat)}>
+                  {DATE_FORMAT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </Field>
+            </div>
+            {ownerOnlyNote && <p className="mt-3 text-xs text-subtle">{ownerOnlyNote}.</p>}
+            <button
+              type="button"
+              onClick={() => toggleSetting('reportNotesEnabled')}
+              className="mt-4 flex w-full items-center justify-between rounded-lg bg-surface-2 px-3.5 py-3 text-left"
+            >
+              <span className="text-sm">Print notes on reports</span>
+              <span className={cn('flex size-7 items-center justify-center rounded-full', reportNotes ? 'bg-primary text-primary-fg' : 'bg-surface')}>
+                {reportNotes ? <Check size={14} /> : null}
+              </span>
+            </button>
+          </div>
+        );
+
+      case 'appearance':
+        return (
+          <div className="grid gap-4">
+            <div className="rounded-xl bg-surface p-5 shadow-(--shadow-border)">
+              <h2 className="text-sm font-medium">Colour theme</h2>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {THEME_OPTIONS.map((t) => {
+                  const active = theme === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={async () => { const r = await setTheme(t.id); if (!r.ok) showToast(r.error, 'error'); }}
+                      className={cn('rounded-lg px-3 py-3 text-left shadow-(--shadow-border)', active && 'bg-primary-soft ring-2 ring-primary/40')}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="size-4 shrink-0 rounded" style={{ background: t.preview, border: '1px solid rgba(255,255,255,0.2)' }} />
+                        <t.icon size={13} className={active ? 'text-primary' : 'text-fg'} aria-hidden="true" />
+                        <span className={cn('text-sm font-medium', active && 'text-primary')}>{t.label}</span>
+                      </span>
+                      <span className="mt-1 block text-xs text-muted">{t.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 flex gap-2 rounded-lg px-3.5 py-3 text-xs text-muted" style={{ background: 'rgba(var(--info-rgb),0.08)', border: '1px solid rgba(var(--info-rgb),0.2)' }}>
+                <Lightbulb size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+                <span><strong>Sun Mode</strong> uses warm amber tones for bright outdoor light. <strong>High Contrast</strong> maximises legibility for low vision.</span>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-surface p-5 shadow-(--shadow-border)">
+              <h2 className="text-sm font-medium">Text size</h2>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="text-xs text-subtle">Aa</span>
+                <div className="flex flex-1 gap-1.5">
+                  {FONT_OPTIONS.map((f) => {
+                    const active = fontSize === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={async () => { const r = await setFontSize(f.id); if (!r.ok) showToast(r.error, 'error'); }}
+                        className={cn('flex-1 rounded-lg py-2.5', active ? 'bg-primary-soft ring-2 ring-primary/40' : 'bg-surface-2')}
+                      >
+                        <span className={cn('font-medium', active ? 'text-primary' : 'text-muted')} style={{ fontSize: f.size }}>{f.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="text-lg text-subtle">Aa</span>
+              </div>
+              <p className="mt-2 text-center text-xs text-subtle">Larger text helps in bright sunlight or for low-vision users.</p>
+            </div>
+
+            {isOwnerish && (
+              <LinkRow icon={SlidersHorizontal} label="UI Customise" desc="Module toggles, label renames & farm branding" onClick={() => navigate('ui-customise')} />
+            )}
+          </div>
+        );
+
+      case 'notifications':
+        return (
+          <div className="grid gap-3">
+            <div className="rounded-xl bg-surface p-1 shadow-(--shadow-border)">
+              {/* #376 Gap 5: no push service, audio playback or offline cache
+                 exists anywhere in this codebase (no service worker, no
+                 IndexedDB queue, no Audio/AudioContext/navigator.vibrate call)
+                 — every row below is disabled and says so rather than
+                 persisting a flag nothing reads. The stored sound-alerts flag
+                 is left alone, not reset, so a saved preference takes effect
+                 the day playback actually lands. */}
+              <ToggleRow label="Push notifications" desc="Alerts arrive in-app today — push delivery is coming soon" value={false} comingSoon />
+              <ToggleRow label="Sound alerts" desc={`Alerts are silent today — audible alerts are coming soon${soundAlerts ? ' (your preference is saved)' : ''}`} value={false} comingSoon />
+              <ToggleRow label="Offline mode" desc="Recording needs internet today — offline caching is coming soon" value={false} comingSoon last />
+            </div>
+            <LinkRow icon={Bell} label="Notification settings" desc="Per-type controls, SMS, quiet hours" onClick={() => navigate('notification-settings')} />
+          </div>
+        );
+
+      case 'security':
+        return (
+          <div className="grid gap-3">
+            <LinkRow icon={Lock} label="Change password" onClick={() => setShowPasswordModal(true)} />
+            <LinkRow icon={Shield} label="Security & access" desc="Worker PINs, signed-in devices & backup" onClick={() => navigate('security-settings')} />
+            <div className="rounded-xl bg-surface p-5 shadow-(--shadow-border)">
+              {/* Farm offices share devices — this bounds how long a session
+                 issued to this tenant stays valid (enforced in
+                 app/api/auth/login/route.ts at sign-in, not just stored). */}
+              <Field label="Session timeout">
+                <select
+                  className={controlClass}
+                  value={sessionTimeoutMinutes === null ? 'default' : String(sessionTimeoutMinutes)}
+                  disabled={!!ownerOnlyNote}
+                  title={ownerOnlyNote}
+                  onChange={(e) => updateSetting('sessionTimeoutMinutes', e.target.value === 'default' ? null : Number(e.target.value))}
+                >
+                  {SESSION_TIMEOUT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </Field>
+              <p className="mt-2 text-xs text-muted">How long a shared device stays signed in.{ownerOnlyNote ? ` ${ownerOnlyNote}.` : ''}</p>
+            </div>
+          </div>
+        );
+
+      case 'stages':
+        return (
+          <div className="grid gap-3">
+            <LinkRow icon={Layers} label="Batch stages" desc="When a batch moves from one stage to the next" onClick={() => navigate('farm-config')} />
+            {/* D1–D3: reference's Settings has a Structure tab showing the
+               farm→division→house tree inline; local builds that tree as its
+               own Sites tab on Units instead (crops.tsx, params.tab='sites')
+               rather than duplicating it here — this is the one-line link
+               across the map calls for. */}
+            <LinkRow icon={Globe} label="Farm structure" desc="Farms, houses and batches — opens Units → Sites" onClick={() => navigate('crops', { tab: 'sites' })} />
+          </div>
+        );
+
+      case 'about':
+        return (
+          <div className="grid gap-3">
+            <LinkRow icon={HelpCircle} label="Show me around" desc="Replay the guided walkthrough of the app" onClick={() => { navigate('dashboard'); requestTour(); }} />
+            <LinkRow icon={ClipboardList} label="Set up your farm" desc="The nine steps, and how far through them you are" onClick={() => navigate('getting-started')} />
+            <LinkRow icon={Info} label="About IFMS" desc={`Version ${process.env.NEXT_PUBLIC_APP_VERSION ?? '—'}`} onClick={() => navigate('about')} />
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  }
 
   return (
     <div className="screen-content">
@@ -502,170 +628,66 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
             user nothing about what's behind it". This screen is where a farm
             gets managed and configured, so it says that, and the bottom tab
             that reaches it now reads "Manage" too (navigation.tsx's OWNER_TABS). */}
-        <TopNav title="Manage" subtitle="Your farm, your people, your settings" showBell />
-      <div className="px-screen" style={{ paddingTop: 14 }}>
-
-        {/* Profile card — the signed-in user, not a mock.
-         *
-         * This card used to read "JK / James Kamau / Owner · Nakuru Farm /
-         * PRO PLAN" for everybody, hardcoded, with only the role label wired
-         * to anything real. On a screen whose whole job is "your account", a
-         * fixed name is worse than no name: it tells every user they are
-         * someone else, and it made the demo tenant look like the only one.
-         *
-         * The PRO PLAN chip is gone rather than wired up. There is no plan or
-         * tier anywhere in the schema (db/schemas/auth.ts's `tenants` is id,
-         * name, active, createdAt) — inventing a tier badge is exactly the
-         * kind of thing this card was already doing. */}
-        {/* owner-roast finding #4: this used to open 'people' — the whole
-         * team's roster — which is not "your account" by any reading. It
-         * now opens the same Security & access screen the list row below
-         * links to (sessions, password/PIN, backup) — the actual account
-         * and security surface this card's own heading implies. */}
-        <button onClick={() => navigate('security-settings')} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(var(--warning-rgb),0.2)', border: '2px solid rgba(var(--warning-rgb),0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--accent-amber)', flexShrink: 0 }}>{initials}</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)', color: 'var(--text-primary)' }}>{me?.name || 'Your account'}</div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
-              {role === 'owner' ? 'Owner' : role === 'manager' ? 'Manager' : role === 'worker' ? 'Worker' : role === 'super_admin' ? 'Platform Admin' : 'Staff'}
-              {farmLabel ? ` · ${farmLabel}` : ''}
-            </div>
-            {me?.email && (
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 2 }}>{me.email}</div>
-            )}
-            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-              <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{role.toUpperCase()}</span>
-            </div>
-          </div>
-          <ChevronRight size={16} color="var(--text-muted)" />
-        </button>
-
-        {/* ── Appearance ── */}
-        <div style={{ marginBottom: 16 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 10 }}>Appearance & Accessibility</div>
-
-          {/* Theme picker */}
-          <div className="farm-card" style={{ padding: 14, marginBottom: 10 }}>
-            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10 }}>Colour Theme</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {THEME_OPTIONS.map(t => (
-                <button key={t.id} onClick={async () => {
-                    const r = await setTheme(t.id);
-                    if (!r.ok) showToast(r.error, 'error');
-                  }}
-                  style={{ padding: '10px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
-                    background: theme === t.id ? 'rgba(var(--primary-rgb),0.12)' : 'var(--surface)',
-                    border: theme === t.id ? '2px solid var(--primary-green)' : '1px solid var(--border-subtle)' }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                    <div style={{ width: 16, height: 16, borderRadius: 4, background: t.preview, border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
-                    <t.icon size={13} color={theme === t.id ? 'var(--primary-green)' : 'var(--text-primary)'} aria-hidden="true" />
-                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: theme === t.id ? 'var(--primary-green)' : 'var(--text-primary)' }}>{t.label}</div>
-                  </div>
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.4 }}>{t.desc}</div>
-                  {theme === t.id && <Check size={11} color="var(--primary-green)" style={{ marginTop: 4 }} />}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Font size picker */}
-          <div className="farm-card" style={{ padding: 14, marginBottom: 10 }}>
-            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10 }}>Text Size</div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>Aa</span>
-              <div style={{ flex: 1, display: 'flex', gap: 6 }}>
-                {FONT_OPTIONS.map(f => (
-                  <button key={f.id} onClick={async () => {
-                      const r = await setFontSize(f.id);
-                      if (!r.ok) showToast(r.error, 'error');
-                    }}
-                    style={{ flex: 1, padding: '10px 4px', borderRadius: 10, cursor: 'pointer', border: 'none',
-                      background: fontSize === f.id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--surface)',
-                      outline: fontSize === f.id ? '2px solid var(--primary-green)' : '2px solid transparent' }}>
-                    <span style={{ fontSize: f.size, fontWeight: 700, color: fontSize === f.id ? 'var(--primary-green)' : 'var(--text-muted)' }}>{f.label}</span>
-                  </button>
-                ))}
-              </div>
-              <span style={{ fontSize: 'var(--fs-lg)', color: 'var(--text-dim)' }}>Aa</span>
-            </div>
-            <div style={{ marginTop: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', textAlign: 'center' }}>
-              Larger text helps in bright sunlight or for low-vision users
-            </div>
-          </div>
-
-          {/* Info strip */}
-          <div style={{ display: 'flex', gap: 8, padding: '10px 14px', background: 'rgba(var(--info-rgb),0.06)', border: '1px solid rgba(var(--info-rgb),0.15)', borderRadius: 12, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            <Lightbulb size={14} color="var(--accent-blue)" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
-            <span><strong>Sun Mode</strong> uses warm amber tones visible in bright outdoor sunlight. <strong>High Contrast</strong> maximises legibility for visually impaired users.</span>
-          </div>
+      <TopNav title="" showBell />
+      <div className="px-screen" style={{ paddingTop: 14, paddingBottom: 32 }}>
+        {/* Header — hidden on a phone once a section is open, matching Android
+           Settings: the list screen's own chrome disappears behind the
+           sub-page it opened, rather than staying visible above it. */}
+        <div className={cn(mobileOpen && 'hidden lg:block')}>
+          <PageHeader kicker="Company" title="Settings" lede="Your farm, your people and your app — set up once, changed rarely." />
         </div>
 
-        {/* Sections */}
-        {sections.map((sec) => (
-          <div key={sec.label} style={{ marginBottom: 16 }}>
-            <div className="section-eyebrow" style={{ marginBottom: 8 }}>{sec.label}</div>
-            <div className="farm-card" style={{ overflow: 'hidden' }}>
-              {sec.items.map((item, i) => (
-                <div key={item.label} onClick={item.action}
-                  style={{ padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 12,
-                    borderBottom: i < sec.items.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                    cursor: item.action ? 'pointer' : 'default' }}>
-                  {item.icon && <item.icon size={17} color="var(--text-muted)" aria-hidden="true" />}
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
-                    {item.desc && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 1 }}>{item.desc}</div>}
-                  </div>
-                  {item.badge && <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{item.badge}</span>}
-                  {item.comingSoon && <span className="chip" style={{ fontSize: 'var(--fs-2xs)' }}>Coming soon</span>}
-                  {item.select ? (
-                    <select
-                      value={item.select.value}
-                      disabled={!!item.readOnly}
-                      title={item.readOnly}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => item.select?.onChange(e.target.value)}
-                      className="farm-input"
-                      style={{ width: 'auto', maxWidth: 170, padding: '6px 8px', fontSize: 'var(--fs-sm)', flexShrink: 0, opacity: item.readOnly ? 0.55 : 1, cursor: item.readOnly ? 'not-allowed' : undefined }}
-                    >
-                      {item.select.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                    </select>
-                  ) : item.toggle ? (
-                    <button aria-disabled={item.comingSoon}
-                      onClick={(e) => { e.stopPropagation(); if (!item.comingSoon) item.onToggle?.(); }}
-                      style={{ width: 44, height: 24, borderRadius: 100, border: 'none',
-                        cursor: item.comingSoon ? 'not-allowed' : 'pointer',
-                        opacity: item.comingSoon ? 0.45 : 1,
-                        background: item.value ? 'var(--primary-green)' : 'rgba(255,255,255,0.1)',
-                        position: 'relative', padding: 0, flexShrink: 0 }}>
-                      <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                        position: 'absolute', top: 3, left: item.value ? 23 : 3, transition: 'left 0.2s' }} />
-                    </button>
-                  ) : item.action ? (
-                    <ChevronRight size={16} color="var(--text-dim)" />
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+        <div className={cn('lg:grid lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start lg:gap-5', mobileOpen ? 'mt-0' : 'mt-5')}>
+          <nav className={cn('flex flex-col gap-1.5', mobileOpen && 'hidden lg:flex')} aria-label="Settings sections">
+            {visibleSections.map((s) => {
+              const active = s.id === activeSection;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => openSection(s.id)}
+                  className={cn(
+                    'flex items-center gap-3 rounded-xl px-3.5 py-3 text-left shadow-(--shadow-border) transition-colors',
+                    active ? 'bg-primary text-primary-fg' : 'bg-surface hover:bg-surface-2',
+                  )}
+                >
+                  <s.icon size={18} className={active ? '' : 'text-muted'} aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{s.label}</span>
+                    <span className={cn('block truncate text-xs', active ? 'text-primary-fg/75' : 'text-muted')}>{s.hint}</span>
+                  </span>
+                  <ChevronRight size={16} className={active ? 'text-primary-fg/70' : 'text-subtle'} aria-hidden="true" />
+                </button>
+              );
+            })}
+          </nav>
 
-        {/* Logout */}
-        <button onClick={onLogout} style={{ width: '100%', padding: '14px', borderRadius: 14, fontSize: 'var(--fs-md)', fontWeight: 700,
-          background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.25)',
-          color: 'var(--status-critical)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
-          <DoorOpen size={16} /> Sign Out
-        </button>
+          <div className={cn(!mobileOpen && 'hidden lg:block')}>
+            <div className="mb-4 flex items-center gap-2 lg:hidden">
+              <button
+                type="button"
+                onClick={() => setMobileOpen(false)}
+                className="flex size-10 shrink-0 items-center justify-center rounded-md text-fg hover:bg-surface-2"
+                aria-label="Back to Settings"
+              >
+                <ChevronLeft size={19} />
+              </button>
+              <span className="font-display text-xl font-medium">{activeMeta.label}</span>
+            </div>
+            {renderSectionContent()}
+          </div>
+        </div>
       </div>
 
-      {showPasswordModal && <ChangePasswordSheet onClose={() => setShowPasswordModal(false)} />}
+      {showPasswordModal && <ChangePasswordDialog open={showPasswordModal} onClose={() => setShowPasswordModal(false)} />}
     </div>
   );
 }
 
-/* ── Change Password sheet — real POST /api/auth/change-password (issue #256).
- * Same bottom-sheet shell used elsewhere in the app (e.g. RecordPurchaseSheet
- * in inventory.tsx). ── */
-function ChangePasswordSheet({ onClose }: { onClose: () => void }) {
+/* ── Change Password dialog — real POST /api/auth/change-password (issue
+ * #256). Centred ui-kit Dialog, same shape as the reference's own
+ * PasswordDialog. ── */
+function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { showToast } = useToast();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -686,6 +708,7 @@ function ChangePasswordSheet({ onClose }: { onClose: () => void }) {
     setSaving(false);
     if (res.success) {
       showToast('Password changed.', 'success');
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
       onClose();
     } else {
       setError(res.error || 'Failed to change password.');
@@ -693,39 +716,28 @@ function ChangePasswordSheet({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 210 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)', display: 'flex', alignItems: 'center', gap: 8 }}><Lock size={16} /> Change Password</div>
-          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Current Password *</label>
-          <input className="farm-input" type={showPasswords ? 'text' : 'password'} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoFocus />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>New Password *</label>
-          <input className="farm-input" type={showPasswords ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-        </div>
-        <div style={{ marginBottom: 8 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Confirm New Password *</label>
-          <input className="farm-input" type={showPasswords ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
-        </div>
-        <button onClick={() => setShowPasswords((s) => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 12, padding: 0 }}>
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogTitle>Change password</DialogTitle>
+      <DialogDescription>Minimum 8 characters. Applies to owner/manager accounts — workers sign in with a PIN.</DialogDescription>
+      <div className="mt-4 grid gap-3">
+        <Field label="Current password">
+          <Input type={showPasswords ? 'text' : 'password'} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoFocus />
+        </Field>
+        <Field label="New password">
+          <Input type={showPasswords ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        </Field>
+        <Field label="Confirm new password">
+          <Input type={showPasswords ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+        </Field>
+        <button type="button" onClick={() => setShowPasswords((s) => !s)} className="inline-flex items-center gap-1.5 text-xs text-muted">
           {showPasswords ? <EyeOff size={12} /> : <Eye size={12} />} {showPasswords ? 'Hide' : 'Show'} passwords
         </button>
-
-        <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.4 }}>
-          Minimum 8 characters. Applies to owner/manager accounts — workers sign in with a PIN.
-        </div>
-
-        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-        <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
-          {saving ? 'Saving…' : 'Change Password'}
-        </button>
+        {error && <div className="text-sm text-danger">{error}</div>}
+        <Button className="w-full justify-center" disabled={saving} onClick={save}>
+          {saving ? 'Saving…' : 'Change password'}
+        </Button>
       </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -828,41 +840,59 @@ export function SecuritySettingsScreen() {
       <TopNav title="Security & access" subtitle="Credentials, sessions and data protection" showBack />
       <div className="px-screen" style={{ paddingTop: 14, paddingBottom: 88 }}>
         {canManagePins && (
-          <section style={{ marginBottom: 18 }}>
-            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Worker PINs</div>
-            <div className="farm-card" style={{ padding: 14 }}>
-              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>Reset worker sign-in PIN</div>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 12 }}>PINs are never displayed. Set a new four-digit PIN and share it with the worker privately.</div>
-              {workers === null ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading worker accounts…</div> : workers.length === 0 ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.5 }}>No worker has a sign-in yet. Open Workers, pick the person, and use the <strong>Sign-in</strong> card to give them a phone and PIN — this screen resets PINs, it doesn&apos;t create the accounts.</div> : <>
-                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Worker</label>
-                <select className="farm-input" value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)} style={{ marginBottom: 10 }}>
-                  {workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.name} · {worker.hasPin ? 'PIN set' : 'Needs PIN'}</option>)}
-                </select>
-                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>New 4-digit PIN</label>
-                <input className="farm-input" inputMode="numeric" pattern="[0-9]*" maxLength={4} type="password" value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, ''))} placeholder="••••" style={{ marginBottom: 10 }} />
-                <button className="btn-primary" onClick={rotatePin} disabled={pinSaving} style={{ width: '100%', justifyContent: 'center' }}>{pinSaving ? 'Updating…' : 'Update worker PIN'}</button>
-              </>}
+          <section className="mb-5">
+            <p className="mb-2 text-xs font-medium tracking-widest text-muted uppercase">Worker PINs</p>
+            <div className="rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+              <div className="mb-1 text-sm font-medium">Reset worker sign-in PIN</div>
+              <p className="mb-3 text-sm text-muted">PINs are never displayed. Set a new four-digit PIN and share it with the worker privately.</p>
+              {workers === null ? <div className="text-sm text-muted">Loading worker accounts…</div> : workers.length === 0 ? (
+                <div className="text-sm text-muted">
+                  No worker has a sign-in yet. Open Workers, pick the person, and use the <strong>Sign-in</strong> card to give them a phone and PIN — this screen resets PINs, it doesn&apos;t create the accounts.
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  <Field label="Worker">
+                    <select className={controlClass} value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)}>
+                      {workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.name} · {worker.hasPin ? 'PIN set' : 'Needs PIN'}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="New 4-digit PIN">
+                    <Input inputMode="numeric" pattern="[0-9]*" maxLength={4} type="password" value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, ''))} placeholder="••••" />
+                  </Field>
+                  <Button className="w-full justify-center" onClick={rotatePin} disabled={pinSaving}>{pinSaving ? 'Updating…' : 'Update worker PIN'}</Button>
+                </div>
+              )}
             </div>
           </section>
         )}
 
-        <section style={{ marginBottom: 18 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Active sessions</div>
-          <div className="farm-card" style={{ padding: 14 }}>
-            {sessions === null ? <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading signed-in sessions…</div> : <>
-              <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>{sessions.length} active session{sessions.length === 1 ? '' : 's'}</div>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45 }}>This device stays signed in. You can safely end every other session for your account.</div>
-              {otherSessionCount > 0 && <button className="btn-secondary" onClick={revokeOtherSessions} disabled={sessionSaving} style={{ marginTop: 12, width: '100%', justifyContent: 'center' }}>{sessionSaving ? 'Signing out…' : `Sign out ${otherSessionCount} other session${otherSessionCount === 1 ? '' : 's'}`}</button>}
-            </>}
+        <section className="mb-5">
+          <p className="mb-2 text-xs font-medium tracking-widest text-muted uppercase">Active sessions</p>
+          <div className="rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+            {sessions === null ? <div className="text-sm text-muted">Loading signed-in sessions…</div> : (
+              <>
+                <div className="text-sm font-medium">{sessions.length} active session{sessions.length === 1 ? '' : 's'}</div>
+                <p className="mt-1 text-sm text-muted">This device stays signed in. You can safely end every other session for your account.</p>
+                {otherSessionCount > 0 && (
+                  <Button variant="secondary" className="mt-3 w-full justify-center" onClick={revokeOtherSessions} disabled={sessionSaving}>
+                    {sessionSaving ? 'Signing out…' : `Sign out ${otherSessionCount} other session${otherSessionCount === 1 ? '' : 's'}`}
+                  </Button>
+                )}
+              </>
+            )}
           </div>
         </section>
 
         <section>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Farm backup</div>
-          <div className="farm-card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Download operational data</div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45 }}>Exports farms, batches, work, inventory, finance and audit data as JSON. Passwords, PINs and session tokens are excluded.</div>
-            {canDownloadBackup ? <button className="btn-primary" onClick={downloadBackup} disabled={backupSaving} style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}>{backupSaving ? 'Preparing backup…' : 'Download farm backup'}</button> : <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 10 }}>Only the farm owner can download a full backup.</div>}
+          <p className="mb-2 text-xs font-medium tracking-widest text-muted uppercase">Farm backup</p>
+          <div className="rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+            <div className="text-sm font-medium">Download operational data</div>
+            <p className="mt-1 text-sm text-muted">Exports farms, batches, work, inventory, finance and audit data as JSON. Passwords, PINs and session tokens are excluded.</p>
+            {canDownloadBackup ? (
+              <Button className="mt-3 w-full justify-center" onClick={downloadBackup} disabled={backupSaving}>{backupSaving ? 'Preparing backup…' : 'Download farm backup'}</Button>
+            ) : (
+              <p className="mt-2 text-xs text-subtle">Only the farm owner can download a full backup.</p>
+            )}
           </div>
         </section>
       </div>
