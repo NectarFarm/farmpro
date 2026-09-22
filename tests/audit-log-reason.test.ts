@@ -39,12 +39,16 @@ describe('auditReason (pure)', () => {
 describe('components/farm/governance.tsx — Activity Log row renders the reason (issue #309)', () => {
   const source = readFileSync(join(process.cwd(), 'components/farm/governance.tsx'), 'utf8')
 
-  it('computes the reason from entry.meta for each row', () => {
-    expect(source).toMatch(/const reason = auditReason\(entry\.meta\)/)
+  // ui/governance-reference-redesign: the Activity Log row's markup moved
+  // from a hand-styled card (`Reason: {reason}` as inline text) into the
+  // ui-kit `Kv` label/value row every other detail field in the redesigned
+  // screen uses (AuditInspector's dl) — same computation, same "only when
+  // present" guard, different (shared, consistent) presentation component.
+  it('computes the reason from the selected event’s meta', () => {
+    expect(source).toMatch(/const reason = auditReason\(event\.meta\)/)
   })
 
-  it('renders a "Reason: …" line only when present', () => {
-    expect(source).toMatch(/\{reason && \(/)
-    expect(source).toMatch(/Reason: \{reason\}/)
+  it('renders the reason as a Kv row only when present', () => {
+    expect(source).toMatch(/\{reason && <Kv label="Reason" value=\{reason\} \/>\}/)
   })
 })
