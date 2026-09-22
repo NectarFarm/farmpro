@@ -8,6 +8,21 @@ import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import { StatusTimeline } from './status-timeline';
 import { parseMoneyToCents, formatMoney, centsToMajor } from '@/lib/money';
+import { PageHeader, Kpi } from '@/components/ui-kit/page-header';
+import { Chips } from '@/components/ui-kit/segmented';
+import { Badge } from '@/components/ui-kit/badge';
+import { Avatar } from '@/components/ui-kit/avatar';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { cn } from '@/lib/utils';
+
+// ── People screen — redesigned onto the reference's avatar-led roster list
+// (ui/governance-reference-redesign), same backend as before (GET/POST
+// /api/employees). Hero: the crew roster — role, status, phone and assigned
+// batches at a glance. Per-employee permission overrides, payroll history
+// and worker PIN provisioning are unchanged and stay inside
+// PeopleDetailScreen (see docs/ui-migration-map.md §2 People).
 
 // ── Real API shapes (issue #248 — wired to GET/POST /api/employees,
 // GET/PATCH /api/employees/[id], GET/PUT /api/role-permissions from #247/#243).
@@ -210,143 +225,117 @@ export function PeopleScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="People" subtitle="Staff, roles & access"
-        rightEl={
-          <div className="btn-cluster">
-            {/* Card / Table toggle */}
-            <div style={{ display: 'flex', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-              {(['card','table'] as const).map((m) => (
-                <button key={m} onClick={() => setViewMode(m)} style={{
-                  width: 32, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                  background: viewMode === m ? 'rgba(var(--primary-rgb),0.15)' : 'var(--surface)', border: 'none',
-                  color: viewMode === m ? 'var(--primary-green)' : 'var(--text-dim)', fontSize: 'var(--fs-md)',
-                }} title={m === 'card' ? 'Card view' : 'Table view'}>
-                  {m === 'card' ? <Grid3X3 size={15} aria-hidden="true" /> : <List size={15} aria-hidden="true" />}
-                </button>
-              ))}
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-10">
+        <PageHeader
+          kicker="Farm"
+          title="People"
+          lede="Everyone on the roster — role, status and who to reach."
+          actions={(
+            <div className="flex items-center gap-2">
+              <div className="flex overflow-hidden rounded-md shadow-(--shadow-border)">
+                {(['card', 'table'] as const).map((m) => (
+                  <button key={m} type="button" onClick={() => setViewMode(m)}
+                    className={cn('flex size-9 items-center justify-center', viewMode === m ? 'bg-primary-soft text-primary' : 'bg-surface text-muted')}
+                    title={m === 'card' ? 'Card view' : 'Table view'}>
+                    {m === 'card' ? <Grid3X3 size={15} aria-hidden="true" /> : <List size={15} aria-hidden="true" />}
+                  </button>
+                ))}
+              </div>
+              <Button variant="secondary" size="icon-sm" onClick={() => setShowImport(true)} title="Import employees CSV" aria-label="Import employees CSV">
+                <Upload size={14} />
+              </Button>
+              <Button onClick={() => setShowAdd(true)}><Plus size={14} /> Add person</Button>
             </div>
-            <button onClick={() => setShowImport(true)} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Import employees CSV">
-              <Upload size={13} color="var(--text-muted)" />
-            </button>
-            <button className="btn-fab" style={{ width: 36, height: 36, borderRadius: 10 }} onClick={() => setShowAdd(true)}>
-              <Plus size={16} />
-            </button>
-          </div>
-        }
-      />
+          )}
+        />
 
-      <div className="px-screen" style={{ paddingTop: 12 }}>
         {/* Summary — also doubles as the Active/Inactive filter (farms/employees
             CRUD task): deactivated staff must stay findable, not disappear
             once toggled off. */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          {([
-            { label: 'Active', value: list.filter((e) => e.status === 'ACTIVE').length, color: 'var(--status-ok)', target: 'Active' as const },
-            { label: 'Inactive', value: list.filter((e) => e.status !== 'ACTIVE').length, color: 'var(--text-muted)', target: 'Inactive' as const },
-            { label: 'Total', value: list.length, color: 'var(--accent-blue)', target: 'All' as const },
-          ]).map((s) => (
-            <button
-              key={s.label}
-              onClick={() => setStatusFilter((cur) => (cur === s.target ? 'All' : s.target))}
-              style={{
-                flex: 1, background: 'var(--card)', borderRadius: 12, padding: '10px 8px', textAlign: 'center', cursor: 'pointer',
-                border: statusFilter === s.target ? `1px solid ${s.color}` : '1px solid var(--border-subtle)',
-              }}
-            >
-              <div style={{ fontSize: 'var(--fs-2xl)', fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
-            </button>
-          ))}
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <Kpi label="Active" value={list.filter((e) => e.status === 'ACTIVE').length} tone="ok" onClick={() => setStatusFilter((cur) => (cur === 'Active' ? 'All' : 'Active'))} />
+          <Kpi label="Inactive" value={list.filter((e) => e.status !== 'ACTIVE').length} onClick={() => setStatusFilter((cur) => (cur === 'Inactive' ? 'All' : 'Inactive'))} />
+          <Kpi label="Total" value={list.length} onClick={() => setStatusFilter('All')} />
         </div>
 
-        {loadError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{loadError}</div>}
+        {loadError && <div className="mt-3 text-sm text-danger">{loadError}</div>}
 
-        {/* Search */}
-        <div style={{ position: 'relative', marginBottom: 10 }}>
-          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <input className="farm-input" style={{ paddingLeft: 34, fontSize: 'var(--fs-base)' }} placeholder="Search name, id, phone…" value={search} onChange={e => setSearch(e.target.value)} />
-          {search && <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}><X size={14} /></button>}
+        <div className="relative mt-5 mb-3">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, id, phone…" className="pl-9" aria-label="Search staff" />
+          {search && (
+            <button type="button" onClick={() => setSearch('')} className="absolute top-1/2 right-3 -translate-y-1/2 text-subtle"><X size={14} /></button>
+          )}
         </div>
 
-        {/* Filter */}
-        <div className="chip-row" style={{ marginBottom: 14 }}>
-          {roles.map((r) => (
-            <button key={r} onClick={() => setFilter(r)} className={`filter-chip ${filter === r ? 'active' : ''}`}>{r === 'All' ? 'All' : roleLabel(r)}</button>
-          ))}
+        <div className="mb-4">
+          <Chips value={filter} onChange={setFilter} items={roles.map(r => ({ id: r, label: r === 'All' ? 'All' : roleLabel(r) }))} />
         </div>
 
         {employees === null && !loadError && (
-          <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading staff…</div>
+          <div className="py-10 text-center text-sm text-muted">Loading staff…</div>
         )}
 
-        {/* Employee list: card view or table view */}
+        {/* Roster: card view (hero) or table view */}
         {employees !== null && viewMode === 'table' ? (
-          <div style={{ marginBottom: 80 }}>
-            <DataTable
-              rows={filtered as unknown as Record<string, unknown>[]}
-              columns={PEOPLE_COLS}
-              rowKey={(r) => r.id as string}
-              onRowClick={(r) => navigate('people-detail', { id: r.id as string })}
-              defaultPageSize={20}
-              pageSizes={[10, 20, 50, 100, 200]}
-              bodyHeight={380}
-              tableId="people-staff"
-              emptyText="No staff match your search."
-            />
-          </div>
+          <DataTable
+            rows={filtered as unknown as Record<string, unknown>[]}
+            columns={PEOPLE_COLS}
+            rowKey={(r) => r.id as string}
+            onRowClick={(r) => navigate('people-detail', { id: r.id as string })}
+            defaultPageSize={20}
+            pageSizes={[10, 20, 50, 100, 200]}
+            bodyHeight={380}
+            tableId="people-staff"
+            emptyText="No staff match your search."
+          />
         ) : employees !== null && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 80 }}>
+          <>
             {filtered.length === 0 && list.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '28px 16px' }}>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>No people yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>Add someone before you can give them a login or assign a batch.</div>
-                <button type="button" className="btn-primary" onClick={() => setShowAdd(true)}><Plus size={14} /> Add a person</button>
-              </div>
+              <EmptyState icon={<Key size={20} />} title="No people yet" body="Add someone before you can give them a login or assign a batch."
+                action={<Button className="w-full justify-center" onClick={() => setShowAdd(true)}><Plus size={14} /> Add a person</Button>} />
             )}
-            {filtered.length === 0 && list.length > 0 && <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>No one matches that search.</div>}
-            {filtered.map((emp) => (
-              <button key={emp.id} onClick={() => navigate('people-detail', { id: emp.id })}
-                className="farm-card" style={{ padding: 14, textAlign: 'left', width: '100%', cursor: 'pointer' }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                    background: `${getRoleColor(emp.role)}20`,
-                    border: `1px solid ${getRoleColor(emp.role)}40`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 'var(--fs-lg)', fontWeight: 700, color: getRoleColor(emp.role),
-                  }}>
-                    {initials(emp.name)}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
-                      <span style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{emp.name}</span>
-                      {emp.status !== 'ACTIVE' && <span style={{ fontSize: 'var(--fs-2xs)', background: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)', padding: '1px 6px', borderRadius: 100, fontWeight: 600 }}>{emp.status}</span>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span className={`chip ${getRoleBadge(emp.role)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{roleLabel(emp.role)}</span>
-                      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{emp.phone || '—'}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-                      {emp.userId && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-                          <Key size={10} /> Account linked
-                        </span>
+            {filtered.length === 0 && list.length > 0 && (
+              <div className="py-10 text-center text-sm text-muted">No one matches that search.</div>
+            )}
+            {filtered.length > 0 && (
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {filtered.map((emp) => (
+                  <li key={emp.id}>
+                    <button type="button" onClick={() => navigate('people-detail', { id: emp.id })}
+                      className="flex w-full flex-col gap-2.5 rounded-xl bg-surface px-4 py-3.5 text-left shadow-(--shadow-border) hover:shadow-(--shadow-border-hover)">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={emp.name} size="lg" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium">{emp.name}</span>
+                            {emp.status !== 'ACTIVE' && <Badge variant="default">{emp.status}</Badge>}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                            <Badge variant="primary">{roleLabel(emp.role)}</Badge>
+                            <span className="text-xs text-muted">{emp.phone || '—'}</span>
+                            {emp.userId && (
+                              <span className="flex items-center gap-1 text-xs text-subtle"><Key size={10} /> Linked</span>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight size={16} className="shrink-0 text-subtle" />
+                      </div>
+                      {emp.assignedBatchIds.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pl-[3.25rem]">
+                          {emp.assignedBatchIds.slice(0, 4).map((b) => (
+                            <span key={b} className="rounded-full bg-primary-soft px-2.5 py-0.5 text-xs font-medium text-primary">{batchLabel(b)}</span>
+                          ))}
+                          {emp.assignedBatchIds.length > 4 && <span className="text-xs text-muted">+{emp.assignedBatchIds.length - 4} more</span>}
+                        </div>
                       )}
-                    </div>
-                  </div>
-                  <ChevronRight size={16} color="var(--text-dim)" />
-                </div>
-                {emp.assignedBatchIds.length > 0 && (
-                  <div style={{ marginTop: 10, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {emp.assignedBatchIds.slice(0, 4).map((b) => (
-                      <span key={b} style={{ padding: '2px 8px', borderRadius: 100, background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.15)', fontSize: 'var(--fs-2xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>{batchLabel(b)}</span>
-                    ))}
-                    {emp.assignedBatchIds.length > 4 && <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>+{emp.assignedBatchIds.length - 4} more</span>}
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </div>
 
