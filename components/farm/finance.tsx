@@ -4,7 +4,6 @@ import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, Download, ChevronRight, Receipt } from './icons';
-import { Wallet } from 'lucide-react';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
@@ -13,10 +12,7 @@ import { fieldErrorStyle, FieldError } from './ui-shared';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/ui-kit/page-header';
 import { Segmented } from '@/components/ui-kit/segmented';
-import { Badge } from '@/components/ui-kit/badge';
 import { Button } from '@/components/ui-kit/button';
-import { Input } from '@/components/ui-kit/input';
-import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 
 // ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
@@ -1173,77 +1169,80 @@ export function FinanceScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Finance" subtitle="Sales, purchases & GL"
-        rightEl={
-          <button className="btn-fab" style={{ width: 36, height: 36, borderRadius: 10 }}
-            onClick={() => { if (tab === 'sales') setShowRecordSale(true); else if (tab === 'purchases') setShowRecordPurchase(true); }}>
-            <Plus size={16} />
-          </button>
-        }
-      />
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-10">
+        <PageHeader
+          kicker="Company"
+          title="Finance"
+          lede="Sales, purchases, payroll, and a ledger that stays in balance."
+          actions={
+            <Button onClick={() => { if (tab === 'sales') setShowRecordSale(true); else if (tab === 'purchases') setShowRecordPurchase(true); else if (tab === 'payroll') setShowRunPayroll(true); }}>
+              <Plus size={16} />
+              {tab === 'payroll' ? 'Run payroll' : tab === 'purchases' ? 'Record purchase' : 'Record sale'}
+            </Button>
+          }
+        />
 
-      {/* Tabs */}
-      <div className="px-screen" style={{ paddingTop: 12 }}>
-        <div className="chip-row" style={{ marginBottom: 14 }}>
-          {([['overview','Overview'],['sales','Sales'],['purchases','Expenses'],['gl','GL Accounts'],['payroll','Payroll']] as [string,string][]).map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id as typeof tab)} className={`filter-chip ${tab === id ? 'active' : ''}`}>{label}</button>
-          ))}
+        <div className="mt-5">
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            items={[
+              { id: 'overview', label: 'Overview' },
+              { id: 'sales', label: 'Sales' },
+              { id: 'purchases', label: 'Expenses' },
+              { id: 'gl', label: 'GL accounts' },
+              { id: 'payroll', label: 'Payroll' },
+            ]}
+          />
         </div>
-      </div>
 
       {/* ── OVERVIEW ── */}
       {tab === 'overview' && (
-        <div className="px-screen">
+        <div className="mt-5">
           {/* Month/Quarter/YTD toggle (issue #299) — restored from the
               original design (commit 80ab7db); re-fetches GET
               /api/reports/pl scoped to the selected period (loadBudget
               above) rather than always showing all-time totals. */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, marginBottom: 12 }}>
-            {BUDGET_PERIODS.map((p) => (
-              <button key={p} onClick={() => setPeriod(p)} style={{
-                padding: '4px 10px', borderRadius: 100, fontSize: 'var(--fs-2xs)', fontWeight: 700, cursor: 'pointer',
-                background: period === p ? 'rgba(var(--primary-rgb),0.2)' : 'transparent',
-                border: period === p ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid transparent',
-                color: period === p ? 'var(--primary-green)' : 'var(--text-muted)',
-              }}>{p.toUpperCase()}</button>
-            ))}
+          <div className="mb-3 flex justify-end">
+            <Segmented value={period} onChange={setPeriod} items={BUDGET_PERIODS.map((p) => ({ id: p, label: p.toUpperCase() }))} />
           </div>
 
-          <div className="farm-card farm-card-active" style={{ padding: 18, marginBottom: 14 }}>
+          <div className="mb-5 rounded-xl bg-surface p-5 shadow-(--shadow-border)">
             {/* Was "Budget Overview". Renamed with the fabricated budget bar that sat
                 under it: the card has never shown a budget, only what actually
                 came in and went out, and a heading promising one is what made
                 the bar beneath it read as attainment. */}
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Money in and out — {periodLabel}</div>
-            {budgetError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{budgetError}</div>}
+            <p className="text-sm font-medium">Money in and out — {periodLabel}</p>
+            {budgetError && <div className="mt-2 text-sm text-danger">{budgetError}</div>}
             {!budgetError && !hasFinanceActivity ? (
               // Honest empty state (owner-roast finding #3) — no sales,
               // purchases or payroll runs at all in this period, distinct
               // from a real negative net below.
-              <div style={{ textAlign: 'center', padding: '18px 0' }}>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 4 }}>Nothing recorded for {periodLabel} yet</div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>Record a sale or a purchase and this will show real revenue, expenses and net.</div>
+              <div className="py-4 text-center">
+                <div className="mb-1 text-sm font-semibold text-fg">Nothing recorded for {periodLabel} yet</div>
+                <div className="text-xs text-subtle">Record a sale or a purchase and this will show real revenue, expenses and net.</div>
               </div>
             ) : (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-ok)' }}>KSh {(totalRevenue/1000).toFixed(0)}K</div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Revenue</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {(totalExpenses/1000).toFixed(0)}K</div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Expenses</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 'var(--fs-xl)', fontWeight: 700, color: margin > 0 ? 'var(--primary-green)' : 'var(--status-critical)' }}>
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  <button type="button" className="text-left" onClick={() => setTab('sales')}>
+                    <p className="font-display text-2xl tabular-nums text-success">KSh {(totalRevenue/1000).toFixed(0)}K</p>
+                    <p className="mt-1 text-xs text-muted">Revenue</p>
+                  </button>
+                  <button type="button" className="text-left" onClick={() => setTab('purchases')}>
+                    <p className="font-display text-2xl tabular-nums text-danger">KSh {(totalExpenses/1000).toFixed(0)}K</p>
+                    <p className="mt-1 text-xs text-muted">Expenses</p>
+                  </button>
+                  <button type="button" className="text-left" onClick={() => setTab('gl')}>
+                    <p className={cn('font-display text-2xl tabular-nums', margin > 0 ? 'text-primary' : 'text-danger')}>
                       {margin > 0 ? '+' : ''}KSh {(margin/1000).toFixed(0)}K
-                    </div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600 }}>Net</div>
-                  </div>
+                    </p>
+                    <p className="mt-1 text-xs text-muted">Net</p>
+                  </button>
                 </div>
                 {margin < 0 && (
-                  <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(var(--critical-rgb),0.08)', border: '1px solid rgba(var(--critical-rgb),0.2)', borderRadius: 8, fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', lineHeight: 1.5 }}>
+                  <div className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
                     You spent more than you took in for {periodLabel}: KSh {(totalExpenses/1000).toFixed(0)}K recorded against KSh {(totalRevenue/1000).toFixed(0)}K in sales.
                   </div>
                 )}
@@ -1251,38 +1250,42 @@ export function FinanceScreen() {
                     to be computed. This line says what the three figures are and
                     what they are not, which is the same "state your basis" rule
                     the reports and the weather advice already follow. */}
-                <div style={{ marginTop: 12, fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                <p className="mt-4 text-sm leading-relaxed text-muted">
                   Actuals for {periodLabel}, from your recorded sales and purchases. You haven&rsquo;t set a budget to compare them against — this app has nowhere to enter one yet.
-                </div>
+                </p>
               </>
             )}
           </div>
 
-          <div className="section-eyebrow" style={{ marginBottom: 10 }}>Batch P&amp;L</div>
-          {batchesError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{batchesError}</div>}
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-medium">Batch P&amp;L</h2>
+            <p className="text-xs text-subtle">Tap a row for the full picture</p>
+          </div>
+          {batchesError && <div className="mb-2 text-sm text-danger">{batchesError}</div>}
           {batches === null && !batchesError && (
-            <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading batch P&amp;L…</div>
+            <div className="py-5 text-center text-sm text-subtle">Loading batch P&amp;L…</div>
           )}
           {batches !== null && (
-            <DataTable
-              rows={batchPLRows as unknown as Record<string, unknown>[]}
-              columns={BATCH_PNL_COLS}
-              rowKey={(r) => r.id as string}
-              onRowClick={(r) => navigate('batch-detail', { id: r.id as string, code: r.code as string })}
-              defaultPageSize={10}
-              pageSizes={[10, 20, 50]}
-              bodyHeight={220}
-              tableId="finance-batchpl"
-              emptyText="No batch P&L data."
-            />
+            <div className="overflow-hidden rounded-xl bg-surface shadow-(--shadow-border)">
+              <DataTable
+                rows={batchPLRows as unknown as Record<string, unknown>[]}
+                columns={BATCH_PNL_COLS}
+                rowKey={(r) => r.id as string}
+                onRowClick={(r) => navigate('batch-detail', { id: r.id as string, code: r.code as string })}
+                defaultPageSize={10}
+                pageSizes={[10, 20, 50]}
+                bodyHeight={220}
+                tableId="finance-batchpl"
+                emptyText="No batch P&L data."
+              />
+            </div>
           )}
-          <div style={{ marginBottom: 20 }} />
         </div>
       )}
 
       {/* ── Sales ── */}
       {tab === 'sales' && (
-        <div className="px-screen">
+        <div className="mt-5">
           <div style={{ position: 'relative', marginBottom: 12 }}>
             <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input className="farm-input" style={{ paddingLeft: 34, fontSize: 'var(--fs-base)' }} placeholder="Search item, batch, method…" value={salesSearch} onChange={e => setSalesSearch(e.target.value)} />
@@ -1311,7 +1314,7 @@ export function FinanceScreen() {
 
       {/* ── PURCHASES / EXPENSES ── */}
       {tab === 'purchases' && (
-        <div className="px-screen">
+        <div className="mt-5">
           {purchasesError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{purchasesError}</div>}
           {purchases === null && !purchasesError ? (
             <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading purchases…</div>
@@ -1350,7 +1353,7 @@ export function FinanceScreen() {
 
       {/* ── GL ACCOUNTS ── */}
       {tab === 'gl' && (
-        <div className="px-screen">
+        <div className="mt-5">
           <div style={{ padding: '10px 14px', background: 'rgba(var(--info-rgb),0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(var(--info-rgb),0.2)' }}>
             <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--accent-blue)', marginBottom: 2 }}>General Ledger — {accounts.length} accounts</div>
             <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
@@ -1402,7 +1405,7 @@ export function FinanceScreen() {
 
       {/* ── PAYROLL ── */}
       {tab === 'payroll' && (
-        <div className="px-screen" style={{ marginTop: 8 }}>
+        <div className="mt-5">
           <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 14 }} onClick={() => setShowRunPayroll(true)}>
             <Plus size={14} /> Run Payroll
           </button>
@@ -1455,6 +1458,7 @@ export function FinanceScreen() {
           )}
         </div>
       )}
+      </div>
 
       {showRecordSale && (
         <RecordSaleSheet
