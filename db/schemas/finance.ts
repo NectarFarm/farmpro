@@ -110,6 +110,22 @@ export const sales = pgTable('sales', {
   status: text('status').notNull().default('paid'), // 'paid' | 'pending'
   soldAt: timestamp('sold_at').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  // Migration 0045 (forms-audit slice). `method` stays free text — old rows
+  // keep whatever they already say — but the Record Sale sheet now offers a
+  // fixed list (M-Pesa, Cash, Bank transfer, Credit, Cheque) and, for the
+  // three that have one, a reference: the M-Pesa code, the bank reference,
+  // the cheque number. One column for all three; which it means is implied
+  // by `method`, the same way a bank statement line does.
+  paymentReference: text('payment_reference'),
+  // Set only when `status` is 'pending' (chosen via the Credit method) — the
+  // date the customer is expected to pay. Nullable: most sales are paid on
+  // the spot and never had a due date to begin with.
+  dueDate: timestamp('due_date'),
+  // "Sold to" — one optional free-text buyer name. Not a customer master
+  // (that's a separate epic, #416): this is the note a farmer already writes
+  // on paper, given somewhere to live.
+  soldTo: text('sold_to'),
+  notes: text('notes'),
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),
