@@ -31,6 +31,11 @@ import { tenants, users, sessions, auditLog, farms, productionUnits, batches, em
 import { createSession, hashSecret } from '@/lib/auth'
 
 const hasDb = !!process.env.DATABASE_URL
+
+// A minimal, valid image data URL — matches what lib/record-photos.ts's
+// isImageDataUrl actually checks (shape + charset), not a real decodable
+// image, which the route never inspects.
+const FAKE_PHOTO_DATA_URL = 'data:image/jpeg;base64,' + 'A'.repeat(40)
 const run = hasDb ? describe : describe.skip
 
 function getRequest(url: string): Request {
@@ -348,20 +353,25 @@ run('people & worker backend: employees + records (issue #247)', () => {
       const empRes = await employeesPOST(postRequest('http://localhost/api/employees', { name: 'Record Submitter' }))
       const employee = (await empRes.json()).data
 
+      // Several-photos-per-record task: POST /api/records now validates any
+      // photoUrl/photoUrls as a real image data URL (lib/record-photos.ts) —
+      // a bare https:// link (what this test sent before that task) is no
+      // longer accepted, so this uses a minimal valid one instead.
       const createRes = await recordsPOST(
         postRequest('http://localhost/api/records', {
           batchId: batchAId,
           employeeId: employee.id,
           type: 'mortality',
           data: { count: 4, cause: 'Disease' },
-          photoUrl: 'https://example.com/photo.jpg',
+          photoUrl: FAKE_PHOTO_DATA_URL,
         })
       )
       expect(createRes.status).toBe(201)
       const createdRecord = (await createRes.json()).data
       expect(createdRecord.type).toBe('mortality')
       expect(createdRecord.data).toEqual({ count: 4, cause: 'Disease' })
-      expect(createdRecord.photoUrl).toBe('https://example.com/photo.jpg')
+      expect(createdRecord.photoUrl).toBe(FAKE_PHOTO_DATA_URL)
+      expect(createdRecord.photoUrls).toEqual([FAKE_PHOTO_DATA_URL])
 
       const listRes = await recordsGET(getRequest(`http://localhost/api/records?batchId=${batchAId}&type=mortality`))
       expect(listRes.status).toBe(200)

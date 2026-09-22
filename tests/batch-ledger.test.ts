@@ -208,7 +208,8 @@ run('batch head count is a ledger', () => {
     const approvalId = res.payload.data.approvalRequestId
 
     mockCookie = ownerSession
-    await rejectPOST(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: approvalId }) })
+    // rejection-loop task: a reason is now required.
+    await rejectPOST(jsonRequest('http://localhost', 'POST', { reason: 'Wrong batch, please recount' }), { params: Promise.resolve({ id: approvalId }) })
     mockCookie = undefined
 
     expect(await currentQty()).toBe(500)

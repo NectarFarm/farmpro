@@ -510,7 +510,7 @@ export function GovernanceScreen() {
 
   // The actual API call, shared by both paths below. `reason` is only ever
   // sent (and only ever required server-side) on a reject.
-  async function performDecide(a: ApprovalRequestRow, decision: 'approve' | 'reject', reason?: string): Promise<boolean> {
+  async function decideRequest(a: ApprovalRequestRow, decision: 'approve' | 'reject', reason?: string): Promise<boolean> {
     setDecidingId(a.id);
     const res = await apiClient.post(
       `/api/approvals/${a.id}/${decision}?tenantId=${tenantId}`,
@@ -532,12 +532,12 @@ export function GovernanceScreen() {
   // RejectReasonDialog (below) and waits for a reason. Approve is unchanged.
   function decide(a: ApprovalRequestRow, decision: 'approve' | 'reject') {
     if (decision === 'reject') { setRejectTarget(a); return; }
-    void performDecide(a, decision);
+    void decideRequest(a, decision);
   }
 
   async function confirmReject(reason: string) {
     if (!rejectTarget) return;
-    const done = await performDecide(rejectTarget, 'reject', reason);
+    const done = await decideRequest(rejectTarget, 'reject', reason);
     if (done) setRejectTarget(null);
   }
 
