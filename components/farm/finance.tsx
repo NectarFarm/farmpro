@@ -275,6 +275,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   const [batchId, setBatchId] = useState('');
   const [soldAt, setSoldAt] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
+  const [salePostingDate, setSalePostingDate] = useState('');
   const [soldTo, setSoldTo] = useState('');
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<MasterOption[]>([]);
@@ -366,6 +367,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
     }
     if (soldAt && soldAt > todayIso) errs.soldAt = 'A sale cannot be dated in the future';
     if (effectiveDate && effectiveDate > todayIso) errs.effectiveDate = 'The effective date cannot be in the future';
+    if (salePostingDate && salePostingDate > todayIso) errs.salePostingDate = 'The posting date cannot be in the future';
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       setError('');
@@ -392,6 +394,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
       dueDate: dueDate || undefined,
       notes: notes.trim() || undefined,
       effectiveDate: effectiveDate || undefined,
+      postingDate: salePostingDate || undefined,
     });
     setSaving(false);
     if (res.success) {
@@ -525,7 +528,19 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
               style={fieldErrorStyle(!!fieldErrors.effectiveDate)}
               aria-invalid={!!fieldErrors.effectiveDate} aria-describedby={fieldErrors.effectiveDate ? 'sale-effectivedate-error' : undefined} />
             <FieldError id="sale-effectivedate-error" message={fieldErrors.effectiveDate} />
-            <p className="mt-1 text-[11px] leading-relaxed text-muted">When the stock or service actually took effect, if different from Sale date. Defaults to Sale date — and the ledger posting date defaults to this.</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">When the stock or service actually took effect, if different from Sale date. Defaults to Sale date.</p>
+          </div>
+          {/* The period this counts in, defaulting to the effective date and
+              through it to Sale date — so leaving both blank behaves exactly
+              as before. Exposed so a sale entered after month-end can still
+              be posted to the month it belongs to. */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Posting date (optional)</label>
+            <input className="farm-input" type="date" max={todayIso} value={salePostingDate} onChange={e => setSalePostingDate(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.salePostingDate)}
+              aria-invalid={!!fieldErrors.salePostingDate} aria-describedby={fieldErrors.salePostingDate ? 'sale-postingdate-error' : undefined} />
+            <FieldError id="sale-postingdate-error" message={fieldErrors.salePostingDate} />
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">Which month this counts in on reports and the trial balance. Defaults to the effective date.</p>
           </div>
           <div style={{ marginBottom: 12 }}>
             <PaymentMethodFields method={method} onMethodChange={onMethodChange} reference={reference} onReferenceChange={setReference} />
@@ -621,6 +636,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [receivedDate, setReceivedDate] = useState('');
   const [transactionDate, setTransactionDate] = useState('');
+  const [postingDate, setPostingDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
@@ -742,6 +758,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
       notes: notes.trim() || undefined,
       photoUrl: photo || undefined,
       transactionDate: transactionDate || undefined,
+      postingDate: postingDate || undefined,
       farmId,
     });
     setSaving(false);
@@ -888,7 +905,18 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Transaction date (optional)</label>
             <input className="farm-input" type="date" max={todayIso} value={transactionDate} onChange={e => setTransactionDate(e.target.value)} />
-            <p className="mt-1 text-[11px] leading-relaxed text-muted">When the purchase itself happened, if different from Received date. Defaults to Received date — and the ledger posting date defaults to this too.</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">When the purchase itself happened, if different from Received date. Defaults to Received date.</p>
+          </div>
+          {/* The period this counts in. It defaults to the transaction date,
+              which itself defaults to Received date — so leaving all three
+              blank behaves exactly as it always has. Exposed because a farm
+              closing off a month needs to say "this belongs to September"
+              for a delivery entered in October, and until this field existed
+              there was no way to say it (or to check that reports honour it). */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Posting date (optional)</label>
+            <input className="farm-input" type="date" max={todayIso} value={postingDate} onChange={e => setPostingDate(e.target.value)} />
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">Which month this counts in on reports and the trial balance. Defaults to the transaction date.</p>
           </div>
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes (optional)</label>

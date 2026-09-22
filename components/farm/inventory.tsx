@@ -189,6 +189,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [receivedDate, setReceivedDate] = useState('');
   const [transactionDate, setTransactionDate] = useState('');
+  const [postingDate, setPostingDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
@@ -315,6 +316,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
       notes: notes.trim() || undefined,
       photoUrl: photo || undefined,
       transactionDate: transactionDate || undefined,
+      postingDate: postingDate || undefined,
       farmId,
     });
     setSaving(false);
@@ -471,6 +473,12 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
             <Field label="Transaction date (optional)">
               <Input type="date" max={todayIso} value={transactionDate} onChange={e => setTransactionDate(e.target.value)} />
               <p className="mt-1 text-[11px] leading-relaxed text-muted">Defaults to Received date — and the ledger posting date defaults to this too.</p>
+            </Field>
+            {/* Which period it counts in; defaults to the transaction date and
+                through it to Received date, so blank behaves as before. */}
+            <Field label="Posting date (optional)">
+              <input className="farm-input" type="date" max={todayIso} value={postingDate} onChange={e => setPostingDate(e.target.value)} />
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">Which month this counts in on reports. Defaults to the transaction date.</p>
             </Field>
 
             <Field label="Reorder threshold (new items only)">
