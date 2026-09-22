@@ -38,6 +38,8 @@ import { AuditorReportsScreen } from '@/components/farm/auditor';
 import { VetHerdScreen } from '@/components/farm/vet';
 import { LoginScreen, RegisterScreen, ForgotPasswordScreen, AuthShell, AuthMasthead, AuthStage } from '@/components/farm/auth';
 import { apiClient } from '@/lib/request';
+import { PlanSelectScreen, PlanGateWaitingScreen } from '@/components/portal/plan-select';
+import { SupportScreen, SupportTicketScreen } from '@/components/portal/support';
 
 /* ── App-level logout context so any screen can trigger logout ── */
 export const LogoutCtx = createContext<() => void>(() => {});
@@ -53,10 +55,32 @@ const TAB_SCREENS = new Set([
   'inventory','weather','people','governance','reports',
   'ai-chat','ui-customise',
   'auditor-reports','vet-herd',
+  'support','support-ticket',
 ]);
 
 function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?: string }) {
-  const { current } = useNav();
+  const { current, role, subscription } = useNav();
+
+  // ── Plan gate (SaaS back-office, package H2, lead decision #1) ──
+  // Checked on every render (not just at boot) so a subscribe/cancel that
+  // calls refreshSubscription() clears the gate the instant it takes effect,
+  // with no extra navigate() needed. super_admin has no subscription
+  // (`subscription` is always null for that role) and is never gated;
+  // `subscription === null` for a tenant role only means "not loaded yet" —
+  // treated as "don't gate" rather than "gate", same fail-open shape the
+  // session bootstrap already uses for every other unknown state.
+  const gated = role !== 'super_admin' && subscription?.needsPlan === true;
+  if (gated) {
+    return (
+      <div className="farm-shell">
+        <div className="shell-main" style={{ width: '100%' }}>
+          <div className="screen-slot">
+            {role === 'owner' ? <PlanSelectScreen variant="gate" /> : <PlanGateWaitingScreen />}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const screen = (() => {
     switch (current) {
@@ -98,6 +122,9 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'auditor-reports':   return <AuditorReportsScreen />;
       case 'vet-herd':          return <VetHerdScreen />;
       case 'role-notice':       return <RoleNoticeScreen />;
+      case 'plan-select':       return <PlanSelectScreen variant="change" />;
+      case 'support':           return <SupportScreen />;
+      case 'support-ticket':    return <SupportTicketScreen />;
       default:                  return <DashboardScreen />;
     }
   })();
@@ -141,6 +168,12 @@ export default function Home() {
   // `impersonatedBy` field) — drives the global ImpersonationBanner below.
   // Null for every normal session.
   const [impersonation, setImpersonation] = useState<ImpersonationInfo | null>(null);
+  // SaaS back-office (package H2): session.subscription, additive since
+  // docs/backoffice-api.md's tenant-session extension. null for super_admin
+  // and until the boot fetch resolves.
+  const [subscription, setSubscription] = useState<{
+    status: string; planName: string | null; trialEndsAt: string | null; currentPeriodEnd: string | null; needsPlan: boolean;
+  } | null>(null);
 
   // Real session bootstrap (issue #220): GET /api/auth/session on load. 200 with a
   // known role -> authenticated shell; anything else (401, network failure, unknown
@@ -150,7 +183,10 @@ export default function Home() {
     let cancelled = false;
     // Timeout race mirrors the logout pattern (issue #220): a session endpoint
     // that hangs must not leave the shell stuck on the boot screen forever.
-    const boot = apiClient.get<{ id?: string; role?: string; tenantId?: string | null; name?: string; impersonatedBy?: ImpersonationInfo | null }>('/api/auth/session');
+    const boot = apiClient.get<{
+      id?: string; role?: string; tenantId?: string | null; name?: string; impersonatedBy?: ImpersonationInfo | null;
+      subscription?: { status: string; planName: string | null; trialEndsAt: string | null; currentPeriodEnd: string | null; needsPlan: boolean } | null;
+    }>('/api/auth/session');
     const timeout = new Promise<{ success: false }>((resolve) =>
       setTimeout(() => resolve({ success: false }), 3000)
     );
@@ -165,6 +201,7 @@ export default function Home() {
           if (res.success && typeof res.data?.name === 'string' && res.data.name.trim()) setUserName(res.data.name);
           if (res.success && typeof res.data?.id === 'string') setUserId(res.data.id);
           setImpersonation(res.success ? res.data?.impersonatedBy ?? null : null);
+          setSubscription(res.success ? res.data?.subscription ?? null : null);
           setAuthState('app');
         } else {
           // 401, endpoint absent on the new backend, timeout, or unknown role ->
@@ -257,7 +294,7 @@ export default function Home() {
                 )}
 
                 {authState === 'app' && (
-                  <NavProvider initialRole={role} initialTenantId={tenantId ?? undefined} userName={userName}>
+                  <NavProvider initialRole={role} initialTenantId={tenantId ?? undefined} userName={userName} initialSubscription={subscription}>
                     <ScreenRouter onLogout={handleLogout} userName={userName} />
                     {/* Mounted inside the shell so the controls it points at
                        exist by the time it looks for them. */}
