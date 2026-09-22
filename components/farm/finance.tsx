@@ -400,7 +400,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
     if (res.success) {
       onCreated();
       setReceipt({
-        id: res.data.id,
+        id: res.data?.id,
         totalLabel: 'Total',
         totalCents: amountCents,
         stockEffect: needsQty && qtyNum ? `${qtyNum} × ${product?.name} out of ${batches.find((b) => b.id === batchId)?.code ?? 'the batch'}` : undefined,
@@ -765,7 +765,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     if (res.success) {
       onCreated();
       setReceipt({
-        id: res.data.id,
+        id: (res.data as { purchase?: { id?: string } }).purchase?.id,
         totalLabel: 'Total',
         totalCents,
         stockEffect: `${qty} ${unit.trim()} of ${itemName.trim()} added to Inventory`,
