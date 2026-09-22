@@ -3,12 +3,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
-import { Plus, Search, X, Download, ChevronRight, Receipt } from './icons';
+import { Plus, Search, X, Download, ChevronRight, Receipt, Check } from './icons';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
-import { fieldErrorStyle, FieldError } from './ui-shared';
+import { fieldErrorStyle, FieldError, PaymentMethodFields } from './ui-shared';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/ui-kit/page-header';
 import { Segmented } from '@/components/ui-kit/segmented';
@@ -231,25 +231,78 @@ interface ApiProductLite {
   stockEffect: string;
 }
 
-function RecordSaleSheet({ tenantId, batches, paymentMethods, onCreated, onClose }: {
+// A save now tells you what happened (item 5) — the reference/id, the total,
+// the stock effect where there is one, and a way to actually see it, instead
+// of the sheet just closing. Shared shape for both sale and purchase.
+interface SaveReceipt {
+  id: string;
+  totalLabel: string;
+  totalCents: number;
+  stockEffect?: string;
+}
+
+function SaveConfirmation({ title, receipt, onViewList, onDone }: {
+  title: string;
+  receipt: SaveReceipt;
+  onViewList: () => void;
+  onDone: () => void;
+}) {
+  return (
+    <div className="px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-success-soft text-success">
+          <Check size={20} aria-hidden="true" />
+        </span>
+        <div>
+          <div className="font-display text-xl font-medium text-fg">{title}</div>
+          <div className="text-xs text-muted">Reference {receipt.id.slice(0, 8).toUpperCase()}</div>
+        </div>
+      </div>
+      <div className="mb-4 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+        <div className="flex justify-between text-sm">
+          <span className="text-muted">{receipt.totalLabel}</span>
+          <span className="font-display text-lg font-medium text-fg">{formatMoney(receipt.totalCents)}</span>
+        </div>
+        {receipt.stockEffect && (
+          <div className="mt-2 border-t border-border pt-2 text-sm text-muted">{receipt.stockEffect}</div>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <Button variant="secondary" className="h-11 flex-1" onClick={onViewList}>View in the list</Button>
+        <Button className="h-11 flex-1" onClick={onDone}>Done</Button>
+      </div>
+    </div>
+  );
+}
+
+function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: {
   tenantId: string;
   batches: ApiBatchLite[];
-  paymentMethods: string[];
   onCreated: () => void;
+  onViewList: () => void;
   onClose: () => void;
 }) {
   const { navigate } = useNav();
   const [products, setProducts] = useState<ApiProductLite[] | null>(null);
   const [productId, setProductId] = useState('');
   const [item, setItem] = useState('');
-  const [qty, setQty] = useState('');
-  const [amount, setAmount] = useState('');
+  // Defaults to '1': most sales are one line of one thing. A product that
+  // comes out of the batch by count still forces a real number (see
+  // `needsQty` below) — this default only ever stands in for a sale that
+  // never had a meaningful count to begin with (a service, a mixed lot).
+  const [qty, setQty] = useState('1');
+  const [unitPrice, setUnitPrice] = useState('');
   const [method, setMethod] = useState('');
+  const [reference, setReference] = useState('');
   const [status, setStatus] = useState<'paid' | 'pending'>('paid');
   const [batchId, setBatchId] = useState('');
   const [soldAt, setSoldAt] = useState('');
+  const [soldTo, setSoldTo] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [receipt, setReceipt] = useState<SaveReceipt | null>(null);
   // owner-roast finding #11: a 0 amount was already refused on save, but as
   // a generic banner with no mark on the field itself — the input still
   // looked exactly as submittable as a valid one. Per-field, same mechanism
@@ -262,6 +315,17 @@ function RecordSaleSheet({ tenantId, batches, paymentMethods, onCreated, onClose
     });
   }, []);
 
+  // Credit is a shortcut, not a separate field: choosing it is what "means
+  // unpaid" (item 2) — status flips to pending and the due date appears.
+  // Picking a different method afterwards flips it back, same as before
+  // this existed (a manual PAID/PENDING toggle for the cash-not-yet-
+  // collected case still stands on its own for every other method).
+  function onMethodChange(next: string) {
+    setMethod(next);
+    if (next === 'Credit') setStatus('pending');
+    else if (method === 'Credit') { setStatus('paid'); setDueDate(''); }
+  }
+
   const product = (products ?? []).find((p) => p.id === productId) ?? null;
   // A product that comes out of the batch needs a count, or the sale records
   // revenue against a headcount that never moved. The route refuses this case
@@ -271,16 +335,23 @@ function RecordSaleSheet({ tenantId, batches, paymentMethods, onCreated, onClose
   // out of every P&L period while staying in the trial balance.
   const todayIso = new Date().toISOString().slice(0, 10);
 
+  // ── Money that adds up (item 3) ────────────────────────────────────────
+  // Quantity x unit price = total, calculated here and shown — never a lone
+  // typed figure. The TOTAL is still what gets stored as `amountCents`, so
+  // nothing downstream (P&L, trial balance, a report) changes meaning.
+  const unitPriceCents = parseMoneyToCents(unitPrice);
+  const qtyForTotal = qty.trim() === '' ? 1 : Number(qty);
+  const totalCents = unitPriceCents !== null && Number.isFinite(qtyForTotal) && qtyForTotal > 0
+    ? unitPriceCents * Math.max(1, Math.trunc(qtyForTotal))
+    : null;
+
   async function save() {
-    const amountCents = parseMoneyToCents(amount);
     const label = productId ? (product?.name ?? '') : item.trim();
     const qtyNum = qty.trim() === '' ? null : Number(qty);
 
     const errs: Record<string, string> = {};
     if (!label) errs.item = 'Choose a product, or name what was sold';
-    // Explicit: a 0 (or blank, or negative) amount is rejected here, not
-    // just by the server after a round trip.
-    if (amountCents === null || amountCents <= 0) errs.amount = 'Amount must be a positive number — 0 is not a sale';
+    if (unitPriceCents === null || unitPriceCents <= 0) errs.unitPrice = 'Unit price must be a positive number — 0 is not a sale';
     if (qtyNum !== null && (!Number.isFinite(qtyNum) || qtyNum <= 0 || !Number.isInteger(qtyNum))) {
       errs.qty = 'Quantity must be a whole number greater than zero';
     } else if (needsQty && qtyNum === null) {
@@ -294,149 +365,188 @@ function RecordSaleSheet({ tenantId, batches, paymentMethods, onCreated, onClose
     }
     setFieldErrors({});
 
+    const amountCents = totalCents as number;
     setSaving(true);
     setError('');
-    const res = await apiClient.post('/api/data/sales', {
+    const res = await apiClient.post<{ id: string }>('/api/data/sales', {
       tenantId,
       productId: productId || undefined,
       item: label,
       qty: qtyNum ?? undefined,
       amountCents,
       method: method.trim() || undefined,
+      paymentReference: reference.trim() || undefined,
       status,
       batchId: batchId || undefined,
       soldAt: soldAt || undefined,
+      soldTo: soldTo.trim() || undefined,
+      dueDate: dueDate || undefined,
+      notes: notes.trim() || undefined,
     });
     setSaving(false);
     if (res.success) {
       onCreated();
-      onClose();
+      setReceipt({
+        id: res.data.id,
+        totalLabel: 'Total',
+        totalCents: amountCents,
+        stockEffect: needsQty && qtyNum ? `${qtyNum} × ${product?.name} out of ${batches.find((b) => b.id === batchId)?.code ?? 'the batch'}` : undefined,
+      });
     } else {
       setError(res.error || 'Failed to record sale.');
     }
   }
 
+  if (receipt) {
+    return (
+      <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+        <SheetTitle className="sr-only">Sale recorded</SheetTitle>
+        <SaveConfirmation title="Sale recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
+      </Sheet>
+    );
+  }
+
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        <SheetTitle className="mb-3.5">Record Sale</SheetTitle>
+      {/* item 15: a sticky footer keeps Record Sale reachable without
+          scrolling past every field first, on a long sheet on a phone. */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4">
+          <SheetTitle className="mb-3.5">Record Sale</SheetTitle>
 
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>What was sold *</label>
-          {products !== null && products.length === 0 ? (
-            // ── Honest empty state, not a fake picker ──────────────────────
-            // A dropdown whose only option is "Not in the catalogue" when the
-            // catalogue has zero products isn't a picker at all — it quietly
-            // admits Products setup never happened while still looking like
-            // the feature works. Say that plainly and point at Products,
-            // rather than routing straight to free text as if this were the
-            // normal path.
-            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', borderRadius: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
-                No products set up yet, so sales cannot draw down stock. Set up products first, or record this as a one-off below.
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>What was sold *</label>
+            {products !== null && products.length === 0 ? (
+              // ── Honest empty state, not a fake picker ──────────────────────
+              // A dropdown whose only option is "Not in the catalogue" when the
+              // catalogue has zero products isn't a picker at all — it quietly
+              // admits Products setup never happened while still looking like
+              // the feature works. Say that plainly and point at Products,
+              // rather than routing straight to free text as if this were the
+              // normal path.
+              <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', border: '1px solid rgba(var(--warning-rgb),0.2)', borderRadius: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
+                  No products set up yet, so sales cannot draw down stock. Set up products first, or record this as a one-off below.
+                </div>
+                <button type="button" className="btn-secondary" style={{ fontSize: 'var(--fs-xs)' }} onClick={() => { onClose(); navigate('crops', { tab: 'products' }); }}>
+                  Set up Products
+                </button>
               </div>
-              <button type="button" className="btn-secondary" style={{ fontSize: 'var(--fs-xs)' }} onClick={() => { onClose(); navigate('crops', { tab: 'products' }); }}>
-                Set up Products
-              </button>
+            ) : (
+              <select
+                className="farm-input"
+                value={productId}
+                onChange={e => { setProductId(e.target.value); if (e.target.value) setItem(''); }}
+                style={{ marginBottom: productId ? 0 : 8 }}
+              >
+                <option value="">{products === null ? 'Loading products…' : 'Not in the catalogue — type it below'}</option>
+                {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
+            {/* The escape hatch, and the only path that leaves stock untouched.
+                Kept because an ad-hoc sale — a service, a one-off — is real. */}
+            {!productId && (
+              <input className="farm-input" placeholder="e.g. Tray eggs (30) × 120" value={item} onChange={e => setItem(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.item)}
+                aria-invalid={!!fieldErrors.item} aria-describedby={fieldErrors.item ? 'sale-item-error' : undefined} />
+            )}
+            {products !== null && products.length === 0 && (
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
+                No products in the catalogue yet, so this sale cannot move stock. Add products to have sales draw down birds or produce.
+              </div>
+            )}
+            <FieldError id="sale-item-error" message={fieldErrors.item} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 6 }}>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit price (KSh) *</label>
+              <input className="farm-input" type="number" min="0.01" step="0.01" placeholder="0" value={unitPrice} onChange={e => setUnitPrice(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.unitPrice)}
+                aria-invalid={!!fieldErrors.unitPrice} aria-describedby={fieldErrors.unitPrice ? 'sale-unitprice-error' : undefined} />
+              <FieldError id="sale-unitprice-error" message={fieldErrors.unitPrice} />
             </div>
-          ) : (
-            <select
-              className="farm-input"
-              value={productId}
-              onChange={e => { setProductId(e.target.value); if (e.target.value) setItem(''); }}
-              style={{ marginBottom: productId ? 0 : 8 }}
-            >
-              <option value="">{products === null ? 'Loading products…' : 'Not in the catalogue — type it below'}</option>
-              {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          )}
-          {/* The escape hatch, and the only path that leaves stock untouched.
-              Kept because an ad-hoc sale — a service, a one-off — is real. */}
-          {!productId && (
-            <input className="farm-input" placeholder="e.g. Tray eggs (30) × 120" value={item} onChange={e => setItem(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.item)}
-              aria-invalid={!!fieldErrors.item} aria-describedby={fieldErrors.item ? 'sale-item-error' : undefined} />
-          )}
-          {products !== null && products.length === 0 && (
-            <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
-              No products in the catalogue yet, so this sale cannot move stock. Add products to have sales draw down birds or produce.
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
+                Quantity{needsQty ? ' *' : ''}
+              </label>
+              <input
+                className="farm-input" type="number" inputMode="numeric" min="1" step="1"
+                placeholder={needsQty ? 'Required' : '1'}
+                value={qty} onChange={e => setQty(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.qty)}
+                aria-invalid={!!fieldErrors.qty} aria-describedby={fieldErrors.qty ? 'sale-qty-error' : undefined}
+              />
+              <FieldError id="sale-qty-error" message={fieldErrors.qty} />
+            </div>
+          </div>
+          {/* The calculated total — never a lone typed figure. This is the
+              exact number that gets stored, shown before it's committed to. */}
+          <div className="mb-3 flex items-center justify-between rounded-lg bg-primary-soft px-3 py-2.5">
+            <span className="text-xs font-semibold text-muted">Total</span>
+            <span className="font-display text-lg font-medium text-primary">{totalCents !== null ? formatMoney(totalCents) : '—'}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Batch (optional)</label>
+              <select className="farm-input" value={batchId} onChange={e => setBatchId(e.target.value)}>
+                <option value="">No batch (general sale)</option>
+                {batches.map(b => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sale date</label>
+              {/* Capped at today: a future-dated sale drops out of every P&L
+                  period while staying in the trial balance, and the two can then
+                  never be reconciled. */}
+              <input className="farm-input" type="date" max={todayIso} value={soldAt} onChange={e => setSoldAt(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.soldAt)}
+                aria-invalid={!!fieldErrors.soldAt} aria-describedby={fieldErrors.soldAt ? 'sale-solddate-error' : undefined} />
+              <FieldError id="sale-solddate-error" message={fieldErrors.soldAt} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <PaymentMethodFields method={method} onMethodChange={onMethodChange} reference={reference} onReferenceChange={setReference} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {(['paid', 'pending'] as const).map(s => (
+                <button key={s} onClick={() => setStatus(s)} style={{
+                  padding: '9px 8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
+                  background: status === s ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
+                  border: status === s ? '1px solid rgba(var(--primary-rgb),0.3)' : '1px solid var(--border-subtle)',
+                  color: status === s ? 'var(--primary-green)' : 'var(--text-muted)',
+                }}>{s.toUpperCase()}</button>
+              ))}
+            </div>
+          </div>
+          {/* Credit means unpaid (item 2): amount due and a due date, shown
+              only once there is an unpaid balance to chase. */}
+          {status === 'pending' && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="mb-2 flex items-center justify-between rounded-lg bg-warning-soft px-3 py-2 text-xs">
+                <span className="font-semibold text-warning">Amount due</span>
+                <span className="font-medium text-fg">{totalCents !== null ? formatMoney(totalCents) : '—'}</span>
+              </div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due date</label>
+              <input className="farm-input" type="date" min={todayIso} value={dueDate} onChange={e => setDueDate(e.target.value)} />
             </div>
           )}
-          <FieldError id="sale-item-error" message={fieldErrors.item} />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount (KSh) *</label>
-            <input className="farm-input" type="number" min="0.01" step="0.01" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.amount)}
-              aria-invalid={!!fieldErrors.amount} aria-describedby={fieldErrors.amount ? 'sale-amount-error' : undefined} />
-            <FieldError id="sale-amount-error" message={fieldErrors.amount} />
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sold to (optional)</label>
+            <input className="farm-input" placeholder="e.g. Mama Njeri" value={soldTo} onChange={e => setSoldTo(e.target.value)} />
           </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
-              How many{needsQty ? ' *' : ''}
-            </label>
-            <input
-              className="farm-input" type="number" inputMode="numeric" min="1" step="1"
-              placeholder={needsQty ? 'Required' : 'Optional'}
-              value={qty} onChange={e => setQty(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.qty)}
-              aria-invalid={!!fieldErrors.qty} aria-describedby={fieldErrors.qty ? 'sale-qty-error' : undefined}
-            />
-            <FieldError id="sale-qty-error" message={fieldErrors.qty} />
+          <div style={{ marginBottom: 4 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes (optional)</label>
+            <textarea className="farm-input" rows={2} style={{ resize: 'none' }} placeholder="Anything worth remembering about this sale" value={notes} onChange={e => setNotes(e.target.value)} />
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Batch (optional)</label>
-            <select className="farm-input" value={batchId} onChange={e => setBatchId(e.target.value)}>
-              <option value="">No batch (general sale)</option>
-              {batches.map(b => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sold on</label>
-            {/* Capped at today: a future-dated sale drops out of every P&L
-                period while staying in the trial balance, and the two can then
-                never be reconciled. */}
-            <input className="farm-input" type="date" max={todayIso} value={soldAt} onChange={e => setSoldAt(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.soldAt)}
-              aria-invalid={!!fieldErrors.soldAt} aria-describedby={fieldErrors.soldAt ? 'sale-solddate-error' : undefined} />
-            <FieldError id="sale-solddate-error" message={fieldErrors.soldAt} />
-          </div>
+        <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+          <Button className="w-full justify-center" disabled={saving} onClick={save}>
+            {saving ? 'Saving…' : 'Record Sale'}
+          </Button>
         </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Method</label>
-          {/* Was free text ("e.g. Mpesa"), which produced Mpesa / M-Pesa /
-              mpesa / MPESA as four payment methods in every report that
-              groups by it. Payment method has no backing table, but it IS
-              a value this tenant has already typed consistently in past
-              sales/purchases (see FinanceScreen's paymentMethods) — so this
-              is the same suggest-from-real-data combobox as Supplier/
-              Category/Unit/Item below, not a hardcoded curated list. */}
-          <input className="farm-input" list="sale-payment-methods" placeholder="Not recorded" value={method} onChange={e => setMethod(e.target.value)} />
-          <datalist id="sale-payment-methods">
-            {paymentMethods.map(m => <option key={m} value={m} />)}
-          </datalist>
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {(['paid', 'pending'] as const).map(s => (
-              <button key={s} onClick={() => setStatus(s)} style={{
-                padding: '9px 8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
-                background: status === s ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
-                border: status === s ? '1px solid rgba(var(--primary-rgb),0.3)' : '1px solid var(--border-subtle)',
-                color: status === s ? 'var(--primary-green)' : 'var(--text-muted)',
-              }}>{s.toUpperCase()}</button>
-            ))}
-          </div>
-        </div>
-
-        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-        <Button className="w-full justify-center" disabled={saving} onClick={save}>
-          {saving ? 'Saving…' : 'Record Sale'}
-        </Button>
       </div>
     </Sheet>
   );
@@ -1471,8 +1581,8 @@ export function FinanceScreen() {
         <RecordSaleSheet
           tenantId={tenantId}
           batches={batches ?? []}
-          paymentMethods={paymentMethodNames}
           onCreated={() => { loadSales(); loadGL(); }}
+          onViewList={() => { setShowRecordSale(false); setTab('sales'); }}
           onClose={() => setShowRecordSale(false)}
         />
       )}
