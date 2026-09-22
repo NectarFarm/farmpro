@@ -162,6 +162,10 @@ export const purchases = pgTable('purchases', {
   // (lib/finance.ts's reverseJournalEntry) doing the real work and
   // audit_log (entity: 'purchase') carrying the before/after/reason/actor.
   reversedAt: timestamp('reversed_at'),
+  // Item 23: same ownership marker and reasoning as sales.recordedBy
+  // (db/schemas/finance.ts) — nullable, unattributable for every purchase
+  // that predates it.
+  recordedBy: text('recorded_by'),
   // Multi-farm filtering (farm-scoped-data task) — a purchase is a receiving
   // event for a specific farm's stock, same rationale as inventoryLots.farmId
   // above (and recordPurchase sets both to the same value: a purchase and

@@ -20,7 +20,7 @@
 // `columnFormats` tells the renderer which columns are money/weight so the
 // screen, the CSV and the PDF cannot disagree about a number.
 import 'server-only'
-import { and, asc, eq, gte, inArray, isNotNull, lte, sum } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sum } from 'drizzle-orm'
 import { db } from '@/db'
 import {
   batches, sales, purchases, records, products, employees, tenantSettings, farms,
@@ -234,13 +234,22 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
   // the value this filter used to compare against (migration 0046's own
   // header, and tests/three-date-model.test.ts's proof), so this changes
   // which COLUMN decides the period without changing which ROWS land in it.
-  const saleConditions = [eq(sales.tenantId, tenantId)]
+  // Item 23: a reversed sale/purchase is excluded from every period figure
+  // below — not deleted, still a real row, but its ledger effect has been
+  // cancelled by a contra entry (lib/finance.ts's reverseJournalEntry) dated
+  // to this SAME period, so leaving it in `periodSales`/`periodPurchases`
+  // would double-count: reported once here, then zeroed again in
+  // `glTotalRevenue`/`glTotalExpense` above. Restating the period this way —
+  // by dropping the reversed row from the period it was reported in, exactly
+  // as if it never happened — is the honest reading of "reverse it", not a
+  // silent rewrite of history: the row and its audit trail still exist.
+  const saleConditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt)]
   if (from) saleConditions.push(gte(sales.postingDate, from))
   if (to) saleConditions.push(lte(sales.postingDate, to))
   if (farmBatchIds !== null) saleConditions.push(inArray(sales.batchId, farmBatchIds.length ? farmBatchIds : ['__none__']))
   const periodSales = await db.select().from(sales).where(and(...saleConditions)).orderBy(asc(sales.postingDate))
 
-  const purchaseConditions = [eq(purchases.tenantId, tenantId)]
+  const purchaseConditions = [eq(purchases.tenantId, tenantId), isNull(purchases.reversedAt)]
   if (from) purchaseConditions.push(gte(purchases.postingDate, from))
   if (to) purchaseConditions.push(lte(purchases.postingDate, to))
   if (farmId) purchaseConditions.push(eq(purchases.farmId, farmId))
@@ -410,7 +419,9 @@ export async function computeBatchPlReport(tenantId: string, from: Date | null, 
   // comment: posting date decides the period here too, now consistent with
   // the plain P&L above instead of the two disagreeing on which batches'
   // sales fall in a given range.
-  const saleConditions = [eq(sales.tenantId, tenantId), isNotNull(sales.batchId)]
+  // Item 23: a reversed sale is excluded here too — see computePlReport's
+  // identical comment above.
+  const saleConditions = [eq(sales.tenantId, tenantId), isNotNull(sales.batchId), isNull(sales.reversedAt)]
   if (from) saleConditions.push(gte(sales.postingDate, from))
   if (to) saleConditions.push(lte(sales.postingDate, to))
   const revenueBySale = await db

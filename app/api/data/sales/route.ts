@@ -207,6 +207,7 @@ export async function POST(req: Request) {
       effectiveDate,
       postingDate,
       customerId,
+      recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })
     return created(sale)

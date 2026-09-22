@@ -83,3 +83,23 @@ export async function needsApproval(tenantId: string, role: string, module: stri
 
   return defaultApprovalFor(role, module)
 }
+
+// ── Row-level ownership on top of the module gate (item 23) ────────────────
+// "Whoever may record it decides who may edit or reverse it — don't invent a
+// new gate" (coordinator instruction): the module gate above
+// (canEdit(tenantId, role, MODULES.finance)) is the ONLY access check most
+// callers need, unchanged. This is the one extra rule item 23 adds on top of
+// it, for sale/purchase edit and reverse specifically: a non-owner actor may
+// only touch a row THEY recorded, so two people who both happen to have
+// finance edit access (e.g. a tenant that granted it to more than one role)
+// can't undo each other's entries. Owner/super_admin bypass, same as every
+// other gate in this file — an owner overseeing the whole business is not
+// "someone else" to any row in it. A row with no `recordedBy` (every row
+// that predates this tracking) is not attributable to anyone, so it is not
+// "someone else's row" either, and stays reachable by any actor the module
+// gate already lets in.
+export function canModifyOwnRow(role: string, actorUserId: string, recordedBy: string | null): boolean {
+  if (BYPASS_ROLES.has(role)) return true
+  if (!recordedBy) return true
+  return recordedBy === actorUserId
+}

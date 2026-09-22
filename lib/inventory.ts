@@ -168,6 +168,9 @@ export async function recordPurchase(input: {
   // Item 20: optional link to the supplier master — validated against the
   // caller's tenant by the route.
   supplierId?: string | null
+  // Item 23: the recording actor's user id — see db/schemas/inventory.ts's
+  // purchases.recordedBy for what this unlocks (edit/reverse ownership).
+  recordedBy?: string | null
   // Farm-scoped-data task: the farm this stock physically lands at. Set on
   // BOTH the lot and the purchase row in the same transaction — see
   // db/schemas/inventory.ts's inventoryLots.farmId/purchases.farmId comments
@@ -268,6 +271,7 @@ export async function recordPurchase(input: {
         transactionDate,
         postingDate,
         supplierId: input.supplierId ?? null,
+        recordedBy: input.recordedBy ?? null,
       })
       .returning()
 

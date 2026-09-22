@@ -156,6 +156,15 @@ export const sales = pgTable('sales', {
   // (entity: 'sale'), read back by the same StatusTimeline component tasks
   // already use — no second history mechanism.
   reversedAt: timestamp('reversed_at'),
+  // Item 23: "whoever may record it decides who may edit or reverse it" —
+  // the row's own creator, by user id, so a later edit/reverse can be
+  // refused to a different non-owner actor ("don't let a worker reverse
+  // someone else's row" — app/api/data/sales/[id]/route.ts and .../reverse/
+  // route.ts's canModifyOwnRow check). Nullable: every sale before this
+  // column predates ownership tracking and is not attributable to anyone —
+  // treated as editable by any actor the module gate already lets in, not
+  // locked to nobody.
+  recordedBy: text('recorded_by'),
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),

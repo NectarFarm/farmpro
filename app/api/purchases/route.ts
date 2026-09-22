@@ -260,6 +260,7 @@ export async function POST(req: Request) {
       postingDate,
       supplierId,
       farmId: farmFilter ?? null,
+      recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })
   } catch (err) {
