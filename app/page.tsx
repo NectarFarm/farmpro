@@ -221,10 +221,23 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
+  // Every sign-in starts on the screen that role is supposed to land on
+  // (navigation.tsx's startScreenForRole), never on whatever the PREVIOUS
+  // user was looking at. NavProvider restores window.location.hash on mount —
+  // right for a refresh mid-session, wrong across a user switch, because the
+  // hash outlives the session and carries the old screen's params with it.
+  // Demoing by signing in and out between roles was showing the last user's
+  // screen for exactly this reason.
+  function clearScreenHash() {
+    if (typeof window === 'undefined') return;
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+
   function handleLogin(r: Role, tenant: string | null = null, name = '') {
+    clearScreenHash();
     setRole(r);
     setTenantId(tenant);
-    if (name) setUserName(name);
+    setUserName(name);
     setAuthState('app');
   }
 
@@ -235,7 +248,15 @@ export default function Home() {
     const settled = apiClient.post('/api/auth/logout', {});
     const timeout = new Promise((resolve) => setTimeout(resolve, 3000));
     Promise.race([settled, timeout]).finally(() => {
+      // Drop every trace of who was just signed in: the screen hash, the
+      // tenant, the name and the subscription. Without this the next sign-in
+      // renders the previous user's farm and greeting for the moment before
+      // GET /api/auth/session answers.
+      clearScreenHash();
       setRole('owner');
+      setTenantId(null);
+      setUserName('');
+      setSubscription(null);
       setImpersonation(null);
       setAuthState('login');
     });
@@ -300,7 +321,7 @@ export default function Home() {
                 )}
 
                 {authState === 'app' && (
-                  <NavProvider initialRole={role} initialTenantId={tenantId ?? undefined} userName={userName} initialSubscription={subscription}>
+                  <NavProvider key={`${role}:${tenantId ?? 'none'}`} initialRole={role} initialTenantId={tenantId ?? undefined} userName={userName} initialSubscription={subscription}>
                     <ScreenRouter onLogout={handleLogout} userName={userName} />
                     {/* Mounted inside the shell so the controls it points at
                        exist by the time it looks for them. */}

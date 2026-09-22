@@ -35,7 +35,7 @@ export const plans = pgTable('plans', {
   features: jsonb('features').$type<string[]>().notNull().default([]),
   limits: jsonb('limits').$type<PlanLimits>().notNull().default({ maxFarms: null, maxUsers: null, maxUnits: null }),
   prices: jsonb('prices').$type<PlanPrices>().notNull().default({}),
-  currency: text('currency').notNull().default('UGX'),
+  currency: text('currency').notNull().default('KSh'),
   trialDays: integer('trial_days').notNull().default(14),
   isPublic: boolean('is_public').notNull().default(true),
   isActive: boolean('is_active').notNull().default(true),
@@ -134,7 +134,7 @@ export const payments = pgTable('payments', {
   subscriptionId: text('subscription_id').notNull(),
   tenantId: text('tenant_id').notNull(),
   amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
-  currency: text('currency').notNull().default('UGX'),
+  currency: text('currency').notNull().default('KSh'),
   method: text('method').notNull(), // PaymentMethod
   reference: text('reference').notNull().default(''),
   payerNote: text('payer_note').notNull().default(''),
