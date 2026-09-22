@@ -25,8 +25,10 @@ import {
   WorkerPayScreen, WorkerProfileScreen,
 } from '@/components/farm/worker';
 import {
-  AdminDashboardScreen, AdminFarmsScreen, AdminSettingsScreen,
+  AdminFarmsScreen, AdminSettingsScreen,
 } from '@/components/farm/admin';
+import { AdminOverviewScreen } from '@/components/admin/overview';
+import { AdminTicketsScreen } from '@/components/admin/tickets';
 import { AdminEnterpriseRequestsScreen } from '@/components/farm/admin-enterprise-requests';
 import { AIChatScreen } from '@/components/farm/ai-chat';
 import { AdminOnboardingScreen } from '@/components/farm/admin-onboarding';
@@ -47,7 +49,7 @@ export function useLogout() { return useContext(LogoutCtx); }
 const TAB_SCREENS = new Set([
   'dashboard','crops','finance','tasks','settings',
   'worker-home','worker-record','worker-pay','worker-profile',
-  'admin-dashboard','admin-farms','admin-settings','admin-onboarding','admin-users','admin-enterprise-requests',
+  'admin-dashboard','admin-farms','admin-settings','admin-onboarding','admin-users','admin-enterprise-requests','admin-tickets',
   'inventory','weather','people','governance','reports',
   'ai-chat','ui-customise',
   'auditor-reports','vet-herd',
@@ -84,12 +86,13 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'worker-record':     return <WorkerRecordScreen />;
       case 'worker-pay':        return <WorkerPayScreen />;
       case 'worker-profile':    return <WorkerProfileScreen />;
-      case 'admin-dashboard':   return <AdminDashboardScreen />;
+      case 'admin-dashboard':   return <AdminOverviewScreen />;
       case 'admin-farms':       return <AdminFarmsScreen />;
       case 'admin-settings':    return <AdminSettingsScreen />;
       case 'admin-onboarding':  return <AdminOnboardingScreen />;
       case 'admin-users':       return <AdminUsersScreen />;
       case 'admin-enterprise-requests': return <AdminEnterpriseRequestsScreen />;
+      case 'admin-tickets':     return <AdminTicketsScreen />;
       case 'ai-chat':           return <AIChatScreen userName={userName} />;
       case 'ui-customise':      return <UICustomiseScreen />;
       case 'auditor-reports':   return <AuditorReportsScreen />;
