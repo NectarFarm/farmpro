@@ -9,7 +9,7 @@ import { canEdit, MODULES } from '@/lib/permissions'
 import { BatchLedgerError } from '@/lib/batch-ledger'
 import { ProduceShortfallError } from '@/lib/produce'
 import { DimensionRequirementError, DimensionValidationError, isPlainDimensionMap } from '@/lib/dimensions'
-import { isInvalid, requireCents, requireCount, requireEventDate } from '@/lib/validate-input'
+import { isInvalid, requireCents, requireCount, requireEventDate, requireFutureAllowedDate } from '@/lib/validate-input'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -58,7 +58,7 @@ export async function GET(req: Request) {
 
 // POST /api/data/sales — record a sale (and post its journal entry).
 // Body: { tenantId?, batchId?, productId?, item?, amountCents, method?,
-//         status?, soldAt? }
+//         status?, soldAt?, paymentReference?, dueDate?, soldTo?, notes? }
 //
 // `amountCents` (issue: money-unit-enforcement): renamed from `amount` and
 // now in cents, matching `purchases`' `unitCostCents`/`totalCostCents`/
@@ -146,6 +146,20 @@ export async function POST(req: Request) {
     return badRequest(`${product.name} comes out of the batch when sold — enter how many were sold`)
   }
 
+  // ── Forms-audit slice: reference, credit due date, buyer, notes ──────────
+  // All optional; none of this changes an existing caller that never sends
+  // them (they were absent from the body before these fields existed, and
+  // `undefined !== ''` here reads the same as always).
+  const paymentReference = typeof b.paymentReference === 'string' && b.paymentReference.trim() ? b.paymentReference.trim() : null
+  let dueDate: Date | null = null
+  if (b.dueDate !== undefined && b.dueDate !== null && b.dueDate !== '') {
+    const parsed = requireFutureAllowedDate(b.dueDate, 'dueDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    dueDate = parsed
+  }
+  const soldTo = typeof b.soldTo === 'string' && b.soldTo.trim() ? b.soldTo.trim() : null
+  const notes = typeof b.notes === 'string' && b.notes.trim() ? b.notes.trim() : null
+
   try {
     const sale = await recordSale({
       tenantId,
@@ -159,6 +173,10 @@ export async function POST(req: Request) {
       method,
       status,
       soldAt,
+      paymentReference,
+      dueDate,
+      soldTo,
+      notes,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })
     return created(sale)

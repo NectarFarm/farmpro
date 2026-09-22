@@ -316,6 +316,13 @@ export async function recordSale(input: {
   method?: string
   status?: string
   soldAt?: Date
+  // Forms-audit slice: paymentReference/dueDate/soldTo/notes are all
+  // optional pass-throughs onto the columns db/schemas/finance.ts added —
+  // nothing here changes what a sale without them looks like.
+  paymentReference?: string | null
+  dueDate?: Date | null
+  soldTo?: string | null
+  notes?: string | null
   // Explicit dimension overrides (dimensions-on-gl task), keyed by dimension
   // CODE — highest priority in resolveMasterDimensions' resolution order.
   // Optional: most sales carry nothing here and rely entirely on the
@@ -336,6 +343,10 @@ export async function recordSale(input: {
         method: input.method ?? '',
         status: input.status ?? 'paid',
         soldAt: input.soldAt ?? new Date(),
+        paymentReference: input.paymentReference ?? null,
+        dueDate: input.dueDate ?? null,
+        soldTo: input.soldTo ?? null,
+        notes: input.notes ?? null,
       })
       .returning()
 

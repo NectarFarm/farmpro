@@ -146,6 +146,15 @@ export async function recordPurchase(input: {
   lotNo?: string
   expiryDate?: Date | null
   receivedDate?: Date
+  // Forms-audit slice: all optional pass-throughs onto the columns
+  // db/schemas/inventory.ts added — see that file for why `receivedDate`
+  // above ALSO still gets written to `purchases.createdAt` (unchanged, for
+  // P&L continuity) as well as the new dedicated column.
+  paymentReference?: string | null
+  dueDate?: Date | null
+  invoiceNumber?: string | null
+  notes?: string | null
+  photoUrl?: string | null
   // Farm-scoped-data task: the farm this stock physically lands at. Set on
   // BOTH the lot and the purchase row in the same transaction — see
   // db/schemas/inventory.ts's inventoryLots.farmId/purchases.farmId comments
@@ -232,6 +241,15 @@ export async function recordPurchase(input: {
         amountPaidCents: input.amountPaidCents ?? 0,
         createdAt: receivedDate,
         farmId: input.farmId ?? null,
+        paymentReference: input.paymentReference ?? null,
+        dueDate: input.dueDate ?? null,
+        invoiceNumber: input.invoiceNumber ?? null,
+        // Dual-write: `createdAt` above keeps doing the P&L-period job it
+        // always has (same `receivedDate` value); this is the new, honestly
+        // labelled column the list/detail actually show as "Received".
+        receivedDate,
+        notes: input.notes ?? null,
+        photoUrl: input.photoUrl ?? null,
       })
       .returning()
 
