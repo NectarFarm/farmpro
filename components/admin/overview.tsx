@@ -111,11 +111,11 @@ export function AdminOverviewScreen() {
               </button>
             )}
             {payments !== null && payments.length > 0 && (
-              <div className="rounded-xl bg-warning-soft p-4 text-left shadow-(--shadow-border)">
+              <button type="button" onClick={() => navigate('admin-billing', { tab: 'payments' })} className="rounded-xl bg-warning-soft p-4 text-left shadow-(--shadow-border) transition-shadow hover:shadow-(--shadow-border-hover)">
                 <div className="flex items-center justify-between text-xs font-medium tracking-wide text-warning uppercase"><span>Payments</span><CreditCard size={14} /></div>
                 <div className="font-display mt-2 text-3xl leading-none font-medium tabular-nums">{payments.length}</div>
-                <div className="mt-1 text-xs text-subtle">awaiting confirmation (Billing console: coming next)</div>
-              </div>
+                <div className="mt-1 text-xs text-subtle">awaiting confirmation</div>
+              </button>
             )}
             {onboarding !== null && onboarding.length > 0 && (
               <button type="button" onClick={() => navigate('admin-onboarding')} className="rounded-xl bg-warning-soft p-4 text-left shadow-(--shadow-border) transition-shadow hover:shadow-(--shadow-border-hover)">
@@ -125,11 +125,11 @@ export function AdminOverviewScreen() {
               </button>
             )}
             {trialsEndingSoon.length > 0 && (
-              <div className="rounded-xl bg-warning-soft p-4 text-left shadow-(--shadow-border)">
+              <button type="button" onClick={() => navigate('admin-billing', { tab: 'subscriptions' })} className="rounded-xl bg-warning-soft p-4 text-left shadow-(--shadow-border) transition-shadow hover:shadow-(--shadow-border-hover)">
                 <div className="flex items-center justify-between text-xs font-medium tracking-wide text-warning uppercase"><span>Trials</span><CalendarClock size={14} /></div>
                 <div className="font-display mt-2 text-3xl leading-none font-medium tabular-nums">{trialsEndingSoon.length}</div>
                 <div className="mt-1 text-xs text-subtle">ending within 7 days</div>
-              </div>
+              </button>
             )}
           </div>
 
