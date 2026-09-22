@@ -113,7 +113,12 @@ export async function decideApproval(
   tenantId: string,
   actor: string,
   decision: ApprovalDecision,
-  actorRole?: string
+  actorRole?: string,
+  // Required by the route for a rejection (see POST /api/approvals/[id]/
+  // reject) — a rejection with no reason is the whole problem the rejection
+  // loop exists to fix. Optional here rather than re-checked, since an
+  // approval carries no reason at all.
+  reason?: string
 ) {
   const result = await db.transaction(async (tx) => {
     const rows = await tx
@@ -135,7 +140,7 @@ export async function decideApproval(
 
     const [updatedApproval] = await tx
       .update(approvalRequests)
-      .set({ status: decision, decidedBy: actor, decidedAt: new Date() })
+      .set({ status: decision, decidedBy: actor, decidedAt: new Date(), decisionNote: reason ?? null })
       .where(and(eq(approvalRequests.id, id), eq(approvalRequests.tenantId, tenantId)))
       .returning()
 
@@ -210,9 +215,15 @@ export async function decideApproval(
       // keep looking like something was about to happen.
       const rest = { ...data }
       delete rest.pendingApproval
+      // `decisionNote` lands here too, next to `approvalDecision` — this is
+      // what the worker's own screens and the approver's "what was
+      // submitted" panel actually read (both go through GET /api/records),
+      // not the approval_requests row. `undefined` (an approval) removes any
+      // stale note a previous rejected-then-resubmitted attempt might have
+      // left, rather than carrying it forward onto an approved decision.
       await tx
         .update(records)
-        .set({ data: { ...rest, approvalDecision: decision, decidedBy: actor } })
+        .set({ data: { ...rest, approvalDecision: decision, decidedBy: actor, decisionNote: reason ?? undefined } })
         .where(eq(records.id, record.id))
     }
 
@@ -248,12 +259,17 @@ export async function decideApproval(
   // to the same approval id with no suffix — without the suffix the two
   // events would collide on idx_notifications_source and only one of them
   // would ever be created.
+  // A rejection is the whole point of this notification for the person who
+  // gets it — "rejected" with no reason repeated what POST
+  // /api/approvals/[id]/reject used to allow and taught the requester
+  // nothing. The reason rides in `message`; components/farm/dashboard.tsx's
+  // NotificationsScreen renders `message` under the title as-is.
   await createAndEmailNotification({
     tenantId,
     sourceType: 'approval',
     sourceId: `${id}:decided`,
     title: `Request ${decision}: ${result.approval.title}`,
-    message: result.approval.title,
+    message: reason ? `Rejected: ${reason}` : result.approval.title,
     userId: result.approval.requestedBy,
   })
 

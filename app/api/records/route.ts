@@ -14,6 +14,7 @@ import { applyMovement, applyCount, BatchLedgerError } from '@/lib/batch-ledger'
 import { consumeStock, InsufficientStockError, UnknownItemError, type ConsumeResult } from '@/lib/inventory-consume'
 import { notifyApprovalRaised } from '@/lib/governance'
 import { writeAuditLog } from '@/lib/audit'
+import { firstInvalidPhoto } from '@/lib/record-photos'
 
 // ── GET/POST /api/records (issue #247 task 2) ───────────────────────────────
 // Generic worker-submission log — feeding / mortality / physical_count today
@@ -173,6 +174,25 @@ export async function POST(req: Request) {
     return badRequest(`type must be one of: ${Array.from(RECORD_TYPES).join(', ')}`)
   }
 
+  // ── A worker may only file under their own name (rejection-loop task) ─────
+  // Every other role here (owner/manager filing on a worker's behalf, a vet
+  // logging their own visit) already passed `employeeId` untouched — this
+  // narrows to the one role that must never be able to name someone else's:
+  // without it, a worker who merely knew another employee's id could file —
+  // or, worse, resubmit a fix to — a record that reads as that other
+  // person's work. `employees.userId` is the same link GET /api/employees/me
+  // resolves the caller's own row through.
+  if (session.role === 'worker') {
+    const [ownEmployee] = await db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(and(eq(employees.tenantId, tenantId), eq(employees.userId, session.id)))
+      .limit(1)
+    if (!ownEmployee || ownEmployee.id !== employeeId) {
+      return forbidden('You can only submit records under your own worker profile')
+    }
+  }
+
   // Role-permission matrix (role-permission-enforcement task): the roles
   // allowlist above only says who MAY submit records at all — this is the
   // per-module edit check the Governance screen's matrix actually configures.
@@ -204,8 +224,59 @@ export async function POST(req: Request) {
     .where(and(eq(employees.id, employeeId), eq(employees.tenantId, tenantId)))
   if (employeeRows.length === 0) return notFound('Employee not found for this tenant')
 
-  const data = (b.data && typeof b.data === 'object' && !Array.isArray(b.data)) ? (b.data as Record<string, unknown>) : {}
-  const photoUrl = typeof b.photoUrl === 'string' && b.photoUrl.trim() ? b.photoUrl.trim() : null
+  const data = (b.data && typeof b.data === 'object' && !Array.isArray(b.data)) ? { ...(b.data as Record<string, unknown>) } : {}
+
+  // ── Several photos per record ──────────────────────────────────────────────
+  // Either shape is accepted: the old singular `photoUrl` (every existing
+  // caller) or the new `photoUrls` array — normalised into one list so the
+  // rest of this route (and every reader downstream) only ever deals with
+  // one shape. `photoUrls` wins when both are sent, since it is the fuller,
+  // newer intent; a lone `photoUrl` becomes a one-element array.
+  const rawPhotoUrls = Array.isArray(b.photoUrls)
+    ? (b.photoUrls as unknown[]).filter((v): v is string => typeof v === 'string' && v.length > 0)
+    : []
+  const singlePhotoUrl = typeof b.photoUrl === 'string' && b.photoUrl.trim() ? b.photoUrl.trim() : ''
+  const photoUrls = rawPhotoUrls.length > 0 ? rawPhotoUrls : (singlePhotoUrl ? [singlePhotoUrl] : [])
+  const photoProblem = firstInvalidPhoto(photoUrls)
+  if (photoProblem) return badRequest(photoProblem.message)
+  // `photoUrl` (the original, singular column) always gets the FIRST photo —
+  // db/schemas/people.ts's whole reason for keeping it: every reader that has
+  // never heard of `photoUrls` (the mortality report, anything server-side)
+  // keeps seeing exactly what it always did.
+  const photoUrl = photoUrls[0] ?? null
+
+  // ── Fix and resubmit (rejection-loop task) ─────────────────────────────────
+  // A worker correcting a rejected mortality/physical-count record files a
+  // FRESH record rather than editing the rejected one in place — the
+  // rejected row and its reason stay exactly as the owner saw them, and the
+  // owner can tell this is a second attempt (and see what changed) rather
+  // than watching a record silently change under a decision they already
+  // made. `resubmitsRecordId` links the two; only ever meaningful for the
+  // two types that raise an approval (mortality/physical_count), but not
+  // restricted to them here — a stray value for another type is simply
+  // carried through as inert data.
+  const resubmitsRecordId = typeof b.resubmitsRecordId === 'string' ? b.resubmitsRecordId.trim() : ''
+  if (resubmitsRecordId) {
+    const [original] = await db
+      .select()
+      .from(records)
+      .where(and(eq(records.id, resubmitsRecordId), eq(records.tenantId, tenantId)))
+      .limit(1)
+    if (!original) return notFound('The record you are resubmitting no longer exists')
+    // Same rule as the worker-ownership check above, generalised to whoever
+    // is filing: a resubmission must be filed under the SAME employee the
+    // original record belongs to — closes the gap a plain employeeId check
+    // alone would leave (naming your own employeeId while pointing
+    // `resubmitsRecordId` at someone else's rejected record).
+    if (original.employeeId !== employeeId) {
+      return forbidden('You can only resubmit your own record')
+    }
+    const originalData = (original.data ?? {}) as Record<string, unknown>
+    if (originalData.approvalDecision !== 'rejected') {
+      return badRequest('Only a rejected record can be resubmitted')
+    }
+    data.resubmitsRecordId = resubmitsRecordId
+  }
 
   // ── What this record does to the batch's headcount ────────────────────────
   // A mortality entry used to leave `batches.currentQty` untouched: the death
@@ -278,6 +349,7 @@ export async function POST(req: Request) {
             // can say "waiting for approval" instead of looking applied.
             data: deferred ? { ...dataFor(data, targetId), pendingApproval: true } : dataFor(data, targetId),
             photoUrl,
+            photoUrls,
           })
           .returning()
         inserted.push(row)
