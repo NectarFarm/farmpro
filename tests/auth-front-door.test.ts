@@ -88,7 +88,11 @@ describe('login doors', () => {
     expect(auth).toMatch(/aria-label=\{d === 'DEL' \? 'Delete last digit' : d\}/)
     expect(auth).toMatch(/\{d === 'DEL' \? 'Delete' : d\}/)
     expect(auth).not.toMatch(/'Clear last digit'/)
-    expect(auth).toMatch(/<div className="auth-pin-key is-blank" aria-hidden="true" \/>/)
+    // Restyled to Tailwind (ui/governance-reference-redesign): the blank pad
+    // cell is still a plain, non-interactive <div>, just no longer via the
+    // legacy .auth-pin-key CSS class.
+    expect(auth).toMatch(/<div aria-hidden="true" className="pointer-events-none" \/>/)
+    expect(auth).not.toMatch(/<button[^>]*>\s*<\/button>/)
   })
 
   it('uses parallel door hints, not a who-list vs a what-list', () => {
@@ -97,9 +101,12 @@ describe('login doors', () => {
     expect(auth).not.toMatch(/Owners, managers, admins/)
   })
 
-  it('makes Apply for access a full-width door, not a text link', () => {
-    expect(auth).toMatch(/className="auth-apply"/)
+  it('makes Apply for access a full-width button, not a text link', () => {
+    // Restyled to the ui-kit Button (was a hand-rolled .auth-apply/.btn-secondary
+    // button) — still a full-width button, never a bare <a>/text link.
+    expect(auth).toMatch(/<Button variant="secondary" className="w-full justify-center" onClick=\{onRegister\}>/)
     expect(auth).toMatch(/Apply for access/)
+    expect(auth).not.toMatch(/<a[^>]*>\s*Apply for access/)
   })
 
   it('does not auto-submit the PIN on the fourth digit', () => {
