@@ -9,6 +9,7 @@ import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
 import { fieldErrorStyle, FieldError, PaymentMethodFields } from './ui-shared';
+import { compressImageFile } from '@/lib/image-compress';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/ui-kit/page-header';
 import { Segmented } from '@/components/ui-kit/segmented';
@@ -219,12 +220,6 @@ const catChipClass = (cat: string) =>
  * option, because an ad-hoc sale (a service, a one-off) is real and the route
  * still accepts `item` alone.
  */
-// Starter suggestions shown before any payment method has actually been
-// recorded for this tenant. Once sales/purchases exist, the datalist below
-// is built from those real values instead (see FinanceScreen's
-// `paymentMethodNames`) — this is only the seed for a brand-new tenant.
-const PAYMENT_METHOD_SEED = ['M-Pesa', 'Cash', 'Bank transfer', 'Cheque', 'Credit'];
-
 interface ApiProductLite {
   id: string;
   name: string;
@@ -556,19 +551,18 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
  * Inventory's Purchases tab uses; there is no expense-only concept in the
  * backend separate from a stock purchase). No edit/PATCH UI — GET/POST are
  * the only verbs the route supports. ── */
-function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, paymentMethods, farms, activeFarmId, onCreated, onClose }: {
+function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, farms, activeFarmId, onCreated, onViewList, onClose }: {
   tenantId: string;
   itemNames: string[];
   // Suggestions only — every one of these is a combobox (input + datalist),
-  // not a hard select, so a new supplier/category/unit/method a farmer
-  // genuinely hasn't used before still gets recorded verbatim. Built from
-  // this tenant's own purchase/inventory history (see FinanceScreen), not
+  // not a hard select, so a new supplier/category/unit a farmer genuinely
+  // hasn't used before still gets recorded verbatim. Built from this
+  // tenant's own purchase/inventory history (see FinanceScreen), not
   // invented — an empty list here degrades to a plain text field for free,
   // since an empty <datalist> shows no suggestions at all.
   supplierNames: string[];
   categories: string[];
   units: string[];
-  paymentMethods: string[];
   // farm-scoped-data task — see components/farm/inventory.tsx's
   // RecordPurchaseSheet for the identical rationale: a purchase and the lot
   // it creates always land at the same farm, so this can never be optional
@@ -576,6 +570,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   farms: { id: string; name: string }[];
   activeFarmId: string;
   onCreated: () => void;
+  onViewList: () => void;
   onClose: () => void;
 }) {
   const [supplier, setSupplier] = useState('');
@@ -585,7 +580,15 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   const [quantity, setQuantity] = useState('');
   const [unitCost, setUnitCost] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
+  const [reference, setReference] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [receivedDate, setReceivedDate] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
   // owner-roast finding #10: with a single farm and the shell's filter on
   // 'ALL', this used to stay '' — a disabled "Select a farm…" placeholder
   // with nothing else it could sanely be, forcing a selection that has only
@@ -595,11 +598,42 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : (farms.length === 1 ? farms[0].id : ''));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [receipt, setReceipt] = useState<SaveReceipt | null>(null);
   // owner-roast finding #10: the banner used to say "Supplier, item, and
   // unit are required" while silently skipping farm — the checks returned
   // one at a time instead of being collected together. Per-field, same
   // mechanism as ui-shared.tsx's fieldErrorStyle/FieldError.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const qtyNum = Number(quantity);
+  const unitCostCentsLive = parseMoneyToCents(unitCost);
+  const totalCentsLive = Number.isFinite(qtyNum) && qtyNum > 0 && unitCostCentsLive !== null ? qtyNum * unitCostCentsLive : null;
+  const amountPaidCentsLive = amountPaid ? parseMoneyToCents(amountPaid) : 0;
+  const amountDueCents = totalCentsLive !== null ? Math.max(0, totalCentsLive - (amountPaidCentsLive ?? 0)) : null;
+
+  // Credit means unpaid (item 2): choosing it locks "Paid now" at 0 and
+  // reveals the due date. A different method afterwards hands control of
+  // "Paid now" back to the owner rather than guessing what they paid.
+  function onMethodChange(next: string) {
+    setPaymentMethod(next);
+    if (next === 'Credit') setAmountPaid('0');
+    else if (paymentMethod === 'Credit') { setAmountPaid(''); setDueDate(''); }
+  }
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoBusy(true); setPhotoError('');
+    try {
+      setPhoto(await compressImageFile(file));
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Couldn't add that photo");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   async function save() {
     const qty = Number(quantity);
@@ -615,11 +649,11 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
     // Same rule as the inventory sheet and the server: an `integer` column
     // cannot hold a fraction, and truncating it silently erased the money.
     else if (!Number.isInteger(qty)) errs.quantity = `Quantity must be a whole number of ${unit.trim() || 'units'}`;
-    if (unitCostCents === null || unitCostCents < 0) errs.unitCost = 'Cost per unit must be a non-negative number';
-    if (amountPaid && amountPaidCents === null) errs.amountPaid = 'Amount paid must be a number';
-    else if (amountPaidCents !== null && amountPaidCents < 0) errs.amountPaid = 'Amount paid cannot be negative';
+    if (unitCostCents === null || unitCostCents < 0) errs.unitCost = 'Unit cost must be a non-negative number';
+    if (amountPaid && amountPaidCents === null) errs.amountPaid = 'Paid now must be a number';
+    else if (amountPaidCents !== null && amountPaidCents < 0) errs.amountPaid = 'Paid now cannot be negative';
     else if (amountPaidCents !== null && unitCostCents !== null && amountPaidCents > qty * unitCostCents) {
-      errs.amountPaid = 'Amount paid is more than the purchase total';
+      errs.amountPaid = 'Paid now is more than the purchase total';
     }
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -628,9 +662,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
     }
     setFieldErrors({});
 
+    const totalCents = qty * (unitCostCents as number);
     setSaving(true);
     setError('');
-    const res = await apiClient.post('/api/purchases', {
+    const res = await apiClient.post<{ id: string }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
       itemName: itemName.trim(),
@@ -639,112 +674,179 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
       quantity: qty,
       unitCostCents,
       paymentMethod: paymentMethod.trim() || undefined,
+      paymentReference: reference.trim() || undefined,
       amountPaidCents: amountPaidCents ?? undefined,
+      invoiceNumber: invoiceNumber.trim() || undefined,
+      receivedDate: receivedDate || undefined,
+      dueDate: dueDate || undefined,
+      notes: notes.trim() || undefined,
+      photoUrl: photo || undefined,
       farmId,
     });
     setSaving(false);
     if (res.success) {
       onCreated();
-      onClose();
+      setReceipt({
+        id: res.data.id,
+        totalLabel: 'Total',
+        totalCents,
+        stockEffect: `${qty} ${unit.trim()} of ${itemName.trim()} added to Inventory`,
+      });
     } else {
       setError(res.error || 'Failed to record purchase.');
     }
   }
 
+  if (receipt) {
+    return (
+      <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+        <SheetTitle className="sr-only">Purchase recorded</SheetTitle>
+        <SaveConfirmation title="Purchase recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
+      </Sheet>
+    );
+  }
+
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        <SheetTitle className="mb-3.5">Record Purchase / Expense</SheetTitle>
-        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
-          This also brings the item into Inventory stock — there is no expense-only record separate from a purchase.
-        </div>
+      {/* item 15: sticky footer keeps Record Purchase reachable on a long
+          sheet without scrolling past every field first. */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4">
+          <SheetTitle className="mb-3.5">Record Purchase / Expense</SheetTitle>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
+            This also brings the item into Inventory stock — there is no expense-only record separate from a purchase.
+          </div>
 
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
-          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}
-            style={fieldErrorStyle(!!fieldErrors.farmId)}
-            aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'purchase-farm-error' : undefined}>
-            <option value="" disabled>Select a farm…</option>
-            {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-          </select>
-          <FieldError id="purchase-farm-error" message={fieldErrors.farmId} />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
-          <input className="farm-input" list="finance-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
-            style={fieldErrorStyle(!!fieldErrors.supplier)}
-            aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'purchase-supplier-error' : undefined} />
-          <datalist id="finance-supplier-names">
-            {supplierNames.map(n => <option key={n} value={n} />)}
-          </datalist>
-          <FieldError id="purchase-supplier-error" message={fieldErrors.supplier} />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
-          <input className="farm-input" list="finance-item-names" placeholder="e.g. dairy meal, maize seed" value={itemName} onChange={e => setItemName(e.target.value)}
-            style={fieldErrorStyle(!!fieldErrors.itemName)}
-            aria-invalid={!!fieldErrors.itemName} aria-describedby={fieldErrors.itemName ? 'purchase-item-error' : undefined} />
-          <datalist id="finance-item-names">
-            {itemNames.map(n => <option key={n} value={n} />)}
-          </datalist>
-          <FieldError id="purchase-item-error" message={fieldErrors.itemName} />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
-            <input className="farm-input" list="finance-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
-            <datalist id="finance-categories">
-              {categories.map(c => <option key={c} value={c} />)}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
+            <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.farmId)}
+              aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'purchase-farm-error' : undefined}>
+              <option value="" disabled>Select a farm…</option>
+              {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+            <FieldError id="purchase-farm-error" message={fieldErrors.farmId} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
+            <input className="farm-input" list="finance-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.supplier)}
+              aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'purchase-supplier-error' : undefined} />
+            <datalist id="finance-supplier-names">
+              {supplierNames.map(n => <option key={n} value={n} />)}
             </datalist>
+            <FieldError id="purchase-supplier-error" message={fieldErrors.supplier} />
           </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
-            <input className="farm-input" list="finance-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.unit)}
-              aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'purchase-unit-error' : undefined} />
-            <datalist id="finance-units">
-              {units.map(u => <option key={u} value={u} />)}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Item *</label>
+            <input className="farm-input" list="finance-item-names" placeholder="e.g. dairy meal, maize seed" value={itemName} onChange={e => setItemName(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.itemName)}
+              aria-invalid={!!fieldErrors.itemName} aria-describedby={fieldErrors.itemName ? 'purchase-item-error' : undefined} />
+            <datalist id="finance-item-names">
+              {itemNames.map(n => <option key={n} value={n} />)}
             </datalist>
-            <FieldError id="purchase-unit-error" message={fieldErrors.unit} />
+            <FieldError id="purchase-item-error" message={fieldErrors.itemName} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Category</label>
+              <input className="farm-input" list="finance-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+              <datalist id="finance-categories">
+                {categories.map(c => <option key={c} value={c} />)}
+              </datalist>
+            </div>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit *</label>
+              <input className="farm-input" list="finance-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.unit)}
+                aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'purchase-unit-error' : undefined} />
+              <datalist id="finance-units">
+                {units.map(u => <option key={u} value={u} />)}
+              </datalist>
+              <FieldError id="purchase-unit-error" message={fieldErrors.unit} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 6 }}>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Quantity *</label>
+              <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.quantity)}
+                aria-invalid={!!fieldErrors.quantity} aria-describedby={fieldErrors.quantity ? 'purchase-qty-error' : undefined} />
+              <FieldError id="purchase-qty-error" message={fieldErrors.quantity} />
+            </div>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Unit cost (KSh) *</label>
+              <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.unitCost)}
+                aria-invalid={!!fieldErrors.unitCost} aria-describedby={fieldErrors.unitCost ? 'purchase-unitcost-error' : undefined} />
+              <FieldError id="purchase-unitcost-error" message={fieldErrors.unitCost} />
+            </div>
+          </div>
+          <div className="mb-3 flex items-center justify-between rounded-lg bg-primary-soft px-3 py-2.5">
+            <span className="text-xs font-semibold text-muted">Total</span>
+            <span className="font-display text-lg font-medium text-primary">{totalCentsLive !== null ? formatMoney(totalCentsLive) : '—'}</span>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <PaymentMethodFields method={paymentMethod} onMethodChange={onMethodChange} reference={reference} onReferenceChange={setReference} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Paid now (KSh)</label>
+              <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)}
+                disabled={paymentMethod === 'Credit'}
+                style={fieldErrorStyle(!!fieldErrors.amountPaid)}
+                aria-invalid={!!fieldErrors.amountPaid} aria-describedby={fieldErrors.amountPaid ? 'purchase-amountpaid-error' : undefined} />
+              <FieldError id="purchase-amountpaid-error" message={fieldErrors.amountPaid} />
+            </div>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount due</label>
+              <div className="farm-input flex items-center" style={{ color: 'var(--text-muted)', background: 'var(--card)' }}>
+                {amountDueCents !== null ? formatMoney(amountDueCents) : '—'}
+              </div>
+            </div>
+          </div>
+          {/* Credit means unpaid (item 2): a due date once there's a balance to chase. */}
+          {(paymentMethod === 'Credit' || (amountDueCents ?? 0) > 0) && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due date</label>
+              <input className="farm-input" type="date" min={todayIso} value={dueDate} onChange={e => setDueDate(e.target.value)} />
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Invoice / receipt no. (optional)</label>
+              <input className="farm-input" placeholder="e.g. INV-00231" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Received date</label>
+              <input className="farm-input" type="date" max={todayIso} value={receivedDate} onChange={e => setReceivedDate(e.target.value)} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes (optional)</label>
+            <textarea className="farm-input" rows={2} style={{ resize: 'none' }} placeholder="Anything worth remembering about this purchase" value={notes} onChange={e => setNotes(e.target.value)} />
+          </div>
+          <div style={{ marginBottom: 4 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Receipt photo (optional)</label>
+            {photo && (
+              <img src={photo} alt="Receipt" className="mb-2 max-h-40 w-full rounded-lg object-cover" />
+            )}
+            <label className={cn(
+              'flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-soft text-sm font-semibold text-primary',
+              photoBusy ? 'opacity-60' : 'cursor-pointer',
+            )}>
+              {photoBusy ? 'Adding…' : photo ? 'Retake photo' : 'Add a photo'}
+              <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" disabled={photoBusy} />
+            </label>
+            {photoError && <p className="mt-1 text-xs text-danger">{photoError}</p>}
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Quantity *</label>
-            <input className="farm-input" type="number" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.quantity)}
-              aria-invalid={!!fieldErrors.quantity} aria-describedby={fieldErrors.quantity ? 'purchase-qty-error' : undefined} />
-            <FieldError id="purchase-qty-error" message={fieldErrors.quantity} />
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Cost/unit (KSh) *</label>
-            <input className="farm-input" type="number" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.unitCost)}
-              aria-invalid={!!fieldErrors.unitCost} aria-describedby={fieldErrors.unitCost ? 'purchase-unitcost-error' : undefined} />
-            <FieldError id="purchase-unitcost-error" message={fieldErrors.unitCost} />
-          </div>
+        <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+          <Button className="w-full justify-center" disabled={saving} onClick={save}>
+            {saving ? 'Saving…' : 'Record Purchase'}
+          </Button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Payment Method</label>
-            <input className="farm-input" list="finance-payment-methods" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
-            <datalist id="finance-payment-methods">
-              {paymentMethods.map(m => <option key={m} value={m} />)}
-            </datalist>
-          </div>
-          <div>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Amount Paid (KSh)</label>
-            <input className="farm-input" type="number" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.amountPaid)}
-              aria-invalid={!!fieldErrors.amountPaid} aria-describedby={fieldErrors.amountPaid ? 'purchase-amountpaid-error' : undefined} />
-            <FieldError id="purchase-amountpaid-error" message={fieldErrors.amountPaid} />
-          </div>
-        </div>
-
-        {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-        <Button className="w-full justify-center" disabled={saving} onClick={save}>
-          {saving ? 'Saving…' : 'Record Purchase'}
-        </Button>
       </div>
     </Sheet>
   );
@@ -1167,13 +1269,6 @@ export function FinanceScreen() {
     () => Array.from(new Set(items.map((i) => i.unit).filter(Boolean))).sort(),
     [items]
   );
-  const paymentMethodNames = useMemo(() => {
-    const observed = [
-      ...(purchases ?? []).map((p) => p.paymentMethod),
-      ...(sales ?? []).map((s) => s.method),
-    ].filter(Boolean);
-    return Array.from(new Set([...PAYMENT_METHOD_SEED, ...observed])).sort();
-  }, [purchases, sales]);
 
   const salesRows = useMemo(() => (sales ?? []).map((s) => ({
     id: s.id,
@@ -1593,10 +1688,10 @@ export function FinanceScreen() {
           supplierNames={supplierNames}
           categories={categoryNames}
           units={unitNames}
-          paymentMethods={paymentMethodNames}
           farms={farms}
           activeFarmId={activeFarmId}
           onCreated={() => { loadPurchases(); loadGL(); }}
+          onViewList={() => { setShowRecordPurchase(false); setTab('purchases'); }}
           onClose={() => setShowRecordPurchase(false)}
         />
       )}
