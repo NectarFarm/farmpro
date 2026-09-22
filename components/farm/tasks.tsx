@@ -79,6 +79,11 @@ export interface ApiTask {
 
 interface Employee {
   id: string;
+  // Nullable logical link to `users` (db/schemas/people.ts) — lets a task's
+  // `approverId` (a users.id) resolve to a name even for someone whose role
+  // no longer carries governance edit rights, so they don't misreport as
+  // having left the farm when they're simply not an approver anymore.
+  userId?: string | null;
   name: string;
   role: string;
 }
@@ -283,8 +288,15 @@ function TaskDetailPanel({
     setSaveError('');
   }, [task.id, task.assigneeId, task.approverId, task.dueAt]);
 
+  // Resolve against the approvers list first (it carries the role), then
+  // fall back to the full employees list matched on `userId` — a named
+  // approver whose role has since lost governance rights (or who is simply
+  // not reloaded into `approvers` for some other reason) still has a real
+  // name on this farm; only say otherwise when neither list knows the id.
   const approverName = task.approverId
-    ? approvers.find(a => a.userId === task.approverId)?.name ?? 'Someone no longer on this farm'
+    ? approvers.find(a => a.userId === task.approverId)?.name
+      ?? employees.find(e => e.userId === task.approverId)?.name
+      ?? 'Someone no longer on this farm'
     : 'Anyone who can approve';
 
   async function saveEdits() {
