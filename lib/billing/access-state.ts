@@ -96,3 +96,24 @@ export function computeAccessState(sub: SubscriptionSnapshot | null, now: Date):
   const needsPlan = status === 'expired' || status === 'cancelled' || status === 'pending_payment'
   return { status, needsPlan }
 }
+
+export interface CancellationResult {
+  status: SubscriptionStatus
+  cancelAtPeriodEnd: boolean
+}
+
+/**
+ * What POST /api/billing/cancel should write. A subscription still mid-cycle
+ * (active with a real currentPeriodEnd) gets a SOFT cancel — access continues
+ * until the period runs out, `computeAccessState` handles the eventual
+ * transition to 'cancelled' on its own. Anything with no period to run out
+ * (trialing, pending_payment — never billed at all — or an open-ended
+ * subscription with no currentPeriodEnd, e.g. the legacy backfill) is
+ * cancelled immediately: there is nothing left to "let expire".
+ */
+export function computeCancellation(sub: SubscriptionSnapshot): CancellationResult {
+  if (sub.status === 'active' && sub.currentPeriodEnd) {
+    return { status: 'active', cancelAtPeriodEnd: true }
+  }
+  return { status: 'cancelled', cancelAtPeriodEnd: false }
+}

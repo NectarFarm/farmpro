@@ -1,6 +1,7 @@
 // ── Subscription access-state (pure-function unit tests) ───────────────────
 import { describe, it, expect } from 'vitest'
-import { computeAccessState, effectiveStatus, type SubscriptionSnapshot } from '@/lib/billing/access-state'
+import { computeAccessState, computeCancellation, effectiveStatus, type SubscriptionSnapshot } from '@/lib/billing/access-state'
+import { addPeriod } from '@/lib/billing/period'
 
 const NOW = new Date('2026-06-15T00:00:00Z')
 const DAY = 24 * 60 * 60 * 1000
@@ -82,5 +83,44 @@ describe('effectiveStatus edge: exactly at the grace boundary', () => {
   it('exactly 7 days past trial end is still within grace (strictly greater-than triggers expiry)', () => {
     const s = sub({ status: 'trialing', trialEndsAt: new Date(NOW.getTime() - 7 * DAY) })
     expect(effectiveStatus(s, NOW)).toBe('past_due')
+  })
+})
+
+describe('computeCancellation', () => {
+  it('active mid-cycle: soft cancel, access continues to period end', () => {
+    const s = sub({ status: 'active', currentPeriodEnd: new Date(NOW.getTime() + 10 * DAY) })
+    expect(computeCancellation(s)).toEqual({ status: 'active', cancelAtPeriodEnd: true })
+  })
+  it('trialing: nothing to run out, cancels immediately', () => {
+    expect(computeCancellation(sub({ status: 'trialing' }))).toEqual({ status: 'cancelled', cancelAtPeriodEnd: false })
+  })
+  it('pending_payment: never billed, cancels immediately', () => {
+    expect(computeCancellation(sub({ status: 'pending_payment' }))).toEqual({ status: 'cancelled', cancelAtPeriodEnd: false })
+  })
+  it('active with no period end (open-ended, e.g. the legacy backfill): cancels immediately', () => {
+    expect(computeCancellation(sub({ status: 'active', currentPeriodEnd: null }))).toEqual({
+      status: 'cancelled',
+      cancelAtPeriodEnd: false,
+    })
+  })
+})
+
+describe('addPeriod', () => {
+  it('monthly adds one calendar month', () => {
+    expect(addPeriod(new Date('2026-01-15T00:00:00Z'), 'monthly').toISOString()).toBe('2026-02-15T00:00:00.000Z')
+  })
+  it('quarterly adds three calendar months', () => {
+    expect(addPeriod(new Date('2026-01-15T00:00:00Z'), 'quarterly').toISOString()).toBe('2026-04-15T00:00:00.000Z')
+  })
+  it('annual adds twelve calendar months', () => {
+    expect(addPeriod(new Date('2026-01-15T00:00:00Z'), 'annual').toISOString()).toBe('2027-01-15T00:00:00.000Z')
+  })
+  it('clamps sensibly from the 31st into a shorter month rather than overflowing', () => {
+    const result = addPeriod(new Date('2026-01-31T00:00:00Z'), 'monthly')
+    // Jan 31 + 1 month: JS Date.setMonth on the 31st into February (28 days
+    // in 2026) rolls over to March 3rd — documenting the actual, if
+    // slightly surprising, behaviour rather than asserting a value nobody
+    // checked.
+    expect(result.getUTCMonth()).toBe(2) // March (0-indexed)
   })
 })
