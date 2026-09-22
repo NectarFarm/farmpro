@@ -847,43 +847,43 @@ export function CropsScreen() {
           unit's non-closed batches, not a fabricated capacity percentage. */}
       {!loading && tab === 'units' && (
         <div className="px-screen">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-            {farmUnits.length === 0 ? (
-              <div style={{ gridColumn: '1 / -1', padding: 24, textAlign: 'center' }}>
-                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Warehouse size={40} aria-hidden="true" /></div>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No houses or fields yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>Livestock and crops both need a place — a house, pen, paddock or field. Add that first.</div>
-                <button type="button" className="btn-primary" onClick={() => setShowAddUnit(true)}>
-                  <Plus size={14} /> Add a house or field
-                </button>
-              </div>
-            ) : farmUnits.map(u => {
-              const unitBatches = allViewBatches.filter(b => b.unitId === u.id && b.status !== 'CLOSED');
-              const occupancy = unitBatches.reduce((s, b) => s + b.qty, 0);
-              return (
-                <div key={u.id} className="farm-card" style={{ padding: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{u.name}</div>
-                    <span className={`chip ${u.status === 'ACTIVE' ? 'chip-ok' : 'chip-warning'}`} style={{ fontSize: 'var(--fs-2xs)' }}>{u.status}</span>
+          {farmUnits.length === 0 ? (
+            <EmptyState
+              icon={<Warehouse size={20} />}
+              title="No houses or fields yet"
+              body="Livestock and crops both need a place — a house, pen, paddock or field. Add that first."
+              action={<Button className="w-full justify-center" onClick={() => setShowAddUnit(true)}><Plus size={14} /> Add a house or field</Button>}
+            />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              {farmUnits.map(u => {
+                const unitBatches = allViewBatches.filter(b => b.unitId === u.id && b.status !== 'CLOSED');
+                const occupancy = unitBatches.reduce((s, b) => s + b.qty, 0);
+                return (
+                  <div key={u.id} className="rounded-xl bg-surface p-3 shadow-(--shadow-border)">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{u.name}</div>
+                      <Badge variant={u.status === 'ACTIVE' ? 'success' : 'warning'}>{u.status}</Badge>
+                    </div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'capitalize' }}>{u.type}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontFamily: 'monospace', marginBottom: 8 }}>{u.code}</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', marginBottom: 8 }}>
+                      {unitBatches.length > 0
+                        ? <span><strong style={{ color: 'var(--text-primary)' }}>{occupancy.toLocaleString()}</strong> across {unitBatches.length} batch{unitBatches.length === 1 ? '' : 'es'}</span>
+                        : <span style={{ color: 'var(--text-dim)' }}>No active batch assigned</span>}
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={() => setProductsUnit(u)}>
+                      <Package size={11} /> Products
+                    </Button>
                   </div>
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'capitalize' }}>{u.type}</div>
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', fontFamily: 'monospace', marginBottom: 8 }}>{u.code}</div>
-                  <div style={{ fontSize: 'var(--fs-xs)', marginBottom: 8 }}>
-                    {unitBatches.length > 0
-                      ? <span><strong style={{ color: 'var(--text-primary)' }}>{occupancy.toLocaleString()}</strong> across {unitBatches.length} batch{unitBatches.length === 1 ? '' : 'es'}</span>
-                      : <span style={{ color: 'var(--text-dim)' }}>No active batch assigned</span>}
-                  </div>
-                  <button onClick={() => setProductsUnit(u)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-2xs)', fontWeight: 700, padding: '5px 9px', borderRadius: 8, background: 'rgba(var(--primary-rgb),0.1)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: 'var(--primary-green)', cursor: 'pointer' }}>
-                    <Package size={11} /> Products
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
           {farmUnits.length > 0 && (
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }} onClick={() => setShowAddUnit(true)}>
-            <Plus size={14} /> Add a house or field
-          </button>
+            <Button className="w-full justify-center" style={{ marginBottom: 16 }} onClick={() => setShowAddUnit(true)}>
+              <Plus size={14} /> Add a house or field
+            </Button>
           )}
         </div>
       )}
@@ -895,49 +895,49 @@ export function CropsScreen() {
           a per-unit picker. */}
       {tab === 'products' && (
         <div className="px-screen">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {apiProducts === null ? (
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading products…</div>
-            ) : apiProducts.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Package size={40} aria-hidden="true" /></div>
-                <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No products yet</div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 14 }}>What you sell — milk, eggs, grain, live animals. Add it once, then attach it to a house or field.</div>
-                <button type="button" className="btn-primary" onClick={() => setShowAddProduct(true)}>
-                  <Plus size={14} /> Add a product
-                </button>
-              </div>
-            ) : apiProducts.map(p => (
-              <div key={p.id} className="farm-card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
-                  <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', textTransform: 'capitalize', marginTop: 2 }}>{p.type} · KSh {Number(p.saleUnits).toLocaleString()}</div>
+          {apiProducts === null ? (
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-dim)', padding: '12px 0' }}>Loading products…</div>
+          ) : apiProducts.length === 0 ? (
+            <EmptyState
+              icon={<Package size={20} />}
+              title="No products yet"
+              body="What you sell — milk, eggs, grain, live animals. Add it once, then attach it to a house or field."
+              action={<Button className="w-full justify-center" onClick={() => setShowAddProduct(true)}><Plus size={14} /> Add a product</Button>}
+            />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {apiProducts.map(p => (
+                <div key={p.id} className="flex items-center justify-between rounded-xl bg-surface p-3 shadow-(--shadow-border)">
+                  <div>
+                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</div>
+                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', textTransform: 'capitalize', marginTop: 2 }}>{p.type} · KSh {Number(p.saleUnits).toLocaleString()}</div>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button variant="ghost" size="icon-sm" title="Edit" onClick={() => setEditingProduct(p)}><Edit2 size={13} /></Button>
+                    <Button variant="ghost" size="icon-sm" title="Archive"
+                      onClick={async () => {
+                        const ok = await confirm({
+                          message: `Archive ${p.name}?`,
+                          detail: 'It leaves the catalogue. Batches that already use it keep it until you detach it.',
+                          variant: 'danger',
+                          confirmLabel: 'Archive',
+                        });
+                        if (!ok) return;
+                        const res = await apiClient.delete(`/api/products/${p.id}?tenantId=${tenantId}`);
+                        if (res.success) { showToast(`${p.name} archived.`, 'success'); loadProducts(); }
+                        else showToast(res.error || 'Could not archive this product.', 'error');
+                      }}>
+                      <Archive size={13} />
+                    </Button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn-icon" title="Edit" onClick={() => setEditingProduct(p)}><Edit2 size={13} /></button>
-                  <button className="btn-icon" title="Archive"
-                    onClick={async () => {
-                      const ok = await confirm({
-                        message: `Archive ${p.name}?`,
-                        detail: 'It leaves the catalogue. Batches that already use it keep it until you detach it.',
-                        variant: 'danger',
-                        confirmLabel: 'Archive',
-                      });
-                      if (!ok) return;
-                      const res = await apiClient.delete(`/api/products/${p.id}?tenantId=${tenantId}`);
-                      if (res.success) { showToast(`${p.name} archived.`, 'success'); loadProducts(); }
-                      else showToast(res.error || 'Could not archive this product.', 'error');
-                    }}>
-                    <Archive size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
           {apiProducts && apiProducts.length > 0 && (
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }} onClick={() => setShowAddProduct(true)}>
-            <Plus size={14} /> Add a product
-          </button>
+            <Button className="w-full justify-center" style={{ marginBottom: 16 }} onClick={() => setShowAddProduct(true)}>
+              <Plus size={14} /> Add a product
+            </Button>
           )}
         </div>
       )}
