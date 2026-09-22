@@ -16,8 +16,9 @@ describe('one vocabulary for both shells', () => {
     expect(NAV.houses).toBe('Houses & fields')
     expect(NAV.stages).toBe('Stages')
     // docs/ui-migration-map.md D2: relabelled so it no longer collides with
-    // the new Sites feature's own "farm structure" meaning.
-    expect(NAV.byFarm).toBe('GL Dimensions')
+    // the new Sites feature's own "farm structure" meaning. Forms-audit
+    // slice, item 1: "GL" is accountant jargon, dropped from the label.
+    expect(NAV.byFarm).toBe('Reporting dimensions')
     expect(NAV.sites).toBe('Sites')
     // ui/governance-reference-redesign: the sidebar's four section headings
     // now read Overview/Farm/Daily/Company, matching the reference IA.
@@ -76,7 +77,7 @@ describe('sidebar names each farm destination', () => {
     expect(navigation).toMatch(/tab\.id === 'dashboard'\s*\n\s*\? null/)
   })
 
-  it('names Approvals and GL Dimensions, not Governance and Dimensions', () => {
+  it('names Approvals and Reporting dimensions, not Governance and Dimensions', () => {
     expect(navigation).toMatch(/id: 'governance' as ScreenId, label: NAV.approvals/)
     expect(navigation).toMatch(/id: 'dimensions' as ScreenId, label: NAV.byFarm/)
   })

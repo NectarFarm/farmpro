@@ -298,7 +298,11 @@ export const NAV = {
   // unrelated "Sites" feature (a farm→house structure tree — see NAV.sites
   // below) — the two "dimensions" words were coincidentally the same before
   // this, describing two different real screens.
-  byFarm: 'GL Dimensions',
+  // forms-audit slice, item 1: "GL" is accountant jargon a farm owner has no
+  // reason to know — the screen's own lede already explains what these
+  // actually drive (a P&L per farm/unit/batch), so the nav label doesn't
+  // need to lean on the abbreviation either.
+  byFarm: 'Reporting dimensions',
   reports: 'Reports',
   settings: 'Settings',
   farm: 'Farm',

@@ -88,7 +88,7 @@ export function DimensionsScreen() {
 
         <PageHeader
           kicker="Money"
-          title="GL Dimensions"
+          title="Reporting dimensions"
           lede="Every sale, purchase and payroll run is tagged with these, and every journal line carries them — what lets a P&L be produced per unit, per farm or per batch instead of one figure for the whole business."
         />
 
