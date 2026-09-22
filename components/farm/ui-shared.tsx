@@ -7,6 +7,7 @@
 
 import React, { useState, useCallback, createContext, useContext, useRef } from 'react';
 import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
+import { PAYMENT_METHODS, referenceLabel } from '@/lib/payment-method';
 
 /* ─────────────────────────────────────────────
    TOAST SYSTEM
@@ -265,4 +266,38 @@ export function fieldErrorStyle(hasError: boolean): React.CSSProperties | undefi
 export function FieldError({ id, message }: { id?: string; message?: string }) {
   if (!message) return null;
   return <div id={id} style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{message}</div>;
+}
+
+/* ─────────────────────────────────────────────
+   PAYMENT METHOD + REFERENCE (forms-audit slice)
+   Shared by Record Sale (finance.tsx) and both Record Purchase sheets
+   (finance.tsx, inventory.tsx) — one fixed list, one reference field that
+   shows up and labels itself for the method actually chosen. `method`/
+   `reference` stay plain strings the caller owns (each sheet posts them
+   straight into its existing free-text `method`/`paymentMethod`/
+   `paymentReference` fields — no schema opinion lives here).
+────────────────────────────────────────────── */
+export function PaymentMethodFields({ method, onMethodChange, reference, onReferenceChange, label = 'Payment method' }: {
+  method: string;
+  onMethodChange: (v: string) => void;
+  reference: string;
+  onReferenceChange: (v: string) => void;
+  label?: string;
+}) {
+  const refLabel = referenceLabel(method);
+  return (
+    <div>
+      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{label}</label>
+      <select className="farm-input" value={method} onChange={(e) => { onMethodChange(e.target.value); if (!referenceLabel(e.target.value)) onReferenceChange(''); }}>
+        <option value="">Not recorded</option>
+        {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      {refLabel && (
+        <div style={{ marginTop: 8 }}>
+          <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{refLabel}</label>
+          <input className="farm-input" value={reference} onChange={(e) => onReferenceChange(e.target.value)} placeholder={`Enter the ${refLabel.toLowerCase()}`} />
+        </div>
+      )}
+    </div>
+  );
 }
