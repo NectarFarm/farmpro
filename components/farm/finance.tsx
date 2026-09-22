@@ -4,7 +4,6 @@ import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, Download, ChevronRight, Receipt } from './icons';
-import { Wallet } from 'lucide-react';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
@@ -13,10 +12,7 @@ import { fieldErrorStyle, FieldError } from './ui-shared';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/ui-kit/page-header';
 import { Segmented } from '@/components/ui-kit/segmented';
-import { Badge } from '@/components/ui-kit/badge';
 import { Button } from '@/components/ui-kit/button';
-import { Input } from '@/components/ui-kit/input';
-import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 
 // ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
