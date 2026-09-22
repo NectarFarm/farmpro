@@ -272,10 +272,13 @@ describe('components/farm/settings.tsx — controls that tell the truth', () => 
 
   it('marks Sound Alerts coming soon, because nothing plays audio', () => {
     // It persisted sound_alerts_enabled and nothing read it — the same
-    // situation as Push Notifications, but presented as working.
-    const soundRow = source.slice(source.indexOf("label: 'Sound Alerts'"))
+    // situation as Push Notifications, but presented as working. Settings-
+    // redesign (package G) moved this row from an object-literal array into
+    // a <ToggleRow label="Sound alerts" .../> component call — same
+    // `comingSoon` behaviour, different (component-prop) syntax.
+    const soundRow = source.slice(source.indexOf('label="Sound alerts"'))
       .slice(0, 400)
-    expect(soundRow).toMatch(/comingSoon: true/)
+    expect(soundRow).toMatch(/comingSoon/)
   })
 
   it('stops claiming currency and weight unit apply everywhere', () => {
@@ -287,7 +290,10 @@ describe('components/farm/settings.tsx — controls that tell the truth', () => 
 
   it('renders owner-only settings read-only for everyone else', () => {
     expect(source).toMatch(/const ownerOnlyNote = role === 'owner' \|\| role === 'super_admin'/)
-    expect(source).toMatch(/disabled=\{!!item\.readOnly\}/)
+    // Settings-redesign (package G): the old generic `item.readOnly` row
+    // renderer became per-field `disabled={!!ownerOnlyNote}` selects — same
+    // gate, inlined instead of indirected through a SettingsRow object.
+    expect(source).toMatch(/disabled=\{!!ownerOnlyNote\}/)
   })
 
   it('the account card opens Security & access, not the whole People roster (owner-roast finding #4)', () => {

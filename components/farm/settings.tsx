@@ -341,6 +341,14 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
     : farms.length === 1 ? farms[0].name
     : farms.length > 1 ? `${farms.length} farms`
     : '';
+  // Initials from the real name. Two words give two letters, one word gives
+  // one — no padding with a letter the person does not have.
+  const initials = (me?.name ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || '·';
   const { showToast } = useToast();
   const { theme, setTheme, fontSize, setFontSize } = useTheme();
   const [settings, setSettings] = useState<ApiSettings | null>(null);
@@ -635,6 +643,34 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
            sub-page it opened, rather than staying visible above it. */}
         <div className={cn(mobileOpen && 'hidden lg:block')}>
           <PageHeader kicker="Company" title="Settings" lede="Your farm, your people and your app — set up once, changed rarely." />
+
+          {/* Account card — the signed-in user, not a mock. owner-roast finding
+           * #4: this used to open 'people' — the whole team's roster — which
+           * is not "your account" by any reading. It opens the same Security
+           * & access screen the Security section's own link below leads to
+           * (sessions, password/PIN, backup) — the actual account and
+           * security surface this card's own content implies. There is no
+           * plan/tier anywhere in the schema (db/schemas/auth.ts's `tenants`
+           * is id, name, active, createdAt) — no invented badge here. */}
+          <div style={{ marginTop: 20 }}>
+          <button onClick={() => navigate('security-settings')} className="farm-card farm-card-active" style={{ padding: 14, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
+            <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(var(--warning-rgb),0.2)', border: '2px solid rgba(var(--warning-rgb),0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xl)', fontWeight: 700, color: 'var(--accent-amber)', flexShrink: 0 }}>{initials}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)', color: 'var(--text-primary)' }}>{me?.name || 'Your account'}</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
+                {role === 'owner' ? 'Owner' : role === 'manager' ? 'Manager' : role === 'worker' ? 'Worker' : role === 'super_admin' ? 'Platform Admin' : 'Staff'}
+                {farmLabel ? ` · ${farmLabel}` : ''}
+              </div>
+              {me?.email && (
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginTop: 2 }}>{me.email}</div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)' }}>{role.toUpperCase()}</span>
+              </div>
+            </div>
+            <ChevronRight size={16} color="var(--text-muted)" />
+          </button>
+          </div>
         </div>
 
         <div className={cn('lg:grid lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start lg:gap-5', mobileOpen ? 'mt-0' : 'mt-5')}>
