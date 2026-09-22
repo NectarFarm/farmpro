@@ -160,6 +160,23 @@ export async function POST(req: Request) {
   const soldTo = typeof b.soldTo === 'string' && b.soldTo.trim() ? b.soldTo.trim() : null
   const notes = typeof b.notes === 'string' && b.notes.trim() ? b.notes.trim() : null
 
+  // ── Three-date model (item 18) ────────────────────────────────────────────
+  // Both optional; recordSale defaults effectiveDate from soldAt and
+  // postingDate from effectiveDate when a caller (every caller today) sends
+  // neither, so this is purely additive.
+  let effectiveDate: Date | undefined
+  if (b.effectiveDate !== undefined && b.effectiveDate !== null && b.effectiveDate !== '') {
+    const parsed = requireEventDate(b.effectiveDate, 'effectiveDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    effectiveDate = parsed
+  }
+  let postingDate: Date | undefined
+  if (b.postingDate !== undefined && b.postingDate !== null && b.postingDate !== '') {
+    const parsed = requireEventDate(b.postingDate, 'postingDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    postingDate = parsed
+  }
+
   try {
     const sale = await recordSale({
       tenantId,
@@ -177,6 +194,8 @@ export async function POST(req: Request) {
       dueDate,
       soldTo,
       notes,
+      effectiveDate,
+      postingDate,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })
     return created(sale)

@@ -209,6 +209,22 @@ export async function POST(req: Request) {
     photoUrl = candidate
   }
 
+  // ── Three-date model (item 18) ────────────────────────────────────────────
+  // Both optional; recordPurchase defaults transactionDate and postingDate
+  // from receivedDate when a caller (every caller today) sends neither.
+  let transactionDate: Date | undefined
+  if (b.transactionDate !== undefined && b.transactionDate !== null && b.transactionDate !== '') {
+    const parsed = requireEventDate(b.transactionDate, 'transactionDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    transactionDate = parsed
+  }
+  let postingDate: Date | undefined
+  if (b.postingDate !== undefined && b.postingDate !== null && b.postingDate !== '') {
+    const parsed = requireEventDate(b.postingDate, 'postingDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    postingDate = parsed
+  }
+
   let result
   try {
     result = await recordPurchase({
@@ -231,6 +247,8 @@ export async function POST(req: Request) {
       invoiceNumber,
       notes,
       photoUrl,
+      transactionDate,
+      postingDate,
       farmId: farmFilter ?? null,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })

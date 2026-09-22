@@ -323,6 +323,15 @@ export async function recordSale(input: {
   dueDate?: Date | null
   soldTo?: string | null
   notes?: string | null
+  // Three-date model (item 18). `soldAt` above is already the transaction
+  // date. `effectiveDate` defaults to it (a sale's stock/service effect is
+  // usually the same moment as the sale itself); `postingDate` defaults to
+  // `effectiveDate` — the chain the sheet's own copy states. Neither is ever
+  // left null: a caller that sends nothing still gets real, consistent dates,
+  // which is what keeps `lib/reports.ts`'s posting_date filter equivalent to
+  // its old sold_at filter for every row this function has ever written.
+  effectiveDate?: Date | null
+  postingDate?: Date | null
   // Explicit dimension overrides (dimensions-on-gl task), keyed by dimension
   // CODE — highest priority in resolveMasterDimensions' resolution order.
   // Optional: most sales carry nothing here and rely entirely on the
@@ -330,6 +339,9 @@ export async function recordSale(input: {
   dimensions?: Record<string, string>
 }) {
   return db.transaction(async (tx) => {
+    const soldAt = input.soldAt ?? new Date()
+    const effectiveDate = input.effectiveDate ?? soldAt
+    const postingDate = input.postingDate ?? effectiveDate
     const [sale] = await tx
       .insert(sales)
       .values({
@@ -342,11 +354,13 @@ export async function recordSale(input: {
         amountCents: input.amountCents,
         method: input.method ?? '',
         status: input.status ?? 'paid',
-        soldAt: input.soldAt ?? new Date(),
+        soldAt,
         paymentReference: input.paymentReference ?? null,
         dueDate: input.dueDate ?? null,
         soldTo: input.soldTo ?? null,
         notes: input.notes ?? null,
+        effectiveDate,
+        postingDate,
       })
       .returning()
 

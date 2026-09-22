@@ -137,6 +137,19 @@ export const purchases = pgTable('purchases', {
   // second capture component. Nullable: optional, and every existing
   // purchase predates it.
   photoUrl: text('photo_url'),
+  // Migration 0046 (three-date model, item 18). `receivedDate` above already
+  // IS the effective date (when the stock actually took effect) — no new
+  // column needed for that one. These two are the genuinely new facts:
+  // `transactionDate` (when the purchase itself happened — placing the
+  // order, the supplier's invoice date — which can predate the stock
+  // actually arriving) and `postingDate` (which ledger period this counts
+  // in; defaults to `receivedDate`, the effective date). Both nullable,
+  // backfilled from `createdAt` for existing rows — see migration 0046's own
+  // header: lib/reports.ts's P&L has always filtered purchases by
+  // `createdAt`, so that (not `receivedDate`) is the value that keeps every
+  // existing figure unchanged.
+  transactionDate: timestamp('transaction_date'),
+  postingDate: timestamp('posting_date'),
   // Multi-farm filtering (farm-scoped-data task) — a purchase is a receiving
   // event for a specific farm's stock, same rationale as inventoryLots.farmId
   // above (and recordPurchase sets both to the same value: a purchase and

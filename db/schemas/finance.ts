@@ -126,6 +126,19 @@ export const sales = pgTable('sales', {
   // on paper, given somewhere to live.
   soldTo: text('sold_to'),
   notes: text('notes'),
+  // Migration 0046 (three-date model, item 18). `soldAt` already IS the
+  // transaction date (when the sale happened, "Sale date" in the sheet) —
+  // no new column needed for that one. These two are the genuinely new
+  // facts: `effectiveDate` (when the stock actually left / the service took
+  // effect — usually the same moment as the transaction, but a dispatch can
+  // lag a sale) and `postingDate` (which ledger period this counts in;
+  // defaults to `effectiveDate`, which itself defaults to `soldAt`). Both
+  // nullable, backfilled from `soldAt` for existing rows — see migration
+  // 0046's own header for why that, and not `createdAt`, is the value that
+  // keeps every P&L figure unchanged (lib/reports.ts has always filtered
+  // sales by `soldAt`, never `createdAt`).
+  effectiveDate: timestamp('effective_date'),
+  postingDate: timestamp('posting_date'),
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),
