@@ -8,6 +8,8 @@
 import React, { useState, useCallback, createContext, useContext, useRef } from 'react';
 import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
 import { PAYMENT_METHODS, referenceLabel } from '@/lib/payment-method';
+import { formatMoney } from '@/lib/money';
+import { Button } from '@/components/ui-kit/button';
 
 /* ─────────────────────────────────────────────
    TOAST SYSTEM
@@ -298,6 +300,53 @@ export function PaymentMethodFields({ method, onMethodChange, reference, onRefer
           <input className="farm-input" value={reference} onChange={(e) => onReferenceChange(e.target.value)} placeholder={`Enter the ${refLabel.toLowerCase()}`} />
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   SAVE CONFIRMATION (forms-audit slice, item 5)
+   "A save tells you what happened" — shared by Record Sale and both Record
+   Purchase sheets so a financial write never just closes the sheet with no
+   trace of what it did.
+────────────────────────────────────────────── */
+export interface SaveReceipt {
+  id: string;
+  totalLabel: string;
+  totalCents: number;
+  stockEffect?: string;
+}
+
+export function SaveConfirmation({ title, receipt, onViewList, onDone }: {
+  title: string;
+  receipt: SaveReceipt;
+  onViewList: () => void;
+  onDone: () => void;
+}) {
+  return (
+    <div className="px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-success-soft text-success">
+          <Check size={20} aria-hidden="true" />
+        </span>
+        <div>
+          <div className="font-display text-xl font-medium text-fg">{title}</div>
+          <div className="text-xs text-muted">Reference {receipt.id.slice(0, 8).toUpperCase()}</div>
+        </div>
+      </div>
+      <div className="mb-4 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+        <div className="flex justify-between text-sm">
+          <span className="text-muted">{receipt.totalLabel}</span>
+          <span className="font-display text-lg font-medium text-fg">{formatMoney(receipt.totalCents)}</span>
+        </div>
+        {receipt.stockEffect && (
+          <div className="mt-2 border-t border-border pt-2 text-sm text-muted">{receipt.stockEffect}</div>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <Button variant="secondary" className="h-11 flex-1" onClick={onViewList}>View in the list</Button>
+        <Button className="h-11 flex-1" onClick={onDone}>Done</Button>
+      </div>
     </div>
   );
 }

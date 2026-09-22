@@ -3,12 +3,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
-import { Plus, Search, X, Download, ChevronRight, Receipt, Check } from './icons';
+import { Plus, Search, X, Download, ChevronRight, Receipt } from './icons';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
-import { fieldErrorStyle, FieldError, PaymentMethodFields } from './ui-shared';
+import { fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, type SaveReceipt } from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/ui-kit/page-header';
@@ -226,49 +226,6 @@ interface ApiProductLite {
   stockEffect: string;
 }
 
-// A save now tells you what happened (item 5) — the reference/id, the total,
-// the stock effect where there is one, and a way to actually see it, instead
-// of the sheet just closing. Shared shape for both sale and purchase.
-interface SaveReceipt {
-  id: string;
-  totalLabel: string;
-  totalCents: number;
-  stockEffect?: string;
-}
-
-function SaveConfirmation({ title, receipt, onViewList, onDone }: {
-  title: string;
-  receipt: SaveReceipt;
-  onViewList: () => void;
-  onDone: () => void;
-}) {
-  return (
-    <div className="px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-      <div className="mb-4 flex items-center gap-3">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-success-soft text-success">
-          <Check size={20} aria-hidden="true" />
-        </span>
-        <div>
-          <div className="font-display text-xl font-medium text-fg">{title}</div>
-          <div className="text-xs text-muted">Reference {receipt.id.slice(0, 8).toUpperCase()}</div>
-        </div>
-      </div>
-      <div className="mb-4 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
-        <div className="flex justify-between text-sm">
-          <span className="text-muted">{receipt.totalLabel}</span>
-          <span className="font-display text-lg font-medium text-fg">{formatMoney(receipt.totalCents)}</span>
-        </div>
-        {receipt.stockEffect && (
-          <div className="mt-2 border-t border-border pt-2 text-sm text-muted">{receipt.stockEffect}</div>
-        )}
-      </div>
-      <div className="flex gap-2">
-        <Button variant="secondary" className="h-11 flex-1" onClick={onViewList}>View in the list</Button>
-        <Button className="h-11 flex-1" onClick={onDone}>Done</Button>
-      </div>
-    </div>
-  );
-}
 
 function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: {
   tenantId: string;

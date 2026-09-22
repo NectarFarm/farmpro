@@ -4,7 +4,8 @@ import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, Download, Wheat, Syringe, Beaker, Sprout, Receipt, AlertTriangle, Upload, type LucideIcon } from './icons';
-import { useToast, fieldErrorStyle, FieldError } from './ui-shared';
+import { useToast, fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, type SaveReceipt } from './ui-shared';
+import { compressImageFile } from '@/lib/image-compress';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
 import { parseMoneyToCents, centsToMajor } from '@/lib/money';
@@ -146,17 +147,16 @@ function stockCoverPct(item: ApiInventoryItem): number {
 
 /* ── Record Purchase sheet — real POST /api/purchases. Used from both the
  * Purchases tab (blank) and the item dossier (prefilled). ── */
-function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, paymentMethods, prefill, farms, activeFarmId, onCreated, onClose }: {
+function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, prefill, farms, activeFarmId, onCreated, onViewList, onClose }: {
   tenantId: string;
   itemNames: string[];
   // Suggestions only — every one of these is a combobox (input + datalist),
-  // not a hard select, so a genuinely new supplier/category/unit/method is
-  // still recorded verbatim. Built from this tenant's own purchases/items
-  // (see InventoryScreen/InventoryDetailScreen), not invented.
+  // not a hard select, so a genuinely new supplier/category/unit is still
+  // recorded verbatim. Built from this tenant's own purchases/items (see
+  // InventoryScreen/InventoryDetailScreen), not invented.
   supplierNames: string[];
   categories: string[];
   units: string[];
-  paymentMethods: string[];
   prefill?: { itemName?: string; unit?: string; category?: string };
   // farm-scoped-data task: both purchases.farmId and the inventoryLots.farmId
   // it creates need a farm — see lib/inventory.ts's recordPurchase. Defaults
@@ -165,6 +165,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   farms: { id: string; name: string }[];
   activeFarmId: string;
   onCreated: () => void;
+  onViewList: () => void;
   onClose: () => void;
 }) {
   const [supplier, setSupplier] = useState('');
@@ -177,7 +178,15 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   const [lotNo, setLotNo] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
+  const [reference, setReference] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [receivedDate, setReceivedDate] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
   // owner-roast finding #10: with a single farm and the shell's filter on
   // 'ALL', this used to stay '' — a disabled "Select a farm…" placeholder
   // with nothing else it could sanely be. Multiple farms still start blank
@@ -186,12 +195,41 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   const [farmId, setFarmId] = useState(activeFarmId !== 'ALL' ? activeFarmId : (farms.length === 1 ? farms[0].id : ''));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [receipt, setReceipt] = useState<SaveReceipt | null>(null);
   // owner-roast finding #10: the banner used to say "Supplier, item, and
   // unit are required" while silently skipping farm — the checks returned
   // one at a time instead of being collected together. Per-field, same
   // mechanism as ui-shared.tsx's fieldErrorStyle/FieldError.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const { showToast } = useToast();
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const qtyNum = Number(quantity);
+  const unitCostCentsLive = parseMoneyToCents(unitCost);
+  const totalCentsLive = Number.isFinite(qtyNum) && qtyNum > 0 && unitCostCentsLive !== null ? qtyNum * unitCostCentsLive : null;
+  const amountPaidCentsLive = amountPaid ? parseMoneyToCents(amountPaid) : 0;
+  const amountDueCents = totalCentsLive !== null ? Math.max(0, totalCentsLive - (amountPaidCentsLive ?? 0)) : null;
+
+  // Credit means unpaid (item 2): choosing it locks "Paid now" at 0 and
+  // reveals the due date.
+  function onMethodChange(next: string) {
+    setPaymentMethod(next);
+    if (next === 'Credit') setAmountPaid('0');
+    else if (paymentMethod === 'Credit') { setAmountPaid(''); setDueDate(''); }
+  }
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoBusy(true); setPhotoError('');
+    try {
+      setPhoto(await compressImageFile(file));
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Couldn't add that photo");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   async function save() {
     const qty = Number(quantity);
@@ -209,14 +247,14 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
     // "0.5 bags" became a zero-quantity, zero-cost purchase and the money paid
     // was erased. The server refuses it now; say so before the round trip.
     else if (!Number.isInteger(qty)) errs.quantity = `Quantity must be a whole number of ${unit.trim() || 'units'}`;
-    if (unitCostCents === null || unitCostCents < 0) errs.unitCost = 'Cost per unit must be a non-negative number';
-    if (amountPaid && amountPaidCents === null) errs.amountPaid = 'Amount paid must be a number';
-    else if (amountPaidCents !== null && amountPaidCents < 0) errs.amountPaid = 'Amount paid cannot be negative';
+    if (unitCostCents === null || unitCostCents < 0) errs.unitCost = 'Unit cost must be a non-negative number';
+    if (amountPaid && amountPaidCents === null) errs.amountPaid = 'Paid now must be a number';
+    else if (amountPaidCents !== null && amountPaidCents < 0) errs.amountPaid = 'Paid now cannot be negative';
     // Paying more than the bill left the purchase row claiming it was PAID
     // while the journal only credited Cash the total — the difference simply
     // vanished from the ledger. Refused on both sides now.
     else if (amountPaidCents !== null && unitCostCents !== null && amountPaidCents > qty * unitCostCents) {
-      errs.amountPaid = 'Amount paid is more than the purchase total';
+      errs.amountPaid = 'Paid now is more than the purchase total';
     }
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -225,9 +263,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
     }
     setFieldErrors({});
 
+    const totalCents = qty * (unitCostCents as number);
     setSaving(true);
     setError('');
-    const res = await apiClient.post('/api/purchases', {
+    const res = await apiClient.post<{ id: string; lot: { lotNo: string } }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
       itemName: itemName.trim(),
@@ -237,132 +276,193 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
       quantity: qty,
       unitCostCents,
       paymentMethod: paymentMethod.trim() || undefined,
+      paymentReference: reference.trim() || undefined,
       amountPaidCents: amountPaidCents ?? undefined,
       lotNo: lotNo.trim() || undefined,
       expiryDate: expiryDate || undefined,
+      invoiceNumber: invoiceNumber.trim() || undefined,
+      receivedDate: receivedDate || undefined,
+      dueDate: dueDate || undefined,
+      notes: notes.trim() || undefined,
+      photoUrl: photo || undefined,
       farmId,
     });
     setSaving(false);
     if (res.success) {
-      showToast('Purchase recorded. Stock is on hand.', 'success');
       onCreated();
-      onClose();
+      setReceipt({
+        id: res.data.id,
+        totalLabel: 'Total',
+        totalCents,
+        stockEffect: `${qty} ${unit.trim()} of ${itemName.trim()} out of ${res.data.lot?.lotNo ?? 'the new lot'}`,
+      });
     } else {
       setError(res.error || 'Could not record this purchase.');
     }
   }
 
+  if (receipt) {
+    return (
+      <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92vh]">
+        <SheetTitle className="sr-only">Purchase recorded</SheetTitle>
+        <SaveConfirmation title="Purchase recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
+      </Sheet>
+    );
+  }
+
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92vh]">
       <SheetTitle className="sr-only">Record Purchase</SheetTitle>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        <div className="mb-4 font-display text-xl font-medium">Record Purchase</div>
+      {/* item 15: sticky footer keeps Record Purchase reachable on this long
+          sheet without scrolling past every field first. */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4">
+          <div className="mb-4 font-display text-xl font-medium">Record Purchase</div>
 
-        <div className="grid gap-3">
-          <Field label="Farm *">
-            {farms.length === 0 ? (
-              <p className="text-sm leading-relaxed text-muted">Stock has to land at a farm. You do not have one yet — that is set up when the application is approved.</p>
-            ) : (
-              <>
-                <select
-                  className="h-10 w-full min-w-0 rounded-md bg-surface px-3 text-sm text-fg shadow-(--shadow-border) outline-none"
-                  value={farmId} onChange={e => setFarmId(e.target.value)}
-                  style={fieldErrorStyle(!!fieldErrors.farmId)}
-                  aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'inv-purchase-farm-error' : undefined}>
-                  <option value="" disabled>Select a farm…</option>
-                  {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-                <FieldError id="inv-purchase-farm-error" message={fieldErrors.farmId} />
-              </>
+          <div className="grid gap-3">
+            <Field label="Farm *">
+              {farms.length === 0 ? (
+                <p className="text-sm leading-relaxed text-muted">Stock has to land at a farm. You do not have one yet — that is set up when the application is approved.</p>
+              ) : (
+                <>
+                  <select
+                    className="h-10 w-full min-w-0 rounded-md bg-surface px-3 text-sm text-fg shadow-(--shadow-border) outline-none"
+                    value={farmId} onChange={e => setFarmId(e.target.value)}
+                    style={fieldErrorStyle(!!fieldErrors.farmId)}
+                    aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'inv-purchase-farm-error' : undefined}>
+                    <option value="" disabled>Select a farm…</option>
+                    {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  </select>
+                  <FieldError id="inv-purchase-farm-error" message={fieldErrors.farmId} />
+                </>
+              )}
+            </Field>
+
+            <Field label="Supplier *">
+              <Input list="inv-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.supplier)}
+                aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'inv-purchase-supplier-error' : undefined} />
+              <datalist id="inv-supplier-names">
+                {supplierNames.map(n => <option key={n} value={n} />)}
+              </datalist>
+              <FieldError id="inv-purchase-supplier-error" message={fieldErrors.supplier} />
+            </Field>
+
+            <Field label="Item *">
+              <Input list="inv-item-names" placeholder="e.g. dairy meal, maize seed, layers mash" value={itemName} onChange={e => setItemName(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.itemName)}
+                aria-invalid={!!fieldErrors.itemName} aria-describedby={fieldErrors.itemName ? 'inv-purchase-item-error' : undefined} />
+              <datalist id="inv-item-names">
+                {itemNames.map(n => <option key={n} value={n} />)}
+              </datalist>
+              <FieldError id="inv-purchase-item-error" message={fieldErrors.itemName} />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Category">
+                <Input list="inv-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+                <datalist id="inv-categories">
+                  {categories.map(c => <option key={c} value={c} />)}
+                </datalist>
+              </Field>
+              <Field label="Unit *">
+                <Input list="inv-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
+                  style={fieldErrorStyle(!!fieldErrors.unit)}
+                  aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'inv-purchase-unit-error' : undefined} />
+                <datalist id="inv-units">
+                  {units.map(u => <option key={u} value={u} />)}
+                </datalist>
+                <FieldError id="inv-purchase-unit-error" message={fieldErrors.unit} />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Quantity *">
+                <Input type="number" inputMode="numeric" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)}
+                  style={fieldErrorStyle(!!fieldErrors.quantity)}
+                  aria-invalid={!!fieldErrors.quantity} aria-describedby={fieldErrors.quantity ? 'inv-purchase-qty-error' : undefined} />
+                <FieldError id="inv-purchase-qty-error" message={fieldErrors.quantity} />
+              </Field>
+              <Field label="Unit cost (KSh) *">
+                <Input type="number" inputMode="decimal" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)}
+                  style={fieldErrorStyle(!!fieldErrors.unitCost)}
+                  aria-invalid={!!fieldErrors.unitCost} aria-describedby={fieldErrors.unitCost ? 'inv-purchase-unitcost-error' : undefined} />
+                <FieldError id="inv-purchase-unitcost-error" message={fieldErrors.unitCost} />
+              </Field>
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-primary-soft px-3 py-2.5">
+              <span className="text-xs font-semibold text-muted">Total</span>
+              <span className="font-display text-lg font-medium text-primary">{totalCentsLive !== null ? `KSh ${centsToMajor(totalCentsLive).toLocaleString()}` : '—'}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Lot No.">
+                <Input placeholder="auto if blank" value={lotNo} onChange={e => setLotNo(e.target.value)} />
+              </Field>
+              <Field label="Expiry date">
+                <Input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
+              </Field>
+            </div>
+
+            <PaymentMethodFields method={paymentMethod} onMethodChange={onMethodChange} reference={reference} onReferenceChange={setReference} />
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Paid now (KSh)">
+                <Input type="number" inputMode="decimal" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)}
+                  disabled={paymentMethod === 'Credit'}
+                  style={fieldErrorStyle(!!fieldErrors.amountPaid)}
+                  aria-invalid={!!fieldErrors.amountPaid} aria-describedby={fieldErrors.amountPaid ? 'inv-purchase-amountpaid-error' : undefined} />
+                <FieldError id="inv-purchase-amountpaid-error" message={fieldErrors.amountPaid} />
+              </Field>
+              <Field label="Amount due">
+                <div className="flex h-10 items-center rounded-md bg-card px-3 text-sm text-muted shadow-(--shadow-border)">
+                  {amountDueCents !== null ? `KSh ${centsToMajor(amountDueCents).toLocaleString()}` : '—'}
+                </div>
+              </Field>
+            </div>
+            {/* Credit means unpaid (item 2): a due date once there's a balance to chase. */}
+            {(paymentMethod === 'Credit' || (amountDueCents ?? 0) > 0) && (
+              <Field label="Due date">
+                <Input type="date" min={todayIso} value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              </Field>
             )}
-          </Field>
 
-          <Field label="Supplier *">
-            <Input list="inv-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.supplier)}
-              aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'inv-purchase-supplier-error' : undefined} />
-            <datalist id="inv-supplier-names">
-              {supplierNames.map(n => <option key={n} value={n} />)}
-            </datalist>
-            <FieldError id="inv-purchase-supplier-error" message={fieldErrors.supplier} />
-          </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Invoice / receipt no. (optional)">
+                <Input placeholder="e.g. INV-00231" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} />
+              </Field>
+              <Field label="Received date">
+                <Input type="date" max={todayIso} value={receivedDate} onChange={e => setReceivedDate(e.target.value)} />
+              </Field>
+            </div>
 
-          <Field label="Item *">
-            <Input list="inv-item-names" placeholder="e.g. dairy meal, maize seed, layers mash" value={itemName} onChange={e => setItemName(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.itemName)}
-              aria-invalid={!!fieldErrors.itemName} aria-describedby={fieldErrors.itemName ? 'inv-purchase-item-error' : undefined} />
-            <datalist id="inv-item-names">
-              {itemNames.map(n => <option key={n} value={n} />)}
-            </datalist>
-            <FieldError id="inv-purchase-item-error" message={fieldErrors.itemName} />
-          </Field>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Category">
-              <Input list="inv-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
-              <datalist id="inv-categories">
-                {categories.map(c => <option key={c} value={c} />)}
-              </datalist>
+            <Field label="Reorder threshold (new items only)">
+              <Input type="number" inputMode="numeric" placeholder="e.g. 500" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)} />
             </Field>
-            <Field label="Unit *">
-              <Input list="inv-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
-                style={fieldErrorStyle(!!fieldErrors.unit)}
-                aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'inv-purchase-unit-error' : undefined} />
-              <datalist id="inv-units">
-                {units.map(u => <option key={u} value={u} />)}
-              </datalist>
-              <FieldError id="inv-purchase-unit-error" message={fieldErrors.unit} />
+
+            <Field label="Notes (optional)">
+              <textarea className="min-h-[4.5rem] w-full resize-none rounded-md bg-surface px-3 py-2 text-sm text-fg shadow-(--shadow-border) outline-none" placeholder="Anything worth remembering about this purchase" value={notes} onChange={e => setNotes(e.target.value)} />
+            </Field>
+
+            <Field label="Receipt photo (optional)">
+              {photo && <img src={photo} alt="Receipt" className="mb-2 max-h-40 w-full rounded-lg object-cover" />}
+              <label className={cn(
+                'flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-soft text-sm font-semibold text-primary',
+                photoBusy ? 'opacity-60' : 'cursor-pointer',
+              )}>
+                {photoBusy ? 'Adding…' : photo ? 'Retake photo' : 'Add a photo'}
+                <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" disabled={photoBusy} />
+              </label>
+              {photoError && <p className="mt-1 text-xs text-danger">{photoError}</p>}
             </Field>
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Quantity *">
-              <Input type="number" inputMode="numeric" placeholder="0" value={quantity} onChange={e => setQuantity(e.target.value)}
-                style={fieldErrorStyle(!!fieldErrors.quantity)}
-                aria-invalid={!!fieldErrors.quantity} aria-describedby={fieldErrors.quantity ? 'inv-purchase-qty-error' : undefined} />
-              <FieldError id="inv-purchase-qty-error" message={fieldErrors.quantity} />
-            </Field>
-            <Field label="Cost/unit (KSh) *">
-              <Input type="number" inputMode="decimal" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)}
-                style={fieldErrorStyle(!!fieldErrors.unitCost)}
-                aria-invalid={!!fieldErrors.unitCost} aria-describedby={fieldErrors.unitCost ? 'inv-purchase-unitcost-error' : undefined} />
-              <FieldError id="inv-purchase-unitcost-error" message={fieldErrors.unitCost} />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Lot No.">
-              <Input placeholder="auto if blank" value={lotNo} onChange={e => setLotNo(e.target.value)} />
-            </Field>
-            <Field label="Expiry date">
-              <Input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Payment method">
-              <Input list="inv-payment-methods" placeholder="e.g. M-Pesa" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} />
-              <datalist id="inv-payment-methods">
-                {paymentMethods.map(m => <option key={m} value={m} />)}
-              </datalist>
-            </Field>
-            <Field label="Amount paid (KSh)">
-              <Input type="number" inputMode="decimal" placeholder="0 if unpaid" value={amountPaid} onChange={e => setAmountPaid(e.target.value)}
-                style={fieldErrorStyle(!!fieldErrors.amountPaid)}
-                aria-invalid={!!fieldErrors.amountPaid} aria-describedby={fieldErrors.amountPaid ? 'inv-purchase-amountpaid-error' : undefined} />
-              <FieldError id="inv-purchase-amountpaid-error" message={fieldErrors.amountPaid} />
-            </Field>
-          </div>
-
-          <Field label="Reorder threshold (new items only)">
-            <Input type="number" inputMode="numeric" placeholder="e.g. 500" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)} />
-          </Field>
         </div>
-
-        {error && <div className="mt-3 text-xs text-danger">{error}</div>}
-        <Button className="mt-4 mb-2 w-full justify-center" onClick={save} disabled={saving}>
-          {saving ? 'Saving…' : 'Record Purchase'}
-        </Button>
+        <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {error && <div className="mb-2 text-xs text-danger">{error}</div>}
+          <Button className="w-full justify-center" onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : 'Record Purchase'}
+          </Button>
+        </div>
       </div>
     </Sheet>
   );
@@ -463,7 +563,7 @@ function StockDossierBody({ item, tenantId, onAdjusted }: { item: ApiInventoryIt
         <Kv label="Status" value={<Badge variant={item.status === 'ok' ? 'success' : item.status === 'low' ? 'warning' : 'danger'}>{item.status.toUpperCase()}</Badge>} />
       </dl>
 
-      <h3 className="mt-6 text-xs font-medium tracking-[0.12em] text-subtle uppercase">Lots</h3>
+      <h3 className="mt-6 text-xs font-medium tracking-[0.12em] text-subtle uppercase">Stock lots</h3>
       {item.lots.length === 0 ? (
         <p className="mt-2 text-sm text-muted">No lots recorded for this item.</p>
       ) : (
@@ -686,7 +786,6 @@ export function InventoryScreen() {
   const supplierNames = Array.from(new Set((purchases ?? []).map(p => p.supplier).filter(Boolean))).sort();
   const categoryNames = Array.from(new Set((items ?? []).map(i => i.category).filter(Boolean))).sort();
   const unitNames = Array.from(new Set((items ?? []).map(i => i.unit).filter(Boolean))).sort();
-  const paymentMethodNames = Array.from(new Set((purchases ?? []).map(p => p.paymentMethod).filter(Boolean))).sort();
 
   return (
     <div className="screen-content">
@@ -715,7 +814,7 @@ export function InventoryScreen() {
           <Kpi label="Items" value={(items ?? []).length} hint="Catalogued" onClick={() => setTab('stock')} />
           <Kpi label="Low / expiring" value={lowCount} hint={lowCount === 0 ? 'All clear' : 'Reorder these'} tone={lowCount > 0 ? 'warn' : 'ok'} onClick={() => setTab('stock')} />
           <Kpi label="Flagged" value={flaggedVariances} hint="Need a recount" tone={flaggedVariances > 0 ? 'danger' : 'plain'} onClick={() => setTab('variance')} />
-          <Kpi label="Lots" value={totalLots} hint="On hand" onClick={() => setTab('stock')} />
+          <Kpi label="Stock lots" value={totalLots} hint="On hand" onClick={() => setTab('stock')} />
         </div>
 
         <div className="mt-5">
@@ -725,7 +824,7 @@ export function InventoryScreen() {
             items={[
               { id: 'stock', label: 'Stock', hint: "What's running low" },
               { id: 'purchases', label: 'Purchases', hint: 'What brought it in' },
-              { id: 'variance', label: 'Lots', hint: 'What needs a recount' },
+              { id: 'variance', label: 'Stock lots', hint: 'What needs a recount' },
             ]}
           />
         </div>
@@ -915,11 +1014,11 @@ export function InventoryScreen() {
           supplierNames={supplierNames}
           categories={categoryNames}
           units={unitNames}
-          paymentMethods={paymentMethodNames}
           prefill={selectedItem ? { itemName: selectedItem.name, unit: selectedItem.unit, category: selectedItem.category } : undefined}
           farms={farms}
           activeFarmId={activeFarmId}
           onCreated={loadAll}
+          onViewList={() => { setShowRecordPurchase(false); setTab('purchases'); }}
           onClose={() => setShowRecordPurchase(false)}
         />
       )}
@@ -972,7 +1071,6 @@ export function InventoryDetailScreen() {
   const supplierNames = Array.from(new Set((purchases ?? []).map(p => p.supplier).filter(Boolean))).sort();
   const categoryNames = Array.from(new Set(items.map(i => i.category).filter(Boolean))).sort();
   const unitNames = Array.from(new Set(items.map(i => i.unit).filter(Boolean))).sort();
-  const paymentMethodNames = Array.from(new Set((purchases ?? []).map(p => p.paymentMethod).filter(Boolean))).sort();
 
   return (
     <div className="screen-content">
@@ -995,11 +1093,11 @@ export function InventoryDetailScreen() {
           supplierNames={supplierNames}
           categories={categoryNames}
           units={unitNames}
-          paymentMethods={paymentMethodNames}
           prefill={{ itemName: item.name, unit: item.unit, category: item.category }}
           farms={farms}
           activeFarmId={activeFarmId}
           onCreated={load}
+          onViewList={() => setShowRecordPurchase(false)}
           onClose={() => setShowRecordPurchase(false)}
         />
       )}
