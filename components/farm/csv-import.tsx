@@ -125,7 +125,7 @@ const VALID_TASK_TYPES = ['feeding','egg-collection','milking','mortality','heal
 const VALID_FREQUENCIES = ['once','daily','weekly','on-demand'];
 const VALID_PRIORITIES  = ['high','medium','low'];
 const VALID_STATUSES    = ['PENDING','DONE','OVERDUE','APPROVED','REJECTED'];
-// The BUILT-IN roles only. A tenant can define its own in Governance
+// The BUILT-IN roles only. A tenant can define its own in Approvals
 // (RoleBuilderSheet -> POST /api/role-permissions), so this list is not the
 // authority on what is valid — which is why every message below says
 // "built-in" rather than claiming a role is undefined. These validators are
@@ -194,7 +194,7 @@ function validateTask(row: Record<string, string>, allRows: Record<string, strin
   } else {
     const roleId = aCode.replace('GROUP:', '');
     if (!BUILT_IN_ROLES.includes(roleId) && roleId !== 'all') {
-      issues.push({ col: 'assigneeCode', severity: 'warning', message: `"${roleId}" is not a built-in role (${BUILT_IN_ROLES.join(', ')}, all). If your farm defines it in Governance this will still import.` });
+      issues.push({ col: 'assigneeCode', severity: 'warning', message: `"${roleId}" is not a built-in role (${BUILT_IN_ROLES.join(', ')}, all). If your farm defines it in Approvals this will still import.` });
     }
   }
 
@@ -303,7 +303,7 @@ function validateEmployee(row: Record<string, string>, allRows: Record<string, s
     issues.push({ col: 'role', severity: 'error', message: 'Role is required', suggestion: 'worker', autoFix: true });
   } else if (!BUILT_IN_ROLES.includes(role)) {
     const match = fuzzyMatchCode(role, BUILT_IN_ROLES);
-    issues.push({ col: 'role', severity: 'warning', message: `"${role}" is not a built-in role (${BUILT_IN_ROLES.join(', ')})${match ? ` — did you mean "${match}"?` : ''}. A custom role defined in Governance will still import.`, suggestion: match ?? 'worker', autoFix: !!match });
+    issues.push({ col: 'role', severity: 'warning', message: `"${role}" is not a built-in role (${BUILT_IN_ROLES.join(', ')})${match ? ` — did you mean "${match}"?` : ''}. A custom role defined in Approvals will still import.`, suggestion: match ?? 'worker', autoFix: !!match });
   }
 
   // ── phone ──

@@ -706,7 +706,7 @@ export function GovernanceScreen() {
 
         <PageHeader
           kicker="Company"
-          title="Governance"
+          title="Approvals"
           lede="Who can do what, what still needs a second look, and a full trail of every change across the group."
           actions={(
             <div className="flex items-center gap-2">

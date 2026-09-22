@@ -985,7 +985,7 @@ export function PeopleDetailScreen() {
         {activeSection === 'permissions' && (
           <div className="mt-5">
             <p className="mb-3 text-sm text-muted">
-              Permissions inherited from the <strong className="text-fg">{roleName}</strong> role. Go to Governance → Roles &amp; rules to edit role permissions.
+              Permissions inherited from the <strong className="text-fg">{roleName}</strong> role. Go to Approvals → Roles &amp; rules to edit role permissions.
             </p>
             <section className="rounded-xl bg-surface p-2 shadow-(--shadow-border)">
               {assignedRole ? (

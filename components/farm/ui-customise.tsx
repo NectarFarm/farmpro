@@ -34,7 +34,7 @@ const DEFAULT_MODULES: ModuleConfig[] = [
   { id: 'inventory', defaultLabel: 'Inventory / Stock', icon: Package, enabled: true, description: 'Feed, supplies, and stock management' },
   { id: 'finance', defaultLabel: 'Finance', icon: DollarSign, enabled: true, description: 'P&L, expenses, sales and GL accounts' },
   { id: 'people', defaultLabel: 'People / HR', icon: Users, enabled: true, description: 'Employee management and payroll' },
-  { id: 'governance', defaultLabel: 'Governance', icon: Shield, enabled: true, description: 'Approvals, roles and audit log' },
+  { id: 'governance', defaultLabel: 'Approvals', icon: Shield, enabled: true, description: 'Approvals, roles and audit log' },
   { id: 'reports', defaultLabel: 'Reports', icon: FileText, enabled: true, description: 'Analytics, exports and auditor links' },
   { id: 'weather', defaultLabel: 'Weather & IoT', icon: CloudSun, enabled: true, description: 'Forecast, sensors and farm advisories' },
   { id: 'ai-chat', defaultLabel: 'AI Assistant', icon: Bot, enabled: true, description: 'AI-powered farm advisor chatbot' },

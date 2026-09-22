@@ -33,7 +33,7 @@ const MODULES = [
   { icon: DollarSign, label: 'Finance', desc: 'Sales, purchases and a real double-entry ledger' },
   { icon: CreditCard, label: 'Payroll', desc: 'Employees, payroll runs and payslips' },
   { icon: CheckSquare, label: 'Tasks', desc: 'Assign, track and approve day-to-day work' },
-  { icon: Shield, label: 'Governance', desc: 'Role-based access, approval workflows and an audit trail' },
+  { icon: Shield, label: 'Approvals', desc: 'Role-based access, approval workflows and an audit trail' },
   { icon: CloudSun, label: 'Weather', desc: 'Live forecast for each farm, via Open-Meteo' },
   { icon: Users, label: 'People', desc: 'Employees, worker accounts and PIN sign-in' },
   { icon: WifiOff, label: 'Offline-friendly recording', desc: 'Cache data for use in low-connectivity fields' },
