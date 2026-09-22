@@ -4,6 +4,7 @@ import { Home, Leaf, Package, CloudSun, DollarSign, CheckSquare, Users, Shield, 
 import { apiClient } from '@/lib/request';
 import { useConfirm } from './ui-shared';
 import type { SetupState } from '@/lib/setup-state';
+import { SupportChatSheet } from '@/components/portal/support-chat';
 
 /* ── Screen registry ── */
 export type ScreenId =
@@ -1257,13 +1258,12 @@ const ENTERPRISE_GROUPS: SidebarGroup[] = [
     { id: 'finance' as ScreenId, label: NAV.finance, icon: DollarSign, ownerOnly: true },
     { id: 'dimensions' as ScreenId, label: NAV.byFarm, icon: Layers, ownerOnly: true },
     { id: 'reports' as ScreenId, label: NAV.reports, icon: FileText, ownerOnly: true },
-    // SaaS back-office (package H2, lead decision #5): billing is an
-    // owner-level concern throughout the backend (docs/backoffice-api.md) —
-    // a manager gets no row at all here rather than a read-only one, since
-    // GET /api/billing/subscription is the only tenant-wide-readable route
-    // and a bare status line isn't worth its own nav destination for that
-    // role. Support is every tenant role's — no ownerOnly.
-    { id: 'billing' as ScreenId, label: NAV.billing, icon: CreditCard, ownerOnly: true },
+    // SaaS back-office (package H2, lead decision, round 2): manager sees
+    // Plan & billing too, but read-only (status/plan/renewal/usage — no
+    // change-plan, cancel or record-payment actions; BillingScreen itself
+    // gates those by role, matching the backend's owner-only mutation routes
+    // in docs/backoffice-api.md §2). Support is every tenant role's.
+    { id: 'billing' as ScreenId, label: NAV.billing, icon: CreditCard, ownerOnly: false },
     { id: 'support' as ScreenId, label: NAV.support, icon: HelpCircle, ownerOnly: false },
   ] },
 ];
@@ -1642,6 +1642,16 @@ export function TopNav({
 }) {
   const { goBack, unreadNotifs, navigate, role, current } = useNav();
   const canSeeBell = showBell && role !== 'vet' && role !== 'auditor' && current !== 'notifications';
+  // Persistent Help launcher (SaaS back-office, package H2, lead decision
+  // #4): every tenant role gets it — including worker/vet/auditor, who have
+  // no "Help & support" sidebar row (they use the flat single-tab set, not
+  // the Company sidebar group) — TopNav is the one component every screen
+  // already renders, so putting it here reaches all of them with no
+  // per-screen edit, the same trick showBell's default already relies on.
+  // super_admin (platform staff) handles tickets from the admin console
+  // instead, so it gets no launcher here.
+  const canSeeHelp = role !== 'super_admin' && current !== 'support' && current !== 'support-ticket';
+  const [helpOpen, setHelpOpen] = useState(false);
 
   return (
     <div className="top-nav">
@@ -1666,6 +1676,11 @@ export function TopNav({
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {rightEl}
+        {canSeeHelp && (
+          <button type="button" className="btn-icon" onClick={() => setHelpOpen(true)} aria-label="Help & support">
+            <HelpCircle size={16} />
+          </button>
+        )}
         {canSeeBell && (
           <button type="button" className="btn-icon" style={{ position: 'relative' }} onClick={() => navigate('notifications')} aria-label={unreadNotifs > 0 ? `Notifications, ${unreadNotifs} unread` : 'Notifications'}>
             <Bell size={16} />
@@ -1676,6 +1691,13 @@ export function TopNav({
         )}
         <LogoutButton className="top-nav-signout" />
       </div>
+      {canSeeHelp && (
+        <SupportChatSheet
+          open={helpOpen}
+          onClose={() => setHelpOpen(false)}
+          onEscalated={(id) => { setHelpOpen(false); navigate('support-ticket', { id }); }}
+        />
+      )}
     </div>
   );
 }
