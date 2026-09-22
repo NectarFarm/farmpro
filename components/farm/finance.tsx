@@ -8,7 +8,7 @@ import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
-import { fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, MasterPicker, type SaveReceipt, type MasterOption } from './ui-shared';
+import { fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, MasterPicker, useToast, type SaveReceipt, type MasterOption } from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
 import { todayInTimezone } from '@/lib/datetime';
 import { useRegional } from './settings';
@@ -897,6 +897,83 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   );
 }
 
+/* ── Supplier / customer balances (item 20) ──────────────────────────────────
+ * "A balance view per supplier and per customer computed from unpaid rows —
+ * no new ledger concepts, just a sum." GET /api/suppliers and /api/customers
+ * already return that sum per row (balanceCents); this just lists it. One
+ * component, one `kind` prop, since the two are identical in shape. */
+interface MasterBalanceRow extends MasterOption {
+  phone: string;
+  contact: string;
+  creditTerms: string | null;
+  active: boolean;
+  balanceCents: number;
+}
+
+function BalancesSheet({ kind, tenantId, onClose }: { kind: 'suppliers' | 'customers'; tenantId: string; onClose: () => void }) {
+  const { showToast } = useToast();
+  const [rows, setRows] = useState<MasterBalanceRow[] | null>(null);
+  const label = kind === 'suppliers' ? 'Supplier' : 'Customer';
+
+  const load = useCallback(() => {
+    apiClient.get<MasterBalanceRow[]>(`/api/${kind}?tenantId=${tenantId}`).then((res) => {
+      if (res.success) setRows(res.data);
+    });
+  }, [kind, tenantId]);
+  useEffect(() => { load(); }, [load]);
+
+  async function toggleActive(row: MasterBalanceRow) {
+    const res = await apiClient.patch(`/api/${kind}/${row.id}?tenantId=${tenantId}`, { active: !row.active });
+    if (res.success) load();
+    else showToast(res.error ?? `Could not update this ${label.toLowerCase()}`, 'error');
+  }
+
+  const totalOwed = (rows ?? []).reduce((sum, r) => sum + r.balanceCents, 0);
+
+  return (
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <SheetTitle className="mb-1">{label} balances</SheetTitle>
+        <p className="mb-4 text-sm text-muted">
+          {kind === 'suppliers' ? 'What you still owe, per supplier.' : 'What is still owed to you, per customer.'}
+        </p>
+        <div className="mb-4 rounded-xl bg-primary-soft px-4 py-3">
+          <div className="text-xs font-semibold text-muted">Total {kind === 'suppliers' ? 'owed' : 'outstanding'}</div>
+          <div className="font-display text-2xl font-medium text-primary">{formatMoney(totalOwed)}</div>
+        </div>
+        {rows === null && <div className="text-sm text-muted">Loading…</div>}
+        {rows !== null && rows.length === 0 && (
+          <div className="text-sm text-muted">No {label.toLowerCase()}s yet — one gets added the first time you save one on a {kind === 'suppliers' ? 'purchase' : 'sale'}.</div>
+        )}
+        {rows !== null && rows.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {rows.map((r) => (
+              <div key={r.id} className="rounded-xl bg-surface p-3.5 shadow-(--shadow-border)">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-fg">{r.name}</span>
+                      {!r.active && <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted">Inactive</span>}
+                    </div>
+                    <div className="text-xs text-muted">{[r.phone, r.contact].filter(Boolean).join(' · ') || 'No contact on file'}</div>
+                    {r.creditTerms && <div className="text-xs text-muted">Terms: {r.creditTerms}</div>}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className={cn('font-display text-lg font-medium', r.balanceCents > 0 ? 'text-warning' : 'text-fg')}>{formatMoney(r.balanceCents)}</div>
+                    <button type="button" onClick={() => toggleActive(r)} className="text-xs font-medium text-primary">
+                      {r.active ? 'Mark inactive' : 'Reactivate'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
 /* ── Column definitions ─────────────────────────────────────────────────── */
 
 // Batch P&L (Overview tab): composed client-side from GET /api/batches +
@@ -1157,6 +1234,8 @@ export function FinanceScreen() {
   const [salesSearch, setSalesSearch] = useState('');
   const [showRecordSale, setShowRecordSale] = useState(false);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
+  const [showSupplierBalances, setShowSupplierBalances] = useState(false);
+  const [showCustomerBalances, setShowCustomerBalances] = useState(false);
 
   const [sales, setSales] = useState<ApiSale[] | null>(null);
   const [salesError, setSalesError] = useState('');
@@ -1558,9 +1637,14 @@ export function FinanceScreen() {
               emptyText="No sales records found."
             />
           )}
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 12, marginBottom: 20 }} onClick={() => setShowRecordSale(true)}>
-            <Plus size={16} /> Record Sale
-          </button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, marginBottom: 20 }}>
+            <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowCustomerBalances(true)}>
+              Customer balances
+            </button>
+            <button className="btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={() => setShowRecordSale(true)}>
+              <Plus size={16} /> Record Sale
+            </button>
+          </div>
         </div>
       )}
 
@@ -1597,9 +1681,14 @@ export function FinanceScreen() {
               ))}
             </div>
           )}
-          <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginBottom: 20 }} onClick={() => setShowRecordPurchase(true)}>
-            <Plus size={16} /> Record Purchase
-          </button>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowSupplierBalances(true)}>
+              Supplier balances
+            </button>
+            <button className="btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={() => setShowRecordPurchase(true)}>
+              <Plus size={16} /> Record Purchase
+            </button>
+          </div>
         </div>
       )}
 
@@ -1741,6 +1830,8 @@ export function FinanceScreen() {
           onClose={() => setShowRunPayroll(false)}
         />
       )}
+      {showSupplierBalances && <BalancesSheet kind="suppliers" tenantId={tenantId} onClose={() => setShowSupplierBalances(false)} />}
+      {showCustomerBalances && <BalancesSheet kind="customers" tenantId={tenantId} onClose={() => setShowCustomerBalances(false)} />}
     </div>
   );
 }
