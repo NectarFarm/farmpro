@@ -26,7 +26,7 @@ import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dial
 import {
   ChevronRight, ChevronLeft, DoorOpen, Check, Lock, Eye, EyeOff,
   Palette, SlidersHorizontal, Shield, Globe, UserCircle, Bell,
-  Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, ClipboardList, Layers,
+  Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, CreditCard, ClipboardList, Layers,
   type LucideIcon,
 } from './icons';
 import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, type DateFormat } from '@/lib/datetime';
@@ -246,7 +246,9 @@ const SESSION_TIMEOUT_OPTIONS: { value: string; label: string }[] = [
  * fixed left rail next to the selected section's content, both always
  * visible — no separate route needed, every field/handler here is the exact
  * one the old flat sections array used, just regrouped. */
-type SectionId = 'profile' | 'regional' | 'appearance' | 'notifications' | 'security' | 'stages' | 'about';
+type SectionId = 'profile' | 'regional' | 'appearance' | 'notifications' | 'security' | 'stages' | 'about' | 'billing' | 'support';
+// billing/support are doors, not drill-in sections: they open their own screens.
+const DOOR_SCREENS: Partial<Record<SectionId, 'billing' | 'support'>> = { billing: 'billing', support: 'support' };
 interface SectionMeta { id: SectionId; label: string; hint: string; icon: LucideIcon }
 
 const SECTIONS: SectionMeta[] = [
@@ -257,14 +259,8 @@ const SECTIONS: SectionMeta[] = [
   { id: 'security', label: 'Security', hint: 'Password, sessions, worker PINs', icon: Lock },
   { id: 'stages', label: 'Stages', hint: 'Batch stages and farm structure', icon: Layers },
   { id: 'about', label: 'About', hint: 'Version, walkthrough, setup guide', icon: Info },
-  // Package H2 (admin/back-office console + customer portal, see
-  // docs/backoffice-api.md) will append two more rows here once it lands —
-  // "Plan & billing" and "Help & support" don't exist yet and this package
-  // does not build them. Same `{ id, label, hint, icon }` shape as the rows
-  // above; dropping entries into this array is the only change needed here
-  // (plus a `case` in SettingsScreen's section-content switch).
-  // { id: 'billing', label: 'Plan & billing', hint: 'Subscription, invoices, usage', icon: CreditCard },
-  // { id: 'support', label: 'Help & support', hint: 'Contact support, open a ticket', icon: HelpCircle },
+  { id: 'billing', label: 'Plan & billing', hint: 'Subscription, payments, usage', icon: CreditCard },
+  { id: 'support', label: 'Help & support', hint: 'Ask the assistant or open a ticket', icon: HelpCircle },
 ];
 
 /* One label/toggle row, shared by every "coming soon" control in the
@@ -423,9 +419,18 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   // (Android Settings-style), while desktop always shows both at once.
   const [activeSection, setActiveSection] = useState<SectionId>('profile');
   const [mobileOpen, setMobileOpen] = useState(false);
-  function openSection(id: SectionId) { setActiveSection(id); setMobileOpen(true); }
+  function openSection(id: SectionId) {
+    const door = DOOR_SCREENS[id];
+    if (door) { navigate(door); return; }
+    setActiveSection(id); setMobileOpen(true);
+  }
 
-  const visibleSections = SECTIONS.filter((s) => s.id !== 'stages' || isOwnerish);
+  const visibleSections = SECTIONS.filter((s) => {
+    if (s.id === 'stages') return isOwnerish;
+    if (s.id === 'billing') return role === 'owner' || role === 'manager';
+    if (s.id === 'support') return role !== 'super_admin';
+    return true;
+  });
   const activeMeta = SECTIONS.find((s) => s.id === activeSection) ?? SECTIONS[0];
 
   function renderSectionContent() {
