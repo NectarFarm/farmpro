@@ -1258,13 +1258,12 @@ const ENTERPRISE_GROUPS: SidebarGroup[] = [
     { id: 'finance' as ScreenId, label: NAV.finance, icon: DollarSign, ownerOnly: true },
     { id: 'dimensions' as ScreenId, label: NAV.byFarm, icon: Layers, ownerOnly: true },
     { id: 'reports' as ScreenId, label: NAV.reports, icon: FileText, ownerOnly: true },
-    // SaaS back-office (package H2, lead decision #5): billing is an
-    // owner-level concern throughout the backend (docs/backoffice-api.md) —
-    // a manager gets no row at all here rather than a read-only one, since
-    // GET /api/billing/subscription is the only tenant-wide-readable route
-    // and a bare status line isn't worth its own nav destination for that
-    // role. Support is every tenant role's — no ownerOnly.
-    { id: 'billing' as ScreenId, label: NAV.billing, icon: CreditCard, ownerOnly: true },
+    // SaaS back-office (package H2, lead decision, round 2): manager sees
+    // Plan & billing too, but read-only (status/plan/renewal/usage — no
+    // change-plan, cancel or record-payment actions; BillingScreen itself
+    // gates those by role, matching the backend's owner-only mutation routes
+    // in docs/backoffice-api.md §2). Support is every tenant role's.
+    { id: 'billing' as ScreenId, label: NAV.billing, icon: CreditCard, ownerOnly: false },
     { id: 'support' as ScreenId, label: NAV.support, icon: HelpCircle, ownerOnly: false },
   ] },
 ];

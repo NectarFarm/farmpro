@@ -38,6 +38,8 @@ import { LoginScreen, RegisterScreen, ForgotPasswordScreen, AuthShell, AuthMasth
 import { apiClient } from '@/lib/request';
 import { PlanSelectScreen, PlanGateWaitingScreen } from '@/components/portal/plan-select';
 import { SupportScreen, SupportTicketScreen } from '@/components/portal/support';
+import { BillingScreen } from '@/components/portal/billing';
+import { SubscriptionBanner } from '@/components/portal/subscription-banner';
 
 /* ── App-level logout context so any screen can trigger logout ── */
 export const LogoutCtx = createContext<() => void>(() => {});
@@ -120,6 +122,7 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
       case 'vet-herd':          return <VetHerdScreen />;
       case 'role-notice':       return <RoleNoticeScreen />;
       case 'plan-select':       return <PlanSelectScreen variant="change" />;
+      case 'billing':           return <BillingScreen />;
       case 'support':           return <SupportScreen />;
       case 'support-ticket':    return <SupportTicketScreen />;
       default:                  return <DashboardScreen />;
@@ -132,6 +135,7 @@ function ScreenRouter({ onLogout, userName }: { onLogout: () => void; userName?:
     <div className="farm-shell">
       <AppSidebar />
       <div className="shell-main">
+        <SubscriptionBanner />
         <div className="screen-slot">
           {screen}
         </div>
