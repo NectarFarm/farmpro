@@ -5,7 +5,7 @@
 // Used across all screens for consistent feedback patterns
 // ============================================================
 
-import React, { useState, useCallback, createContext, useContext, useRef } from 'react';
+import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
 import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
 import { PAYMENT_METHODS, referenceLabel } from '@/lib/payment-method';
 import { formatMoney } from '@/lib/money';
@@ -375,6 +375,65 @@ export function SaveConfirmation({ title, receipt, onViewList, onDone }: {
         <Button variant="secondary" className="h-11 flex-1" onClick={onViewList}>View in the list</Button>
         <Button className="h-11 flex-1" onClick={onDone}>Done</Button>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   SUPPLIER / CUSTOMER PICKER (item 20)
+   Type-to-search against a real master, creatable inline — the same
+   <input list=...>+<datalist> combobox idiom this app already uses for
+   supplier/category/unit suggestions, upgraded with a real id behind it and
+   a one-tap "save as new" when nothing matches. The free-text value ITSELF
+   (name) is what the caller still stores in sales.soldTo / purchases.
+   supplier — this never forces a match, only offers one.
+────────────────────────────────────────────── */
+export interface MasterOption {
+  id: string;
+  name: string;
+}
+
+export function MasterPicker({ label, listId, options, name, onNameChange, onResolvedChange, onCreate, creating, placeholder }: {
+  label: string;
+  listId: string;
+  options: MasterOption[];
+  name: string;
+  onNameChange: (name: string) => void;
+  /** Called whenever the typed name starts/stops exactly matching a real
+   * master — the caller owns the resolved id, this component only detects
+   * the match. */
+  onResolvedChange: (id: string | null) => void;
+  /** Saves the CURRENT typed name as a new master; the caller does the POST
+   * and, on success, calls onResolvedChange itself with the new id. */
+  onCreate: () => void;
+  creating: boolean;
+  placeholder: string;
+}) {
+  const trimmed = name.trim();
+  const exactMatch = options.find((o) => o.name.trim().toLowerCase() === trimmed.toLowerCase());
+  const matchedId = exactMatch?.id ?? null;
+
+  useEffect(() => {
+    onResolvedChange(matchedId);
+    // Only the match itself should re-trigger this — not a new
+    // onResolvedChange function identity from a parent that re-renders on
+    // every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchedId]);
+
+  return (
+    <div>
+      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{label}</label>
+      <input className="farm-input" list={listId} value={name} onChange={(e) => onNameChange(e.target.value)} placeholder={placeholder} />
+      <datalist id={listId}>
+        {options.map((o) => <option key={o.id} value={o.name} />)}
+      </datalist>
+      {trimmed && !exactMatch && (
+        <button type="button" onClick={onCreate} disabled={creating} className="mt-1 text-xs font-medium text-primary">
+          {creating ? 'Saving…' : `+ Save "${trimmed}" as a new ${label.toLowerCase()}`}
+        </button>
+      )}
+      {exactMatch && <p className="mt-1 text-[11px] text-muted">Matches an existing {label.toLowerCase()}.</p>}
     </div>
   );
 }

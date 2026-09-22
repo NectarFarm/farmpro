@@ -4,7 +4,7 @@ import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, Download, Wheat, Syringe, Beaker, Sprout, Receipt, AlertTriangle, Upload, type LucideIcon } from './icons';
-import { useToast, fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, type SaveReceipt } from './ui-shared';
+import { useToast, fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, MasterPicker, type SaveReceipt, type MasterOption } from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
 import { todayInTimezone } from '@/lib/datetime';
 import { useRegional } from './settings';
@@ -149,14 +149,14 @@ function stockCoverPct(item: ApiInventoryItem): number {
 
 /* ── Record Purchase sheet — real POST /api/purchases. Used from both the
  * Purchases tab (blank) and the item dossier (prefilled). ── */
-function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, prefill, farms, activeFarmId, onCreated, onViewList, onClose }: {
+function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, farms, activeFarmId, onCreated, onViewList, onClose }: {
   tenantId: string;
   itemNames: string[];
   // Suggestions only — every one of these is a combobox (input + datalist),
-  // not a hard select, so a genuinely new supplier/category/unit is still
-  // recorded verbatim. Built from this tenant's own purchases/items (see
-  // InventoryScreen/InventoryDetailScreen), not invented.
-  supplierNames: string[];
+  // not a hard select, so a genuinely new category/unit is still recorded
+  // verbatim. Built from this tenant's own purchases/items (see
+  // InventoryScreen/InventoryDetailScreen), not invented. Supplier (item 20)
+  // is now its own fetched master list — see the `suppliers` state below.
   categories: string[];
   units: string[];
   prefill?: { itemName?: string; unit?: string; category?: string };
@@ -172,6 +172,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
 }) {
   const { navigate } = useNav();
   const [supplier, setSupplier] = useState('');
+  const [supplierId, setSupplierId] = useState<string | null>(null);
+  const [suppliers, setSuppliers] = useState<MasterOption[]>([]);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
   const [itemName, setItemName] = useState(prefill?.itemName ?? '');
   const [category, setCategory] = useState(prefill?.category ?? '');
   const [unit, setUnit] = useState(prefill?.unit ?? '');
@@ -221,6 +224,25 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
     setPaymentMethod(next);
     if (next === 'Credit') setAmountPaid('0');
     else if (paymentMethod === 'Credit') { setAmountPaid(''); setDueDate(''); }
+  }
+
+  // item 20: the supplier master the picker resolves or creates against.
+  useEffect(() => {
+    apiClient.get<MasterOption[]>(`/api/suppliers?tenantId=${tenantId}&active=true`).then((res) => {
+      if (res.success) setSuppliers(res.data);
+    });
+  }, [tenantId]);
+
+  async function createSupplier() {
+    const name = supplier.trim();
+    if (!name) return;
+    setCreatingSupplier(true);
+    const res = await apiClient.post<MasterOption>('/api/suppliers', { tenantId, name });
+    setCreatingSupplier(false);
+    if (res.success) {
+      setSuppliers((prev) => [...prev, res.data]);
+      setSupplierId(res.data.id);
+    }
   }
 
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -275,6 +297,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
     const res = await apiClient.post<{ id: string; lot: { lotNo: string } }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
+      supplierId: supplierId || undefined,
       itemName: itemName.trim(),
       category: category.trim() || undefined,
       unit: unit.trim(),
@@ -345,15 +368,14 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
               )}
             </Field>
 
-            <Field label="Supplier *">
-              <Input list="inv-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
-                style={fieldErrorStyle(!!fieldErrors.supplier)}
-                aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'inv-purchase-supplier-error' : undefined} />
-              <datalist id="inv-supplier-names">
-                {supplierNames.map(n => <option key={n} value={n} />)}
-              </datalist>
+            <div>
+              <MasterPicker
+                label="Supplier *" listId="inv-suppliers" options={suppliers}
+                name={supplier} onNameChange={setSupplier} onResolvedChange={setSupplierId}
+                onCreate={createSupplier} creating={creatingSupplier} placeholder="e.g. Unga Ltd"
+              />
               <FieldError id="inv-purchase-supplier-error" message={fieldErrors.supplier} />
-            </Field>
+            </div>
 
             <Field label="Item *">
               <Input list="inv-item-names" placeholder="e.g. dairy meal, maize seed, layers mash" value={itemName} onChange={e => setItemName(e.target.value)}
@@ -1006,7 +1028,6 @@ export function InventoryScreen() {
   // own items/purchases rather than invented (issue: free-text fields that
   // should be pickers). Every field stays a combobox, so a value not in this
   // list yet is still recorded verbatim.
-  const supplierNames = Array.from(new Set((purchases ?? []).map(p => p.supplier).filter(Boolean))).sort();
   const categoryNames = Array.from(new Set((items ?? []).map(i => i.category).filter(Boolean))).sort();
   const unitNames = Array.from(new Set((items ?? []).map(i => i.unit).filter(Boolean))).sort();
 
@@ -1237,7 +1258,6 @@ export function InventoryScreen() {
         <RecordPurchaseSheet
           tenantId={tenantId}
           itemNames={(items ?? []).map(i => i.name)}
-          supplierNames={supplierNames}
           categories={categoryNames}
           units={unitNames}
           prefill={selectedItem ? { itemName: selectedItem.name, unit: selectedItem.unit, category: selectedItem.category } : undefined}
@@ -1265,18 +1285,11 @@ export function InventoryDetailScreen() {
   const { params, tenantId, activeFarmId, farms } = useNav();
   const id = params.id;
   const [items, setItems] = useState<ApiInventoryItem[] | null>(null);
-  // Purchase history, fetched tenant-wide (not just this item's) purely to
-  // seed the Record Purchase sheet's Supplier/Payment Method suggestions —
-  // same real-data-not-invented sourcing as InventoryScreen's Purchases tab.
-  const [purchases, setPurchases] = useState<ApiPurchase[] | null>(null);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
 
   const load = useCallback(() => {
     apiClient.get<ApiInventoryItem[]>(`/api/inventory/items?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
       if (res.success) setItems(res.data);
-    });
-    apiClient.get<ApiPurchase[]>(`/api/purchases?tenantId=${tenantId}&farmId=${activeFarmId}`).then(res => {
-      if (res.success) setPurchases(res.data);
     });
   }, [tenantId, activeFarmId]);
 
@@ -1303,7 +1316,6 @@ export function InventoryDetailScreen() {
 
   // Picker suggestions for RecordPurchaseSheet — same real-data sourcing as
   // InventoryScreen.
-  const supplierNames = Array.from(new Set((purchases ?? []).map(p => p.supplier).filter(Boolean))).sort();
   const categoryNames = Array.from(new Set(items.map(i => i.category).filter(Boolean))).sort();
   const unitNames = Array.from(new Set(items.map(i => i.unit).filter(Boolean))).sort();
 
@@ -1325,7 +1337,6 @@ export function InventoryDetailScreen() {
         <RecordPurchaseSheet
           tenantId={tenantId}
           itemNames={items.map(i => i.name)}
-          supplierNames={supplierNames}
           categories={categoryNames}
           units={unitNames}
           prefill={{ itemName: item.name, unit: item.unit, category: item.category }}

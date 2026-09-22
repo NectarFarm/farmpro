@@ -8,7 +8,7 @@ import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
-import { fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, type SaveReceipt } from './ui-shared';
+import { fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, MasterPicker, type SaveReceipt, type MasterOption } from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
 import { todayInTimezone } from '@/lib/datetime';
 import { useRegional } from './settings';
@@ -253,6 +253,9 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   const [soldAt, setSoldAt] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
   const [soldTo, setSoldTo] = useState('');
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customers, setCustomers] = useState<MasterOption[]>([]);
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -263,6 +266,27 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   // looked exactly as submittable as a valid one. Per-field, same mechanism
   // as ui-shared.tsx's fieldErrorStyle/FieldError.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // item 20: the customer master a "Sold to" MasterPicker resolves or
+  // creates against — active only, since a customer marked inactive
+  // shouldn't come back in a picker's suggestions.
+  useEffect(() => {
+    apiClient.get<MasterOption[]>(`/api/customers?tenantId=${tenantId}&active=true`).then((res) => {
+      if (res.success) setCustomers(res.data);
+    });
+  }, [tenantId]);
+
+  async function createCustomer() {
+    const name = soldTo.trim();
+    if (!name) return;
+    setCreatingCustomer(true);
+    const res = await apiClient.post<MasterOption>('/api/customers', { tenantId, name });
+    setCreatingCustomer(false);
+    if (res.success) {
+      setCustomers((prev) => [...prev, res.data]);
+      setCustomerId(res.data.id);
+    }
+  }
 
   useEffect(() => {
     apiClient.get<ApiProductLite[]>('/api/products').then((res) => {
@@ -341,6 +365,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
       batchId: batchId || undefined,
       soldAt: soldAt || undefined,
       soldTo: soldTo.trim() || undefined,
+      customerId: customerId || undefined,
       dueDate: dueDate || undefined,
       notes: notes.trim() || undefined,
       effectiveDate: effectiveDate || undefined,
@@ -508,8 +533,11 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
             </div>
           )}
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sold to (optional)</label>
-            <input className="farm-input" placeholder="e.g. Mama Njeri" value={soldTo} onChange={e => setSoldTo(e.target.value)} />
+            <MasterPicker
+              label="Sold to (optional)" listId="sale-customers" options={customers}
+              name={soldTo} onNameChange={setSoldTo} onResolvedChange={setCustomerId}
+              onCreate={createCustomer} creating={creatingCustomer} placeholder="e.g. Mama Njeri"
+            />
           </div>
           <div style={{ marginBottom: 4 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes (optional)</label>
@@ -531,16 +559,17 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
  * Inventory's Purchases tab uses; there is no expense-only concept in the
  * backend separate from a stock purchase). No edit/PATCH UI — GET/POST are
  * the only verbs the route supports. ── */
-function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, units, farms, activeFarmId, onCreated, onViewList, onClose }: {
+function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, activeFarmId, onCreated, onViewList, onClose }: {
   tenantId: string;
   itemNames: string[];
   // Suggestions only — every one of these is a combobox (input + datalist),
-  // not a hard select, so a new supplier/category/unit a farmer genuinely
-  // hasn't used before still gets recorded verbatim. Built from this
-  // tenant's own purchase/inventory history (see FinanceScreen), not
-  // invented — an empty list here degrades to a plain text field for free,
-  // since an empty <datalist> shows no suggestions at all.
-  supplierNames: string[];
+  // not a hard select, so a new category/unit a farmer genuinely hasn't
+  // used before still gets recorded verbatim. Built from this tenant's own
+  // purchase/inventory history (see FinanceScreen), not invented — an empty
+  // list here degrades to a plain text field for free, since an empty
+  // <datalist> shows no suggestions at all. Supplier (item 20) is now its
+  // own fetched master list instead of a history-derived suggestion — see
+  // the `suppliers` state below.
   categories: string[];
   units: string[];
   // farm-scoped-data task — see components/farm/inventory.tsx's
@@ -555,6 +584,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
 }) {
   const { navigate } = useNav();
   const [supplier, setSupplier] = useState('');
+  const [supplierId, setSupplierId] = useState<string | null>(null);
+  const [suppliers, setSuppliers] = useState<MasterOption[]>([]);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
   const [itemName, setItemName] = useState('');
   const [category, setCategory] = useState('');
   const [unit, setUnit] = useState('');
@@ -620,6 +652,25 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
     }
   }
 
+  // item 20: the supplier master the picker resolves or creates against.
+  useEffect(() => {
+    apiClient.get<MasterOption[]>(`/api/suppliers?tenantId=${tenantId}&active=true`).then((res) => {
+      if (res.success) setSuppliers(res.data);
+    });
+  }, [tenantId]);
+
+  async function createSupplier() {
+    const name = supplier.trim();
+    if (!name) return;
+    setCreatingSupplier(true);
+    const res = await apiClient.post<MasterOption>('/api/suppliers', { tenantId, name });
+    setCreatingSupplier(false);
+    if (res.success) {
+      setSuppliers((prev) => [...prev, res.data]);
+      setSupplierId(res.data.id);
+    }
+  }
+
   async function save() {
     const qty = Number(quantity);
     const unitCostCents = parseMoneyToCents(unitCost);
@@ -653,6 +704,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
     const res = await apiClient.post<{ id: string }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
+      supplierId: supplierId || undefined,
       itemName: itemName.trim(),
       category: category.trim() || undefined,
       unit: unit.trim(),
@@ -714,13 +766,11 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
             <FieldError id="purchase-farm-error" message={fieldErrors.farmId} />
           </div>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Supplier *</label>
-            <input className="farm-input" list="finance-supplier-names" placeholder="e.g. Unga Ltd" value={supplier} onChange={e => setSupplier(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.supplier)}
-              aria-invalid={!!fieldErrors.supplier} aria-describedby={fieldErrors.supplier ? 'purchase-supplier-error' : undefined} />
-            <datalist id="finance-supplier-names">
-              {supplierNames.map(n => <option key={n} value={n} />)}
-            </datalist>
+            <MasterPicker
+              label="Supplier *" listId="finance-suppliers" options={suppliers}
+              name={supplier} onNameChange={setSupplier} onResolvedChange={setSupplierId}
+              onCreate={createSupplier} creating={creatingSupplier} placeholder="e.g. Unga Ltd"
+            />
             <FieldError id="purchase-supplier-error" message={fieldErrors.supplier} />
           </div>
           <div style={{ marginBottom: 12 }}>
@@ -1247,15 +1297,10 @@ export function FinanceScreen() {
 
   // ── Picker suggestions, sourced from this tenant's own data (issue: free-
   // text fields that should be pickers) ─────────────────────────────────────
-  // Supplier/category/unit come from the real inventory catalogue and this
-  // tenant's own purchase history — not invented — so "Unga Ltd" / "unga
-  // ltd" / "Unga limited" stop being three suppliers. Payment method has no
-  // backing table, but a tenant's own past sales+purchases are real
-  // observations too; PAYMENT_METHOD_SEED only fills in before any exist.
-  const supplierNames = useMemo(
-    () => Array.from(new Set((purchases ?? []).map((p) => p.supplier).filter(Boolean))).sort(),
-    [purchases]
-  );
+  // Category/unit come from the real inventory catalogue — not invented.
+  // Supplier is now the real suppliers master (item 20's MasterPicker,
+  // fetched inside RecordPurchaseSheet itself) rather than a purchase-
+  // history-derived suggestion.
   const categoryNames = useMemo(
     () => Array.from(new Set(items.map((i) => i.category).filter(Boolean))).sort(),
     [items]
@@ -1680,7 +1725,6 @@ export function FinanceScreen() {
         <RecordPurchaseSheet
           tenantId={tenantId}
           itemNames={items.map((i) => i.name)}
-          supplierNames={supplierNames}
           categories={categoryNames}
           units={unitNames}
           farms={farms}
