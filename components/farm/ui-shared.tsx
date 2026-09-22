@@ -339,7 +339,7 @@ export function PaymentMethodFields({ method, onMethodChange, reference, onRefer
    trace of what it did.
 ────────────────────────────────────────────── */
 export interface SaveReceipt {
-  id: string;
+  id?: string;
   totalLabel: string;
   totalCents: number;
   stockEffect?: string;
@@ -359,7 +359,10 @@ export function SaveConfirmation({ title, receipt, onViewList, onDone }: {
         </span>
         <div>
           <div className="font-display text-xl font-medium text-fg">{title}</div>
-          <div className="text-xs text-muted">Reference {receipt.id.slice(0, 8).toUpperCase()}</div>
+          {/* An id is not guaranteed: some create endpoints answer with the
+              rows they built rather than a bare id. A missing reference is a
+              missing line, never a thrown render that blanks the screen. */}
+          {receipt.id ? <div className="text-xs text-muted">Reference {String(receipt.id).slice(0, 8).toUpperCase()}</div> : null}
         </div>
       </div>
       <div className="mb-4 rounded-xl bg-surface p-4 shadow-(--shadow-border)">

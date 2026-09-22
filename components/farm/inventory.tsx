@@ -323,7 +323,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
     if (res.success) {
       onCreated();
       setReceipt({
-        id: res.data.id,
+        id: (res.data as { purchase?: { id?: string } }).purchase?.id,
         totalLabel: 'Total',
         totalCents,
         stockEffect: `${qty} ${unit.trim()} of ${itemName.trim()} out of ${res.data.lot?.lotNo ?? 'the new lot'}`,
