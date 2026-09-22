@@ -127,7 +127,7 @@ async function captureDimensions(
 // entirely rather than moving it to the other side.)
 export async function postSaleJournal(
   tx: Tx,
-  sale: { id: string; tenantId: string; amountCents: number; status: string; batchId?: string | null },
+  sale: { id: string; tenantId: string; amountCents: number; status: string; batchId?: string | null; postingDate?: Date | null },
   opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
@@ -150,6 +150,15 @@ export async function postSaleJournal(
       sourceId: sale.id,
       farmId,
       memo: sale.status === 'pending' ? 'Sale recorded on account' : 'Cash sale recorded',
+      // Three-date model (item 18, part 2 of 2): a journal entry's own date
+      // now agrees with the sale's posting date instead of silently defaulting
+      // to whatever instant this transaction happened to commit at — this is
+      // what makes computeDimensionPlReport (which has always filtered on
+      // journal_entries.entry_date, not sales/purchases directly) period-
+      // consistent with the plain P&L above for a backdated sale. Old entries
+      // are untouched (see migration 0046 — this is new-row-only, exactly
+      // like every other part of the repoint).
+      ...(sale.postingDate ? { entryDate: sale.postingDate } : {}),
     })
     .returning()
 
@@ -187,7 +196,7 @@ export async function postSaleJournal(
 // still balances by construction.
 export async function postPurchaseJournal(
   tx: Tx,
-  purchase: { id: string; tenantId: string; totalCostCents: number; amountPaidCents: number; farmId?: string | null },
+  purchase: { id: string; tenantId: string; totalCostCents: number; amountPaidCents: number; farmId?: string | null; postingDate?: Date | null },
   opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
@@ -210,6 +219,9 @@ export async function postPurchaseJournal(
       sourceId: purchase.id,
       farmId,
       memo: owed > 0 ? (paid > 0 ? 'Purchase recorded, partially paid' : 'Purchase recorded on account') : 'Purchase recorded, paid in full',
+      // Three-date model (item 18, part 2 of 2) — see postSaleJournal's
+      // identical comment.
+      ...(purchase.postingDate ? { entryDate: purchase.postingDate } : {}),
     })
     .returning()
 
