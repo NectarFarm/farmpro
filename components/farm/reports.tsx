@@ -11,10 +11,23 @@ import {
   textColorFor, HEADER_META_KEYS, type ExportOptions,
 } from '@/lib/report-export';
 import {
-  FileText, Download,
+  FileText, Download, ChevronLeft,
   DollarSign, BarChart3, ClipboardList, Syringe, Wheat, Users, PieChart, Scale,
   type LucideIcon,
 } from './icons';
+import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/ui-kit/page-header';
+import { Badge } from '@/components/ui-kit/badge';
+import { Button } from '@/components/ui-kit/button';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+
+// ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
+// Ports src/components/reports/reports-page.tsx's picker+document layout:
+// a report catalogue on the left, the report as a designed "document" (paper
+// panel, masthead, sections, totals) as the hero on the right, export
+// actions attached to that document. Mobile: picker -> full-screen document
+// -> sticky export bar. No data call, endpoint, report type or export format
+// below changed — only the layout around the already-real ReportDocumentPreview.
 
 // ── Real-data wiring (issue #263) ───────────────────────────────────────────
 // Seven of the eight report types below now have real backing endpoints:
@@ -233,13 +246,18 @@ export function ReportsScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="Reports" subtitle="Export & share" />
-      <div className="px-screen" style={{ paddingTop: 14 }}>
+      <TopNav title="" />
+      <div className="px-screen pt-3 pb-10">
+        <PageHeader
+          kicker="Company"
+          title="Reports"
+          lede="Working packs from the same ledger as Finance. Unaudited — for you, the bank, and a read-only link."
+        />
 
         {/* Date range picker */}
-        <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+        <div className="mt-5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
           <div className="section-eyebrow" style={{ marginBottom: 10 }}>Date Range</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>From</label>
               <input className="farm-input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
@@ -251,89 +269,83 @@ export function ReportsScreen() {
           </div>
         </div>
 
-        {/* Report type selector */}
-        <div className="section-eyebrow" style={{ marginBottom: 10 }}>Select a Report</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-          {REPORT_TYPES.map((r) => {
-            const isSel = selected === r.id;
-            // owner-roast finding #7: 'labour' used to be selectable exactly
-            // like every real report — tapping it just moved `selected` to a
-            // dead end that only THEN told you it doesn't work. A report with
-            // no real endpoint (REPORT_ENDPOINTS) is now a dead door you can
-            // see is closed, not one that opens onto disappointment.
-            const isUnavailable = !REPORT_ENDPOINTS[r.id];
-            return (
-              <button key={r.id}
-                type="button"
-                disabled={isUnavailable}
-                aria-disabled={isUnavailable}
-                onClick={() => { if (!isUnavailable) setSelected(isSel ? null : r.id); }}
-                className="farm-card"
-                style={{
-                  padding: 12, textAlign: 'left',
-                  cursor: isUnavailable ? 'not-allowed' : 'pointer',
-                  opacity: isUnavailable ? 0.55 : 1,
-                  borderLeft: `3px solid ${r.color}`,
-                  background: isSel ? 'rgba(var(--primary-rgb),0.1)' : 'var(--card)',
-                  borderTop: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
-                  borderRight: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
-                  borderBottom: isSel ? '1px solid rgba(var(--primary-rgb),0.4)' : undefined,
-                }}>
-                <span className="icon-tile sm" style={{ background: `color-mix(in srgb, ${r.color} 16%, var(--card))`, color: r.color, marginBottom: 8 }}>
-                  <r.icon size={16} aria-hidden="true" />
-                </span>
-                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: isSel ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.2, marginBottom: 3 }}>{r.name}</div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</div>
-                {isUnavailable && (
-                  <div style={{ marginTop: 6 }}>
-                    <span className="chip chip-warning" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Not available</span>
-                    {NOT_AVAILABLE_REASONS[r.id] && (
-                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', lineHeight: 1.4, marginTop: 4 }}>{NOT_AVAILABLE_REASONS[r.id]}</div>
+        {/* Picker (catalogue) + document (hero), reference's two-pane shape.
+            Mobile: only one pane shows at a time — picker until a report is
+            selected, then the document full-screen with a back link. */}
+        <div className="mt-5 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+          <nav className={cn('min-w-0 rounded-xl bg-surface p-2 shadow-(--shadow-border)', selected && 'hidden lg:block')}>
+            {REPORT_TYPES.map((r) => {
+              const isSel = selected === r.id;
+              // owner-roast finding #7: 'labour' used to be selectable exactly
+              // like every real report — tapping it just moved `selected` to a
+              // dead end that only THEN told you it doesn't work. A report with
+              // no real endpoint (REPORT_ENDPOINTS) is now a dead door you can
+              // see is closed, not one that opens onto disappointment.
+              const isUnavailable = !REPORT_ENDPOINTS[r.id];
+              return (
+                <button key={r.id}
+                  type="button"
+                  disabled={isUnavailable}
+                  aria-disabled={isUnavailable}
+                  onClick={() => { if (!isUnavailable) setSelected(isSel ? null : r.id); }}
+                  className={cn(
+                    'flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left',
+                    isUnavailable ? 'cursor-not-allowed opacity-55' : isSel ? 'bg-primary-soft' : 'hover:bg-surface-2',
+                  )}
+                >
+                  <span className="icon-tile sm shrink-0" style={{ background: `color-mix(in srgb, ${r.color} 16%, var(--card))`, color: r.color }}>
+                    <r.icon size={16} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-sm font-medium">{r.name}</span>
+                      {isUnavailable && <Badge variant="warning">Not available</Badge>}
+                      {isSel && !isUnavailable && <Badge variant="success">Selected</Badge>}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted">{r.desc}</span>
+                    {isUnavailable && NOT_AVAILABLE_REASONS[r.id] && (
+                      <span className="mt-1 block text-xs text-subtle">{NOT_AVAILABLE_REASONS[r.id]}</span>
                     )}
-                  </div>
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className={cn('min-w-0', !selected && 'hidden lg:block')}>
+            {!selected && (
+              <EmptyState icon={<FileText size={20} />} title="Pick a report" body="Choose a report on the left to see it rendered as a document you can export or share." />
+            )}
+            {selected && isRealType && (
+              <>
+                <button type="button" onClick={() => setSelected(null)} className="mb-3 inline-flex items-center gap-1 text-sm text-muted lg:hidden">
+                  <ChevronLeft size={14} /> All reports
+                </button>
+                {loading && (
+                  <div className="rounded-xl bg-surface p-4 text-sm text-muted shadow-(--shadow-border)">Generating report…</div>
                 )}
-                {isSel && !isUnavailable && (
-                  <div style={{ marginTop: 6, display: 'flex', gap: 4 }}>
-                    <span className="chip chip-ok" style={{ fontSize: 'var(--fs-2xs)', padding: '1px 6px' }}>Selected</span>
-                  </div>
+                {!loading && reportError && (
+                  <div className="rounded-xl bg-surface p-4 text-sm text-danger shadow-(--shadow-border)">{reportError}</div>
                 )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* owner-roast finding #7: the "Not available yet" explanation used
-            to live in a panel that only appeared after selecting an
-            unavailable report — but that selection is no longer possible
-            (the card itself is disabled above, reason and all), so there is
-            nothing left that can reach this state. */}
-
-        {/* Real report: loading / error / document preview + export */}
-        {selected && isRealType && (
-          <>
-            {loading && (
-              <div className="farm-card" style={{ padding: 14, marginBottom: 16, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Generating report…</div>
+                {!loading && !reportError && report && (
+                  <>
+                    <ReportDocumentPreview report={report} opts={fullExportOpts} farmLabel={activeFarmName} />
+                    {/* Export actions attached to the document; sticky above
+                        the mobile bottom tab bar (matches ui-customise.tsx's
+                        sticky save-bar convention: bottom: 80 clears it and
+                        its safe-area inset). */}
+                    {canExport && (
+                      <div className="flex gap-2 rounded-xl bg-surface p-2 shadow-(--shadow-raised) lg:static lg:shadow-(--shadow-border)" style={{ position: 'sticky', bottom: 80 }}>
+                        <Button className="flex-1 justify-center" onClick={handleExportPdf}><Download size={14} /> Export PDF</Button>
+                        <Button variant="secondary" className="flex-1 justify-center" onClick={handleExportCsv}>Export CSV</Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
             )}
-            {!loading && reportError && (
-              <div className="farm-card" style={{ padding: 14, marginBottom: 16, fontSize: 'var(--fs-sm)', color: 'var(--status-critical)' }}>{reportError}</div>
-            )}
-            {!loading && !reportError && report && (
-              <ReportDocumentPreview report={report} opts={fullExportOpts} farmLabel={activeFarmName} />
-            )}
-          </>
-        )}
-
-        {/* Export buttons */}
-        {canExport && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <button className="btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleExportPdf}>
-              <Download size={14} /> Export PDF
-            </button>
-            <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleExportCsv}>
-              Export CSV
-            </button>
           </div>
-        )}
+        </div>
 
         {/* Auditor link */}
         <div className="farm-card" style={{ padding: 14, marginBottom: 14, border: '1px solid rgba(var(--purple-rgb),0.3)' }}>

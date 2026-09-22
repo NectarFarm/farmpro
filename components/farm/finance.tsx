@@ -4,11 +4,32 @@ import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, Download, ChevronRight, Receipt } from './icons';
+import { Wallet } from 'lucide-react';
 import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
 import { fieldErrorStyle, FieldError } from './ui-shared';
+import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/ui-kit/page-header';
+import { Segmented } from '@/components/ui-kit/segmented';
+import { Badge } from '@/components/ui-kit/badge';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { EmptyState } from '@/components/ui-kit/empty-state';
+import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
+
+// ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
+// Ports src/components/finance/finance-page.tsx's layout onto this screen's
+// exact existing data/logic — no API call, payload shape, permission check
+// or validation rule below changed. Hero = the ledger: money in/out/net for
+// the selected period, then every existing tab (Overview/Sales/Expenses/GL
+// accounts/Payroll) restyled with ui-kit primitives and Tailwind tokens.
+// The three record sheets keep their original field markup (labels, input
+// attributes, per-field validation) verbatim — only their outer container
+// moved from a hand-rolled position:absolute overlay onto ui-kit's Sheet
+// (position:fixed, Escape-to-close, safe-area-aware), matching Governance's
+// RoleBuilderSheet convention.
 
 // ── Real-data wiring (issue #240) ───────────────────────────────────────────
 // This screen used to render entirely from hardcoded mock data (a sales
@@ -300,12 +321,9 @@ function RecordSaleSheet({ tenantId, batches, paymentMethods, onCreated, onClose
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Record Sale</div>
-          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
-        </div>
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <SheetTitle className="mb-3.5">Record Sale</SheetTitle>
 
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>What was sold *</label>
@@ -420,11 +438,11 @@ function RecordSaleSheet({ tenantId, batches, paymentMethods, onCreated, onClose
         </div>
 
         {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-        <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
+        <Button className="w-full justify-center" disabled={saving} onClick={save}>
           {saving ? 'Saving…' : 'Record Sale'}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -528,12 +546,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Record Purchase / Expense</div>
-          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
-        </div>
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <SheetTitle className="mb-3.5">Record Purchase / Expense</SheetTitle>
         <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
           This also brings the item into Inventory stock — there is no expense-only record separate from a purchase.
         </div>
@@ -621,11 +636,11 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
         </div>
 
         {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-        <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={save}>
+        <Button className="w-full justify-center" disabled={saving} onClick={save}>
           {saving ? 'Saving…' : 'Record Purchase'}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -794,12 +809,9 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-end', zIndex: 110 }} onClick={onClose}>
-      <div style={{ background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: 20, width: '100%', border: '1px solid var(--border-subtle)', maxHeight: '85%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg)' }}>Run Payroll</div>
-          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
-        </div>
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <SheetTitle className="mb-3.5">Run Payroll</SheetTitle>
 
         {result ? (
           <div>
@@ -878,7 +890,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
           </>
         )}
       </div>
-    </div>
+    </Sheet>
   );
 }
 
