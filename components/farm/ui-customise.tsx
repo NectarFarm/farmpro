@@ -3,8 +3,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
+import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/ui-kit/page-header';
+import { Segmented } from '@/components/ui-kit/segmented';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { Field } from '@/components/ui-kit/field';
 import {
-  Check, X, ChevronDown, ChevronUp, Eye, EyeOff, Edit2, RefreshCw,
+  Check, X, Edit2, RefreshCw,
   Home, Leaf, CheckSquare, Package, DollarSign, Users, Shield, FileText, CloudSun, Bot,
   type LucideIcon,
 } from './icons';
@@ -141,72 +147,53 @@ export function UICustomiseScreen() {
 
   return (
     <div className="screen-content">
-      <TopNav title="UI Customise" subtitle="Modules, labels & branding" />
+      <TopNav title="" showBack />
+      <div className="px-screen" style={{ paddingTop: 12, paddingBottom: 96 }}>
+        <PageHeader kicker="Farm setup" title="UI Customise" lede="Modules, labels & branding — applies tenant-wide, across every farm." />
 
-      <div className="px-screen" style={{ paddingTop: 12 }}>
         {/* These settings are tenant-wide (one settings record per tenant, not
            per farm) — every farm on this tenant shares the same module/branding
            configuration, so there is no per-farm switcher here. */}
-        <div style={{ padding: '9px 14px', background: 'rgba(var(--info-rgb),0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(var(--info-rgb),0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-          Applies tenant-wide, across all farms ({farmName}{farms.length > 1 ? ` +${farms.length - 1} more` : ''}).
+        <div className="mt-3 rounded-lg px-3.5 py-2.5 text-xs text-muted" style={{ background: 'rgba(var(--info-rgb),0.08)', border: '1px solid rgba(var(--info-rgb),0.2)' }}>
+          Applies to {farmName}{farms.length > 1 ? ` +${farms.length - 1} more` : ''}.
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-          {[['modules', 'Modules'], ['labels', 'Labels'], ['branding', 'Branding']].map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setTab(id as typeof tab)}
-              style={{
-                flex: 1, padding: '8px', borderRadius: 10, fontSize: 'var(--fs-xs)', fontWeight: 700, cursor: 'pointer',
-                background: tab === id ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
-                border: tab === id ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
-                color: tab === id ? 'var(--primary-green)' : 'var(--text-muted)',
-              }}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="mt-4">
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            items={[
+              { id: 'modules', label: 'Modules', hint: 'Show or hide a screen' },
+              { id: 'labels', label: 'Labels', hint: 'Rename a module' },
+              { id: 'branding', label: 'Branding', hint: 'Colour, logo, greeting' },
+            ]}
+          />
         </div>
 
         {/* ── MODULES TAB ── */}
         {tab === 'modules' && (
-          <div style={{ paddingBottom: 80 }}>
-            <div style={{ padding: '10px 14px', background: 'rgba(168,85,247,0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(168,85,247,0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Toggle which modules are visible in the app for this tenant. Disabled modules are hidden from all users, on every farm.
-            </div>
+          <div className="mt-4 grid gap-2">
+            <p className="text-xs text-muted">Toggle which modules are visible in the app for this tenant. Disabled modules are hidden from all users, on every farm.</p>
             {modules.map((m) => (
               <div
                 key={m.id}
-                style={{
-                  marginBottom: 8, padding: '12px 14px', borderRadius: 12,
-                  background: m.enabled ? 'var(--card)' : 'rgba(255,255,255,0.02)',
-                  border: m.enabled ? '1px solid var(--border-subtle)' : '1px solid rgba(255,255,255,0.05)',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}
+                className={cn('flex items-center justify-between gap-3 rounded-xl p-3.5 shadow-(--shadow-border)', m.enabled ? 'bg-surface' : 'bg-surface/50')}
               >
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <m.icon size={22} color="var(--text-primary)" style={{ opacity: m.enabled ? 1 : 0.4 }} aria-hidden="true" />
+                <div className="flex items-center gap-3">
+                  <m.icon size={20} className={m.enabled ? 'text-fg' : 'text-subtle'} aria-hidden="true" />
                   <div>
-                    <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: m.enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                      {m.customLabel ?? m.defaultLabel}
-                    </div>
-                    <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 1 }}>{m.description}</div>
+                    <div className={cn('text-sm font-medium', !m.enabled && 'text-muted')}>{m.customLabel ?? m.defaultLabel}</div>
+                    <div className="mt-0.5 text-xs text-subtle">{m.description}</div>
                   </div>
                 </div>
                 <button
+                  type="button"
+                  role="switch"
+                  aria-checked={m.enabled}
                   onClick={() => toggleModule(m.id)}
-                  style={{
-                    width: 44, height: 24, borderRadius: 100, cursor: 'pointer', border: 'none',
-                    background: m.enabled ? 'var(--primary-green)' : 'var(--border-subtle)',
-                    position: 'relative', flexShrink: 0, transition: 'background 0.2s',
-                  }}
+                  className={cn('relative h-6 w-11 shrink-0 rounded-full transition-colors', m.enabled ? 'bg-primary' : 'bg-surface-2')}
                 >
-                  <div style={{
-                    position: 'absolute', top: 2, left: m.enabled ? 22 : 2,
-                    width: 20, height: 20, borderRadius: '50%', background: 'white',
-                    transition: 'left 0.15s',
-                  }} />
+                  <span className={cn('absolute top-0.5 size-5 rounded-full bg-white transition-[left]', m.enabled ? 'left-[22px]' : 'left-0.5')} />
                 </button>
               </div>
             ))}
@@ -215,61 +202,42 @@ export function UICustomiseScreen() {
 
         {/* ── LABELS TAB ── */}
         {tab === 'labels' && (
-          <div style={{ paddingBottom: 80 }}>
-            <div style={{ padding: '10px 14px', background: 'rgba(var(--info-rgb),0.08)', borderRadius: 12, marginBottom: 14, border: '1px solid rgba(var(--info-rgb),0.2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Rename module labels to match your farm's terminology. Leave blank to use the default label.
-            </div>
+          <div className="mt-4 grid gap-2">
+            <p className="text-xs text-muted">Rename module labels to match your farm&apos;s terminology. Leave blank to use the default label.</p>
             {modules.map((m) => (
-              <div key={m.id} style={{ marginBottom: 10 }}>
+              <div key={m.id}>
                 {editingModule === m.id ? (
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <m.icon size={19} color="var(--text-primary)" style={{ flexShrink: 0 }} aria-hidden="true" />
-                    <input
-                      className="farm-input"
-                      style={{ flex: 1 }}
-                      value={editLabel}
-                      onChange={(e) => setEditLabel(e.target.value)}
-                      placeholder={m.defaultLabel}
-                      autoFocus
-                    />
-                    <button onClick={() => saveLabel(m.id)} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(var(--primary-rgb),0.15)', border: '1px solid rgba(var(--primary-rgb),0.35)', color: 'var(--status-ok)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <Check size={12} /> Save
-                    </button>
-                    <button onClick={() => setEditingModule(null)} style={{ padding: '8px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                      <X size={12} />
-                    </button>
+                  <div className="flex items-center gap-2">
+                    <m.icon size={19} className="shrink-0 text-fg" aria-hidden="true" />
+                    <Input value={editLabel} onChange={(e) => setEditLabel(e.target.value)} placeholder={m.defaultLabel} autoFocus className="flex-1" />
+                    <Button size="sm" onClick={() => saveLabel(m.id)}><Check size={12} /> Save</Button>
+                    <Button size="icon-sm" variant="secondary" onClick={() => setEditingModule(null)}><X size={12} /></Button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border-subtle)' }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <m.icon size={19} color="var(--text-primary)" aria-hidden="true" />
+                  <div className="flex items-center justify-between gap-3 rounded-xl bg-surface p-3 shadow-(--shadow-border)">
+                    <div className="flex items-center gap-3">
+                      <m.icon size={19} className="text-fg" aria-hidden="true" />
                       <div>
-                        <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        <div className="text-sm font-medium">
                           {m.customLabel ?? m.defaultLabel}
-                          {m.customLabel && (
-                            <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--accent-amber)', marginLeft: 6, fontWeight: 600 }}>Custom</span>
-                          )}
+                          {m.customLabel && <span className="ml-1.5 text-xs font-medium text-warning">Custom</span>}
                         </div>
-                        {m.customLabel && (
-                          <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 1 }}>Default: {m.defaultLabel}</div>
-                        )}
+                        {m.customLabel && <div className="mt-0.5 text-xs text-subtle">Default: {m.defaultLabel}</div>}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <div className="flex gap-1.5">
                       {m.customLabel && (
                         <button
                           onClick={() => setModules((ms) => ms.map((x) => x.id === m.id ? { ...x, customLabel: undefined } : x))}
-                          style={{ padding: '5px 8px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 'var(--fs-2xs)' }}
+                          className="rounded-md bg-surface-2 p-1.5 text-muted hover:text-fg"
+                          title="Reset to default"
                         >
-                          <RefreshCw size={10} />
+                          <RefreshCw size={11} />
                         </button>
                       )}
-                      <button
-                        onClick={() => { setEditingModule(m.id); setEditLabel(m.customLabel ?? ''); }}
-                        style={{ padding: '5px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 'var(--fs-xs)', display: 'flex', alignItems: 'center', gap: 4 }}
-                      >
+                      <Button size="sm" variant="secondary" onClick={() => { setEditingModule(m.id); setEditLabel(m.customLabel ?? ''); }}>
                         <Edit2 size={11} /> Edit
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -280,48 +248,43 @@ export function UICustomiseScreen() {
 
         {/* ── BRANDING TAB ── */}
         {tab === 'branding' && (
-          <div style={{ paddingBottom: 80 }}>
+          <div className="mt-4">
             {/* Preview card */}
-            <div style={{
-              marginBottom: 16, padding: 16, borderRadius: 16,
-              background: `linear-gradient(135deg, ${branding.accentColor}22, ${branding.accentColor}08)`,
-              border: `1px solid ${branding.accentColor}40`,
-            }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ fontSize: 'var(--fs-4xl)' }}>{branding.logoEmoji}</span>
+            <div
+              className="mb-4 rounded-2xl p-4"
+              style={{ background: `linear-gradient(135deg, ${branding.accentColor}22, ${branding.accentColor}08)`, border: `1px solid ${branding.accentColor}40` }}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-3xl">{branding.logoEmoji}</span>
                 <div>
-                  <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: 'var(--text-primary)' }}>{farmName}</div>
-                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{branding.dashboardGreeting}</div>
+                  <div className="text-lg font-semibold">{farmName}</div>
+                  <div className="text-sm text-muted">{branding.dashboardGreeting}</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, padding: '3px 10px', borderRadius: 100, background: branding.accentColor + '33', color: branding.accentColor, border: `1px solid ${branding.accentColor}60` }}>
-                  Live Preview
-                </span>
-              </div>
+              <span
+                className="mt-2 inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium"
+                style={{ background: branding.accentColor + '33', color: branding.accentColor, border: `1px solid ${branding.accentColor}60` }}
+              >
+                Live preview
+              </span>
             </div>
 
             {/* Fields */}
-            {/* Currency/weight unit moved to Settings > Regional & Units
+            {/* Currency/weight unit moved to Settings > Regional
                (settings-reorg) — they're operational, displayed on every
                amount/weight in the app, not a branding choice. */}
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Dashboard Greeting</label>
-              <input className="farm-input" value={branding.dashboardGreeting} onChange={(e) => updateBranding('dashboardGreeting', e.target.value)} />
-            </div>
+            <Field label="Dashboard greeting" className="mb-4">
+              <Input value={branding.dashboardGreeting} onChange={(e) => updateBranding('dashboardGreeting', e.target.value)} />
+            </Field>
 
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm Logo Emoji</label>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div className="mb-4">
+              <p className="mb-2 text-xs font-medium text-muted">Farm logo emoji</p>
+              <div className="flex flex-wrap gap-2">
                 {['🌾', '🐔', '🐄', '🐷', '🐐', '🌽', '🥦', '🍎', '🐠', '🌿', '🏡', '⚡'].map((e) => (
                   <button
                     key={e}
                     onClick={() => updateBranding('logoEmoji', e)}
-                    style={{
-                      width: 38, height: 38, borderRadius: 10, fontSize: 'var(--fs-2xl)', cursor: 'pointer',
-                      background: branding.logoEmoji === e ? 'rgba(var(--primary-rgb),0.15)' : 'var(--card)',
-                      border: branding.logoEmoji === e ? '1px solid rgba(var(--primary-rgb),0.4)' : '1px solid var(--border-subtle)',
-                    }}
+                    className={cn('flex size-10 items-center justify-center rounded-lg text-xl shadow-(--shadow-border)', branding.logoEmoji === e ? 'bg-primary-soft ring-2 ring-primary/40' : 'bg-surface')}
                   >
                     {e}
                   </button>
@@ -329,17 +292,15 @@ export function UICustomiseScreen() {
               </div>
             </div>
 
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 8 }}>Accent Colour</label>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div className="mb-2">
+              <p className="mb-2 text-xs font-medium text-muted">Accent colour</p>
+              <div className="flex flex-wrap gap-2">
                 {ACCENT_OPTIONS.map((c) => (
                   <button
                     key={c}
                     onClick={() => updateBranding('accentColor', c)}
-                    style={{
-                      width: 32, height: 32, borderRadius: '50%', background: c, border: branding.accentColor === c ? '3px solid white' : '2px solid transparent',
-                      outline: branding.accentColor === c ? `2px solid ${c}` : 'none', cursor: 'pointer',
-                    }}
+                    className="size-8 rounded-full"
+                    style={{ background: c, border: branding.accentColor === c ? '3px solid white' : '2px solid transparent', outline: branding.accentColor === c ? `2px solid ${c}` : 'none' }}
                   />
                 ))}
               </div>
@@ -348,16 +309,11 @@ export function UICustomiseScreen() {
         )}
 
         {/* Save button */}
-        <div style={{ position: 'sticky', bottom: 80, paddingBottom: 12 }}>
-          {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{error}</div>}
-          <button
-            className="btn-primary"
-            style={{ width: '100%', justifyContent: 'center' }}
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? 'Saving…' : saved ? <><Check size={14} /> Saved!</> : <>Save Customisation</>}
-          </button>
+        <div className="sticky bottom-20 mt-5 pb-3">
+          {error && <div className="mb-2 text-xs text-danger">{error}</div>}
+          <Button className="w-full justify-center" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : saved ? <><Check size={14} /> Saved!</> : <>Save customisation</>}
+          </Button>
         </div>
       </div>
     </div>

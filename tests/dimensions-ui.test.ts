@@ -58,8 +58,13 @@ describe('components/farm/dimensions.tsx — Analysis Dimensions register (item 
     expect(source).toMatch(/exportCsv/);
     expect(source).toMatch(/dimension\{dimensions\.length === 1 \? '' : 's'\}/);
   });
-  it('rides in a horizontally scrolling container rather than being redesigned for 360px', () => {
-    expect(source).toMatch(/overflowX: 'auto'/);
+  it('is a real table on desktop and stacked cards on a phone, not one redesigned into the other', () => {
+    // Settings-redesign (package G): the 8-column register no longer rides
+    // inside a horizontally-scrolling table at every width — it renders as
+    // an actual dense table at `lg` and as one stacked card per dimension
+    // below it, same fields either way.
+    expect(source).toMatch(/hidden overflow-hidden rounded-xl bg-surface shadow-\(--shadow-border\) lg:block/);
+    expect(source).toMatch(/flex flex-col gap-2 lg:hidden/);
   });
 });
 
