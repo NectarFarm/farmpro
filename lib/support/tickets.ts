@@ -99,6 +99,17 @@ export async function createTicket(input: CreateTicketInput): Promise<typeof sup
   return ticket
 }
 
+// A tenant user may access a ticket iff it belongs to their own tenant, AND
+// (they are the owner OR they raised it themselves) — a non-owner never sees
+// a colleague's ticket, even within the same tenant.
+export function canCustomerAccessTicket(
+  session: { tenantId: string | null; role: string; id: string },
+  ticket: Pick<typeof supportTickets.$inferSelect, 'tenantId' | 'raisedBy'>
+): boolean {
+  if (session.tenantId !== ticket.tenantId) return false
+  return session.role === 'owner' || ticket.raisedBy === session.id
+}
+
 export async function getTicket(id: string): Promise<typeof supportTickets.$inferSelect | null> {
   const rows = await db.select().from(supportTickets).where(eq(supportTickets.id, id)).limit(1)
   return rows[0] ?? null
