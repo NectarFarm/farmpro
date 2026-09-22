@@ -1036,7 +1036,7 @@ function RejectReasonDialog({ approval, busy, onCancel, onConfirm }: {
             {QUICK_REJECT_REASONS.map((r) => (
               <button
                 key={r} type="button" onClick={() => setReason(r)}
-                className="min-h-9 rounded-full bg-surface-2 px-3 text-xs font-medium text-muted active:bg-danger-soft active:text-danger"
+                className="min-h-11 rounded-full bg-surface-2 px-3 text-xs font-medium text-muted active:bg-danger-soft active:text-danger"
               >
                 {r}
               </button>
@@ -1050,8 +1050,8 @@ function RejectReasonDialog({ approval, busy, onCancel, onConfirm }: {
             autoFocus
           />
           <div className="mt-4 flex gap-2">
-            <Button variant="secondary" className="flex-1" onClick={onCancel} disabled={busy}>Cancel</Button>
-            <Button variant="outline" className="flex-1" disabled={busy || !trimmed} onClick={() => onConfirm(trimmed)}>
+            <Button variant="secondary" className="h-11 flex-1" onClick={onCancel} disabled={busy}>Cancel</Button>
+            <Button variant="outline" className="h-11 flex-1" disabled={busy || !trimmed} onClick={() => onConfirm(trimmed)}>
               <X size={14} /> {busy ? 'Rejecting…' : 'Reject'}
             </Button>
           </div>
