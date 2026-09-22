@@ -12,7 +12,7 @@ export type ScreenId =
   | 'notifications' | 'ai-chat'
   | 'worker-home' | 'worker-record' | 'worker-pay' | 'worker-profile'
   | 'admin-dashboard' | 'admin-farms' | 'admin-settings' | 'admin-onboarding' | 'admin-users'
-  | 'admin-enterprise-requests'
+  | 'admin-enterprise-requests' | 'admin-tickets'
   | 'batch-detail' | 'crop-schedule' | 'inventory-detail'
   | 'people-detail'
   | 'notification-settings'
@@ -169,7 +169,7 @@ const ALL_SCREENS: ScreenId[] = [
   'notifications', 'ai-chat',
   'worker-home', 'worker-record', 'worker-pay', 'worker-profile',
   'admin-dashboard', 'admin-farms', 'admin-settings', 'admin-onboarding', 'admin-users',
-  'admin-enterprise-requests',
+  'admin-enterprise-requests', 'admin-tickets',
   'batch-detail', 'crop-schedule', 'inventory-detail',
   'people-detail',
   'notification-settings',
@@ -314,9 +314,9 @@ const WORKER_TABS = [
 ];
 const ADMIN_TABS = [
   { id: 'admin-dashboard' as ScreenId, label: 'Overview', icon: BarChart3 },
-  { id: 'admin-farms' as ScreenId, label: 'Farms', icon: Building2 },
-  { id: 'admin-onboarding' as ScreenId, label: 'Requests', icon: Users },
-  { id: 'admin-users' as ScreenId, label: 'Users', icon: UserCheck },
+  { id: 'admin-tickets' as ScreenId, label: 'Tickets', icon: ClipboardList },
+  { id: 'admin-farms' as ScreenId, label: 'Tenants', icon: Building2 },
+  { id: 'admin-users' as ScreenId, label: 'People', icon: UserCheck },
   { id: 'admin-settings' as ScreenId, label: 'Config', icon: Settings },
 ];
 // vet / auditor (issue #219 follow-up: these two roles get real screens
@@ -1239,25 +1239,30 @@ export function AppSidebar() {
    * the desktop sidebar, which had room to actually say what the job is.
    */
   const adminGroups: SidebarGroup[] = [
-    { label: 'Platform', items: [
+    { label: 'Overview', items: [
       { id: 'admin-dashboard' as ScreenId, label: 'Overview', icon: BarChart3 },
+    ] },
+    { label: 'Support', items: [
+      { id: 'admin-tickets' as ScreenId, label: 'Tickets', icon: ClipboardList },
     ] },
     { label: 'Tenants', items: [
       { id: 'admin-farms' as ScreenId, label: 'Farms', icon: Building2 },
-      { id: 'admin-settings' as ScreenId, label: 'Config', icon: Settings },
+      { id: 'admin-onboarding' as ScreenId, label: 'Onboarding requests', icon: Users },
+      { id: 'admin-enterprise-requests' as ScreenId, label: 'Enterprise requests', icon: Sprout },
     ] },
-    { label: 'Applications', items: [
-      { id: 'admin-onboarding' as ScreenId, label: 'Requests', icon: ClipboardList },
-    ] },
-    { label: 'People & access', items: [
+    { label: 'People', items: [
       { id: 'admin-users' as ScreenId, label: 'Users', icon: UserCheck },
       // Deep links: same screen, opened straight on the tab that used to be
       // reachable only by first landing on "Users" and noticing its own
       // chip row. Distinct data-tour ids (not the shared `nav-admin-users`
       // the row above uses) so a future tour step can target exactly one of
       // the three without ambiguity.
+      { id: 'admin-users' as ScreenId, label: 'Staff & roles', icon: Shield, params: { tab: 'staff' }, dataTour: 'nav-admin-users-staff' },
       { id: 'admin-users' as ScreenId, label: 'Password resets', icon: Key, params: { tab: 'password-resets' }, dataTour: 'nav-admin-users-password-resets' },
       { id: 'admin-users' as ScreenId, label: 'Impersonation log', icon: Activity, params: { tab: 'impersonation-log' }, dataTour: 'nav-admin-users-impersonation-log' },
+    ] },
+    { label: 'Config', items: [
+      { id: 'admin-settings' as ScreenId, label: 'Config', icon: Settings },
     ] },
   ];
   // Progress text for the setup row, e.g. "4 of 9". Absent (not "0 of 9")
