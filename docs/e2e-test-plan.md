@@ -1166,3 +1166,29 @@ Use this format when filing a test result:
 - Subscription gate does not preview features (MVP limitation)
 
 Test with the understanding that **real data wins over fake UI**. If a number is unknown, the app shows empty state or "not tracked" rather than inventing a value. This is intentional and good.
+
+---
+
+## 8. Appendix: cross-cutting findings to test deliberately
+
+Each line below was found by reading the code, not by running the app. Treat them as test targets and as expected results, so a tester does not file the intentional ones as bugs.
+
+| # | Finding | What to do with it |
+|---|---|---|
+| A1 | `/api/reports/dimension-pl` exists server-side but no report in the Reports catalogue uses it, and GL Dimensions' "P&L by dimension" button is a bare `navigate('reports')` with nothing preselected. | Test the button: it promises a dimension-scoped report and does not deliver one. Likely a real gap. |
+| A2 | `/api/dimensions/for-document` and `/api/dimensions/resolve` have no frontend callers. | Do not write UI cases for document-dimension resolution. |
+| A3 | Two calls bypass `apiClient` and use raw `fetch`: the AI advisor (`POST /api/ai/advise`) and the farm backup (`GET /api/security/backup`). | Any API-mocking harness built around apiClient misses both. Test their auth/session behaviour directly. |
+| A4 | Export formats are inconsistent: Governance's "Export trail" and every Reports export are designed letterhead documents; Finance's "Export GL to CSV" and GL Dimensions' "Export" are bare CSVs. | Confirm which is intended; the project rule is that exports are designed documents. |
+| A5 | There is no payment gateway. `POST /api/billing/subscribe` charges nothing, and "Record a payment" is a manual submission confirmed out of band by IFMS staff. | Do not design STK-push or gateway-sandbox cases. Test the manual submit → admin confirm → activation chain instead. |
+| A6 | All three Notifications toggles (push, sound, offline) are disabled with "Coming soon" badges; no push, audio or offline infrastructure exists. | Test the disabled state, not persistence. |
+| A7 | Running payroll requires typing the literal word `PAY` before "Confirm & pay" enables. The preview is a real server dry-run (`POST /api/payroll/runs {dryRun:true}`). | Give this its own case; it is easy to miss and the confirm cannot be undone from the UI. |
+| A8 | Session revoke is bulk-only ("Sign out N other sessions"). There is no per-device list or per-session revoke. | Do not write per-device revoke cases. |
+| A9 | Governance's "Approved" tile is labelled "This season" but computes the current quarter. | Report as a copy bug. |
+| A10 | The audit trail loads at most 100 rows (`GET /api/audit-log?limit=100`); search, filters and export all operate over those 100 only. | Verify that an export past 100 events silently omits the older ones. |
+| A11 | GL and the trial balance ignore the active-farm filter by design, because journal entries carry no farm relationship. | Expected result, not a bug. |
+| A12 | A historical bug mixed whole units (`sales.amount`) with cents (`purchases.totalCostCents`) and inflated GL expenses roughly 100×. | Regression case: record one sale and one purchase, then reconcile Sales + Expenses against the GL trial balance. |
+| A13 | Approving in Governance flips the request status and writes an audit row. Any headcount or stock effect happens server-side. | Verify explicitly that approving a mortality or physical-count request actually moves the batch headcount. |
+| A14 | Saving roles does `PUT /api/role-permissions`, replacing the tenant's whole matrix in one transaction. | Verify that editing one role does not clobber another's permissions. |
+| A15 | Batch P&L on the Finance overview is built client-side: one `GET /api/batches/[id]/cost-breakdown` per batch. | Scale check: time the Overview tab on a farm with many batches. |
+| A16 | Worker "next job" matches tasks by parsing `Assigned: {name}` out of the task notes, not by an assignee field. | Verify that a task assigned through the UI actually reaches the worker's home screen. This is the likely cause of "All caught up" after setup. |
+| A17 | The worker screen has no offline queue, no retry and no real connectivity check. The "Online" pill is decorative. | Test a failed save with the network off: the entry is lost. Expected today; worth raising as a product gap. |
