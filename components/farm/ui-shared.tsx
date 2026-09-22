@@ -102,7 +102,16 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       {children}
       {pending && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9998, padding: 24 }}>
-          <div style={{ background: c.bg, borderRadius: 20, padding: 22, width: '100%', maxWidth: 340, border: `1px solid ${c.border}` }}>
+          {/* Card background is the theme's opaque surface, not the variant
+             tint (`c.bg`) — that tint is only 10-20% alpha, meant as a subtle
+             accent, not a card fill. Using it as the fill let the dark scrim
+             behind the dialog show straight through (worst on the "warning"
+             variant this Sign Out confirmation uses, and worse still on
+             themes where --warning-rgb/--critical-rgb sit close to the scrim
+             in luminance), reading as "the card is too transparent" rather
+             than a readable confirm dialog. The variant colour stays on the
+             border and buttons, which is where it was always doing real work. */}
+          <div style={{ background: 'var(--surface)', boxShadow: '0 12px 40px rgba(0,0,0,0.35)', borderRadius: 20, padding: 22, width: '100%', maxWidth: 340, border: `1px solid ${c.border}` }}>
             <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{pending.message}</div>
             {pending.detail && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>{pending.detail}</div>}
             {!pending.detail && <div style={{ marginBottom: 16 }} />}
