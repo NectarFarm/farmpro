@@ -15,12 +15,21 @@ describe('one vocabulary for both shells', () => {
   it('uses farmer words, not schema names', () => {
     expect(NAV.houses).toBe('Houses & fields')
     expect(NAV.stages).toBe('Stages')
-    expect(NAV.byFarm).toBe('By farm & house')
-    expect(NAV.money).toBe('Money')
+    // docs/ui-migration-map.md D2: relabelled so it no longer collides with
+    // the new Sites feature's own "farm structure" meaning.
+    expect(NAV.byFarm).toBe('GL Dimensions')
+    expect(NAV.sites).toBe('Sites')
+    // ui/governance-reference-redesign: the sidebar's four section headings
+    // now read Overview/Farm/Daily/Company, matching the reference IA.
+    expect(NAV.overview).toBe('Overview')
+    expect(NAV.theFarm).toBe('Farm')
+    expect(NAV.today).toBe('Daily')
+    expect(NAV.money).toBe('Company')
     expect(NAV.inventory).toBe('Inventory')
     expect(NAV.advisor).toBe('AI advisor')
     expect(NAV.approvals).toBe('Approvals')
     expect(NAV.manage).toBe('Manage')
+    expect(NAV.more).toBe('More')
   })
 
   it('sidebar and the Farm sheet read the same labels', () => {
@@ -44,16 +53,30 @@ describe('sidebar names each farm destination', () => {
     expect(navigation).toMatch(/params: \{ tab: 'products' \}/)
   })
 
-  it('gives Stages a row of its own', () => {
-    expect(navigation).toMatch(/id: 'farm-config' as ScreenId, label: NAV.stages/)
+  // ui/governance-reference-redesign: Stages no longer has a sidebar row of
+  // its own (docs/ui-migration-map.md's "local nav entries with no reference
+  // slot" table) — it stays reachable through the mobile Farm sheet
+  // (unchanged) and through Settings' own "Farm Setup" section (predates the
+  // sidebar row entirely — see components/farm/settings.tsx's comment).
+  it('keeps Stages reachable via the Farm sheet and Settings, without a sidebar row', () => {
+    expect(navigation).toMatch(/screen: 'farm-config', label: NAV\.stages/)
+    expect(navigation).not.toMatch(/id: 'farm-config' as ScreenId, label: NAV\.stages/)
+    const settings = readFileSync(join(process.cwd(), 'components/farm/settings.tsx'), 'utf8')
+    expect(settings).toMatch(/navigate\('farm-config'\)/)
   })
 
-  it('gives Notifications a row, and does not park the unread count on Home', () => {
-    expect(navigation).toMatch(/id: 'notifications' as ScreenId, label: NAV.notifications/)
+  // Notifications moved off the sidebar entirely (ui/governance-reference-
+  // redesign) onto a persistent top-right bell every screen's TopNav shows
+  // by default — see TopNav's `showBell` default and its vet/auditor/
+  // already-on-Notifications suppression below.
+  it('reaches Notifications through TopNav’s bell by default, not a sidebar row', () => {
+    expect(navigation).not.toMatch(/id: 'notifications' as ScreenId, label: NAV\.notifications/)
+    expect(navigation).toMatch(/showBack = false, showBell = true/)
+    expect(navigation).toMatch(/role !== 'vet' && role !== 'auditor' && current !== 'notifications'/)
     expect(navigation).toMatch(/tab\.id === 'dashboard'\s*\n\s*\? null/)
   })
 
-  it('names Approvals and By farm & house, not Governance and Dimensions', () => {
+  it('names Approvals and GL Dimensions, not Governance and Dimensions', () => {
     expect(navigation).toMatch(/id: 'governance' as ScreenId, label: NAV.approvals/)
     expect(navigation).toMatch(/id: 'dimensions' as ScreenId, label: NAV.byFarm/)
   })
@@ -196,8 +219,12 @@ describe('sidebarRowIsActive — exactly one row is current', () => {
   })
 })
 
-describe('unread count belongs on Notifications in the sidebar', () => {
-  it('still feeds the mobile Home tab, and also the desktop Notifications row', () => {
+describe('unread count', () => {
+  // tabBadge itself is unchanged — it still answers "what number for this
+  // screen" generically. Notifications no longer has a sidebar row to feed
+  // (ui/governance-reference-redesign moved it to TopNav's bell), so this
+  // only asserts the pure function still resolves both ids correctly.
+  it('resolves both the mobile Home tab and a Notifications-id caller', () => {
     expect(tabBadge('dashboard', 0, 4, 0, 0)).toBe(4)
     expect(tabBadge('notifications', 0, 4, 0, 0)).toBe(4)
   })
@@ -216,11 +243,14 @@ describe('android bottom bar', () => {
     expect(css).toMatch(/\.bottom-nav-item \.nav-label \{[\s\S]*font-size: var\(--fs-xs\)/)
   })
 
-  it('Farm sheet is the place and the people; Manage is the office', () => {
+  it('Farm sheet is the place and the people (+ Sites, docs/ui-migration-map.md D1–D3); Manage is the office', () => {
     const farm = tabMenuFor('crops', 'owner')
     const manage = tabMenuFor('settings', 'owner')
     expect(farm?.items.map((i) => i.screen)).toEqual([
-      'crops', 'crops', 'crops', 'crops', 'farm-config', 'inventory', 'people',
+      'crops', 'crops', 'crops', 'crops', 'crops', 'farm-config', 'inventory', 'people',
+    ])
+    expect(farm?.items.map((i) => i.params?.tab)).toEqual([
+      'units', 'livestock', 'crops', 'products', 'sites', undefined, undefined, undefined,
     ])
     expect(manage?.items[0].screen).toBe('ai-chat')
     expect(manage?.items[0].label).toBe(NAV.advisor)

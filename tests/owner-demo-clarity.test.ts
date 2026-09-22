@@ -25,7 +25,10 @@ describe('one vocabulary on the walkthrough', () => {
   })
 
   it('Farm tab is a place, not a leaf', () => {
-    expect(navigation).toMatch(/id: 'crops' as ScreenId, label: NAV.farm, icon: Building2/)
+    // ui/governance-reference-redesign: the bottom tab now reads "Units"
+    // (NAV.units) instead of "Farm" (NAV.farm, still the broader mobile Farm
+    // sheet's own title below) — still a place, not a leaf like "Livestock".
+    expect(navigation).toMatch(/id: 'crops' as ScreenId, label: NAV.units, icon: Warehouse/)
     expect(navigation).toMatch(/desc: 'Animals you track together/)
   })
 })
