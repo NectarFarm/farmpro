@@ -392,7 +392,7 @@ function RoleBuilderSheet({
 
 /* ── Main screen ── */
 export function GovernanceScreen() {
-  const { tenantId, role: sessionRole, activeFarmId, farms } = useNav();
+  const { tenantId, role: sessionRole, activeFarmId, farms, refreshBadges } = useNav();
   const { showToast } = useToast();
 
   const [tab, setTab] = useState<'approvals' | 'roles' | 'audit'>('approvals');
@@ -450,11 +450,15 @@ export function GovernanceScreen() {
   // meant to stop. The owner still sees everything, because they are the one
   // who has to unblock a queue when an approver is unavailable.
   const scopeParam = sessionRole === 'owner' ? '' : '&scope=mine';
+  // farmId is included so this queue can never disagree with the nav
+  // Approvals badge (components/farm/navigation.tsx's badge effect), which
+  // is farm-scoped the same way. GET /api/approvals treats farmId=ALL (or
+  // absent) as unfiltered, so this is a no-op while "All Farms" is active.
   const loadApprovals = useCallback(async () => {
-    const res = await apiClient.get<ApprovalRequestRow[]>(`/api/approvals?tenantId=${tenantId}${scopeParam}`);
+    const res = await apiClient.get<ApprovalRequestRow[]>(`/api/approvals?tenantId=${tenantId}&farmId=${activeFarmId}${scopeParam}`);
     if (res.success) setApprovals(res.data);
     else setLoadError(res.error ?? 'Could not load approvals');
-  }, [tenantId, scopeParam]);
+  }, [tenantId, activeFarmId, scopeParam]);
 
   const loadRoles = useCallback(async () => {
     const res = await apiClient.get<RoleMatrixEntry[]>(`/api/role-permissions?tenantId=${tenantId}`);
@@ -493,6 +497,11 @@ export function GovernanceScreen() {
     if (!res.success) { showToast(res.error ?? `Could not ${decision} request`, 'error'); return; }
     showToast(decision === 'approve' ? 'Approved' : 'Rejected', decision === 'approve' ? 'success' : 'error');
     await Promise.all([loadApprovals(), loadAuditLog()]);
+    // Same fix as marking a notification read (dashboard.tsx's
+    // NotificationsScreen): without this, the nav Approvals badge keeps
+    // showing the pre-decision count until something else happens to
+    // force a refetch (e.g. a farm switch).
+    refreshBadges();
   }
 
   async function persistRoles(next: RoleMatrixEntry[]): Promise<boolean> {

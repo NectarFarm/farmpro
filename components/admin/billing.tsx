@@ -297,7 +297,11 @@ function DiscountsTab() {
           <div key={d.id} className="flex items-center justify-between rounded-xl bg-surface p-3 shadow-(--shadow-border)">
             <div>
               <span className="font-mono text-sm font-medium">{d.code}</span>{' '}
-              <span className="text-xs text-muted">{d.kind === 'percent' ? `${d.value}%` : centsToDisplay(d.value, 'UGX')} · {d.redemptions}{d.maxRedemptions ? `/${d.maxRedemptions}` : ''} used{d.tenantId ? ' · targeted' : ''}</span>
+              {/* Discounts carry no currency column (they can apply across plans in
+                  different currencies, or to none in particular) — showing the raw
+                  fixed amount rather than guessing a currency avoids relabelling it
+                  with whatever currency happened to be hardcoded here before. */}
+              <span className="text-xs text-muted">{d.kind === 'percent' ? `${d.value}%` : (d.value / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} · {d.redemptions}{d.maxRedemptions ? `/${d.maxRedemptions}` : ''} used{d.tenantId ? ' · targeted' : ''}</span>
             </div>
             <div className="flex items-center gap-2">
               {!d.isActive && <Badge variant="danger">archived</Badge>}
@@ -368,7 +372,7 @@ function SubscriptionsTab() {
                 <td className="px-3 py-2">{r.planName}</td>
                 <td className="px-3 py-2">{r.period}</td>
                 <td className="px-3 py-2"><Badge variant={r.status === 'active' || r.status === 'trialing' ? 'success' : r.status === 'past_due' ? 'warning' : 'default'}>{r.status}</Badge></td>
-                <td className="px-3 py-2">{centsToDisplay(r.amountDueCents, 'UGX')}</td>
+                <td className="px-3 py-2">{centsToDisplay(r.amountDueCents, r.planCurrency)}</td>
               </tr>
             ))}
           </tbody>

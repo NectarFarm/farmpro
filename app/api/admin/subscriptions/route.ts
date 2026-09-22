@@ -39,6 +39,7 @@ export async function GET(req: Request) {
         planId: plan.id,
         planCode: plan.code,
         planName: plan.name,
+        planCurrency: plan.currency,
         period: sub.period,
         status: access.status,
         needsPlan: access.needsPlan,

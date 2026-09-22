@@ -24,6 +24,9 @@ import {
 import {
   OTHER_OPTION, MORTALITY_CAUSES, HEALTH_TREATMENTS, DOSE_UNITS, formatDose,
 } from '@/lib/record-vocabulary';
+import {
+  BYPASS_ROLES, DEFAULT_MATRIX, DEFAULT_APPROVAL, RECORD_TYPE_MODULES, type AccessLevel,
+} from '@/lib/permission-matrix';
 
 // ── Real API shapes (issue #248) ────────────────────────────────────────────
 // Wired to GET /api/employees/me and GET/POST /api/records (issue #247).
@@ -132,6 +135,74 @@ function useWorkerContext() {
   }, [employee, tenantId]);
 
   return { tenantId, employee, employeeError, batches, reload };
+}
+
+// ── e2e finding: gate the record-type picker, not just the Save button ─────
+// Health/Weight let a worker fill in the whole form, then POST /api/records
+// refused it at Save with "Your role does not have edit access to health" —
+// canEdit(tenantId, role, module) (lib/permissions.ts) was already the real
+// authority; nothing client-side ever consulted it before opening the form.
+//
+// This reads the exact same two-tier source the server does: a saved
+// `role_permissions` row for (role, module) wins when one exists (GET
+// /api/role-permissions — readable by any session on the tenant, not just an
+// owner), otherwise the same code default (lib/permission-matrix.ts's
+// DEFAULT_MATRIX) the server falls back to. It never invents its own notion
+// of who can do what — if this drifted from the server's answer, the buggy
+// direction (silently letting through something the server will still
+// refuse) is caught by POST /api/records's own error, which every form below
+// still surfaces.
+interface RoleMatrixEntry {
+  role: string;
+  permissions: Partial<Record<string, AccessLevel>>;
+  approvalRequired: string[];
+}
+
+function useEffectiveRolePermissions(tenantId: string, role: string) {
+  // undefined = still loading; null = loaded, no saved row for this role at
+  // all (every module falls to the code default).
+  const [entry, setEntry] = useState<RoleMatrixEntry | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (BYPASS_ROLES.has(role)) return;
+    let cancelled = false;
+    apiClient.get<RoleMatrixEntry[]>(`/api/role-permissions?tenantId=${tenantId}`).then((res) => {
+      if (cancelled) return;
+      setEntry(res.success ? (res.data.find((r) => r.role === role) ?? null) : null);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId, role]);
+
+  const ready = BYPASS_ROLES.has(role) || entry !== undefined;
+
+  // Never blocks on a slow network: while still loading, every module reads
+  // as 'edit' so a worker never sees a false "you can't do this" for a
+  // permission they actually have — the moment the real matrix lands, tiles
+  // that turn out to be denied grey out. POST /api/records enforces the real
+  // rule regardless of what this shows.
+  const access = useCallback((module: string): AccessLevel => {
+    if (BYPASS_ROLES.has(role)) return 'edit';
+    if (!ready) return 'edit';
+    const override = entry?.permissions[module];
+    if (override) return override;
+    return DEFAULT_MATRIX[role]?.[module] ?? 'hidden';
+  }, [entry, ready, role]);
+
+  // Mirrors lib/permissions.ts's needsApproval at module granularity: a
+  // saved row for this exact (role, module) wins in EITHER direction —
+  // including a tenant that explicitly turned approval OFF for a module the
+  // code default would otherwise require — else the code default applies.
+  const approvalRequired = useCallback((module: string): boolean => {
+    if (BYPASS_ROLES.has(role)) return false;
+    if (!ready) return true;
+    if (entry) {
+      if (entry.approvalRequired.includes(module)) return true;
+      if (module in entry.permissions) return false;
+    }
+    return DEFAULT_APPROVAL[role]?.[module] ?? false;
+  }, [entry, ready, role]);
+
+  return { ready, access, approvalRequired };
 }
 
 function timeOf(iso: string | null) {
@@ -503,14 +574,32 @@ const RECORD_TYPE_TO_FORM: Record<string, string> = {
   stock_count: 'stock', stock: 'stock',
 };
 
+// The inverse of the non-identity half of RECORD_TYPE_TO_FORM above — the
+// picker/Home use short form keys ('collect', 'count', 'stock') as their tile
+// `type`, but RECORD_TYPE_MODULES (lib/permission-matrix.ts) is keyed by the
+// real `records.type` API string. This is only ever used to look a module up,
+// never sent to the server.
+const FORM_KEY_TO_API_TYPE: Record<string, string> = {
+  feeding: 'feeding', mortality: 'mortality', count: 'physical_count',
+  collect: 'production', health: 'health', weight: 'weight', stock: 'stock_count',
+};
+
+// Short plain-language noun for the "your role can't record X" message.
+const FORM_KEY_NOUN: Record<string, string> = {
+  feeding: 'feeding', mortality: 'mortality', count: 'physical counts',
+  collect: 'products', health: 'health', weight: 'weight samples', stock: 'closing stock',
+};
+
 // ── Record — a fast picker, then a short form ───────────────────────────────
 // Big, one-line tiles grouped by how often a worker reaches for them (Daily
 // work vs. Checks), each a minimum 56px tall tap target. A farm's own
 // configured rounds (routines) get their own tile group beneath — nothing
 // invented, `GET /api/routines` filtered to `active`.
 export function WorkerRecordScreen() {
-  const { params, tenantId } = useNav();
+  const { params, tenantId, role } = useNav();
+  const { showToast } = useToast();
   const ctx = useWorkerContext();
+  const { access } = useEffectiveRolePermissions(tenantId, role);
   const [activeForm, setActiveForm] = useState<null | string>(() => RECORD_TYPE_TO_FORM[params.type] ?? null);
   // The owner's rounds. Fetched here rather than baked in, because what a
   // round consists of is a property of the farm — see db/schemas/people.ts.
@@ -522,6 +611,24 @@ export function WorkerRecordScreen() {
       setRoutines(res.success ? res.data.filter((r) => r.active) : []);
     });
   }, [tenantId]);
+
+  // Safety net for the deep-link entry point (Home's Quick record row, or an
+  // overdue task's "Record it" button, both navigate here with `type` set
+  // and skip the chooser below entirely — see RECORD_TYPE_TO_FORM's own
+  // comment). `access` reads 'edit' until the real matrix has loaded, so this
+  // never bounces a worker out of a form they can actually use; once it
+  // resolves to anything else, it sends them back rather than leaving an
+  // unfillable form open.
+  useEffect(() => {
+    if (!activeForm) return;
+    const apiType = FORM_KEY_TO_API_TYPE[activeForm];
+    const formModule = apiType ? RECORD_TYPE_MODULES[apiType] : undefined;
+    if (formModule && access(formModule) !== 'edit') {
+      showToast(`Your role can't record ${FORM_KEY_NOUN[activeForm] ?? activeForm} — ask the owner`, 'error');
+      setActiveForm(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeForm, access]);
 
   if (!ctx.employee) {
     return (

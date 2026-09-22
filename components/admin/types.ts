@@ -83,6 +83,7 @@ export interface TenantSubscriptionSummary {
   planId: string;
   planName: string;
   planCode: string;
+  planCurrency: string;
   period: PlanPeriod;
   status: string;
   needsPlan: boolean;
@@ -183,6 +184,7 @@ export interface AdminSubscriptionRow {
   planId: string;
   planCode: string;
   planName: string;
+  planCurrency: string;
   period: PlanPeriod;
   status: SubscriptionStatus;
   needsPlan: boolean;
