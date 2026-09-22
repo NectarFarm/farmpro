@@ -471,13 +471,51 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
 /* ── Per-lot adjust control — real PATCH /api/inventory/lots/[id], reason
  * required (the endpoint 400s without one). Real "movement": each lot is a
  * receipt (arrival) that a reason-required correction can move again. ── */
-function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onSaved: () => void }) {
+// forms-audit slice, item 11: why, not just what. A recount is one thing; a
+// pilfered bag is another, and both used to write the identical shape of
+// row (new quantity + free-text reason). No new column — stored in
+// audit_log.meta alongside reason (see PATCH /api/inventory/lots/[id]).
+const ADJUSTMENT_TYPES: { id: string; label: string }[] = [
+  { id: 'count', label: 'Count correction' },
+  { id: 'spoilage', label: 'Spoilage' },
+  { id: 'damage', label: 'Damage' },
+  { id: 'theft', label: 'Theft' },
+  { id: 'transfer', label: 'Transfer' },
+  { id: 'opening_balance', label: 'Opening balance' },
+];
+
+function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: string; tenantId: string; onSaved: () => void }) {
   const { showToast } = useToast();
   const [open, setOpen] = useState(false);
   const [qty, setQty] = useState(String(lot.qtyOnHand));
+  const [adjustmentType, setAdjustmentType] = useState('');
   const [reason, setReason] = useState('');
+  const [countedBy, setCountedBy] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // item 12: the variance, not just the new number — computed live as the
+  // owner types, before anything is saved.
+  const newQtyNum = Number(qty);
+  const variance = Number.isFinite(newQtyNum) ? Math.trunc(newQtyNum) - lot.qtyOnHand : null;
+  const costImpactCents = variance !== null ? variance * lot.unitCostCents : null;
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoBusy(true); setPhotoError('');
+    try {
+      setPhoto(await compressImageFile(file));
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Couldn't add that photo");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   async function save() {
     const newQty = Number(qty);
@@ -488,11 +526,17 @@ function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onS
     const res = await apiClient.patch(`/api/inventory/lots/${lot.id}?tenantId=${tenantId}`, {
       qtyOnHand: Math.trunc(newQty),
       reason: reason.trim(),
+      adjustmentType: adjustmentType || undefined,
+      countedBy: countedBy.trim() || undefined,
+      photoUrl: photo || undefined,
     });
     setSaving(false);
     if (res.success) {
       setOpen(false);
       setReason('');
+      setAdjustmentType('');
+      setCountedBy('');
+      setPhoto(null);
       showToast(`${lot.lotNo} is now ${Math.trunc(newQty).toLocaleString()}.`, 'success');
       onSaved();
     } else {
@@ -518,11 +562,42 @@ function LotRow({ lot, tenantId, onSaved }: { lot: ApiLot; tenantId: string; onS
       </div>
       {open && (
         <div className="mt-2.5 grid gap-2.5">
-          <Field label="New quantity">
+          <Field label="System quantity">
+            <div className="flex h-10 items-center rounded-md bg-card px-3 text-sm text-muted shadow-(--shadow-border)">{lot.qtyOnHand.toLocaleString()} {itemUnit}</div>
+          </Field>
+          <Field label="Counted quantity">
             <Input type="number" inputMode="numeric" value={qty} onChange={e => setQty(e.target.value)} />
+          </Field>
+          {/* item 12: the variance, calculated live, not just the new number. */}
+          {variance !== null && variance !== 0 && (
+            <div className={cn('flex items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold', variance > 0 ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger')}>
+              <span>{variance > 0 ? `+${variance}` : variance} {itemUnit} variance</span>
+              {/* item 22 (part): the shilling impact, from the lot's own recorded cost. */}
+              {costImpactCents !== null && <span>{costImpactCents >= 0 ? '+' : '−'}KSh {Math.abs(centsToMajor(costImpactCents)).toLocaleString()}</span>}
+            </div>
+          )}
+          <Field label="Adjustment type">
+            <select className="h-10 w-full min-w-0 rounded-md bg-surface px-3 text-sm text-fg shadow-(--shadow-border) outline-none" value={adjustmentType} onChange={e => setAdjustmentType(e.target.value)}>
+              <option value="">Not specified</option>
+              {ADJUSTMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
           </Field>
           <Field label="Reason * (required, goes to the audit trail)">
             <Input placeholder="e.g. physical recount, spoilage, theft" value={reason} onChange={e => setReason(e.target.value)} />
+          </Field>
+          <Field label="Counted by (optional)">
+            <Input placeholder="Who physically did the count" value={countedBy} onChange={e => setCountedBy(e.target.value)} />
+          </Field>
+          <Field label="Evidence photo (optional)">
+            {photo && <img src={photo} alt="Adjustment evidence" className="mb-2 max-h-40 w-full rounded-lg object-cover" />}
+            <label className={cn(
+              'flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-soft text-sm font-semibold text-primary',
+              photoBusy ? 'opacity-60' : 'cursor-pointer',
+            )}>
+              {photoBusy ? 'Adding…' : photo ? 'Retake photo' : 'Add a photo'}
+              <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" disabled={photoBusy} />
+            </label>
+            {photoError && <p className="mt-1 text-xs text-danger">{photoError}</p>}
           </Field>
           {error && <p className="text-xs text-danger">{error}</p>}
           <Button size="sm" onClick={save} disabled={saving || !reason.trim()}>
@@ -568,7 +643,7 @@ function StockDossierBody({ item, tenantId, onAdjusted }: { item: ApiInventoryIt
         <p className="mt-2 text-sm text-muted">No lots recorded for this item.</p>
       ) : (
         <ul className="mt-1 divide-y divide-border">
-          {item.lots.map((lot) => <LotRow key={lot.id} lot={lot} tenantId={tenantId} onSaved={onAdjusted} />)}
+          {item.lots.map((lot) => <LotRow key={lot.id} lot={lot} itemUnit={item.unit} tenantId={tenantId} onSaved={onAdjusted} />)}
         </ul>
       )}
 
