@@ -165,6 +165,9 @@ export async function recordPurchase(input: {
   // created_at filter for every row this function writes.
   transactionDate?: Date | null
   postingDate?: Date | null
+  // Item 20: optional link to the supplier master — validated against the
+  // caller's tenant by the route.
+  supplierId?: string | null
   // Farm-scoped-data task: the farm this stock physically lands at. Set on
   // BOTH the lot and the purchase row in the same transaction — see
   // db/schemas/inventory.ts's inventoryLots.farmId/purchases.farmId comments
@@ -264,6 +267,7 @@ export async function recordPurchase(input: {
         photoUrl: input.photoUrl ?? null,
         transactionDate,
         postingDate,
+        supplierId: input.supplierId ?? null,
       })
       .returning()
 

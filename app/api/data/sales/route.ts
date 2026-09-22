@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { batches, products } from '@/db/schemas'
+import { batches, products, customers } from '@/db/schemas'
 import { listSales, recordSale } from '@/lib/finance'
 import { and, eq } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
@@ -160,6 +160,16 @@ export async function POST(req: Request) {
   const soldTo = typeof b.soldTo === 'string' && b.soldTo.trim() ? b.soldTo.trim() : null
   const notes = typeof b.notes === 'string' && b.notes.trim() ? b.notes.trim() : null
 
+  // Item 20: an optional link to the customer master, checked against this
+  // tenant the same way productId/batchId above are — an id from another
+  // tenant, or one that doesn't exist, 404s rather than silently attaching
+  // nothing.
+  const customerId = typeof b.customerId === 'string' && b.customerId.trim() ? b.customerId.trim() : null
+  if (customerId) {
+    const rows = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)))
+    if (rows.length === 0) return notFound('Customer not found for this tenant')
+  }
+
   // ── Three-date model (item 18) ────────────────────────────────────────────
   // Both optional; recordSale defaults effectiveDate from soldAt and
   // postingDate from effectiveDate when a caller (every caller today) sends
@@ -196,6 +206,7 @@ export async function POST(req: Request) {
       notes,
       effectiveDate,
       postingDate,
+      customerId,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })
     return created(sale)

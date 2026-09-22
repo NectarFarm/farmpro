@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { purchases } from '@/db/schemas'
+import { purchases, suppliers } from '@/db/schemas'
 import { recordPurchase } from '@/lib/inventory'
 import { and, desc, eq } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
@@ -23,6 +23,7 @@ import { isImageDataUrl, dataUrlByteSize, MAX_PHOTO_BYTES } from '@/lib/record-p
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const created = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 201 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
+const notFound = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 404 })
 
 // GET /api/purchases?tenantId=...&itemId=... — list a tenant's purchases
 // (newest first), optionally filtered to one item.
@@ -225,6 +226,14 @@ export async function POST(req: Request) {
     postingDate = parsed
   }
 
+  // Item 20: an optional link to the supplier master, checked against this
+  // tenant.
+  const supplierId = typeof b.supplierId === 'string' && b.supplierId.trim() ? b.supplierId.trim() : undefined
+  if (supplierId) {
+    const rows = await db.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.id, supplierId), eq(suppliers.tenantId, tenantId)))
+    if (rows.length === 0) return notFound('Supplier not found for this tenant')
+  }
+
   let result
   try {
     result = await recordPurchase({
@@ -249,6 +258,7 @@ export async function POST(req: Request) {
       photoUrl,
       transactionDate,
       postingDate,
+      supplierId,
       farmId: farmFilter ?? null,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
     })

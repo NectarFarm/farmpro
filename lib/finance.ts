@@ -335,6 +335,10 @@ export async function recordSale(input: {
   dueDate?: Date | null
   soldTo?: string | null
   notes?: string | null
+  // Item 20: optional link to the customer master — validated against the
+  // caller's tenant by the route, not here (same "route validates, function
+  // trusts" split as productId above).
+  customerId?: string | null
   // Three-date model (item 18). `soldAt` above is already the transaction
   // date. `effectiveDate` defaults to it (a sale's stock/service effect is
   // usually the same moment as the sale itself); `postingDate` defaults to
@@ -370,6 +374,7 @@ export async function recordSale(input: {
         paymentReference: input.paymentReference ?? null,
         dueDate: input.dueDate ?? null,
         soldTo: input.soldTo ?? null,
+        customerId: input.customerId ?? null,
         notes: input.notes ?? null,
         effectiveDate,
         postingDate,
