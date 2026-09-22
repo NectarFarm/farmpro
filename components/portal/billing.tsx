@@ -238,7 +238,7 @@ function RecordPaymentSheet({ open, onClose, onRecorded }: { open: boolean; onCl
         <Field label="Note (optional)">
           <Input value={note} onChange={(e) => setNote(e.target.value)} style={{ fontSize: 16 }} />
         </Field>
-        <p className="text-xs text-subtle">Submitting doesn't activate the plan immediately — IFMS confirms each payment before it takes effect.</p>
+        <p className="text-xs text-subtle">Submitting doesn’t activate the plan immediately — IFMS confirms each payment before it takes effect.</p>
       </div>
       <div className="border-t border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <Button className="w-full" disabled={submitting} onClick={submit}>{submitting ? 'Submitting…' : 'Submit payment'}</Button>

@@ -231,9 +231,9 @@ export function PlanGateWaitingScreen() {
     <div className="screen-content">
       <TopNav title="" showBell={false} />
       <div className="px-screen flex flex-col items-center justify-center gap-3 py-24 text-center">
-        <div className="font-display text-2xl font-medium">Your farm's plan needs attention</div>
+        <div className="font-display text-2xl font-medium">Your farm’s plan needs attention</div>
         <p className="max-w-sm text-sm text-muted">
-          Ask this farm's owner to choose a plan and add payment details before you can continue.
+          Ask this farm’s owner to choose a plan and add payment details before you can continue.
         </p>
       </div>
     </div>

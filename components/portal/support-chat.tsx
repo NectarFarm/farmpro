@@ -68,7 +68,7 @@ export function SupportChatSheet({ open, onClose, onEscalated }: { open: boolean
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
         {messages.length === 0 && (
-          <p className="text-sm text-muted">Describe what's wrong — billing, a bug, or anything else. If it needs a human, I'll offer to raise a ticket.</p>
+          <p className="text-sm text-muted">Describe what’s wrong — billing, a bug, or anything else. If it needs a human, I’ll offer to raise a ticket.</p>
         )}
         <div className="flex flex-col gap-2">
           {messages.map((m, i) => (
