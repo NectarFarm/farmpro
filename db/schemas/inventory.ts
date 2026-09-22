@@ -156,6 +156,12 @@ export const purchases = pgTable('purchases', {
   // actually resolved (or created) a real suppliers row. Plain logical
   // reference, no DB FK, checked against the caller's tenant in the route.
   supplierId: text('supplier_id'),
+  // Item 23: same mark and same reasoning as sales.reversedAt
+  // (db/schemas/finance.ts) — a reversed purchase's totalCostCents/
+  // amountPaidCents are never rewritten, only marked, with the contra entry
+  // (lib/finance.ts's reverseJournalEntry) doing the real work and
+  // audit_log (entity: 'purchase') carrying the before/after/reason/actor.
+  reversedAt: timestamp('reversed_at'),
   // Multi-farm filtering (farm-scoped-data task) — a purchase is a receiving
   // event for a specific farm's stock, same rationale as inventoryLots.farmId
   // above (and recordPurchase sets both to the same value: a purchase and

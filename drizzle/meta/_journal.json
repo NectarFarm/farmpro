@@ -337,6 +337,13 @@
       "when": 1790109831010,
       "tag": "0047_supplier_customer_masters",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790111579922,
+      "tag": "0048_edit_and_reverse",
+      "breakpoints": true
     }
   ]
 }

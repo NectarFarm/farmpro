@@ -147,6 +147,15 @@ export const sales = pgTable('sales', {
   // (batchId above, purchases.supplierId below), checked against the
   // caller's tenant in the route rather than at the DB level.
   customerId: text('customer_id'),
+  // Item 23: a reversed sale is never deleted and its amountCents/qty/status
+  // are never rewritten in place — this is the ONLY mark a reversal leaves
+  // on the row itself. Set once, by POST /api/data/sales/[id]/reverse, in
+  // the same transaction as the contra journal entry (lib/finance.ts's
+  // reverseJournalEntry) that actually cancels its ledger effect. The
+  // before/after values, the reason and who did it live in audit_log
+  // (entity: 'sale'), read back by the same StatusTimeline component tasks
+  // already use — no second history mechanism.
+  reversedAt: timestamp('reversed_at'),
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),
