@@ -6,6 +6,8 @@ import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, Download, Wheat, Syringe, Beaker, Sprout, Receipt, AlertTriangle, Upload, type LucideIcon } from './icons';
 import { useToast, fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, type SaveReceipt } from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
+import { todayInTimezone } from '@/lib/datetime';
+import { useRegional } from './settings';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
 import { parseMoneyToCents, centsToMajor } from '@/lib/money';
@@ -182,6 +184,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   const [amountPaid, setAmountPaid] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [receivedDate, setReceivedDate] = useState('');
+  const [transactionDate, setTransactionDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
@@ -202,7 +205,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   // mechanism as ui-shared.tsx's fieldErrorStyle/FieldError.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  // item 18: the farm's own timezone, not the browser's.
+  const { timezone } = useRegional();
+  const todayIso = todayInTimezone(timezone);
   const qtyNum = Number(quantity);
   const unitCostCentsLive = parseMoneyToCents(unitCost);
   const totalCentsLive = Number.isFinite(qtyNum) && qtyNum > 0 && unitCostCentsLive !== null ? qtyNum * unitCostCentsLive : null;
@@ -285,6 +290,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
       dueDate: dueDate || undefined,
       notes: notes.trim() || undefined,
       photoUrl: photo || undefined,
+      transactionDate: transactionDate || undefined,
       farmId,
     });
     setSaving(false);
@@ -435,6 +441,14 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
                 <Input type="date" max={todayIso} value={receivedDate} onChange={e => setReceivedDate(e.target.value)} />
               </Field>
             </div>
+
+            {/* item 18: when the purchase transaction itself happened, if
+                different from Received date. Defaults to Received date, and
+                so does the ledger posting date. */}
+            <Field label="Transaction date (optional)">
+              <Input type="date" max={todayIso} value={transactionDate} onChange={e => setTransactionDate(e.target.value)} />
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">Defaults to Received date — and the ledger posting date defaults to this too.</p>
+            </Field>
 
             <Field label="Reorder threshold (new items only)">
               <Input type="number" inputMode="numeric" placeholder="e.g. 500" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)} />

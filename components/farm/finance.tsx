@@ -10,6 +10,8 @@ import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
 import { fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, type SaveReceipt } from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
+import { todayInTimezone } from '@/lib/datetime';
+import { useRegional } from './settings';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/ui-kit/page-header';
 import { Segmented } from '@/components/ui-kit/segmented';
@@ -249,6 +251,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   const [status, setStatus] = useState<'paid' | 'pending'>('paid');
   const [batchId, setBatchId] = useState('');
   const [soldAt, setSoldAt] = useState('');
+  const [effectiveDate, setEffectiveDate] = useState('');
   const [soldTo, setSoldTo] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -283,9 +286,14 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   // revenue against a headcount that never moved. The route refuses this case
   // too — this is the courtesy copy so the user finds out before submitting.
   const needsQty = !!product && product.stockEffect === 'batch_quantity' && !!batchId;
-  // Today, as a yyyy-mm-dd `max` for the date input. A future-dated sale drops
-  // out of every P&L period while staying in the trial balance.
-  const todayIso = new Date().toISOString().slice(0, 10);
+  // Today, as a yyyy-mm-dd `max` for the date input — in the FARM's own
+  // timezone (item 18), not the browser's. A future-dated sale drops out of
+  // every P&L period while staying in the trial balance; "future" has to
+  // mean the farm's midnight, not whatever zone the device happens to be set
+  // to (an owner traveling, or simply on UTC-driven infra, must not have a
+  // real today's sale refused as "in the future").
+  const { timezone } = useRegional();
+  const todayIso = todayInTimezone(timezone);
 
   // ── Money that adds up (item 3) ────────────────────────────────────────
   // Quantity x unit price = total, calculated here and shown — never a lone
@@ -310,6 +318,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
       errs.qty = `${product?.name} comes out of the batch when sold — enter how many`;
     }
     if (soldAt && soldAt > todayIso) errs.soldAt = 'A sale cannot be dated in the future';
+    if (effectiveDate && effectiveDate > todayIso) errs.effectiveDate = 'The effective date cannot be in the future';
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       setError('');
@@ -334,6 +343,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
       soldTo: soldTo.trim() || undefined,
       dueDate: dueDate || undefined,
       notes: notes.trim() || undefined,
+      effectiveDate: effectiveDate || undefined,
     });
     setSaving(false);
     if (res.success) {
@@ -456,6 +466,19 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
               <FieldError id="sale-solddate-error" message={fieldErrors.soldAt} />
             </div>
           </div>
+          {/* item 18: the effective date — when the stock/service actually
+              took effect, if that ever differs from the sale itself (a
+              dispatch that trails the sale by a day or two). Left blank, it
+              defaults to Sale date, and the ledger posting date defaults to
+              THIS — the form says so rather than hiding a silent default. */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Effective date (optional)</label>
+            <input className="farm-input" type="date" max={todayIso} value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.effectiveDate)}
+              aria-invalid={!!fieldErrors.effectiveDate} aria-describedby={fieldErrors.effectiveDate ? 'sale-effectivedate-error' : undefined} />
+            <FieldError id="sale-effectivedate-error" message={fieldErrors.effectiveDate} />
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">When the stock or service actually took effect, if different from Sale date. Defaults to Sale date — and the ledger posting date defaults to this.</p>
+          </div>
           <div style={{ marginBottom: 12 }}>
             <PaymentMethodFields method={method} onMethodChange={onMethodChange} reference={reference} onReferenceChange={setReference} />
           </div>
@@ -541,6 +564,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   const [amountPaid, setAmountPaid] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [receivedDate, setReceivedDate] = useState('');
+  const [transactionDate, setTransactionDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
@@ -562,7 +586,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   // mechanism as ui-shared.tsx's fieldErrorStyle/FieldError.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  // item 18: the farm's own timezone, not the browser's — see the sale
+  // sheet's identical comment.
+  const { timezone } = useRegional();
+  const todayIso = todayInTimezone(timezone);
   const qtyNum = Number(quantity);
   const unitCostCentsLive = parseMoneyToCents(unitCost);
   const totalCentsLive = Number.isFinite(qtyNum) && qtyNum > 0 && unitCostCentsLive !== null ? qtyNum * unitCostCentsLive : null;
@@ -638,6 +665,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
       dueDate: dueDate || undefined,
       notes: notes.trim() || undefined,
       photoUrl: photo || undefined,
+      transactionDate: transactionDate || undefined,
       farmId,
     });
     setSaving(false);
@@ -778,6 +806,15 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Received date</label>
               <input className="farm-input" type="date" max={todayIso} value={receivedDate} onChange={e => setReceivedDate(e.target.value)} />
             </div>
+          </div>
+          {/* item 18: when the purchase transaction itself happened (placing
+              the order, the supplier's invoice date), if that ever differs
+              from when the stock actually arrived. Defaults to Received
+              date, and so does the ledger posting date. */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Transaction date (optional)</label>
+            <input className="farm-input" type="date" max={todayIso} value={transactionDate} onChange={e => setTransactionDate(e.target.value)} />
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">When the purchase itself happened, if different from Received date. Defaults to Received date — and the ledger posting date defaults to this too.</p>
           </div>
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Notes (optional)</label>

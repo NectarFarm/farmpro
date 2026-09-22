@@ -57,6 +57,23 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
+// ── "Today", in the FARM's timezone (item 18) ───────────────────────────────
+// Every date input that bounds itself at "today" (a sale/purchase/expense
+// cannot be dated in the future) used to compute that bound from the
+// visitor's own device — `new Date().toISOString().slice(0, 10)` reads UTC,
+// which is a different calendar day from Africa/Nairobi (UTC+3) for three
+// hours every night, and a different day again for a traveling owner whose
+// phone is set to a different zone entirely. `en-CA` is used purely as a
+// locale that happens to format as YYYY-MM-DD — no Canadian meaning
+// intended, same trick formatDate already relies on via formatToParts.
+export function todayInTimezone(timezone: string = DEFAULT_TIMEZONE): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  } catch {
+    return new Date().toISOString().slice(0, 10)
+  }
+}
+
 // Date-only, in the tenant's timezone and day-order — e.g. "22/08/2026".
 export function formatDate(
   input: string | Date,
