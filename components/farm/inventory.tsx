@@ -468,6 +468,101 @@ function RecordPurchaseSheet({ tenantId, itemNames, supplierNames, categories, u
   );
 }
 
+/* ── Add stock item — real POST /api/inventory/items (forms-audit slice,
+ * item 6). "Set up before you buy": creates the item master alone, at zero
+ * quantity, without inventing a purchase. Deliberately narrower than
+ * RecordPurchaseSheet's field list — no supplier/cost/lot, because none of
+ * those exist until stock actually arrives. ── */
+function AddItemSheet({ tenantId, categories, units, onCreated, onClose }: {
+  tenantId: string;
+  categories: string[];
+  units: string[];
+  onCreated: () => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('');
+  const [unit, setUnit] = useState('');
+  const [lowStockThreshold, setLowStockThreshold] = useState('');
+  const [sku, setSku] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  async function save() {
+    const errs: Record<string, string> = {};
+    if (!name.trim()) errs.name = 'Name is required';
+    if (!unit.trim()) errs.unit = 'Unit is required';
+    if (Object.keys(errs).length > 0) { setFieldErrors(errs); setError(''); return; }
+    setFieldErrors({});
+
+    setSaving(true);
+    setError('');
+    const res = await apiClient.post('/api/inventory/items', {
+      tenantId,
+      name: name.trim(),
+      category: category.trim() || undefined,
+      unit: unit.trim(),
+      lowStockThreshold: lowStockThreshold ? Math.trunc(Number(lowStockThreshold)) : undefined,
+      sku: sku.trim() || undefined,
+    });
+    setSaving(false);
+    if (res.success) {
+      onCreated();
+      onClose();
+    } else {
+      setError(res.error || 'Could not add this item.');
+    }
+  }
+
+  return (
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+      <SheetTitle className="sr-only">Add stock item</SheetTitle>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="mb-1 font-display text-xl font-medium">Add stock item</div>
+        <p className="mb-4 text-sm leading-relaxed text-muted">Set up the catalogue entry now, at zero quantity — record a purchase later when stock actually arrives.</p>
+        <div className="grid gap-3">
+          <Field label="Name *">
+            <Input placeholder="e.g. Layers Mash" value={name} onChange={e => setName(e.target.value)}
+              style={fieldErrorStyle(!!fieldErrors.name)}
+              aria-invalid={!!fieldErrors.name} aria-describedby={fieldErrors.name ? 'add-item-name-error' : undefined} />
+            <FieldError id="add-item-name-error" message={fieldErrors.name} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Category">
+              <Input list="add-item-categories" placeholder="e.g. Feed" value={category} onChange={e => setCategory(e.target.value)} />
+              <datalist id="add-item-categories">
+                {categories.map(c => <option key={c} value={c} />)}
+              </datalist>
+            </Field>
+            <Field label="Base unit *">
+              <Input list="add-item-units" placeholder="e.g. kg" value={unit} onChange={e => setUnit(e.target.value)}
+                style={fieldErrorStyle(!!fieldErrors.unit)}
+                aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'add-item-unit-error' : undefined} />
+              <datalist id="add-item-units">
+                {units.map(u => <option key={u} value={u} />)}
+              </datalist>
+              <FieldError id="add-item-unit-error" message={fieldErrors.unit} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Reorder level (optional)">
+              <Input type="number" inputMode="numeric" placeholder="e.g. 500" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)} />
+            </Field>
+            <Field label="SKU (optional)">
+              <Input placeholder="e.g. FEED-001" value={sku} onChange={e => setSku(e.target.value)} />
+            </Field>
+          </div>
+        </div>
+        {error && <div className="mt-3 text-xs text-danger">{error}</div>}
+        <Button className="mt-4 mb-2 w-full justify-center" onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Add item'}
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
 /* ── Per-lot adjust control — real PATCH /api/inventory/lots/[id], reason
  * required (the endpoint 400s without one). Real "movement": each lot is a
  * receipt (arrival) that a reason-required correction can move again. ── */
@@ -612,6 +707,43 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
 /* ── Shared dossier body: KV summary + Lots (movements) + Purchases. Used by
  * both the inline Dossier/Inspector (InventoryScreen) and the standalone
  * InventoryDetailScreen, so the two never drift. ── */
+// forms-audit slice, item 6: "Reorder threshold (new items only)" prevented
+// keeping a practical par level after the first purchase. PATCH
+// /api/inventory/items/[id] now lets any existing item's reorder level
+// change; this is the one inline control for it.
+function ReorderLevelEditor({ item, tenantId, onSaved }: { item: ApiInventoryItem; tenantId: string; onSaved: () => void }) {
+  const { showToast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(String(item.lowStockThreshold));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const n = Math.trunc(Number(value));
+    if (!Number.isFinite(n) || n < 0) { showToast('Enter a valid reorder level.', 'error'); return; }
+    setSaving(true);
+    const res = await apiClient.patch(`/api/inventory/items/${item.id}?tenantId=${tenantId}`, { lowStockThreshold: n });
+    setSaving(false);
+    if (res.success) { setEditing(false); showToast('Reorder level updated.', 'success'); onSaved(); }
+    else showToast(res.error ?? 'Could not update the reorder level.', 'error');
+  }
+
+  if (!editing) {
+    return (
+      <button type="button" onClick={() => { setValue(String(item.lowStockThreshold)); setEditing(true); }} className="flex items-center gap-1.5 text-sm font-medium text-fg">
+        {item.lowStockThreshold.toLocaleString()} {item.unit}
+        <span className="text-xs font-medium text-primary">Edit</span>
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <Input type="number" inputMode="numeric" className="h-8 w-24" value={value} onChange={e => setValue(e.target.value)} autoFocus />
+      <Button size="sm" onClick={save} disabled={saving}>{saving ? '…' : 'Save'}</Button>
+      <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+    </div>
+  );
+}
+
 function StockDossierBody({ item, tenantId, onAdjusted }: { item: ApiInventoryItem; tenantId: string; onAdjusted: () => void }) {
   const [history, setHistory] = useState<ApiPurchase[] | null>(null);
 
@@ -631,7 +763,7 @@ function StockDossierBody({ item, tenantId, onAdjusted }: { item: ApiInventoryIt
     <>
       <dl>
         <Kv label="On hand" value={`${item.qtyOnHand.toLocaleString()} ${item.unit}`} />
-        <Kv label="Reorder at" value={`${item.lowStockThreshold.toLocaleString()} ${item.unit}`} />
+        <Kv label="Reorder at" value={<ReorderLevelEditor item={item} tenantId={tenantId} onSaved={onAdjusted} />} />
         <Kv label="Cost / unit" value={`KSh ${centsToMajor(cost).toLocaleString()}`} />
         <Kv label="Value" value={`KSh ${centsToMajor(cost * item.qtyOnHand).toLocaleString()}`} />
         <Kv label="Nearest expiry" value={expiry ? fmtDate(expiry) : 'Not tracked'} />
@@ -709,6 +841,7 @@ export function InventoryScreen() {
   const [stockSearch, setStockSearch] = useState('');
   const [showImport, setShowImport] = useState(false);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
+  const [showAddItem, setShowAddItem] = useState(false);
   const [importing, setImporting] = useState(false);
   // What the last CSV import refused, and why. Held on the screen rather than
   // inside the import sheet because the sheet closes when the import starts.
@@ -877,6 +1010,9 @@ export function InventoryScreen() {
               </Button>
               <Button variant="secondary" size="icon-sm" onClick={exportStockCSV} title="Export inventory CSV" aria-label="Export inventory CSV">
                 <Download size={14} />
+              </Button>
+              <Button variant="secondary" onClick={() => setShowAddItem(true)}>
+                <Plus size={14} /> Add item
               </Button>
               <Button onClick={() => setShowRecordPurchase(true)}>
                 <Plus size={14} /> Record purchase
@@ -1095,6 +1231,15 @@ export function InventoryScreen() {
           onCreated={loadAll}
           onViewList={() => { setShowRecordPurchase(false); setTab('purchases'); }}
           onClose={() => setShowRecordPurchase(false)}
+        />
+      )}
+      {showAddItem && (
+        <AddItemSheet
+          tenantId={tenantId}
+          categories={categoryNames}
+          units={unitNames}
+          onCreated={loadAll}
+          onClose={() => setShowAddItem(false)}
         />
       )}
     </div>
