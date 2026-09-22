@@ -62,7 +62,7 @@
 //                                                  expense out of the ledger would make the
 //                                                  GL/trial balance/P&L quietly wrong once
 //                                                  payroll is real money moving.
-import { pgTable, text, timestamp, integer, bigint, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, boolean, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
 // A tenant's sales — the real backend for components/farm/finance.tsx's
 // `SALES` mock (Sales tab). `batchId` is kept as a plain logical reference
@@ -139,6 +139,14 @@ export const sales = pgTable('sales', {
   // sales by `soldAt`, never `createdAt`).
   effectiveDate: timestamp('effective_date'),
   postingDate: timestamp('posting_date'),
+  // Migration 0047 (item 20). Optional link to the customer master — `soldTo`
+  // above stays the free-text fact for an old row or a genuine one-off; this
+  // is set only when the sheet's type-to-search picker actually resolved (or
+  // created) a real customers row. Plain logical reference, no DB FK — same
+  // convention every other cross-entity reference in this schema uses
+  // (batchId above, purchases.supplierId below), checked against the
+  // caller's tenant in the route rather than at the DB level.
+  customerId: text('customer_id'),
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),
@@ -214,4 +222,45 @@ export const journalLines = pgTable('journal_lines', {
 }, (t) => [
   index('idx_journal_lines_entry').on(t.entryId),
   index('idx_journal_lines_account').on(t.accountId),
+])
+
+// ── Supplier and customer masters (item 20, forms-audit slice) ──────────────
+// Two small, tenant-scoped masters — not a re-architecture of anything: a
+// purchase/expense still stores its own free-text `supplier`, a sale still
+// stores its own free-text `soldTo` (see migration 0045). These are an
+// OPTIONAL link on top — `purchases.supplierId`/`sales.customerId`
+// (migration 0047) — so an old row, and a genuine one-off with no master
+// behind it, keep working exactly as they always have. Deliberately minimal
+// fields: name, phone, a contact person (distinct from the phone — a
+// supplier's phone often rings a shop, not the person the owner actually
+// deals with), an optional TIN, free-text credit terms ("Net 30", "COD" —
+// not a structured payment-terms engine), and an active flag so a supplier
+// who closed shop stops showing up in the picker without losing their
+// purchase history.
+export const suppliers = pgTable('suppliers', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  name: text('name').notNull(),
+  phone: text('phone').notNull().default(''),
+  contact: text('contact').notNull().default(''),
+  tin: text('tin'),
+  creditTerms: text('credit_terms'),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_suppliers_tenant').on(t.tenantId),
+])
+
+export const customers = pgTable('customers', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  name: text('name').notNull(),
+  phone: text('phone').notNull().default(''),
+  contact: text('contact').notNull().default(''),
+  tin: text('tin'),
+  creditTerms: text('credit_terms'),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_customers_tenant').on(t.tenantId),
 ])

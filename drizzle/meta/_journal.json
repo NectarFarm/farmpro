@@ -330,6 +330,13 @@
       "when": 1790094948858,
       "tag": "0046_three_date_model",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790109831010,
+      "tag": "0047_supplier_customer_masters",
+      "breakpoints": true
     }
   ]
 }

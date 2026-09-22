@@ -150,6 +150,12 @@ export const purchases = pgTable('purchases', {
   // existing figure unchanged.
   transactionDate: timestamp('transaction_date'),
   postingDate: timestamp('posting_date'),
+  // Migration 0047 (item 20). Optional link to the supplier master —
+  // `supplier` above stays the free-text fact for an old row or a genuine
+  // one-off; this is set only when the sheet's type-to-search picker
+  // actually resolved (or created) a real suppliers row. Plain logical
+  // reference, no DB FK, checked against the caller's tenant in the route.
+  supplierId: text('supplier_id'),
   // Multi-farm filtering (farm-scoped-data task) — a purchase is a receiving
   // event for a specific farm's stock, same rationale as inventoryLots.farmId
   // above (and recordPurchase sets both to the same value: a purchase and
