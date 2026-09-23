@@ -5,6 +5,7 @@ import { apiClient } from '@/lib/request';
 import { useConfirm } from './ui-shared';
 import type { SetupState } from '@/lib/setup-state';
 import { SupportChatSheet } from '@/components/portal/support-chat';
+import { Select } from '@/components/ui-kit/select';
 
 /* ── Screen registry ── */
 export type ScreenId =
@@ -886,7 +887,8 @@ function RoleSelector({ role, setRole }: { role: NavContext['role']; setRole: (r
   // bottom tab bar (mobile) without borrowing space either one uses.
   return (
     <div style={{ position: 'fixed', top: 'calc(var(--nav-height) + 8px)', right: 8, zIndex: 200, padding: '5px 8px' }}>
-      <select value={role} onChange={(e) => setRole(e.target.value as NavContext['role'])}
+      <Select value={role} onChange={(v) => setRole(v as NavContext['role'])}
+        className="h-auto w-auto min-w-0 shadow-none"
         style={{ background: 'rgba(10,15,10,0.95)', border: '1px solid rgba(var(--primary-rgb),0.3)', color: '#4ade80', borderRadius: 8, fontSize: 'var(--fs-2xs)', padding: '3px 6px', cursor: 'pointer', fontWeight: 700 }}>
         {/* Plain text — a native <option> can't render an icon component,
             and this dev-only selector never ships to production anyway. */}
@@ -896,7 +898,7 @@ function RoleSelector({ role, setRole }: { role: NavContext['role']; setRole: (r
         <option value="vet">Vet</option>
         <option value="auditor">Auditor</option>
         <option value="super_admin">Super Admin</option>
-      </select>
+      </Select>
     </div>
   );
 }
@@ -1536,16 +1538,17 @@ function SidebarFooter({
       {showFarmFilter && (
       <label className="sidebar-farm-filter" data-tour="farm-switcher">
         <span className="sidebar-farm-label">{NAV.farm}</span>
-        <select
+        <Select
           value={activeFarmId}
-          onChange={(e) => setActiveFarmId(e.target.value)}
+          onChange={(v) => setActiveFarmId(v)}
           aria-label="Farm to show"
+          className="sidebar-farm-select"
         >
           <option value="ALL">All farms</option>
           {farms.map((farm) => (
             <option key={farm.id} value={farm.id}>{farm.name}</option>
           ))}
-        </select>
+        </Select>
       </label>
       )}
       <div className="sidebar-user">
