@@ -15,6 +15,7 @@ export * from './label';
 export * from './page-header';
 export * from './scroll-area';
 export * from './segmented';
+export * from './select';
 export * from './separator';
 export * from './sheet';
 export * from './tooltip';
