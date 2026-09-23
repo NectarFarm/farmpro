@@ -692,7 +692,7 @@ function AddTaskSheet({ employees, farms, activeFarmId, approvers, initial, onCl
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92dvh]">
       <SheetTitle className="sr-only">Assign work</SheetTitle>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <div className="mb-4 font-display text-xl font-medium">Assign work</div>
@@ -806,7 +806,7 @@ function FilterSheet({
   onClose: () => void; onReset: () => void;
 }) {
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[80vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[80dvh]">
       <SheetTitle className="sr-only">Filter tasks</SheetTitle>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <div className="mb-4 font-display text-xl font-medium">Filter tasks</div>

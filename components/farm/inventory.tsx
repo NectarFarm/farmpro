@@ -335,7 +335,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
 
   if (receipt) {
     return (
-      <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92vh]">
+      <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92dvh]">
         <SheetTitle className="sr-only">Purchase recorded</SheetTitle>
         <SaveConfirmation title="Purchase recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
       </Sheet>
@@ -343,7 +343,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92dvh]">
       <SheetTitle className="sr-only">Record Purchase</SheetTitle>
       {/* item 15: sticky footer keeps Record Purchase reachable on this long
           sheet without scrolling past every field first. */}
@@ -561,7 +561,7 @@ function AddItemSheet({ tenantId, categories, units, onCreated, onClose }: {
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
       <SheetTitle className="sr-only">Add stock item</SheetTitle>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <div className="mb-1 font-display text-xl font-medium">Add stock item</div>
@@ -1261,7 +1261,7 @@ export function InventoryScreen() {
       {/* An import that refused rows says which and why. Silently importing
           140 of 200 rows is the failure mode this replaces. */}
       {importReport && (
-        <div className="fixed right-3 bottom-21 left-3 z-[210] max-h-[40vh] overflow-y-auto rounded-xl bg-surface p-3.5 text-xs leading-relaxed text-fg shadow-(--shadow-raised)">
+        <div className="fixed right-3 bottom-21 left-3 z-[210] max-h-[40dvh] overflow-y-auto rounded-xl bg-surface p-3.5 text-xs leading-relaxed text-fg shadow-(--shadow-raised)">
           <div className="flex items-start gap-2.5">
             <span className="flex-1">{importReport}</span>
             <button type="button" onClick={() => setImportReport('')} className="shrink-0 text-xs font-medium text-primary">Dismiss</button>
