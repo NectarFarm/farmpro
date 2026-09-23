@@ -131,7 +131,7 @@ export function ReportDocumentPreview({ report, opts, farmLabel }: { report: Rep
               <span style={{
                 border: `1px solid ${accentCss}`, color: accentCss, borderRadius: 6, padding: '4px 10px',
                 fontSize: 'var(--fs-2xs)', fontWeight: 800, letterSpacing: '0.1em',
-              }}>UNAUDITED</span>
+              }}>{(opts.status ?? 'Draft').toUpperCase()}</span>
             </div>
           </PreviewPanel>
         </div>

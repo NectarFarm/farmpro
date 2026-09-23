@@ -252,7 +252,7 @@ export function ReportsScreen() {
   function handleExportCsv() {
     if (!report || !reportType) return;
     const filename = `${reportType.id}-${dateFrom}_to_${dateTo}.csv`;
-    downloadReportCsv(report, filename, fullExportOpts);
+    downloadReportCsv(report, filename, { ...fullExportOpts, status: 'Generated' });
     setRecentExports((prev) => [{ name: `${reportType.name} – ${dateFrom} to ${dateTo}`, generated: fmtTimestamp(new Date()), format: 'CSV' as const }, ...prev].slice(0, 8));
     showToast('CSV downloaded.', 'success');
   }
@@ -260,7 +260,7 @@ export function ReportsScreen() {
   async function handleExportPdf() {
     if (!report || !reportType) return;
     const filename = `${reportType.id}-${dateFrom}_to_${dateTo}.pdf`;
-    await downloadReportPdf(report, filename, fullExportOpts);
+    await downloadReportPdf(report, filename, { ...fullExportOpts, status: 'Generated' });
     setRecentExports((prev) => [{ name: `${reportType.name} – ${dateFrom} to ${dateTo}`, generated: fmtTimestamp(new Date()), format: 'PDF' as const }, ...prev].slice(0, 8));
     showToast('PDF downloaded.', 'success');
   }
@@ -275,7 +275,7 @@ export function ReportsScreen() {
         <PageHeader
           kicker="Company"
           title="Reports"
-          lede="Working packs from the same ledger as Finance. Unaudited — for you, the bank, and a read-only link."
+          lede="Official packs from the same ledger as Finance. Export and share a read-only link."
         />
 
         {/* Date range picker */}
@@ -396,7 +396,7 @@ export function ReportsScreen() {
         {/* Auditor link */}
         <div className="farm-card" style={{ padding: 14, marginBottom: 14, border: '1px solid rgba(var(--purple-rgb),0.3)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Auditor / Investor Access</div>
+            <div style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--text-primary)' }}>Secure read-only share</div>
             <span className="chip chip-purple" style={{ fontSize: 'var(--fs-2xs)' }}>~8h link</span>
           </div>
           <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
@@ -413,7 +413,7 @@ export function ReportsScreen() {
                 className="btn-secondary"
                 style={{ width: '100%', justifyContent: 'center', opacity: auditorBusy ? 0.6 : 1 }}
               >
-                {auditorBusy ? 'Working…' : auditorLink ? 'Revoke Link' : 'Generate Auditor Link'}
+                {auditorBusy ? 'Working…' : auditorLink ? 'Revoke Link' : 'Generate Secure Link'}
               </button>
               {auditorError && (
                 <div style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{auditorError}</div>

@@ -128,6 +128,7 @@ export interface ExportOptions {
   farmCode?: string
   location?: string
   preparedFor?: string
+  status?: 'Draft' | 'Generated'
 }
 
 const DEFAULT_OPTIONS: Required<Pick<ExportOptions, 'currencySymbol' | 'weightUnit'>> = {
@@ -795,7 +796,7 @@ export async function buildReportPdf(
   const panelH = Math.max(measurePanel(doc, detailRows, pw), measurePanel(doc, scopeRows, pw))
   drawPanel(doc, MARGIN, panelY, pw, panelH, 'Report details', detailRows)
   drawPanel(doc, MARGIN + pw + panelGap, panelY, pw, panelH, 'Scope & source', scopeRows)
-  drawPanel(doc, MARGIN + 2 * (pw + panelGap), panelY, pw, panelH, 'Status', [], { text: 'UNAUDITED', color: accent })
+  drawPanel(doc, MARGIN + 2 * (pw + panelGap), panelY, pw, panelH, 'Status', [], { text: (opts.status ?? 'Draft').toUpperCase(), color: accent })
   y = panelY + panelH
 
   y = drawHeadline(doc, layout, y + 5, report)
@@ -877,7 +878,7 @@ export async function buildReportPdf(
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(6.4)
     doc.setTextColor(...INK_FAINT)
-    const left = [opts.farmName || 'IFMS', header.reportNo, `Generated ${fmtStampDate(generatedAt)}`, 'Unaudited management report']
+    const left = [opts.farmName || 'IFMS', header.reportNo, `Generated ${fmtStampDate(generatedAt)}`, `System-generated · ${(opts.status ?? 'Draft').toUpperCase()}`]
       .filter(Boolean).join('  ·  ')
     doc.text(left, MARGIN, layout.H - FOOTER_HEIGHT + 6.5)
     doc.text(`Page ${p} of ${total}`, layout.W - MARGIN, layout.H - FOOTER_HEIGHT + 6.5, { align: 'right' })

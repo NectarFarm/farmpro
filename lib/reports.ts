@@ -172,7 +172,8 @@ function humanPeriodLabel(from: Date | null, to: Date | null, s: PresentationSet
   if (!from && !to) return 'All time'
   if (!to) return `From ${formatDate(from!, opts)}`
   if (!from) return `Through ${formatDate(to, opts)}`
-  return `${formatDate(from, opts)} – ${formatDate(to, opts)}`
+  const displayTo = new Date(to.getTime() - 24 * 60 * 60 * 1000 + 1)
+  return `${formatDate(from, opts)} – ${formatDate(displayTo, opts)}`
 }
 
 // Employee names for "Recorded by" style columns — one query per report,
