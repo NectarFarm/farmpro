@@ -19,6 +19,7 @@ import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { Dossier, Inspector, Kv } from '@/components/ui-kit/inspector';
 import { Field, controlClass } from '@/components/ui-kit/field';
+import { Select } from '@/components/ui-kit/select';
 import { cn } from '@/lib/utils';
 
 // ── Tasks screen, wired to /api/tasks (issue #244) ──────────────────────────
@@ -349,17 +350,17 @@ function TaskDetailPanel({
         <div className="mt-4 rounded-lg bg-surface-2 p-3">
           <p className="mb-2 text-xs font-medium tracking-wide text-subtle uppercase">Change who and when</p>
           <Field label="Assigned to" className="mb-2">
-            <select className={controlClass} value={draftAssignee} onChange={e => setDraftAssignee(e.target.value)}>
+            <Select value={draftAssignee} onChange={v => setDraftAssignee(v)}>
               <option value="">Unassigned</option>
               {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.role})</option>)}
-            </select>
+            </Select>
           </Field>
           {task.requiresApproval && (
             <Field label="Approved by" className="mb-2">
-              <select className={controlClass} value={draftApprover} onChange={e => setDraftApprover(e.target.value)}>
+              <Select value={draftApprover} onChange={v => setDraftApprover(v)}>
                 <option value="">Anyone who can approve</option>
                 {approvers.map(a => <option key={a.userId} value={a.userId}>{a.name} ({a.role})</option>)}
-              </select>
+              </Select>
             </Field>
           )}
           <Field label="Due">
@@ -703,23 +704,23 @@ function AddTaskSheet({ employees, farms, activeFarmId, approvers, initial, onCl
           </Field>
 
           <Field label="Farm">
-            <select className={controlClass} value={farmId} onChange={e => setFarmId(e.target.value)}>
+            <Select value={farmId} onChange={v => setFarmId(v)}>
               <option value="">No specific farm (tenant-wide)</option>
               {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
+            </Select>
           </Field>
 
           <Field label="Who">
-            <select className={controlClass} value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
+            <Select value={assigneeId} onChange={v => setAssigneeId(v)}>
               <option value="">Unassigned</option>
               {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.role})</option>)}
-            </select>
+            </Select>
           </Field>
 
           <Field label="Repeats">
-            <select className={controlClass} value={recurrence} onChange={e => setRecurrence(e.target.value)}>
+            <Select value={recurrence} onChange={v => setRecurrence(v)}>
               {Object.entries(RECURRENCE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
+            </Select>
           </Field>
           {recurrence !== 'none' && (
             <Field label="Stop repeating after (optional)">
@@ -762,10 +763,10 @@ function AddTaskSheet({ employees, farms, activeFarmId, approvers, initial, onCl
             {requiresApproval && (
               <div className="mt-3 border-t border-border pt-3">
                 <Field label="Who approves it">
-                  <select className={controlClass} value={approverId} onChange={e => setApproverId(e.target.value)}>
+                  <Select value={approverId} onChange={v => setApproverId(v)}>
                     <option value="">Anyone who can approve</option>
                     {approvers.map(a => <option key={a.userId} value={a.userId}>{a.name} ({a.role})</option>)}
-                  </select>
+                  </Select>
                 </Field>
                 <p className="mt-2 text-xs text-muted">
                   {approverId

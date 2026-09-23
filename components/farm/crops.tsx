@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui-kit/badge';
 import { Button } from '@/components/ui-kit/button';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Dossier } from '@/components/ui-kit/inspector';
+import { Select } from '@/components/ui-kit/select';
 import { SitesTab } from './sites';
 
 // ── Real-data wiring (issue #232) ───────────────────────────────────────────
@@ -397,11 +398,11 @@ function AddUnitSheet({ farms, tenantId, onCreated, onClose }: {
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
-          <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}
+          <Select className="farm-input" value={farmId} onChange={v => setFarmId(v)}
             style={fieldErrorStyle(!!fieldErrors.farmId)}
             aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'add-unit-farm-error' : undefined}>
             {farms.map(f => <option key={f.id} value={f.id}>{f.name} ({f.code})</option>)}
-          </select>
+          </Select>
           <FieldError id="add-unit-farm-error" message={fieldErrors.farmId} />
         </div>
         <div style={{ marginBottom: 12 }}>
@@ -1168,9 +1169,9 @@ function EditBatchSheet({ batch, tenantId, onClose, onSaved }: {
         <input className="farm-input" value={species} onChange={(e) => setSpecies(e.target.value)} placeholder="e.g. Kienyeji" style={{ marginBottom: 12 }} />
 
         <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
-        <select className="farm-input" value={status} onChange={(e) => setStatus(e.target.value)} style={{ marginBottom: 12 }}>
+        <Select className="farm-input" value={status} onChange={(v) => setStatus(v)} style={{ marginBottom: 12 }}>
           {['ACTIVE', 'CLOSED', 'SOLD'].map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
+        </Select>
 
         <div style={{ padding: 12, borderRadius: 12, border: '1px solid var(--border-subtle)', background: 'var(--card)', marginBottom: 12 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Head count</label>
@@ -1623,10 +1624,10 @@ export function BatchDetailScreen({ embedded = false, embeddedBatchId, embeddedB
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
                 <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Destination Unit *</label>
-                <select className="farm-input" style={{ fontSize: 'var(--fs-sm)' }} value={transferUnitId} onChange={e => setTransferUnitId(e.target.value)}>
+                <Select className="farm-input" style={{ fontSize: 'var(--fs-sm)' }} value={transferUnitId} onChange={v => setTransferUnitId(v)}>
                   <option value="">Select a unit…</option>
                   {transferCandidates.map(u => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
-                </select>
+                </Select>
               </div>
               {transferError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{transferError}</div>}
               <div style={{ display: 'flex', gap: 8 }}>
@@ -1845,7 +1846,7 @@ export function BatchDetailScreen({ embedded = false, embeddedBatchId, embeddedB
             )}
             {stageOptions !== null && stageOptions.length > 0 && (
               <>
-                <select className="farm-input" style={{ fontSize: 'var(--fs-sm)', marginBottom: 8 }} value={nextStage} onChange={e => setNextStage(e.target.value)}>
+                <Select className="farm-input" style={{ fontSize: 'var(--fs-sm)', marginBottom: 8 }} value={nextStage} onChange={v => setNextStage(v)}>
                   <option value="">Choose the stage…</option>
                   {stageOptions.map((s) => (
                     <option key={s.id} value={s.name}>
@@ -1854,7 +1855,7 @@ export function BatchDetailScreen({ embedded = false, embeddedBatchId, embeddedB
                       {s.typicalDays ? ` · ~${s.typicalDays} days` : ''}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {suggestedStage && nextStage === suggestedStage.name && (
                   <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginBottom: 10 }}>
                     Next after {batch.stage || 'the start'}
@@ -2125,16 +2126,16 @@ export function CropScheduleScreen() {
             </div>
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
-              <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}>
+              <Select className="farm-input" value={farmId} onChange={v => setFarmId(v)}>
                 {farms.map(f => <option key={f.id} value={f.id}>{f.name} ({f.code})</option>)}
-              </select>
+              </Select>
             </div>
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Classification</label>
-              <select className="farm-input" value={enterpriseType} onChange={e => setEnterpriseType(e.target.value as 'crop' | 'livestock')}>
+              <Select className="farm-input" value={enterpriseType} onChange={v => setEnterpriseType(v as 'crop' | 'livestock')}>
                 <option value="livestock">Livestock</option>
                 <option value="crop">Crop</option>
-              </select>
+              </Select>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               <div>

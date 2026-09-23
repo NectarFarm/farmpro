@@ -24,6 +24,7 @@ import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { Kv } from '@/components/ui-kit/inspector';
 import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dialog';
 import { controlClass } from '@/components/ui-kit/field';
+import { Select } from '@/components/ui-kit/select';
 import { StatusTimeline } from './status-timeline';
 
 // ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
@@ -469,15 +470,15 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
                 </button>
               </div>
             ) : (
-              <select
+              <Select
                 className="farm-input"
                 value={productId}
-                onChange={e => { setProductId(e.target.value); if (e.target.value) setItem(''); }}
+                onChange={v => { setProductId(v); if (v) setItem(''); }}
                 style={{ marginBottom: productId ? 0 : 8 }}
               >
                 <option value="">{products === null ? 'Loading products…' : 'Not in the catalogue — type it below'}</option>
                 {(products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              </Select>
             )}
             {/* The escape hatch, and the only path that leaves stock untouched.
                 Kept because an ad-hoc sale — a service, a one-off — is real. */}
@@ -524,10 +525,10 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Batch (optional)</label>
-              <select className="farm-input" value={batchId} onChange={e => setBatchId(e.target.value)}>
+              <Select className="farm-input" value={batchId} onChange={v => setBatchId(v)}>
                 <option value="">No batch (general sale)</option>
                 {batches.map(b => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
-              </select>
+              </Select>
             </div>
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Sale date</label>
@@ -835,12 +836,13 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
 
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm *</label>
-            <select className="farm-input" value={farmId} onChange={e => setFarmId(e.target.value)}
+            <Select className="farm-input" value={farmId} onChange={v => setFarmId(v)}
+              placeholder="Select a farm…"
               style={fieldErrorStyle(!!fieldErrors.farmId)}
               aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'purchase-farm-error' : undefined}>
               <option value="" disabled>Select a farm…</option>
               {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
+            </Select>
             <FieldError id="purchase-farm-error" message={fieldErrors.farmId} />
           </div>
           <RequiredDimensionFields
