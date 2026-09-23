@@ -385,7 +385,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
             </Field>
 
             <RequiredDimensionFields
-              tenantId={tenantId} missing={requiredDims} picks={dimPicks} fieldErrors={fieldErrors}
+              tenantId={tenantId} missing={requiredDims} picks={dimPicks} fieldErrors={fieldErrors} knownFarmId={farmId}
               onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
             />
 

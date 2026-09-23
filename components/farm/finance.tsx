@@ -844,7 +844,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
             <FieldError id="purchase-farm-error" message={fieldErrors.farmId} />
           </div>
           <RequiredDimensionFields
-            tenantId={tenantId} missing={requiredDims} picks={dimPicks} fieldErrors={fieldErrors}
+            tenantId={tenantId} missing={requiredDims} picks={dimPicks} fieldErrors={fieldErrors} knownFarmId={farmId}
             onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
           />
           <div style={{ marginBottom: 12 }}>
@@ -1582,6 +1582,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
             <RequiredDimensionFields
               tenantId={tenantId} missing={requiredDims} picks={dimPicks}
               onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
+              knownFarmId={preview.farmId ?? undefined}
             />
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
               Type {CONFIRM_WORD} to confirm you want to pay {preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} {formatMoney(preview.totalAmountCents)}
