@@ -311,9 +311,11 @@ export function ReportsScreen() {
     if (attest) {
       const name = window.prompt('Your full name for this digital attestation:', '')?.trim()
       const attestationRole = name ? window.prompt('Your role (for example Owner or Farm Manager):', '')?.trim() : ''
-      if (name && attestationRole) {
-        const attested = await apiClient.post<ReportSnapshot>(`/api/report-snapshots/${snapshot.id}/attest`, { name, role: attestationRole })
+      const password = attestationRole ? window.prompt('Confirm with your current password:', '') : ''
+      if (name && attestationRole && password) {
+        const attested = await apiClient.post<ReportSnapshot>(`/api/report-snapshots/${snapshot.id}/attest`, { name, role: attestationRole, password })
         if (attested.success) snapshot = attested.data
+        else showToast(attested.error || 'Attestation could not be confirmed.', 'error')
       }
     }
     setSnapshots((current) => [snapshot, ...current])
