@@ -11,6 +11,7 @@ import { Segmented } from '@/components/ui-kit/segmented';
 import { Badge } from '@/components/ui-kit/badge';
 import { Button } from '@/components/ui-kit/button';
 import { Input } from '@/components/ui-kit/input';
+import { Select } from '@/components/ui-kit/select';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { useAdminCapabilities } from './capabilities';
 import {
@@ -320,10 +321,10 @@ function DiscountsTab() {
             <label className="text-sm">Code<Input value={editing.code} onChange={(e) => setEditing({ ...editing, code: e.target.value.toUpperCase() })} disabled={!!editing.id} /></label>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <label className="text-sm">Kind
-                <select className="mt-1 h-10 w-full rounded-md bg-surface-2 px-2 text-sm" value={editing.kind} onChange={(e) => setEditing({ ...editing, kind: e.target.value as 'percent' | 'fixed' })}>
+                <Select className="mt-1" value={editing.kind} onChange={(v) => setEditing({ ...editing, kind: v as 'percent' | 'fixed' })}>
                   <option value="percent">Percent</option>
                   <option value="fixed">Fixed (cents)</option>
-                </select>
+                </Select>
               </label>
               <label className="text-sm">Value<Input inputMode="numeric" value={editing.value} onChange={(e) => setEditing({ ...editing, value: Number(e.target.value) || 0 })} /></label>
             </div>

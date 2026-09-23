@@ -16,7 +16,8 @@ import { PageHeader } from '@/components/ui-kit/page-header';
 import { Badge } from '@/components/ui-kit/badge';
 import { Button } from '@/components/ui-kit/button';
 import { Input } from '@/components/ui-kit/input';
-import { Field, controlClass } from '@/components/ui-kit/field';
+import { Field } from '@/components/ui-kit/field';
+import { Select } from '@/components/ui-kit/select';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { cn } from '@/lib/utils';
@@ -224,13 +225,13 @@ function RecordPaymentSheet({ open, onClose, onRecorded }: { open: boolean; onCl
           <Input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0.00" style={{ fontSize: 16 }} />
         </Field>
         <Field label="Method">
-          <select value={method} onChange={(e) => setMethod(e.target.value as Method)} className={controlClass}>
+          <Select value={method} onChange={(v) => setMethod(v as Method)}>
             <option value="mobile_money">Mobile money</option>
             <option value="bank">Bank</option>
             <option value="card">Card</option>
             <option value="cash">Cash</option>
             <option value="other">Other</option>
-          </select>
+          </Select>
         </Field>
         <Field label="Reference (transaction id, slip number)">
           <Input value={reference} onChange={(e) => setReference(e.target.value)} style={{ fontSize: 16 }} />
