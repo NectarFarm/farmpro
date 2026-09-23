@@ -126,7 +126,7 @@ function fmtExpiry(iso: string): string {
 }
 
 export function ReportsScreen() {
-  const { tenantId, role, activeFarmId, farms, params } = useNav();
+  const { tenantId, role, activeFarmId, farms, params, setActiveFarmId } = useNav();
   const { showToast } = useToast();
   /* The default report window is the CURRENT month, computed at mount.
    *
@@ -352,7 +352,7 @@ export function ReportsScreen() {
 
         <div className="mt-5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
           <div className="section-eyebrow" style={{ marginBottom: 10 }}>Report controls</div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>From</label>
               <input className="farm-input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
@@ -365,6 +365,13 @@ export function ReportsScreen() {
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Purpose</label>
               <select className="farm-input" value={purpose} onChange={e => setPurpose(e.target.value)} style={{ fontSize: 'var(--fs-base)' }}>
                 <option>Internal</option><option>Bank / lender</option><option>Investor</option><option>Buyer</option><option>Auditor</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm scope</label>
+              <select className="farm-input" value={activeFarmId} onChange={e => setActiveFarmId(e.target.value)} style={{ fontSize: 'var(--fs-base)' }}>
+                <option value="ALL">All farms</option>
+                {farms.map((farm) => <option key={farm.id} value={farm.id}>{farm.name}</option>)}
               </select>
             </div>
           </div>
