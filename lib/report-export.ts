@@ -128,6 +128,13 @@ export interface ExportOptions {
   farmCode?: string
   location?: string
   preparedFor?: string
+  status?: 'Draft' | 'Generated' | 'Attested' | 'Shared'
+  preparedBy?: string
+  attestedBy?: string
+  attestedRole?: string
+  attestedAt?: string
+  verificationUrl?: string
+  documentFilename?: string
 }
 
 const DEFAULT_OPTIONS: Required<Pick<ExportOptions, 'currencySymbol' | 'weightUnit'>> = {
@@ -164,6 +171,25 @@ export function documentHeader(report: ReportPayload, opts: ExportOptions = {}):
     entriesText: `${report.rows.length.toLocaleString('en-US')} row${report.rows.length === 1 ? '' : 's'}`,
     sourceText: 'Recorded operational data',
   }
+}
+
+const REPORT_FILE_SLUGS: Record<string, string> = {
+  pl: 'PnL-Summary', production: 'Production', mortality: 'Mortality',
+  vaccination: 'Health-Log', feed: 'Feed-Consumption', 'batch-pl': 'Batch-PnL',
+  fcr: 'FCR', 'dimension-pl': 'PnL-by-Dimension', labour: 'Labour-Cost',
+  sales: 'Sales-Collections', stock: 'Stock-Position', payroll: 'Payroll-Summary',
+}
+
+function filenamePart(value: string): string {
+  return value.replace(/[^A-Za-z0-9]+/g, '').slice(0, 48) || 'IFMS'
+}
+
+export function reportFilename(
+  report: ReportPayload, reportId: string, from: string, to: string,
+  extension: 'pdf' | 'csv', opts: ExportOptions = {},
+): string {
+  const slug = REPORT_FILE_SLUGS[reportId] ?? filenamePart(report.title)
+  return `${filenamePart(opts.farmName || 'IFMS')}_${slug}_${from}_${to}_${opts.status ?? 'Draft'}_${deriveReportNumber(report)}.${extension}`
 }
 
 // Cell formatting lives HERE and nowhere else — the screen preview imports
@@ -294,6 +320,12 @@ function optionsForPdf(opts: ExportOptions): ExportOptions {
     farmCode: t(opts.farmCode),
     location: t(opts.location),
     preparedFor: t(opts.preparedFor),
+    preparedBy: t(opts.preparedBy),
+    attestedBy: t(opts.attestedBy),
+    attestedRole: t(opts.attestedRole),
+    attestedAt: t(opts.attestedAt),
+    verificationUrl: t(opts.verificationUrl),
+    documentFilename: t(opts.documentFilename),
   }
 }
 
@@ -693,7 +725,7 @@ function drawProseBlocks(
 function drawCallout(doc: Doc, layout: Layout, startY: number, newPage: () => number): number {
   const { W, H, accent } = layout
   const text =
-    'This report is computer-generated directly from recorded farm data and is valid without a signature. Figures reflect what has been recorded up to the generation time above; verify any figure against the live dashboard if in doubt.'
+    'This pack is produced by IFMS from recorded transactions and operational records. Figures reflect recorded data at generation time. Attestation, if present, is the farm\'s confirmation and is not an independent audit opinion.'
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
   const lines = doc.splitTextToSize(text, W - MARGIN * 2 - 11) as string[]
@@ -733,6 +765,7 @@ export async function buildReportPdf(
   // `new namespace()` throws. The named export is the class in both.
   const { jsPDF } = await import('jspdf')
   const { autoTable } = await import('jspdf-autotable')
+  const QRCode = await import('qrcode')
 
   // One encoding pass at the boundary — see toPdfText() above for why.
   const report = reportForPdf(rawReport)
@@ -795,7 +828,7 @@ export async function buildReportPdf(
   const panelH = Math.max(measurePanel(doc, detailRows, pw), measurePanel(doc, scopeRows, pw))
   drawPanel(doc, MARGIN, panelY, pw, panelH, 'Report details', detailRows)
   drawPanel(doc, MARGIN + pw + panelGap, panelY, pw, panelH, 'Scope & source', scopeRows)
-  drawPanel(doc, MARGIN + 2 * (pw + panelGap), panelY, pw, panelH, 'Status', [], { text: 'UNAUDITED', color: accent })
+  drawPanel(doc, MARGIN + 2 * (pw + panelGap), panelY, pw, panelH, 'Status', [], { text: (opts.status ?? 'Draft').toUpperCase(), color: accent })
   y = panelY + panelH
 
   y = drawHeadline(doc, layout, y + 5, report)
@@ -867,6 +900,26 @@ export async function buildReportPdf(
   }
   y = drawCallout(doc, layout, y + 2, newPage)
 
+  const controlLines = [
+    opts.attestedBy ? `Digitally attested by: ${opts.attestedBy}${opts.attestedRole ? ` (${opts.attestedRole})` : ''}${opts.attestedAt ? ` · ${opts.attestedAt}` : ''}` : 'Attestation: ____________________  Role: ____________________  Date: ____________________',
+    opts.verificationUrl ? `Verify: ${opts.verificationUrl}` : undefined,
+    opts.documentFilename ? `Filename: ${opts.documentFilename}` : undefined,
+  ].filter(Boolean) as string[]
+  if (controlLines.length) {
+    const needed = controlLines.length * 4 + (opts.verificationUrl ? 28 : 8)
+    if (y + needed > maxContentY(layout.H)) y = newPage()
+    y = drawSectionBar(doc, layout, 'Document control', y + 3) + 4
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...INK_MUTED)
+    for (const line of controlLines) { doc.text(line, opts.verificationUrl ? MARGIN + 24 : MARGIN, y); y += 4 }
+    if (opts.verificationUrl) {
+      // The QR encodes only the high-entropy verification URL. The frozen
+      // payload remains server-side; scanning it grants verification, never
+      // edit access or raw data beyond document-control metadata.
+      const qr = await QRCode.toDataURL(opts.verificationUrl, { errorCorrectionLevel: 'M', margin: 0, width: 180 })
+      doc.addImage(qr, 'PNG', MARGIN, y - controlLines.length * 4 - 4, 19, 19)
+    }
+  }
+
   // Footers for EVERY page, stamped once here so "Page N of M" is exact.
   const total = doc.getNumberOfPages()
   for (let p = 1; p <= total; p++) {
@@ -877,7 +930,7 @@ export async function buildReportPdf(
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(6.4)
     doc.setTextColor(...INK_FAINT)
-    const left = [opts.farmName || 'IFMS', header.reportNo, `Generated ${fmtStampDate(generatedAt)}`, 'Unaudited management report']
+    const left = [opts.farmName || 'IFMS', header.reportNo, `Generated ${fmtStampDate(generatedAt)}`, `System-generated · ${(opts.status ?? 'Draft').toUpperCase()}`]
       .filter(Boolean).join('  ·  ')
     doc.text(left, MARGIN, layout.H - FOOTER_HEIGHT + 6.5)
     doc.text(`Page ${p} of ${total}`, layout.W - MARGIN, layout.H - FOOTER_HEIGHT + 6.5, { align: 'right' })
@@ -889,4 +942,9 @@ export async function buildReportPdf(
 export async function downloadReportPdf(report: ReportPayload, filename: string, opts: ExportOptions = {}) {
   const doc = await buildReportPdf(report, opts)
   doc.save(filename)
+}
+
+export async function printReportPdf(report: ReportPayload, opts: ExportOptions = {}) {
+  const doc = await buildReportPdf(report, opts)
+  window.open(doc.output('bloburl'), '_blank', 'noopener,noreferrer')
 }

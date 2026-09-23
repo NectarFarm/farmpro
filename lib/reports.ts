@@ -172,7 +172,8 @@ function humanPeriodLabel(from: Date | null, to: Date | null, s: PresentationSet
   if (!from && !to) return 'All time'
   if (!to) return `From ${formatDate(from!, opts)}`
   if (!from) return `Through ${formatDate(to, opts)}`
-  return `${formatDate(from, opts)} – ${formatDate(to, opts)}`
+  const displayTo = new Date(to.getTime() - 24 * 60 * 60 * 1000 + 1)
+  return `${formatDate(from, opts)} – ${formatDate(displayTo, opts)}`
 }
 
 // Employee names for "Recorded by" style columns — one query per report,
@@ -371,6 +372,38 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
     // is not.
     basis: `Compiled from recorded sales, purchases and payroll for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists. Payroll is EXCLUDED from this farm-scoped view — a payroll run covers the whole business and carries no farm, so attributing wages to one farm would be a guess. Run across all farms to include them.` : ', across all farms'}.`,
     totals: [null, null, 'Period net', null, periodNetIncome, null],
+    columnAlign: ['left', 'left', 'left', 'left', 'right', 'left'],
+    columnFormats: ['text', 'text', 'text', 'text', 'money', 'text'],
+  }
+}
+
+// A lender-ready register from the existing sales ledger. This deliberately
+// exposes settlement status rather than treating a pending invoice as cash.
+export async function computeSalesRegisterReport(tenantId: string, from: Date | null, to: Date | null, farmId?: string): Promise<ReportPayload> {
+  const pres = await presentationSettings(tenantId)
+  const scopedBatchIds = farmId ? await batchIdsForFarm(tenantId, farmId) : null
+  const conditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt)]
+  if (from) conditions.push(gte(sales.postingDate, from))
+  if (to) conditions.push(lte(sales.postingDate, to))
+  if (scopedBatchIds !== null) conditions.push(inArray(sales.batchId, scopedBatchIds.length ? scopedBatchIds : ['__none__']))
+  const entries = await db.select().from(sales).where(and(...conditions)).orderBy(asc(sales.postingDate))
+  const codes = await batchCodeMap(tenantId)
+  const total = centsToMajor(entries.reduce((sum, entry) => sum + entry.amountCents, 0))
+  const paid = centsToMajor(entries.filter((entry) => entry.status === 'paid').reduce((sum, entry) => sum + entry.amountCents, 0))
+  const outstanding = centsToMajor(entries.filter((entry) => entry.status !== 'paid').reduce((sum, entry) => sum + entry.amountCents, 0))
+  return {
+    title: 'Sales & Collections Register',
+    meta: { tenantId, from: isoDate(from), to: isoDate(to), farmId: farmId ?? 'ALL', periodLabel: humanPeriodLabel(from, to, pres) },
+    columns: ['Date', 'Item', 'Buyer', 'Batch', 'Amount', 'Status'],
+    rows: entries.map((entry) => [formatDate(entry.postingDate ?? entry.soldAt, { timezone: pres.timezone, dateFormat: pres.dateFormat }), entry.item, entry.soldTo || '—', entry.batchId ? codes.get(entry.batchId) ?? '—' : '—', centsToMajor(entry.amountCents), entry.status]),
+    headline: [
+      { label: 'Sales recorded', value: fmtMajor(total, pres.currencySymbol), caption: `${fmtInt(entries.length)} entries` },
+      { label: 'Collected', value: fmtMajor(paid, pres.currencySymbol), caption: 'Marked paid' },
+      { label: 'Outstanding', value: fmtMajor(outstanding, pres.currencySymbol), caption: 'Pending or partial' },
+    ],
+    notes: notesFor(pres, ['Pending and partial sales are shown as recorded revenue, not as cash collected.']),
+    basis: `Compiled from recorded sales for the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}.`,
+    totals: [null, null, 'TOTAL', null, total, null],
     columnAlign: ['left', 'left', 'left', 'left', 'right', 'left'],
     columnFormats: ['text', 'text', 'text', 'text', 'money', 'text'],
   }

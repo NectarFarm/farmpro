@@ -13,7 +13,8 @@
 // still-live one for that tenant (see POST /api/auditor-link) rather than
 // mutating it, and `revokedAt` lets 'Revoke Link' invalidate a specific
 // token immediately without deleting the record of it having existed.
-import { pgTable, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core'
+import type { ReportPayload } from '@/lib/report-types'
 
 export const auditorLinks = pgTable('auditor_links', {
   id: text('id').primaryKey(),
@@ -29,4 +30,26 @@ export const auditorLinks = pgTable('auditor_links', {
   // the token space can never silently let one tenant's link resolve to
   // another tenant's data.
   uniqueIndex('idx_auditor_links_token').on(t.token),
+])
+
+// A frozen report payload. The verification token resolves this exact payload,
+// never a live report that can change after a lender has received the file.
+export const reportSnapshots = pgTable('report_snapshots', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  reportType: text('report_type').notNull(),
+  status: text('status').notNull().default('GENERATED'),
+  purpose: text('purpose').notNull().default('Internal'),
+  farmId: text('farm_id'),
+  payload: jsonb('payload').$type<ReportPayload>().notNull(),
+  payloadHash: text('payload_hash').notNull(),
+  publicToken: text('public_token').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  attestedBy: text('attested_by'),
+  attestedRole: text('attested_role'),
+  attestedAt: timestamp('attested_at'),
+}, (t) => [
+  index('idx_report_snapshots_tenant_created').on(t.tenantId, t.createdAt),
+  uniqueIndex('idx_report_snapshots_public_token').on(t.publicToken),
 ])

@@ -131,7 +131,7 @@ export function ReportDocumentPreview({ report, opts, farmLabel }: { report: Rep
               <span style={{
                 border: `1px solid ${accentCss}`, color: accentCss, borderRadius: 6, padding: '4px 10px',
                 fontSize: 'var(--fs-2xs)', fontWeight: 800, letterSpacing: '0.1em',
-              }}>UNAUDITED</span>
+              }}>{(opts.status ?? 'Draft').toUpperCase()}</span>
             </div>
           </PreviewPanel>
         </div>
@@ -235,6 +235,17 @@ export function ReportDocumentPreview({ report, opts, farmLabel }: { report: Rep
             ))}
           </div>
         )}
+
+        <div style={{ background: 'var(--card-hover)', border: '1px solid var(--border-subtle)', borderLeft: `3px solid ${accentCss}`, borderRadius: 8, padding: '9px 11px', marginBottom: 10 }}>
+          <div style={{ ...eyebrowStyle, marginBottom: 5 }}>Document control</div>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            {opts.attestedBy
+              ? <>Digitally attested by <strong>{opts.attestedBy}</strong>{opts.attestedRole ? ` (${opts.attestedRole})` : ''}{opts.attestedAt ? ` · ${opts.attestedAt}` : ''}</>
+              : <>Attestation: ____________________ &nbsp; Role: ____________________ &nbsp; Date: ____________________</>}
+          </div>
+          {opts.documentFilename && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 5, overflowWrap: 'anywhere' }}>Filename: {opts.documentFilename}</div>}
+          {opts.verificationUrl && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 3, overflowWrap: 'anywhere' }}>Verify: {opts.verificationUrl}</div>}
+        </div>
 
         {/* Raw returned fields, collapsed — see the dataFields comment above. */}
         {dataFields.length > 0 && (
