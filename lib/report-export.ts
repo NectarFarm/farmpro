@@ -765,6 +765,7 @@ export async function buildReportPdf(
   // `new namespace()` throws. The named export is the class in both.
   const { jsPDF } = await import('jspdf')
   const { autoTable } = await import('jspdf-autotable')
+  const QRCode = await import('qrcode')
 
   // One encoding pass at the boundary — see toPdfText() above for why.
   const report = reportForPdf(rawReport)
@@ -905,11 +906,18 @@ export async function buildReportPdf(
     opts.documentFilename ? `Filename: ${opts.documentFilename}` : undefined,
   ].filter(Boolean) as string[]
   if (controlLines.length) {
-    const needed = controlLines.length * 4 + 8
+    const needed = controlLines.length * 4 + (opts.verificationUrl ? 28 : 8)
     if (y + needed > maxContentY(layout.H)) y = newPage()
     y = drawSectionBar(doc, layout, 'Document control', y + 3) + 4
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...INK_MUTED)
-    for (const line of controlLines) { doc.text(line, MARGIN, y); y += 4 }
+    for (const line of controlLines) { doc.text(line, opts.verificationUrl ? MARGIN + 24 : MARGIN, y); y += 4 }
+    if (opts.verificationUrl) {
+      // The QR encodes only the high-entropy verification URL. The frozen
+      // payload remains server-side; scanning it grants verification, never
+      // edit access or raw data beyond document-control metadata.
+      const qr = await QRCode.toDataURL(opts.verificationUrl, { errorCorrectionLevel: 'M', margin: 0, width: 180 })
+      doc.addImage(qr, 'PNG', MARGIN, y - controlLines.length * 4 - 4, 19, 19)
+    }
   }
 
   // Footers for EVERY page, stamped once here so "Page N of M" is exact.
