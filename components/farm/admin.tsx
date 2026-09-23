@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/request';
 import { useToast, useConfirm } from './ui-shared';
 import type { TenantOverview, AdminPlan, PlanPeriod, SubscriptionStatus } from '@/components/admin/types';
 import { centsToDisplay, fmtDate, fmtDateTime } from '@/components/admin/types';
+import { Select } from '@/components/ui-kit/select';
 
 // ── Real backend wiring (issue #252) ────────────────────────────────────────
 // GET /api/admin/tenants and GET /api/admin/stats are new, minimal,
@@ -260,12 +261,12 @@ function TenantOverviewSheet({ tenantId, tenantName, onClose, onChanged }: {
                     {' '}· due {centsToDisplay(data.subscription.amountDueCents, data.subscription.planCurrency || tenantSettingsCurrency)}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                    <select className="farm-input" value={planId} onChange={(e) => setPlanId(e.target.value)}>
+                    <Select className="farm-input" value={planId} onChange={(v) => setPlanId(v)}>
                       {(plans ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                    <select className="farm-input" value={period} onChange={(e) => setPeriod(e.target.value as PlanPeriod)}>
+                    </Select>
+                    <Select className="farm-input" value={period} onChange={(v) => setPeriod(v as PlanPeriod)}>
                       {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
-                    </select>
+                    </Select>
                   </div>
                   <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }} disabled={subBusy} onClick={() => patchSub({ planId, period })}>Change plan / period</button>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
@@ -277,9 +278,9 @@ function TenantOverviewSheet({ tenantId, tenantName, onClose, onChanged }: {
                     <button className="btn-secondary" disabled={subBusy || !discountCode.trim()} onClick={() => patchSub({ discountCode: discountCode.trim() })}>Apply</button>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <select className="farm-input" value={status} onChange={(e) => setStatus(e.target.value as SubscriptionStatus)} style={{ flex: 1 }}>
+                    <Select className="farm-input" value={status} onChange={(v) => setStatus(v as SubscriptionStatus)} style={{ flex: 1 }}>
                       {SUB_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    </Select>
                     <button className="btn-secondary" disabled={subBusy} onClick={() => patchSub({ status })}>Set status</button>
                   </div>
                   {subError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginTop: 8 }}>{subError}</div>}
@@ -929,11 +930,11 @@ export function AdminSettingsScreen() {
           <>
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Tenant</label>
-              <select className="farm-input" value={tenantId} onChange={(e) => setTenantId(e.target.value)}>
+              <Select className="farm-input" value={tenantId} onChange={(v) => setTenantId(v)}>
                 {tenants.map((t) => (
                   <option key={t.id} value={t.id}>{t.name}{t.active ? '' : ' (suspended)'}</option>
                 ))}
-              </select>
+              </Select>
               {selectedTenant && (
                 <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 4 }}>
                   {selectedTenant.farms} farm{selectedTenant.farms === 1 ? '' : 's'} · {selectedTenant.users} user{selectedTenant.users === 1 ? '' : 's'}
@@ -995,15 +996,15 @@ export function AdminSettingsScreen() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                     <div>
                       <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Theme</label>
-                      <select className="farm-input" value={settings.theme} onChange={(e) => update('theme', e.target.value)} style={{ fontSize: 'var(--fs-base)' }}>
+                      <Select className="farm-input" value={settings.theme} onChange={(v) => update('theme', v)} style={{ fontSize: 'var(--fs-base)' }}>
                         {THEMES.map((t) => <option key={t} value={t}>{t}</option>)}
-                      </select>
+                      </Select>
                     </div>
                     <div>
                       <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Font size</label>
-                      <select className="farm-input" value={settings.fontSize} onChange={(e) => update('fontSize', e.target.value)} style={{ fontSize: 'var(--fs-base)' }}>
+                      <Select className="farm-input" value={settings.fontSize} onChange={(v) => update('fontSize', v)} style={{ fontSize: 'var(--fs-base)' }}>
                         {FONT_SIZES.map((f) => <option key={f} value={f}>{f}</option>)}
-                      </select>
+                      </Select>
                     </div>
                   </div>
                 </div>
