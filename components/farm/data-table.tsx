@@ -23,6 +23,7 @@ import React, {
   useCallback, useMemo, useRef, useState, useEffect, DragEvent,
 } from 'react';
 import { ChevronUp, ChevronDown } from './icons';
+import { Select } from '@/components/ui-kit/select';
 
 /* ── Types ───────────────────────────────────────────────────────────────── */
 
@@ -448,10 +449,11 @@ export function DataTable<T extends Record<string, unknown>>({
         {/* page size */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>Rows</span>
-          <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
+          <Select value={String(pageSize)} onChange={v => { setPageSize(Number(v)); setPage(0); }}
+            className="h-auto w-auto min-w-0 shadow-none"
             style={{ background: 'var(--card)', border: '1px solid var(--border-subtle)', borderRadius: 5, color: 'var(--text-secondary)', fontSize: 'var(--fs-xs)', padding: '2px 5px', cursor: 'pointer' }}>
             {pageSizes.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          </Select>
         </div>
       </div>
 

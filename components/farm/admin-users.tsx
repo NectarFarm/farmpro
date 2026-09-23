@@ -19,6 +19,7 @@ import { apiClient } from '@/lib/request';
 import {
   CAPABILITIES, CAPABILITY_LABEL, CAPABILITY_DESCRIPTION, CAPABILITY_PRESETS, type Capability,
 } from '@/components/admin/capabilities';
+import { Select } from '@/components/ui-kit/select';
 
 /* ── Types ── */
 interface StaffMember {
@@ -415,26 +416,26 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 4 }}>
             <div>
               <label htmlFor="edit-user-role" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role</label>
-              <select
+              <Select
                 id="edit-user-role" className="farm-input"
                 style={errors.role ? { border: '1px solid var(--status-critical)' } : undefined}
-                value={role} onChange={(e) => { setRole(e.target.value); clearFieldError('role'); }}
+                value={role} onChange={(v) => { setRole(v); clearFieldError('role'); }}
                 aria-invalid={!!errors.role}
               >
                 {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-              </select>
+              </Select>
               {errors.role && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.role}</div>}
             </div>
             <div>
               <label htmlFor="edit-user-status" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Status</label>
-              <select
+              <Select
                 id="edit-user-status" className="farm-input"
                 style={errors.status ? { border: '1px solid var(--status-critical)' } : undefined}
-                value={status} onChange={(e) => { setStatus(e.target.value); clearFieldError('status'); }}
+                value={status} onChange={(v) => { setStatus(v); clearFieldError('status'); }}
                 aria-invalid={!!errors.status}
               >
                 {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              </Select>
               {errors.status && <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--status-critical)', marginTop: 4 }}>{errors.status}</div>}
             </div>
           </div>
@@ -882,14 +883,14 @@ export function AdminUsersScreen() {
               />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-              <select className="farm-input" value={role} onChange={(e) => setRole(e.target.value)} aria-label="Filter by role">
+              <Select className="farm-input" value={role} onChange={(v) => setRole(v)} aria-label="Filter by role">
                 <option value="">All roles</option>
                 {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-              </select>
-              <select className="farm-input" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
+              </Select>
+              <Select className="farm-input" value={status} onChange={(v) => setStatus(v)} aria-label="Filter by status">
                 <option value="">All statuses</option>
                 {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              </Select>
             </div>
 
             {loadError && (

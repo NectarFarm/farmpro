@@ -16,6 +16,7 @@ import { Button } from '@/components/ui-kit/button';
 import { Input } from '@/components/ui-kit/input';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Kv } from '@/components/ui-kit/inspector';
+import { Select } from '@/components/ui-kit/select';
 import { cn } from '@/lib/utils';
 
 // ── People screen — redesigned onto the reference's avatar-led roster list
@@ -465,10 +466,10 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
                   <button type="button" className="btn-secondary" onClick={() => { onClose(); navigate('crops', { tab: 'units' }); }}>Add a house or field first</button>
                 </div>
               ) : (
-              <select className="farm-input" value={farmId} onChange={(e) => setFarmId(e.target.value)}>
+              <Select className="farm-input" value={farmId} onChange={(v) => setFarmId(v)} placeholder="Select a farm…">
                 <option value="" disabled>Select a farm…</option>
                 {farms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
+              </Select>
               )}
             </div>
             <div style={{ marginBottom: 10 }}>
@@ -481,9 +482,9 @@ function AddEmployeeModal({ tenantId, batches, farms, activeFarmId, onClose, onC
             </div>
             <div style={{ marginBottom: 10 }}>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Role</label>
-              <select className="farm-input" value={role} onChange={(e) => setRole(e.target.value)}>
+              <Select className="farm-input" value={role} onChange={(v) => setRole(v)}>
                 {FALLBACK_ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-              </select>
+              </Select>
             </div>
           </div>
         )}

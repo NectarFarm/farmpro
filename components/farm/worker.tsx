@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui-kit/badge';
 import { Input } from '@/components/ui-kit/input';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { controlClass } from '@/components/ui-kit/field';
+import { Select } from '@/components/ui-kit/select';
 import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dialog';
 import {
   Plus, Camera, X,
@@ -311,19 +312,19 @@ function PickOrType({ options, value, onChange, placeholder, otherPlaceholder, c
 
   return (
     <div className={className}>
-      <select
-        className={cn(controlClass, 'h-14 text-base', showOther && 'mb-2')}
+      <Select
+        className={cn('h-14 text-base', showOther && 'mb-2')}
         value={showOther ? OTHER_OPTION : value}
-        onChange={(e) => {
-          if (e.target.value === OTHER_OPTION) { setShowOther(true); onChange(''); return; }
+        onChange={(v) => {
+          if (v === OTHER_OPTION) { setShowOther(true); onChange(''); return; }
           setShowOther(false);
-          onChange(e.target.value);
+          onChange(v);
         }}
       >
         <option value="">{placeholder}</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
         <option value={OTHER_OPTION}>{OTHER_OPTION}…</option>
-      </select>
+      </Select>
       {showOther && (
         <Input
           className="h-14 text-base"
@@ -1205,14 +1206,14 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
               return (
                 <div key={i} className="mb-2 rounded-xl bg-surface p-3.5 shadow-(--shadow-border)">
                   <label className="mb-1.5 block text-xs font-semibold text-muted">Feed from store</label>
-                  <select className={cn(controlClass, 'mb-2 h-14 text-base')} value={line.itemId} onChange={(e) => setLineItem(i, e.target.value)}>
+                  <Select className="mb-2 h-14 text-base" value={line.itemId} onChange={(v) => setLineItem(i, v)}>
                     <option value="">Choose an item…</option>
                     {visibleStock.map((s) => (
                       <option key={s.id} value={s.id} disabled={s.qtyOnHand <= 0}>
                         {s.name} — {s.qtyOnHand} {s.unit} left{s.qtyOnHand <= 0 ? ' (out of stock)' : ''}
                       </option>
                     ))}
-                  </select>
+                  </Select>
 
                   {item && (
                     <p className={cn('mb-2 text-xs leading-relaxed', left !== null && left < 0 ? 'text-danger' : left !== null && left <= item.lowStockThreshold ? 'text-warning' : 'text-muted')}>
@@ -1539,14 +1540,14 @@ function RoutineRunner({ ctx, routine, onBack }: { ctx: WorkerCtx; routine: Rout
 
                   {!isSkipped && step.kind === 'feeding' && (
                     <>
-                      <select className={cn(controlClass, 'mb-2 h-14 text-base')} value={field(step.id, 'itemId')} onChange={(e) => setField(step.id, 'itemId', e.target.value)}>
+                      <Select className="mb-2 h-14 text-base" value={field(step.id, 'itemId')} onChange={(v) => setField(step.id, 'itemId', v)}>
                         <option value="">Choose feed from the store…</option>
                         {(stock ?? []).map((s) => (
                           <option key={s.id} value={s.id} disabled={s.qtyOnHand <= 0}>
                             {s.name} — {s.qtyOnHand} {s.unit} left
                           </option>
                         ))}
-                      </select>
+                      </Select>
                       <Input className="h-14 text-base" type="number" inputMode="decimal" min="0" placeholder="How much" value={field(step.id, 'qty')} onChange={(e) => setField(step.id, 'qty', e.target.value)} />
                     </>
                   )}
@@ -1822,9 +1823,9 @@ function HealthForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
               value={doseAmount} onChange={(e) => setDoseAmount(e.target.value)}
               placeholder="1" className="h-14 min-w-0 flex-1 text-base"
             />
-            <select className={cn(controlClass, 'h-14 min-w-0 flex-1 text-base')} value={doseUnit} onChange={(e) => setDoseUnit(e.target.value)}>
+            <Select className="h-14 min-w-0 flex-1 text-base" value={doseUnit} onChange={(v) => setDoseUnit(v)}>
               {DOSE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-            </select>
+            </Select>
           </div>
         </div>
       </div>
@@ -2222,9 +2223,9 @@ function PhysicalCountForm({ ctx, onBack, resubmitOf }: { ctx: WorkerCtx; onBack
           <>
             <div className="mb-3.5">
               <label className="mb-1.5 block text-xs font-semibold text-muted">Select Batch</label>
-              <select className={cn(controlClass, 'h-14 text-base')} value={batchId ?? ''} onChange={(e) => setBatchId(e.target.value)}>
+              <Select className="h-14 text-base" value={batchId ?? ''} onChange={(v) => setBatchId(v)}>
                 {(ctx.batches ?? []).map((b) => <option key={b.id} value={b.id}>{b.code} – {b.name} ({b.currentQty} in system)</option>)}
-              </select>
+              </Select>
             </div>
             {batch && (
               <div className="mb-3.5 rounded-xl bg-surface p-3.5 shadow-(--shadow-border)">

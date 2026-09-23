@@ -14,7 +14,8 @@ import { PageHeader } from '@/components/ui-kit/page-header';
 import { Badge } from '@/components/ui-kit/badge';
 import { Button } from '@/components/ui-kit/button';
 import { Input } from '@/components/ui-kit/input';
-import { Field, controlClass } from '@/components/ui-kit/field';
+import { Field } from '@/components/ui-kit/field';
+import { Select } from '@/components/ui-kit/select';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Continue } from '@/components/ui-kit/continue';
 
@@ -322,10 +323,10 @@ export function WeatherScreen() {
         {!effectiveFarmId && farms.length > 1 && (
           <div className="mt-5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
             <Field label="Which farm?">
-              <select className={controlClass} value={pickedFarmId} onChange={e => setPickedFarmId(e.target.value)}>
+              <Select value={pickedFarmId} onChange={v => setPickedFarmId(v)} placeholder="Select a farm…">
                 <option value="" disabled>Select a farm…</option>
                 {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
+              </Select>
             </Field>
           </div>
         )}

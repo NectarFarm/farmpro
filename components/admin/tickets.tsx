@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/ui-kit/page-header';
 import { Badge } from '@/components/ui-kit/badge';
 import { Button } from '@/components/ui-kit/button';
 import { Input } from '@/components/ui-kit/input';
+import { Select } from '@/components/ui-kit/select';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Kv } from '@/components/ui-kit/inspector';
 import { useAdminCapabilities } from './capabilities';
@@ -230,14 +231,14 @@ function TicketWorkspace({ ticketLite, canAssignOthers, onChanged }: { ticketLit
         <div className="rounded-xl bg-surface p-4 shadow-(--shadow-border)">
           <dl>
             <Kv label="Status" value={
-              <select value={ticket.status} disabled={busy} onChange={(e) => patch({ status: e.target.value })} className="rounded-md bg-surface-2 px-2 py-1 text-sm">
+              <Select value={ticket.status} disabled={busy} onChange={(v) => patch({ status: v })} className="h-9 py-1">
                 {TICKET_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-              </select>
+              </Select>
             } />
             <Kv label="Priority" value={
-              <select value={ticket.priority} disabled={busy} onChange={(e) => patch({ priority: e.target.value })} className="rounded-md bg-surface-2 px-2 py-1 text-sm">
+              <Select value={ticket.priority} disabled={busy} onChange={(v) => patch({ priority: v })} className="h-9 py-1">
                 {TICKET_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
+              </Select>
             } />
             <Kv label="Category" value={ticket.category.replace(/_/g, ' ')} />
             <Kv label="Assignee" value={ticket.assignedTo ?? 'Unassigned'} />

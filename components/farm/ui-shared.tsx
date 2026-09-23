@@ -11,6 +11,7 @@ import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
 import { PAYMENT_METHODS, referenceLabel } from '@/lib/payment-method';
 import { formatMoney } from '@/lib/money';
 import { Button } from '@/components/ui-kit/button';
+import { Select } from '@/components/ui-kit/select';
 import { apiClient } from '@/lib/request';
 
 /* ─────────────────────────────────────────────
@@ -724,10 +725,10 @@ export function PaymentMethodFields({ method, onMethodChange, reference, onRefer
   return (
     <div>
       <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{label}</label>
-      <select className="farm-input" value={method} onChange={(e) => { onMethodChange(e.target.value); if (!referenceLabel(e.target.value)) onReferenceChange(''); }}>
+      <Select className="farm-input" value={method} onChange={(v) => { onMethodChange(v); if (!referenceLabel(v)) onReferenceChange(''); }}>
         <option value="">Not recorded</option>
         {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-      </select>
+      </Select>
       {refLabel && (
         <div style={{ marginTop: 8 }}>
           <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{refLabel}</label>

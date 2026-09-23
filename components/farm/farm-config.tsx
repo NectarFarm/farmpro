@@ -30,6 +30,7 @@ import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import { ENTERPRISE_REGISTRY } from './data';
+import { Select } from '@/components/ui-kit/select';
 import {
   Plus, X, Layers, Package, Lock, AlertTriangle, Check,
 } from './icons';
@@ -258,9 +259,9 @@ function StagesTab({ showToast }: { showToast: (m: string, t?: 'success' | 'erro
     <div>
       <div className="farm-card" style={{ padding: 14, marginBottom: 12 }}>
         <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Enterprise</div>
-        <select className="farm-input" value={enterprise} onChange={(e) => setEnterprise(e.target.value)}>
+        <Select className="farm-input" value={enterprise} onChange={(v) => setEnterprise(v)}>
           {data.enterprises.map((k) => <option key={k} value={k}>{enterpriseLabel(k)}</option>)}
-        </select>
+        </Select>
         <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 6, lineHeight: 1.5 }}>
           Stages are per enterprise — a broiler house and a maize plot do not share a progression.
         </div>
@@ -421,9 +422,9 @@ function ProductsTab({ showToast }: { showToast: (m: string, t?: 'success' | 'er
     <div>
       <div className="farm-card" style={{ padding: 14, marginBottom: 12 }}>
         <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Product</div>
-        <select className="farm-input" value={productId} onChange={(e) => setProductId(e.target.value)}>
+        <Select className="farm-input" value={productId} onChange={(v) => setProductId(v)}>
           {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        </Select>
         <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)', marginTop: 6, lineHeight: 1.5 }}>
           Tick the batches that produce this. A batch normally inherits its products from its production unit —
           ticking or unticking one here records an exception for that batch only.

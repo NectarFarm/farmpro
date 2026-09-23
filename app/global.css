@@ -840,7 +840,7 @@
   color: var(--sidebar-muted);
   margin-bottom: 3px;
 }
-.sidebar-farm-filter select {
+.sidebar-farm-filter .sidebar-farm-select {
   width: 100%;
   min-height: 36px;
   padding: 7px 8px;
@@ -851,8 +851,8 @@
   font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
+  box-shadow: none;
 }
-.sidebar-farm-filter select option { background: var(--sidebar-bg); color: var(--sidebar-fg); }
 .sidebar-user { padding: 4px 10px 2px; min-width: 0; }
 .sidebar-user-name {
   font-size: var(--fs-sm);

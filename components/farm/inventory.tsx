@@ -25,6 +25,7 @@ import { EmptyState } from '@/components/ui-kit/empty-state';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { Dossier, Inspector, Kv } from '@/components/ui-kit/inspector';
 import { Field } from '@/components/ui-kit/field';
+import { Select } from '@/components/ui-kit/select';
 
 // ── Inventory screen, redesigned onto the reference (ui/governance-
 // reference-redesign) but wired to the exact same backend as before — see
@@ -371,14 +372,14 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
                 <p className="text-sm leading-relaxed text-muted">Stock has to land at a farm. You do not have one yet — that is set up when the application is approved.</p>
               ) : (
                 <>
-                  <select
-                    className="h-10 w-full min-w-0 rounded-md bg-surface px-3 text-sm text-fg shadow-(--shadow-border) outline-none"
-                    value={farmId} onChange={e => setFarmId(e.target.value)}
+                  <Select
+                    value={farmId} onChange={v => setFarmId(v)}
+                    placeholder="Select a farm…"
                     style={fieldErrorStyle(!!fieldErrors.farmId)}
                     aria-invalid={!!fieldErrors.farmId} aria-describedby={fieldErrors.farmId ? 'inv-purchase-farm-error' : undefined}>
                     <option value="" disabled>Select a farm…</option>
                     {farms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                  </select>
+                  </Select>
                   <FieldError id="inv-purchase-farm-error" message={fieldErrors.farmId} />
                 </>
               )}
@@ -736,10 +737,10 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
             </div>
           )}
           <Field label="Adjustment type">
-            <select className="h-10 w-full min-w-0 rounded-md bg-surface px-3 text-sm text-fg shadow-(--shadow-border) outline-none" value={adjustmentType} onChange={e => setAdjustmentType(e.target.value)}>
+            <Select value={adjustmentType} onChange={v => setAdjustmentType(v)}>
               <option value="">Not specified</option>
               {ADJUSTMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
+            </Select>
           </Field>
           <Field label="Reason * (required, goes to the audit trail)">
             <Input placeholder="e.g. physical recount, spoilage, theft" value={reason} onChange={e => setReason(e.target.value)} />

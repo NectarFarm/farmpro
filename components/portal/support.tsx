@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui-kit/badge';
 import { Button } from '@/components/ui-kit/button';
 import { Input } from '@/components/ui-kit/input';
 import { Field, controlClass } from '@/components/ui-kit/field';
+import { Select } from '@/components/ui-kit/select';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { cn } from '@/lib/utils';
@@ -143,14 +144,14 @@ function NewTicketSheet({ open, onClose, onCreated }: { open: boolean; onClose: 
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Category">
-            <select value={category} onChange={(e) => setCategory(e.target.value as Category)} className={controlClass}>
+            <Select value={category} onChange={(v) => setCategory(v as Category)}>
               {(['question', 'bug', 'billing', 'complaint', 'feature_request', 'account'] as Category[]).map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
-            </select>
+            </Select>
           </Field>
           <Field label="Priority">
-            <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} className={controlClass}>
+            <Select value={priority} onChange={(v) => setPriority(v as Priority)}>
               {(['low', 'normal', 'high', 'urgent'] as Priority[]).map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
+            </Select>
           </Field>
         </div>
       </div>

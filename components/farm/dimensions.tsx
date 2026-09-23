@@ -35,6 +35,7 @@ import { Segmented } from '@/components/ui-kit/segmented';
 import { Button } from '@/components/ui-kit/button';
 import { Badge } from '@/components/ui-kit/badge';
 import { Sheet } from '@/components/ui-kit/sheet';
+import { Select } from '@/components/ui-kit/select';
 import {
   Plus, X, ChevronRight, Lock, FileText, Download, Edit2, Archive, RotateCcw,
   Info, Check,
@@ -918,18 +919,18 @@ function MasterDefaultsSheet({
                 <label style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>
                   <span style={{ fontFamily: 'monospace' }}>{dim.code}</span> — {dim.name}
                 </label>
-                <select
+                <Select
                   className="farm-input"
                   disabled={busyDim === dim.id}
                   value={currentValueId}
-                  onChange={(e) => {
-                    const v = values.find((x) => x.id === e.target.value);
+                  onChange={(newValue) => {
+                    const v = values.find((x) => x.id === newValue);
                     setDefault(dim, v ? v.code : null);
                   }}
                 >
                   <option value="">No default</option>
                   {values.map((v) => <option key={v.id} value={v.id}>{v.code} — {v.name}</option>)}
-                </select>
+                </Select>
               </div>
             );
           })}

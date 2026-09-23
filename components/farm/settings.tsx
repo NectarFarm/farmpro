@@ -20,7 +20,8 @@ import { Avatar } from '@/components/ui-kit/avatar';
 import { Badge } from '@/components/ui-kit/badge';
 import { Button } from '@/components/ui-kit/button';
 import { Input } from '@/components/ui-kit/input';
-import { Field, controlClass } from '@/components/ui-kit/field';
+import { Field } from '@/components/ui-kit/field';
+import { Select } from '@/components/ui-kit/select';
 import { Kv } from '@/components/ui-kit/inspector';
 import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dialog';
 import {
@@ -469,24 +470,24 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
             <p className="text-sm text-muted">Currency, weight and time formatting used across this farm&apos;s reports and exports.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <Field label="Currency">
-                <select className={controlClass} value={currencySymbol} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(e) => updateSetting('currencySymbol', e.target.value)}>
+                <Select value={currencySymbol} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(v) => updateSetting('currencySymbol', v)}>
                   {CURRENCY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                </Select>
               </Field>
               <Field label="Weight unit">
-                <select className={controlClass} value={weightUnit} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(e) => updateSetting('weightUnit', e.target.value)}>
+                <Select value={weightUnit} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(v) => updateSetting('weightUnit', v)}>
                   {WEIGHT_UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
-                </select>
+                </Select>
               </Field>
               <Field label="Timezone">
-                <select className={controlClass} value={timezone} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(e) => updateSetting('timezone', e.target.value)}>
+                <Select value={timezone} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(v) => updateSetting('timezone', v)}>
                   {TIMEZONE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
+                </Select>
               </Field>
               <Field label="Date format">
-                <select className={controlClass} value={dateFormat} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(e) => updateSetting('dateFormat', e.target.value as DateFormat)}>
+                <Select value={dateFormat} disabled={!!ownerOnlyNote} title={ownerOnlyNote} onChange={(v) => updateSetting('dateFormat', v as DateFormat)}>
                   {DATE_FORMAT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
+                </Select>
               </Field>
             </div>
             {ownerOnlyNote && <p className="mt-3 text-xs text-subtle">{ownerOnlyNote}.</p>}
@@ -593,15 +594,14 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                  issued to this tenant stays valid (enforced in
                  app/api/auth/login/route.ts at sign-in, not just stored). */}
               <Field label="Session timeout">
-                <select
-                  className={controlClass}
+                <Select
                   value={sessionTimeoutMinutes === null ? 'default' : String(sessionTimeoutMinutes)}
                   disabled={!!ownerOnlyNote}
                   title={ownerOnlyNote}
-                  onChange={(e) => updateSetting('sessionTimeoutMinutes', e.target.value === 'default' ? null : Number(e.target.value))}
+                  onChange={(v) => updateSetting('sessionTimeoutMinutes', v === 'default' ? null : Number(v))}
                 >
                   {SESSION_TIMEOUT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
+                </Select>
               </Field>
               <p className="mt-2 text-xs text-muted">How long a shared device stays signed in.{ownerOnlyNote ? ` ${ownerOnlyNote}.` : ''}</p>
             </div>
@@ -893,9 +893,9 @@ export function SecuritySettingsScreen() {
               ) : (
                 <div className="grid gap-3">
                   <Field label="Worker">
-                    <select className={controlClass} value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)}>
+                    <Select value={selectedWorkerId} onChange={(v) => setSelectedWorkerId(v)}>
                       {workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.name} · {worker.hasPin ? 'PIN set' : 'Needs PIN'}</option>)}
-                    </select>
+                    </Select>
                   </Field>
                   <Field label="New 4-digit PIN">
                     <Input inputMode="numeric" pattern="[0-9]*" maxLength={4} type="password" value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, ''))} placeholder="••••" />

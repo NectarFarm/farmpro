@@ -9,6 +9,7 @@ import { Segmented } from '@/components/ui-kit/segmented';
 import { Kpi } from '@/components/ui-kit/page-header';
 import { Dossier, Inspector, Kv } from '@/components/ui-kit/inspector';
 import { Button } from '@/components/ui-kit/button';
+import { Select } from '@/components/ui-kit/select';
 import { EmptyState } from '@/components/ui-kit/empty-state';
 import { cn } from '@/lib/utils';
 
@@ -484,18 +485,18 @@ function RoutineEditor({ routine, tenantId, farms, defaultFarmId, onClose, onSav
         <input className="farm-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Morning round" style={{ marginBottom: 12 }} />
 
         <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>When</label>
-        <select className="farm-input" value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)} style={{ marginBottom: 4 }}>
+        <Select className="farm-input" value={timeOfDay} onChange={(v) => setTimeOfDay(v)} style={{ marginBottom: 4 }}>
           {TIMES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
+        </Select>
         <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
           A label, not a schedule — nothing is sent to anyone at that time. It groups the round in the worker&apos;s app.
         </div>
 
         <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Farm</label>
-        <select className="farm-input" value={farmId} onChange={(e) => setFarmId(e.target.value)} style={{ marginBottom: 14 }}>
+        <Select className="farm-input" value={farmId} onChange={(v) => setFarmId(v)} style={{ marginBottom: 14 }}>
           <option value="">All farms</option>
           {farms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
+        </Select>
 
         <div className="section-eyebrow" style={{ marginBottom: 8 }}>Steps, in order</div>
 
