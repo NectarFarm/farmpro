@@ -86,6 +86,9 @@ const PUBLIC_ROUTES: Record<string, 'all' | ReadonlySet<HttpMethod>> = {
   // token still 401s (checked below), it just isn't the SESSION-shaped 401
   // every other route returns for "no cookie".
   'auditor/[token]/reports/[type]': 'all',
+  // A frozen report is verified by its high-entropy document token instead
+  // of a session. It exposes document-control metadata only.
+  'verify/[token]': 'all',
   // feat/email-notifications: same token-in-URL shape as the auditor route
   // above. An applicant marked 'info-needed' has no account at all, so the
   // only way they can correct and resubmit their own request is a public,

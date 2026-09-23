@@ -377,6 +377,38 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
   }
 }
 
+// A lender-ready register from the existing sales ledger. This deliberately
+// exposes settlement status rather than treating a pending invoice as cash.
+export async function computeSalesRegisterReport(tenantId: string, from: Date | null, to: Date | null, farmId?: string): Promise<ReportPayload> {
+  const pres = await presentationSettings(tenantId)
+  const scopedBatchIds = farmId ? await batchIdsForFarm(tenantId, farmId) : null
+  const conditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt)]
+  if (from) conditions.push(gte(sales.postingDate, from))
+  if (to) conditions.push(lte(sales.postingDate, to))
+  if (scopedBatchIds !== null) conditions.push(inArray(sales.batchId, scopedBatchIds.length ? scopedBatchIds : ['__none__']))
+  const entries = await db.select().from(sales).where(and(...conditions)).orderBy(asc(sales.postingDate))
+  const codes = await batchCodeMap(tenantId)
+  const total = centsToMajor(entries.reduce((sum, entry) => sum + entry.amountCents, 0))
+  const paid = centsToMajor(entries.filter((entry) => entry.status === 'paid').reduce((sum, entry) => sum + entry.amountCents, 0))
+  const outstanding = centsToMajor(entries.filter((entry) => entry.status !== 'paid').reduce((sum, entry) => sum + entry.amountCents, 0))
+  return {
+    title: 'Sales & Collections Register',
+    meta: { tenantId, from: isoDate(from), to: isoDate(to), farmId: farmId ?? 'ALL', periodLabel: humanPeriodLabel(from, to, pres) },
+    columns: ['Date', 'Item', 'Buyer', 'Batch', 'Amount', 'Status'],
+    rows: entries.map((entry) => [formatDate(entry.postingDate ?? entry.soldAt, { timezone: pres.timezone, dateFormat: pres.dateFormat }), entry.item, entry.soldTo || '—', entry.batchId ? codes.get(entry.batchId) ?? '—' : '—', centsToMajor(entry.amountCents), entry.status]),
+    headline: [
+      { label: 'Sales recorded', value: fmtMajor(total, pres.currencySymbol), caption: `${fmtInt(entries.length)} entries` },
+      { label: 'Collected', value: fmtMajor(paid, pres.currencySymbol), caption: 'Marked paid' },
+      { label: 'Outstanding', value: fmtMajor(outstanding, pres.currencySymbol), caption: 'Pending or partial' },
+    ],
+    notes: notesFor(pres, ['Pending and partial sales are shown as recorded revenue, not as cash collected.']),
+    basis: `Compiled from recorded sales for the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}.`,
+    totals: [null, null, 'TOTAL', null, total, null],
+    columnAlign: ['left', 'left', 'left', 'left', 'right', 'left'],
+    columnFormats: ['text', 'text', 'text', 'text', 'money', 'text'],
+  }
+}
+
 // ── GET /api/reports/batch-pl (issue #263 task 2) ───────────────────────────
 // Composes GET /api/batches (list) + each batch's real cost-breakdown,
 // server-side, in one shot — the same composition

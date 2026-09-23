@@ -5,11 +5,11 @@ import { useToast } from './ui-shared';
 import { apiClient } from '@/lib/request';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange } from '@/lib/period-range';
-import { downloadReportCsv, downloadReportPdf, type ExportOptions } from '@/lib/report-export';
+import { downloadReportCsv, downloadReportPdf, printReportPdf, reportFilename, type ExportOptions } from '@/lib/report-export';
 import { ReportDocumentPreview } from './report-document';
 import {
   FileText, Download, ChevronLeft,
-  DollarSign, BarChart3, ClipboardList, Syringe, Wheat, Users, PieChart, Scale, Layers,
+  DollarSign, BarChart3, ClipboardList, Syringe, Wheat, Users, PieChart, Scale, Layers, Receipt,
   type LucideIcon,
 } from './icons';
 import { cn } from '@/lib/utils';
@@ -64,6 +64,7 @@ const REPORT_TYPES: { id: string; name: string; desc: string; icon: LucideIcon; 
   // picker with nothing selected, a dead end for the report the whole
   // screen exists to set up.
   { id: 'dimension-pl', name: 'P&L by Dimension', desc: 'Revenue & expense, rolled up by farm, unit, batch or enterprise', icon: Layers, color: 'var(--accent-purple)' },
+  { id: 'sales', name: 'Sales & Collections Register', desc: 'Recorded sales, collections and outstanding balances', icon: Receipt, color: 'var(--status-ok)' },
 ];
 
 // Report types with a real /api/reports/* endpoint behind them.
@@ -76,6 +77,7 @@ const REPORT_ENDPOINTS: Record<string, string> = {
   vaccination: '/api/reports/vaccination',
   fcr: '/api/reports/fcr',
   'dimension-pl': '/api/reports/dimension-pl',
+  sales: '/api/reports/sales',
 };
 
 // The four built-in system dimensions (db/schemas/dimensions.ts's seed) —
@@ -98,7 +100,18 @@ const NOT_AVAILABLE_REASONS: Record<string, string> = {
   labour: 'Payroll totals already exist in the system (payslips), but there is no hours-worked record yet, so labour cost cannot be split per batch or per task.',
 };
 
-type ExportRecord = { name: string; generated: string; format: 'PDF' | 'CSV' };
+type ExportRecord = { name: string; generated: string; format: 'PDF' | 'CSV'; status: 'Generated' | 'Attested' };
+type ReportSnapshot = { id: string; reportType: string; status: 'GENERATED' | 'ATTESTED' | 'SHARED'; purpose: string; publicToken: string; createdAt: string; attestedBy: string | null; attestedRole: string | null; attestedAt: string | null; payload: ReportPayload };
+
+const TEST_DATA_RE = /(?:unit ?test|unittest|bug ?retest|posting[- ]?retest|network[- ]?probe|test data)/i;
+
+function withoutTestRows(report: ReportPayload, includeTestData: boolean): ReportPayload {
+  if (includeTestData) return report;
+  const rows = report.rows.filter((row) => !row.some((cell) => typeof cell === 'string' && TEST_DATA_RE.test(cell)));
+  // Test data is an internal data-quality concern, not a footnote a lender or
+  // buyer should see. Genuine report caveats remain in `notes` unchanged.
+  return rows.length === report.rows.length ? report : { ...report, rows };
+}
 
 function fmtTimestamp(d: Date): string {
   return d.toISOString().slice(0, 16).replace('T', ' ');
@@ -141,6 +154,11 @@ export function ReportsScreen() {
   const [reportError, setReportError] = useState('');
   const [loading, setLoading] = useState(false);
   const [recentExports, setRecentExports] = useState<ExportRecord[]>([]);
+  const [purpose, setPurpose] = useState('Internal');
+  const [includeTestData, setIncludeTestData] = useState(false);
+  const [reportStatus, setReportStatus] = useState<'Draft' | 'Generated' | 'Attested'>('Draft');
+  const [snapshots, setSnapshots] = useState<ReportSnapshot[]>([]);
+  const [snapshotBusy, setSnapshotBusy] = useState(false);
 
   // Auditor / investor link (issue #313) — real backend: GET restores
   // whatever link is currently live for the tenant on mount, POST/DELETE
@@ -186,7 +204,8 @@ export function ReportsScreen() {
     farmName: activeFarmName || orgName || undefined,
     farmCode: activeFarm?.code,
     location: activeFarm?.location,
-    preparedFor: role.charAt(0).toUpperCase() + role.slice(1).replace('_', ' '),
+    preparedFor: purpose,
+    status: reportStatus,
   };
 
   useEffect(() => {
@@ -195,6 +214,10 @@ export function ReportsScreen() {
       if (res.success) setAuditorLink(res.data.link);
     });
   }, [isOwner]);
+
+  useEffect(() => {
+    apiClient.get<{ snapshots: ReportSnapshot[] }>('/api/report-snapshots').then((res) => { if (res.success) setSnapshots(res.data.snapshots) })
+  }, []);
 
   function handleGenerateAuditorLink() {
     setAuditorBusy(true);
@@ -251,18 +274,65 @@ export function ReportsScreen() {
 
   function handleExportCsv() {
     if (!report || !reportType) return;
-    const filename = `${reportType.id}-${dateFrom}_to_${dateTo}.csv`;
-    downloadReportCsv(report, filename, { ...fullExportOpts, status: 'Generated' });
-    setRecentExports((prev) => [{ name: `${reportType.name} – ${dateFrom} to ${dateTo}`, generated: fmtTimestamp(new Date()), format: 'CSV' as const }, ...prev].slice(0, 8));
+    const cleanReport = withoutTestRows(report, includeTestData);
+    const opts = { ...fullExportOpts, status: 'Generated' as const };
+    const filename = reportFilename(cleanReport, reportType.id, dateFrom, dateTo, 'csv', opts);
+    downloadReportCsv(cleanReport, filename, opts);
+    setReportStatus('Generated');
+    setRecentExports((prev) => [{ name: filename, generated: fmtTimestamp(new Date()), format: 'CSV' as const, status: 'Generated' as const }, ...prev].slice(0, 8));
     showToast('CSV downloaded.', 'success');
   }
 
   async function handleExportPdf() {
     if (!report || !reportType) return;
-    const filename = `${reportType.id}-${dateFrom}_to_${dateTo}.pdf`;
-    await downloadReportPdf(report, filename, { ...fullExportOpts, status: 'Generated' });
-    setRecentExports((prev) => [{ name: `${reportType.name} – ${dateFrom} to ${dateTo}`, generated: fmtTimestamp(new Date()), format: 'PDF' as const }, ...prev].slice(0, 8));
+    const cleanReport = withoutTestRows(report, includeTestData);
+    const opts = { ...fullExportOpts, status: 'Generated' as const };
+    const filename = reportFilename(cleanReport, reportType.id, dateFrom, dateTo, 'pdf', opts);
+    await downloadReportPdf(cleanReport, filename, { ...opts, documentFilename: filename });
+    setReportStatus('Generated');
+    setRecentExports((prev) => [{ name: filename, generated: fmtTimestamp(new Date()), format: 'PDF' as const, status: 'Generated' as const }, ...prev].slice(0, 8));
     showToast('PDF downloaded.', 'success');
+  }
+
+  async function handlePrint() {
+    if (!report || !reportType) return;
+    const cleanReport = withoutTestRows(report, includeTestData);
+    const opts = { ...fullExportOpts, status: 'Generated' as const };
+    await printReportPdf(cleanReport, { ...opts, documentFilename: reportFilename(cleanReport, reportType.id, dateFrom, dateTo, 'pdf', opts) });
+  }
+
+  async function createSnapshot(attest = false) {
+    if (!report || !reportType) return;
+    setSnapshotBusy(true)
+    const cleanReport = withoutTestRows(report, includeTestData)
+    const created = await apiClient.post<ReportSnapshot>('/api/report-snapshots', { reportType: reportType.id, farmId: activeFarmId, purpose, payload: cleanReport })
+    if (!created.success) { setSnapshotBusy(false); showToast(created.error || 'Could not create snapshot.', 'error'); return }
+    let snapshot = created.data
+    if (attest) {
+      const name = window.prompt('Your full name for this digital attestation:', '')?.trim()
+      const attestationRole = name ? window.prompt('Your role (for example Owner or Farm Manager):', '')?.trim() : ''
+      if (name && attestationRole) {
+        const attested = await apiClient.post<ReportSnapshot>(`/api/report-snapshots/${snapshot.id}/attest`, { name, role: attestationRole })
+        if (attested.success) snapshot = attested.data
+      }
+    }
+    setSnapshots((current) => [snapshot, ...current])
+    setReportStatus(snapshot.status === 'ATTESTED' ? 'Attested' : 'Generated')
+    setSnapshotBusy(false)
+    showToast(snapshot.status === 'ATTESTED' ? 'Attested snapshot created.' : 'Frozen report snapshot created.', 'success')
+  }
+
+  async function redownloadSnapshot(snapshot: ReportSnapshot, format: 'PDF' | 'CSV') {
+    const status = snapshot.status === 'ATTESTED' ? 'Attested' as const : 'Generated' as const
+    const opts: ExportOptions = {
+      ...fullExportOpts, status, preparedFor: snapshot.purpose,
+      attestedBy: snapshot.attestedBy || undefined, attestedRole: snapshot.attestedRole || undefined,
+      attestedAt: snapshot.attestedAt ? new Date(snapshot.attestedAt).toLocaleString() : undefined,
+      verificationUrl: `${window.location.origin}/verify/${snapshot.publicToken}`,
+    }
+    const filename = reportFilename(snapshot.payload, snapshot.reportType, String(snapshot.payload.meta.from ?? 'all'), String(snapshot.payload.meta.to ?? 'all'), format.toLowerCase() as 'pdf' | 'csv', opts)
+    if (format === 'PDF') await downloadReportPdf(snapshot.payload, filename, { ...opts, documentFilename: filename })
+    else downloadReportCsv(snapshot.payload, filename, opts)
   }
 
   const isRealType = selected ? Boolean(REPORT_ENDPOINTS[selected]) : false;
@@ -278,10 +348,9 @@ export function ReportsScreen() {
           lede="Official packs from the same ledger as Finance. Export and share a read-only link."
         />
 
-        {/* Date range picker */}
         <div className="mt-5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
-          <div className="section-eyebrow" style={{ marginBottom: 10 }}>Date Range</div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="section-eyebrow" style={{ marginBottom: 10 }}>Report controls</div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>From</label>
               <input className="farm-input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
@@ -290,7 +359,15 @@ export function ReportsScreen() {
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>To</label>
               <input className="farm-input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
             </div>
+            <div>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Purpose</label>
+              <select className="farm-input" value={purpose} onChange={e => setPurpose(e.target.value)} style={{ fontSize: 'var(--fs-base)' }}>
+                <option>Internal</option><option>Bank / lender</option><option>Investor</option><option>Buyer</option><option>Auditor</option>
+              </select>
+            </div>
           </div>
+          <label className="mt-3 flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={includeTestData} onChange={e => setIncludeTestData(e.target.checked)} /> Include test data</label>
+          <div className="mt-2 text-xs text-muted">Scope: <strong>{activeFarmName || 'All farms'}</strong> · Status: <strong>{reportStatus}</strong></div>
         </div>
 
         {/* Picker (catalogue) + document (hero), reference's two-pane shape.
@@ -375,15 +452,18 @@ export function ReportsScreen() {
                 )}
                 {!loading && !reportError && report && (
                   <>
-                    <ReportDocumentPreview report={report} opts={fullExportOpts} farmLabel={activeFarmName} />
+                    <ReportDocumentPreview report={withoutTestRows(report, includeTestData)} opts={fullExportOpts} farmLabel={activeFarmName} />
                     {/* Export actions attached to the document; sticky above
                         the mobile bottom tab bar (matches ui-customise.tsx's
                         sticky save-bar convention: bottom: 80 clears it and
                         its safe-area inset). */}
                     {canExport && (
-                      <div className="flex gap-2 rounded-xl bg-surface p-2 shadow-(--shadow-raised) lg:static lg:shadow-(--shadow-border)" style={{ position: 'sticky', bottom: 80 }}>
+                      <div className="flex flex-wrap gap-2 rounded-xl bg-surface p-2 shadow-(--shadow-raised) lg:static lg:shadow-(--shadow-border)" style={{ position: 'sticky', bottom: 80 }}>
                         <Button className="flex-1 justify-center" onClick={handleExportPdf}><Download size={14} /> Export PDF</Button>
                         <Button variant="secondary" className="flex-1 justify-center" onClick={handleExportCsv}>Export CSV</Button>
+                        <Button variant="secondary" className="flex-1 justify-center" onClick={handlePrint}>Print</Button>
+                        <Button variant="secondary" className="flex-1 justify-center" disabled={snapshotBusy} onClick={() => void createSnapshot(false)}>Freeze</Button>
+                        <Button variant="secondary" className="flex-1 justify-center" disabled={snapshotBusy} onClick={() => void createSnapshot(true)}>Attest</Button>
                       </div>
                     )}
                   </>
@@ -437,7 +517,7 @@ export function ReportsScreen() {
         </div>
 
         {/* Recent exports (real: this session's actual CSV/PDF downloads, not a mock) */}
-        <div className="section-eyebrow" style={{ marginBottom: 10 }}>Recent Exports (this session)</div>
+        <div className="section-eyebrow" style={{ marginBottom: 10 }}>Export history (this session)</div>
         <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 24 }}>
           {recentExports.length === 0 && (
             <div style={{ padding: '14px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -448,8 +528,21 @@ export function ReportsScreen() {
             <div key={i} style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < recentExports.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
               <div>
                 <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>{r.name}</div>
-                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{r.generated} · {r.format}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{r.generated} · {r.format} · {r.status}</div>
               </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="section-eyebrow" style={{ marginBottom: 10 }}>Frozen report history</div>
+        <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 24 }}>
+          {snapshots.length === 0 && <div style={{ padding: 14, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>No frozen reports yet. Freeze or attest a report to create a verifiable record.</div>}
+          {snapshots.map((snapshot) => (
+            <div key={snapshot.id} style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700 }}>{snapshot.payload.title} · {snapshot.status}</div>
+              <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 3 }}>{new Date(snapshot.createdAt).toLocaleString()} · {snapshot.purpose}{snapshot.attestedBy ? ` · ${snapshot.attestedBy}` : ''}</div>
+              <a href={`/verify/${snapshot.publicToken}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', fontSize: 'var(--fs-xs)', color: 'var(--accent-purple)', marginTop: 5 }}>Verify document</a>
+              <div className="mt-2 flex gap-2"><Button variant="secondary" onClick={() => void redownloadSnapshot(snapshot, 'PDF')}>Download PDF</Button><Button variant="secondary" onClick={() => void redownloadSnapshot(snapshot, 'CSV')}>Download CSV</Button></div>
             </div>
           ))}
         </div>
@@ -457,4 +550,3 @@ export function ReportsScreen() {
     </div>
   );
 }
-

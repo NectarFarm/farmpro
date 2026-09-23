@@ -128,7 +128,13 @@ export interface ExportOptions {
   farmCode?: string
   location?: string
   preparedFor?: string
-  status?: 'Draft' | 'Generated'
+  status?: 'Draft' | 'Generated' | 'Attested' | 'Shared'
+  preparedBy?: string
+  attestedBy?: string
+  attestedRole?: string
+  attestedAt?: string
+  verificationUrl?: string
+  documentFilename?: string
 }
 
 const DEFAULT_OPTIONS: Required<Pick<ExportOptions, 'currencySymbol' | 'weightUnit'>> = {
@@ -165,6 +171,25 @@ export function documentHeader(report: ReportPayload, opts: ExportOptions = {}):
     entriesText: `${report.rows.length.toLocaleString('en-US')} row${report.rows.length === 1 ? '' : 's'}`,
     sourceText: 'Recorded operational data',
   }
+}
+
+const REPORT_FILE_SLUGS: Record<string, string> = {
+  pl: 'PnL-Summary', production: 'Production', mortality: 'Mortality',
+  vaccination: 'Health-Log', feed: 'Feed-Consumption', 'batch-pl': 'Batch-PnL',
+  fcr: 'FCR', 'dimension-pl': 'PnL-by-Dimension', labour: 'Labour-Cost',
+  sales: 'Sales-Collections', stock: 'Stock-Position', payroll: 'Payroll-Summary',
+}
+
+function filenamePart(value: string): string {
+  return value.replace(/[^A-Za-z0-9]+/g, '').slice(0, 48) || 'IFMS'
+}
+
+export function reportFilename(
+  report: ReportPayload, reportId: string, from: string, to: string,
+  extension: 'pdf' | 'csv', opts: ExportOptions = {},
+): string {
+  const slug = REPORT_FILE_SLUGS[reportId] ?? filenamePart(report.title)
+  return `${filenamePart(opts.farmName || 'IFMS')}_${slug}_${from}_${to}_${opts.status ?? 'Draft'}_${deriveReportNumber(report)}.${extension}`
 }
 
 // Cell formatting lives HERE and nowhere else — the screen preview imports
@@ -295,6 +320,12 @@ function optionsForPdf(opts: ExportOptions): ExportOptions {
     farmCode: t(opts.farmCode),
     location: t(opts.location),
     preparedFor: t(opts.preparedFor),
+    preparedBy: t(opts.preparedBy),
+    attestedBy: t(opts.attestedBy),
+    attestedRole: t(opts.attestedRole),
+    attestedAt: t(opts.attestedAt),
+    verificationUrl: t(opts.verificationUrl),
+    documentFilename: t(opts.documentFilename),
   }
 }
 
@@ -694,7 +725,7 @@ function drawProseBlocks(
 function drawCallout(doc: Doc, layout: Layout, startY: number, newPage: () => number): number {
   const { W, H, accent } = layout
   const text =
-    'This report is computer-generated directly from recorded farm data and is valid without a signature. Figures reflect what has been recorded up to the generation time above; verify any figure against the live dashboard if in doubt.'
+    'This pack is produced by IFMS from recorded transactions and operational records. Figures reflect recorded data at generation time. Attestation, if present, is the farm\'s confirmation and is not an independent audit opinion.'
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
   const lines = doc.splitTextToSize(text, W - MARGIN * 2 - 11) as string[]
@@ -868,6 +899,19 @@ export async function buildReportPdf(
   }
   y = drawCallout(doc, layout, y + 2, newPage)
 
+  const controlLines = [
+    opts.attestedBy ? `Digitally attested by: ${opts.attestedBy}${opts.attestedRole ? ` (${opts.attestedRole})` : ''}${opts.attestedAt ? ` · ${opts.attestedAt}` : ''}` : 'Attestation: ____________________  Role: ____________________  Date: ____________________',
+    opts.verificationUrl ? `Verify: ${opts.verificationUrl}` : undefined,
+    opts.documentFilename ? `Filename: ${opts.documentFilename}` : undefined,
+  ].filter(Boolean) as string[]
+  if (controlLines.length) {
+    const needed = controlLines.length * 4 + 8
+    if (y + needed > maxContentY(layout.H)) y = newPage()
+    y = drawSectionBar(doc, layout, 'Document control', y + 3) + 4
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...INK_MUTED)
+    for (const line of controlLines) { doc.text(line, MARGIN, y); y += 4 }
+  }
+
   // Footers for EVERY page, stamped once here so "Page N of M" is exact.
   const total = doc.getNumberOfPages()
   for (let p = 1; p <= total; p++) {
@@ -890,4 +934,9 @@ export async function buildReportPdf(
 export async function downloadReportPdf(report: ReportPayload, filename: string, opts: ExportOptions = {}) {
   const doc = await buildReportPdf(report, opts)
   doc.save(filename)
+}
+
+export async function printReportPdf(report: ReportPayload, opts: ExportOptions = {}) {
+  const doc = await buildReportPdf(report, opts)
+  window.open(doc.output('bloburl'), '_blank', 'noopener,noreferrer')
 }
