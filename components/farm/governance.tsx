@@ -327,7 +327,7 @@ function RoleBuilderSheet({
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92dvh]">
       <SheetTitle className="sr-only">{isNew ? 'Create role' : `Edit ${role?.role}`}</SheetTitle>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <div className="mb-4 flex items-center justify-between">
@@ -968,10 +968,10 @@ export function GovernanceScreen() {
               )}
             </div>
 
-            <Sheet open={mobileEventOpen} onOpenChange={setMobileEventOpen} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+            <Sheet open={mobileEventOpen} onOpenChange={setMobileEventOpen} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
               <SheetTitle className="sr-only">Event detail</SheetTitle>
               {selectedEvent && (
-                <div className="max-h-[85vh] overflow-y-auto p-5">
+                <div className="max-h-[85dvh] overflow-y-auto p-5">
                   <AuditInspector event={selectedEvent} siblings={sameBurst} onPick={pickEvent} />
                 </div>
               )}

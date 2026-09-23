@@ -209,7 +209,7 @@ function PlansTab() {
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-fg/40 p-0 lg:items-center" onClick={() => setEditing(null)}>
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-xl bg-surface p-5 lg:rounded-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-xl bg-surface p-5 lg:rounded-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 font-display text-xl font-medium">{editing.id ? `Edit ${editing.name || editing.code}` : 'New plan'}</div>
             <div className="grid grid-cols-2 gap-2">
               <label className="text-sm">Code<Input value={editing.code} onChange={(e) => setEditing({ ...editing, code: e.target.value })} disabled={!!editing.id} /></label>
@@ -315,7 +315,7 @@ function DiscountsTab() {
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-fg/40 lg:items-center" onClick={() => setEditing(null)}>
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-xl bg-surface p-5 lg:rounded-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-xl bg-surface p-5 lg:rounded-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 font-display text-xl font-medium">{editing.id ? `Edit ${editing.code}` : 'New discount'}</div>
             <label className="text-sm">Code<Input value={editing.code} onChange={(e) => setEditing({ ...editing, code: e.target.value.toUpperCase() })} disabled={!!editing.id} /></label>
             <div className="mt-2 grid grid-cols-2 gap-2">

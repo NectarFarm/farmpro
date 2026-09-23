@@ -37,7 +37,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
       <div
         role="dialog"
         aria-modal="true"
-        className="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-h-[90vh] overflow-y-auto max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-surface p-5 shadow-(--shadow-raised) outline-none"
+        className="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-h-[90dvh] overflow-y-auto max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-surface p-5 shadow-(--shadow-raised) outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         {children}

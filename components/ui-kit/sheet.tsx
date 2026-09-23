@@ -26,7 +26,7 @@ export function Sheet({ open, onOpenChange, children, side = 'bottom', className
   if (!open) return null;
   const sideClass =
     side === 'bottom'
-      ? 'inset-x-0 bottom-0 max-h-[90vh] rounded-t-xl'
+      ? 'inset-x-0 bottom-0 max-h-[90dvh] rounded-t-xl'
       : side === 'right'
         ? 'inset-y-0 right-0 h-full w-[min(100%,26rem)]'
         : 'inset-y-0 left-0 h-full w-72';

@@ -412,7 +412,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
 
   if (receipt) {
     return (
-      <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+      <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
         <SheetTitle className="sr-only">Sale recorded</SheetTitle>
         <SaveConfirmation title="Sale recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
       </Sheet>
@@ -420,7 +420,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
       {/* item 15: a sticky footer keeps Record Sale reachable without
           scrolling past every field first, on a long sheet on a phone. */}
       <div className="flex min-h-0 flex-1 flex-col">
@@ -777,7 +777,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
 
   if (receipt) {
     return (
-      <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+      <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
         <SheetTitle className="sr-only">Purchase recorded</SheetTitle>
         <SaveConfirmation title="Purchase recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
       </Sheet>
@@ -785,7 +785,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
       {/* item 15: sticky footer keeps Record Purchase reachable on a long
           sheet without scrolling past every field first. */}
       <div className="flex min-h-0 flex-1 flex-col">
@@ -1008,7 +1008,7 @@ function SaleDetailSheet({ tenantId, sale, onClose, onChanged }: {
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <div className="mb-1 flex items-center justify-between gap-2">
           <SheetTitle className="truncate">{sale.item}</SheetTitle>
@@ -1147,7 +1147,7 @@ function PurchaseDetailSheet({ tenantId, purchase, itemLabel, onClose, onChanged
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <div className="mb-1 flex items-center justify-between gap-2">
           <SheetTitle className="truncate">{itemLabel}</SheetTitle>
@@ -1271,7 +1271,7 @@ function BalancesSheet({ kind, tenantId, onClose }: { kind: 'suppliers' | 'custo
   const totalOwed = (rows ?? []).reduce((sum, r) => sum + r.balanceCents, 0);
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <SheetTitle className="mb-1">{label} balances</SheetTitle>
         <p className="mb-4 text-sm text-muted">
@@ -1481,7 +1481,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85vh]">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <SheetTitle className="mb-3.5">Run Payroll</SheetTitle>
 
