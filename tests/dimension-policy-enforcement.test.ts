@@ -21,7 +21,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
 
@@ -138,7 +138,7 @@ run('dimension policy that actually holds (item 19)', () => {
     const saleRows = await db.select().from(sales).where(eq(sales.tenantId, tenantId))
     expect(saleRows.find((s) => s.item === 'Loose eggs, no batch')).toBeUndefined()
 
-    await db.delete(defaultDimensions).where(eq(defaultDimensions.masterId, cashAccount.id))
+    await db.delete(defaultDimensions).where(and(eq(defaultDimensions.tenantId, tenantId), eq(defaultDimensions.masterId, cashAccount.id)))
   })
 
   it('applies a per-account DEFAULT VALUE to a posting that never specified one', async () => {
@@ -167,7 +167,7 @@ run('dimension policy that actually holds (item 19)', () => {
     const lineDims = await db.select().from(journalLineDimensions).where(eq(journalLineDimensions.lineId, cashLine.id))
     expect(lineDims.find((d) => d.dimensionId === farmDimId && d.valueId === farmValue.id)).toBeTruthy()
 
-    await db.delete(defaultDimensions).where(eq(defaultDimensions.masterId, cashAccount.id))
+    await db.delete(defaultDimensions).where(and(eq(defaultDimensions.tenantId, tenantId), eq(defaultDimensions.masterId, cashAccount.id)))
   })
 })
 

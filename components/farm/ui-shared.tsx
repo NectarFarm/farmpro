@@ -375,6 +375,44 @@ export function useRequiredDimensions(
   return { missing, loading };
 }
 
+// ── A "pick one of these, by name, searching as you type" control keyed by
+// CODE rather than id (dimension-picker cascade fix) ────────────────────────
+// Every picker in this section — a plain dimension value, and each level of
+// the Farm/Unit/Batch cascade below — resolves to a CODE (what
+// resolveMasterDimensions' explicit map and the POST routes' `dimensions`
+// field both key on), not a database id, and every one of them is a
+// "choose an existing one" list with nothing to create here. Rather than a
+// third picker widget, this wraps the existing MasterPicker (built for
+// supplier/customer type-to-search) with that code-keyed contract — one
+// generalisation, used here and by FarmUnitBatchDimensionFields below.
+interface CodeOption { id: string; code: string; name: string }
+
+function CodeSearchPicker({ label, listId, options, selectedCode, onSelect, placeholder, error }: {
+  label: string; listId: string; options: CodeOption[]; selectedCode: string;
+  onSelect: (code: string) => void; placeholder: string; error?: string;
+}) {
+  const selected = options.find((o) => o.code === selectedCode);
+  const [text, setText] = useState(selected?.name ?? '');
+  useEffect(() => {
+    setText(selected?.name ?? '');
+    // Re-sync whenever the SELECTION changes (including being cleared out
+    // from under this picker by a parent-level cascade reset) or once the
+    // options this code resolves against actually arrive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCode, options]);
+
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <MasterPicker
+        label={label} listId={listId} options={options} name={text} onNameChange={setText}
+        onResolvedChange={(id) => onSelect(id ? (options.find((o) => o.id === id)?.code ?? '') : '')}
+        placeholder={placeholder}
+      />
+      <FieldError message={error} />
+    </div>
+  );
+}
+
 function DimensionValueSelect({ tenantId, dim, value, onChange, error }: {
   tenantId: string; dim: RequiredDimensionRule; value: string; onChange: (valueCode: string) => void; error?: string;
 }) {
@@ -385,16 +423,212 @@ function DimensionValueSelect({ tenantId, dim, value, onChange, error }: {
       if (!cancelled && res.success) setValues(res.data.filter((v) => !v.archived));
     });
     return () => { cancelled = true; };
-  }, [dim.dimensionId, tenantId]);
+  }, [dim.dimensionId, tenantId])
+
+  if (values !== null && values.length === 0) {
+    return (
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{dim.dimensionName} *</label>
+        <p className="text-xs text-muted">No {dim.dimensionName} values set up yet.</p>
+        <FieldError message={error} />
+      </div>
+    );
+  }
 
   return (
+    <CodeSearchPicker
+      label={`${dim.dimensionName} *`} listId={`req-dim-value-${dim.dimensionId}`}
+      options={values ?? []} selectedCode={value} onSelect={onChange}
+      placeholder={values === null ? 'Loading…' : `Search ${dim.dimensionName.toLowerCase()}`}
+      error={error}
+    />
+  );
+}
+
+// ── Farm -> Unit -> Batch, as one cascading, self-consistent picker
+// (dimension-picker cascade fix, owner review of PR #431) ──────────────────
+// The flat per-dimension <select>s that shipped in #431 let someone pick a
+// Batch that doesn't live in the Unit they picked, and a Unit that isn't on
+// the Farm they picked — three independent choices with nothing tying them
+// to the real farm/unit/batch hierarchy. This is the fix: one control that
+// narrows downward (choosing a farm narrows which units can be chosen;
+// choosing a unit narrows which batches can be chosen — GET /api/units and
+// GET /api/batches both accept the parent id as a filter) and fills upward
+// (choosing a batch resolves its own unit and farm and shows them as
+// already-known rather than asking — the exact batch -> unit -> farm chain
+// lib/dimensions.ts's masterChain walks server-side, so what this shows is
+// never a guess).
+//
+// `knownFarmId` is how a caller that already has its OWN farm field (a
+// purchase, or a payroll run whose dry-run resolved one shared farm) says
+// "don't ask for Farm here, it's already asked for above, just narrow Unit/
+// Batch from it" — present (even as '' before it's chosen) means owned by
+// the form; absent means this widget owns the Farm ask itself (an ad-hoc
+// sale has nowhere else to ask). There is no equivalent `knownUnitId`
+// because no sheet has its own Unit field today — Unit is always either
+// asked for here or derived from a Batch picked here.
+function FarmUnitBatchDimensionFields({ tenantId, missing, picks, onPick, knownFarmId, fieldErrors }: {
+  tenantId: string;
+  missing: RequiredDimensionRule[]; // already narrowed to FARM/UNIT/BATCH entries
+  picks: Record<string, string>;
+  onPick: (dimensionCode: string, valueCode: string) => void;
+  knownFarmId?: string;
+  fieldErrors?: Record<string, string>;
+}) {
+  const farmOwnedByForm = knownFarmId !== undefined;
+  // Plain booleans, not the `missing` array reference itself — a fresh
+  // caller-side `.filter()` on every render would otherwise re-identify as a
+  // "new" dependency each time and refetch on every keystroke elsewhere on
+  // the sheet.
+  const needsFarm = missing.some((m) => m.dimensionCode === 'FARM');
+  const needsUnit = missing.some((m) => m.dimensionCode === 'UNIT');
+  const needsBatch = missing.some((m) => m.dimensionCode === 'BATCH');
+
+  const [farmId, setFarmId] = useState(knownFarmId ?? '');
+  const [farmDerived, setFarmDerived] = useState(false);
+  const [unitId, setUnitId] = useState('');
+  const [unitDerived, setUnitDerived] = useState(false);
+
+  useEffect(() => { if (farmOwnedByForm) setFarmId(knownFarmId ?? ''); }, [knownFarmId, farmOwnedByForm]);
+
+  const [farms, setFarms] = useState<CodeOption[]>([]);
+  const [units, setUnits] = useState<(CodeOption & { farmId: string })[]>([]);
+  const [batchOptions, setBatchOptions] = useState<(CodeOption & { unitId: string })[]>([]);
+
+  // Farms — only when this widget owns the Farm ask; a purchase's own Farm
+  // field is authoritative and this never duplicates it.
+  useEffect(() => {
+    if (farmOwnedByForm || !needsFarm) return;
+    let cancelled = false;
+    apiClient.get<CodeOption[]>(`/api/farms?tenantId=${tenantId}`).then((res) => {
+      if (!cancelled && res.success) setFarms(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId, farmOwnedByForm, needsFarm])
+
+  // The full unit list, unscoped — filtered client-side to the current farm
+  // (so picking a farm narrows the Unit picker with no refetch) and doubling
+  // as the lookup table a picked Batch's unitId resolves against below.
+  useEffect(() => {
+    if (!needsUnit && !needsBatch) return;
+    let cancelled = false;
+    apiClient.get<(CodeOption & { farmId: string })[]>(`/api/units?tenantId=${tenantId}`).then((res) => {
+      if (!cancelled && res.success) setUnits(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId, needsUnit, needsBatch])
+
+  // Batches — scoped as tightly as whatever's already known: a chosen unit
+  // narrows to its own batches; failing that, a chosen/known farm still
+  // narrows across every unit on it (GET /api/batches accepts either) —
+  // never a tenant-wide list once any ancestor is known. Refetches as the
+  // ancestor narrows.
+  useEffect(() => {
+    if (!needsBatch) return;
+    let cancelled = false;
+    const params = new URLSearchParams({ tenantId });
+    if (unitId) params.set('unitId', unitId);
+    else if (farmId) params.set('farmId', farmId);
+    apiClient.get<(CodeOption & { unitId: string })[]>(`/api/batches?${params.toString()}`).then((res) => {
+      if (!cancelled && res.success) setBatchOptions(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId, unitId, farmId, needsBatch])
+
+  function selectFarm(code: string) {
+    const farm = farms.find((f) => f.code === code);
+    setFarmId(farm?.id ?? '');
+    setFarmDerived(false);
+    onPick('FARM', code);
+    // Cascade downward: a unit/batch chosen under the OLD farm may not
+    // belong to the new one — never leave a stale, possibly-mismatched
+    // child behind a parent change.
+    setUnitId(''); setUnitDerived(false); onPick('UNIT', '');
+    onPick('BATCH', '');
+  }
+
+  function selectUnit(code: string) {
+    const unit = units.find((u) => u.code === code);
+    setUnitId(unit?.id ?? '');
+    setUnitDerived(false);
+    onPick('UNIT', code);
+    onPick('BATCH', '');
+    // Fill upward one level: a unit picked before any farm is known still
+    // resolves its own farm — same chain lib/dimensions.ts's masterChain
+    // walks server-side.
+    if (!farmOwnedByForm && unit && !farmId) {
+      setFarmId(unit.farmId);
+      setFarmDerived(true);
+      const farm = farms.find((f) => f.id === unit.farmId);
+      onPick('FARM', farm?.code ?? '');
+    }
+  }
+
+  function selectBatch(code: string) {
+    const batch = batchOptions.find((b) => b.code === code);
+    onPick('BATCH', code);
+    if (!batch) return;
+    // Fill upward: the batch's own unit AND farm, resolved rather than
+    // asked for — "if I select batch it should auto populate unit and even
+    // farm" (owner review of PR #431) is exactly this.
+    const unit = units.find((u) => u.id === batch.unitId);
+    if (!unit) return;
+    setUnitId(unit.id);
+    setUnitDerived(true);
+    onPick('UNIT', unit.code);
+    if (!farmOwnedByForm) {
+      setFarmId(unit.farmId);
+      setFarmDerived(true);
+      const farm = farms.find((f) => f.id === unit.farmId);
+      onPick('FARM', farm?.code ?? '');
+    }
+  }
+
+  const unitOptions = farmId ? units.filter((u) => u.farmId === farmId) : units;
+
+  return (
+    <>
+      {!farmOwnedByForm && needsFarm && (
+        farmDerived
+          ? <ResolvedDimensionRow label="Farm" value={farms.find((f) => f.id === farmId)?.name} />
+          : (
+            <CodeSearchPicker
+              label="Farm *" listId="req-dim-farm" options={farms}
+              selectedCode={picks.FARM ?? ''} onSelect={selectFarm}
+              placeholder="Search farms" error={fieldErrors?.['dim_FARM']}
+            />
+          )
+      )}
+      {(needsUnit || needsBatch) && (
+        unitDerived
+          ? <ResolvedDimensionRow label="Production Unit" value={units.find((u) => u.id === unitId)?.name} />
+          : (
+            <CodeSearchPicker
+              label="Production Unit *" listId="req-dim-unit" options={unitOptions}
+              selectedCode={picks.UNIT ?? ''} onSelect={selectUnit}
+              placeholder="Search production units" error={fieldErrors?.['dim_UNIT']}
+            />
+          )
+      )}
+      {needsBatch && (
+        <CodeSearchPicker
+          label="Batch *" listId="req-dim-batch" options={batchOptions}
+          selectedCode={picks.BATCH ?? ''} onSelect={selectBatch}
+          placeholder="Search batches" error={fieldErrors?.['dim_BATCH']}
+        />
+      )}
+    </>
+  );
+}
+
+// A derived ancestor, shown so it's visible rather than silent — never a
+// second picker, since re-choosing it independently of the child that
+// derived it is exactly the mismatch this whole cascade exists to prevent.
+function ResolvedDimensionRow({ label, value }: { label: string; value?: string }) {
+  return (
     <div style={{ marginBottom: 10 }}>
-      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{dim.dimensionName} *</label>
-      <select className="farm-input" value={value} onChange={(e) => onChange(e.target.value)} style={fieldErrorStyle(!!error)}>
-        <option value="">{values === null ? 'Loading…' : values.length === 0 ? `No ${dim.dimensionName} values set up yet` : `Select ${dim.dimensionName}`}</option>
-        {(values ?? []).map((v) => <option key={v.id} value={v.code}>{v.name}</option>)}
-      </select>
-      <FieldError message={error} />
+      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{label}</label>
+      <div className="farm-input flex items-center" style={{ color: 'var(--text-muted)', background: 'var(--card)' }}>{value ?? '—'} · derived</div>
     </div>
   );
 }
@@ -423,20 +657,39 @@ export function dimensionsForSubmit(missing: RequiredDimensionRule[], picks: Rec
 // Renders nothing when `missing` is empty — the common case for every
 // tenant that hasn't marked any account dimension Required, so every
 // existing posting flow (and its tests) is unaffected.
-export function RequiredDimensionFields({ tenantId, missing, picks, onPick, fieldErrors }: {
+// FARM/UNIT/BATCH are the one set of "missing" dimensions with a real
+// operational hierarchy between them — everything else (ENTERPRISE, a
+// tenant's own custom dimensions) is independent and stays a flat picker.
+const HIERARCHICAL_CODES = new Set(['FARM', 'UNIT', 'BATCH']);
+
+export function RequiredDimensionFields({ tenantId, missing, picks, onPick, fieldErrors, knownFarmId }: {
   tenantId: string;
   missing: RequiredDimensionRule[];
   picks: Record<string, string>;
   onPick: (dimensionCode: string, valueCode: string) => void;
   fieldErrors?: Record<string, string>;
+  /** Pass the form's OWN already-chosen farm id (a purchase always has one)
+   * so Farm/Unit/Batch narrows from there instead of asking again — see
+   * FarmUnitBatchDimensionFields. Omit when nothing in the form knows a
+   * farm yet (an ad-hoc sale, or a payroll run whose eligible employees
+   * span more than one farm). */
+  knownFarmId?: string;
 }) {
   if (missing.length === 0) return null;
+  const hierarchical = missing.filter((m) => HIERARCHICAL_CODES.has(m.dimensionCode));
+  const flat = missing.filter((m) => !HIERARCHICAL_CODES.has(m.dimensionCode));
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ padding: '8px 10px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.2)', borderRadius: 8, marginBottom: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
         Posting this needs a value for {missing.map((m) => m.dimensionName).join(', ')} — set up under Reporting dimensions.
       </div>
-      {missing.map((dim) => (
+      {hierarchical.length > 0 && (
+        <FarmUnitBatchDimensionFields
+          tenantId={tenantId} missing={hierarchical} picks={picks} onPick={onPick}
+          knownFarmId={knownFarmId} fieldErrors={fieldErrors}
+        />
+      )}
+      {flat.map((dim) => (
         <DimensionValueSelect
           key={dim.dimensionId}
           tenantId={tenantId}
@@ -559,9 +812,12 @@ export function MasterPicker({ label, listId, options, name, onNameChange, onRes
    * the match. */
   onResolvedChange: (id: string | null) => void;
   /** Saves the CURRENT typed name as a new master; the caller does the POST
-   * and, on success, calls onResolvedChange itself with the new id. */
-  onCreate: () => void;
-  creating: boolean;
+   * and, on success, calls onResolvedChange itself with the new id. Omit
+   * both this and `creating` for a pick-only list (dimension-picker fix) —
+   * a Farm/Unit/Batch/dimension-value picker has nothing to create here,
+   * only real masters/values a farm/config screen already owns. */
+  onCreate?: () => void;
+  creating?: boolean;
   placeholder: string;
 }) {
   const trimmed = name.trim();
@@ -583,8 +839,8 @@ export function MasterPicker({ label, listId, options, name, onNameChange, onRes
       <datalist id={listId}>
         {options.map((o) => <option key={o.id} value={o.name} />)}
       </datalist>
-      {trimmed && !exactMatch && (
-        <button type="button" onClick={onCreate} disabled={creating} className="mt-1 text-xs font-medium text-primary">
+      {onCreate && trimmed && !exactMatch && (
+        <button type="button" onClick={onCreate} disabled={!!creating} className="mt-1 text-xs font-medium text-primary">
           {creating ? 'Saving…' : `+ Save "${trimmed}" as a new ${label.toLowerCase()}`}
         </button>
       )}

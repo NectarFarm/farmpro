@@ -31,7 +31,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
 
@@ -43,6 +43,8 @@ vi.mock('next/headers', () => ({
 import { POST as salesPOST } from '@/app/api/data/sales/route'
 import { POST as purchasesPOST } from '@/app/api/purchases/route'
 import { POST as payrollRunsPOST } from '@/app/api/payroll/runs/route'
+import { GET as unitsGET } from '@/app/api/units/route'
+import { GET as batchesGET } from '@/app/api/batches/route'
 import { db } from '@/db'
 import {
   tenants, users, sessions, farms, productionUnits, batches, employees,
@@ -341,7 +343,7 @@ run('forms supply required dimensions (P0 fix)', () => {
       const lineDims = await db.select().from(journalLineDimensions).where(eq(journalLineDimensions.lineId, expenseLine.id))
       expect(lineDims.find((d) => d.dimensionId === farmDimId)).toBeTruthy()
 
-      await db.delete(defaultDimensions).where(eq(defaultDimensions.masterId, payrollExpenseAccountId))
+      await db.delete(defaultDimensions).where(and(eq(defaultDimensions.tenantId, tenantId), eq(defaultDimensions.masterId, payrollExpenseAccountId)))
       await db.update(employees).set({ status: 'ACTIVE' }).where(eq(employees.id, empOtherId))
     })
 
@@ -369,7 +371,73 @@ run('forms supply required dimensions (P0 fix)', () => {
       mockCookie = undefined
       expect(res.status).toBe(201)
 
-      await db.delete(defaultDimensions).where(eq(defaultDimensions.masterId, payrollExpenseAccountId))
+      await db.delete(defaultDimensions).where(and(eq(defaultDimensions.tenantId, tenantId), eq(defaultDimensions.masterId, payrollExpenseAccountId)))
+    })
+  })
+
+  describe('cascade integrity: the data the Farm -> Unit -> Batch picker relies on never mixes parents', () => {
+    // The picker itself (components/farm/ui-shared.tsx's
+    // FarmUnitBatchDimensionFields) is a client component with no render
+    // harness in this repo (see the source-level describe block below, same
+    // convention as tests/dimension-policy-enforcement.test.ts) — but its
+    // whole safety property rests on these two routes actually scoping by
+    // parent, which IS testable end to end: GET /api/units?farmId= must
+    // never return another farm's units, and GET /api/batches?unitId= must
+    // never return another unit's batches. If either leaked, the picker
+    // would offer exactly the mismatched child the fix exists to prevent.
+    let tenantId: string; let cookie: string
+    let farmAId: string; let farmBId: string
+    let unitAId: string; let unitBId: string
+    let batchAId: string; let batchBId: string
+
+    beforeAll(async () => {
+      ({ tenantId, cookie } = await makeTenantWithOwner('DimForms Cascade'))
+      farmAId = `f-${randomUUID()}`; farmBId = `f-${randomUUID()}`
+      unitAId = `u-${randomUUID()}`; unitBId = `u-${randomUUID()}`
+      batchAId = `b-${randomUUID()}`; batchBId = `b-${randomUUID()}`
+      await db.insert(farms).values([
+        { id: farmAId, tenantId, name: 'Farm A', code: `FRM-CASC-A-${randomUUID().slice(0, 6)}` },
+        { id: farmBId, tenantId, name: 'Farm B', code: `FRM-CASC-B-${randomUUID().slice(0, 6)}` },
+      ])
+      await db.insert(productionUnits).values([
+        { id: unitAId, tenantId, farmId: farmAId, type: 'poultry', name: 'Unit A', code: `UNT-CASC-A-${randomUUID().slice(0, 6)}` },
+        { id: unitBId, tenantId, farmId: farmBId, type: 'poultry', name: 'Unit B', code: `UNT-CASC-B-${randomUUID().slice(0, 6)}` },
+      ])
+      await db.insert(batches).values([
+        { id: batchAId, tenantId, unitId: unitAId, name: 'Batch A', code: `BAT-CASC-A-${randomUUID().slice(0, 6)}`, enterprise: 'broiler', status: 'ACTIVE', initialQty: 50, currentQty: 50 },
+        { id: batchBId, tenantId, unitId: unitBId, name: 'Batch B', code: `BAT-CASC-B-${randomUUID().slice(0, 6)}`, enterprise: 'broiler', status: 'ACTIVE', initialQty: 50, currentQty: 50 },
+      ])
+    })
+    afterAll(async () => { await cleanupTenant(tenantId) })
+
+    it('the unit list for farm A never contains farm B\'s units', async () => {
+      mockCookie = cookie
+      const res = await readJson(await unitsGET(new Request(`http://x/api/units?tenantId=${tenantId}&farmId=${farmAId}`)))
+      mockCookie = undefined
+      expect(res.status).toBe(200)
+      const ids = res.payload.data.map((u: { id: string }) => u.id)
+      expect(ids).toContain(unitAId)
+      expect(ids).not.toContain(unitBId)
+    })
+
+    it('the batch list for unit A never contains unit B\'s batches', async () => {
+      mockCookie = cookie
+      const res = await readJson(await batchesGET(new Request(`http://x/api/batches?tenantId=${tenantId}&unitId=${unitAId}`)))
+      mockCookie = undefined
+      expect(res.status).toBe(200)
+      const ids = res.payload.data.map((b: { id: string }) => b.id)
+      expect(ids).toContain(batchAId)
+      expect(ids).not.toContain(batchBId)
+    })
+
+    it('the batch list scoped by farm A alone (no unit chosen yet) still excludes farm B\'s batches', async () => {
+      mockCookie = cookie
+      const res = await readJson(await batchesGET(new Request(`http://x/api/batches?tenantId=${tenantId}&farmId=${farmAId}`)))
+      mockCookie = undefined
+      expect(res.status).toBe(200)
+      const ids = res.payload.data.map((b: { id: string }) => b.id)
+      expect(ids).toContain(batchAId)
+      expect(ids).not.toContain(batchBId)
     })
   })
 
@@ -417,5 +485,44 @@ describe('the sheets can now COMPLY, not just detect the refusal (source-level, 
     // — plus Run Payroll, which has its own gate on the confirm button.
     const financeMatches = finance.match(/<RequiredDimensionFields/g) ?? []
     expect(financeMatches.length).toBeGreaterThanOrEqual(3)
+  })
+
+  // ── Cascade / fill-upward / search reuse (owner review of PR #431) ───────
+  it('Farm/Unit/Batch route through ONE cascading picker, not three independent flat selects', () => {
+    expect(shared).toMatch(/function FarmUnitBatchDimensionFields\(/)
+    // RequiredDimensionFields hands FARM/UNIT/BATCH to it, keeping every
+    // other dimension (ENTERPRISE, a tenant's own) on the flat picker.
+    expect(shared).toMatch(/HIERARCHICAL_CODES = new Set\(\['FARM', 'UNIT', 'BATCH'\]\)/)
+    expect(shared).toMatch(/<FarmUnitBatchDimensionFields/)
+  })
+
+  it('picking a batch fills in its unit and farm — never left for the user to also pick', () => {
+    // selectBatch resolves the batch's own unit, then that unit's own farm,
+    // and hands BOTH to onPick without any picker action for either.
+    const start = shared.indexOf('function selectBatch(')
+    expect(start).toBeGreaterThan(-1)
+    const selectBatchBody = shared.slice(start, shared.indexOf('const unitOptions =', start))
+    expect(selectBatchBody).toMatch(/onPick\('UNIT', unit\.code\)/)
+    expect(selectBatchBody).toMatch(/onPick\('FARM', farm\?\.code/)
+    // And the resolved values are SHOWN, not silently applied.
+    expect(shared).toMatch(/function ResolvedDimensionRow\(/)
+  })
+
+  it('choosing a farm narrows the unit list, and a unit change clears a now-stale batch', () => {
+    expect(shared).toMatch(/const unitOptions = farmId \? units\.filter\(\(u\) => u\.farmId === farmId\) : units/)
+    expect(shared).toMatch(/onPick\('BATCH', ''\)/) // cleared on both a farm and a unit change
+  })
+
+  it('the cascade is searchable by reusing MasterPicker, not a third picker widget', () => {
+    expect(shared).toMatch(/function CodeSearchPicker\(/)
+    expect(shared).toMatch(/<MasterPicker/)
+    // Generalised once (onCreate/creating now optional) rather than forked.
+    expect(shared).toMatch(/onCreate\?: \(\) => void;/)
+  })
+
+  it('a purchase (and Run Payroll, once a shared farm is known) tells the picker not to ask for Farm again', () => {
+    expect(finance).toMatch(/knownFarmId=\{farmId\}/) // RecordPurchaseSheet
+    expect(finance).toMatch(/knownFarmId=\{preview\.farmId \?\? undefined\}/) // RunPayrollSheet
+    expect(inventory).toMatch(/knownFarmId=\{farmId\}/)
   })
 })
