@@ -5,6 +5,7 @@ import { and, desc, eq, gt, lt } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, canView, MODULES } from '@/lib/permissions'
 import { postPayrollJournal, DimensionRequirementError, DimensionValidationError } from '@/lib/finance'
+import { isPlainDimensionMap } from '@/lib/dimensions'
 import { isUniqueViolation } from '@/lib/db-errors'
 import { startOfUtcDay } from '@/app/api/tasks/route'
 
@@ -146,6 +147,20 @@ export async function POST(req: Request) {
 
   const totalAmountCents = eligible.reduce((sum, e) => sum + e.monthlySalaryCents, 0)
 
+  // ── One farm's worth of dimension analysis, or none (dimensions-on-gl task)
+  // postPayrollJournal posts ONE aggregate entry for the whole run, so it can
+  // only carry a Farm dimension when every eligible employee actually shares
+  // one — the common case for a single-farm tenant. A run spanning several
+  // farms (or any farm-less employee) posts with no Farm dimension rather
+  // than guessing whose farm the wages belong to, same stance
+  // lib/reports.ts's P&L already takes on payroll. Computed BEFORE the
+  // dryRun check (moved up, forms-supply-required-dimensions fix) so the
+  // preview can tell the Run Payroll sheet which farm (if any) it will be
+  // able to derive, and the sheet can preview/ask for anything else a
+  // touched account requires — same as the sale/purchase forms.
+  const firstFarmId = eligible[0].farmId
+  const runFarmId = firstFarmId && eligible.every((e) => e.farmId === firstFarmId) ? firstFarmId : null
+
   // ── owner-roast finding #2: payroll used to be one irreversible click —
   // no preview of who gets paid or how much, no confirmation beyond the
   // button itself. `dryRun` runs every guard above (period parsing, the
@@ -156,18 +171,16 @@ export async function POST(req: Request) {
     return ok({
       periodStart, periodEnd, totalAmountCents, employeeCount: eligible.length,
       employees: eligible.map((e) => ({ id: e.id, name: e.name, amountCents: e.monthlySalaryCents })),
+      farmId: runFarmId,
     })
   }
 
-  // ── One farm's worth of dimension analysis, or none (dimensions-on-gl task)
-  // postPayrollJournal posts ONE aggregate entry for the whole run, so it can
-  // only carry a Farm dimension when every eligible employee actually shares
-  // one — the common case for a single-farm tenant. A run spanning several
-  // farms (or any farm-less employee) posts with no Farm dimension rather
-  // than guessing whose farm the wages belong to, same stance
-  // lib/reports.ts's P&L already takes on payroll.
-  const firstFarmId = eligible[0].farmId
-  const runFarmId = firstFarmId && eligible.every((e) => e.farmId === firstFarmId) ? firstFarmId : null
+  // ── Explicit dimension overrides (forms-supply-required-dimensions fix) —
+  // same optional, dimension-CODE-keyed body field POST /api/data/sales and
+  // POST /api/purchases already accept. The Run Payroll sheet supplies this
+  // for whatever a touched account requires that runFarmId can't cover (a
+  // run spanning several farms, or any dimension besides Farm).
+  const dimensions = isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -197,7 +210,7 @@ export async function POST(req: Request) {
         })))
         .returning()
 
-      await postPayrollJournal(tx, { id: run.id, tenantId, totalAmountCents, periodStart, periodEnd, farmId: runFarmId })
+      await postPayrollJournal(tx, { id: run.id, tenantId, totalAmountCents, periodStart, periodEnd, farmId: runFarmId }, { dimensions })
 
       return { run, payslips: slipRows }
     })
