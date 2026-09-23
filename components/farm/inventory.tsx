@@ -4,7 +4,11 @@ import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
 import { toCsv } from '@/lib/csv';
 import { Plus, Search, X, Download, Wheat, Syringe, Beaker, Sprout, Receipt, AlertTriangle, Upload, type LucideIcon } from './icons';
-import { useToast, fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, MasterPicker, type SaveReceipt, type MasterOption } from './ui-shared';
+import {
+  useToast, fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, MasterPicker,
+  useRequiredDimensions, RequiredDimensionFields, missingDimensionErrors, dimensionsForSubmit,
+  type SaveReceipt, type MasterOption,
+} from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
 import { todayInTimezone } from '@/lib/datetime';
 import { useRegional } from './settings';
@@ -210,6 +214,14 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   // mechanism as ui-shared.tsx's fieldErrorStyle/FieldError.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
+  // ── Required dimensions this purchase's touched accounts can't derive on
+  // their own (forms-supply-required-dimensions fix) — see the identical
+  // comment on components/farm/finance.tsx's RecordPurchaseSheet: FARM
+  // derives automatically once a farm is chosen, UNIT never does (a
+  // purchase carries no unit of its own in this schema).
+  const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
+  const { missing: requiredDims } = useRequiredDimensions(tenantId, 'purchase', farmId ? 'farm' : undefined, farmId || undefined);
+
   // item 18: the farm's own timezone, not the browser's.
   const { timezone } = useRegional();
   const todayIso = todayInTimezone(timezone);
@@ -285,6 +297,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
     else if (amountPaidCents !== null && unitCostCents !== null && amountPaidCents > qty * unitCostCents) {
       errs.amountPaid = 'Paid now is more than the purchase total';
     }
+    Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       setError('');
@@ -318,6 +331,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
       transactionDate: transactionDate || undefined,
       postingDate: postingDate || undefined,
       farmId,
+      dimensions: dimensionsForSubmit(requiredDims, dimPicks),
     });
     setSaving(false);
     if (res.success) {
@@ -369,6 +383,11 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
                 </>
               )}
             </Field>
+
+            <RequiredDimensionFields
+              tenantId={tenantId} missing={requiredDims} picks={dimPicks} fieldErrors={fieldErrors}
+              onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
+            />
 
             <div>
               <MasterPicker

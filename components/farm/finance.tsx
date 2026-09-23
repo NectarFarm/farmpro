@@ -8,7 +8,11 @@ import { DataTable, ColDef } from './data-table';
 import type { ReportPayload } from '@/lib/report-types';
 import { periodDateRange, BUDGET_PERIODS, type BudgetPeriod } from '@/lib/period-range';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
-import { fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, MasterPicker, useToast, type SaveReceipt, type MasterOption } from './ui-shared';
+import {
+  fieldErrorStyle, FieldError, PaymentMethodFields, SaveConfirmation, SaveError, MasterPicker, useToast,
+  useRequiredDimensions, RequiredDimensionFields, missingDimensionErrors, dimensionsForSubmit,
+  type SaveReceipt, type MasterOption,
+} from './ui-shared';
 import { compressImageFile } from '@/lib/image-compress';
 import { todayInTimezone } from '@/lib/datetime';
 import { useRegional } from './settings';
@@ -218,6 +222,12 @@ interface PayrollPreview {
   totalAmountCents: number;
   employeeCount: number;
   employees: { id: string; name: string; amountCents: number }[];
+  // forms-supply-required-dimensions fix: the one farm every eligible
+  // employee shares, or null when they don't (see
+  // app/api/payroll/runs/route.ts's identical `runFarmId` comment) — lets
+  // the sheet preview what a touched account can and can't derive before
+  // confirming, same as the sale/purchase forms.
+  farmId: string | null;
 }
 
 function fmtDate(d?: string | null): string {
@@ -290,6 +300,17 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   // looked exactly as submittable as a valid one. Per-field, same mechanism
   // as ui-shared.tsx's fieldErrorStyle/FieldError.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // ── Required dimensions this sale's touched accounts can't derive on
+  // their own (forms-supply-required-dimensions fix) ─────────────────────
+  // A sale against a batch already carries BATCH, its own UNIT and FARM
+  // (lib/dimensions.ts's masterChain walks batch -> unit -> farm) — this is
+  // only for whatever ELSE an account requires that nothing here supplies
+  // (an ad-hoc sale with no batch chosen, or a custom dimension). Recomputes
+  // whenever the batch changes, since that's the only thing that changes
+  // what can be derived.
+  const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
+  const { missing: requiredDims } = useRequiredDimensions(tenantId, 'sale', batchId ? 'batch' : undefined, batchId || undefined);
 
   // item 20: the customer master a "Sold to" MasterPicker resolves or
   // creates against — active only, since a customer marked inactive
@@ -368,6 +389,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
     if (soldAt && soldAt > todayIso) errs.soldAt = 'A sale cannot be dated in the future';
     if (effectiveDate && effectiveDate > todayIso) errs.effectiveDate = 'The effective date cannot be in the future';
     if (salePostingDate && salePostingDate > todayIso) errs.salePostingDate = 'The posting date cannot be in the future';
+    Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       setError('');
@@ -394,6 +416,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
       dueDate: dueDate || undefined,
       notes: notes.trim() || undefined,
       effectiveDate: effectiveDate || undefined,
+      dimensions: dimensionsForSubmit(requiredDims, dimPicks),
       postingDate: salePostingDate || undefined,
     });
     setSaving(false);
@@ -517,6 +540,10 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
               <FieldError id="sale-solddate-error" message={fieldErrors.soldAt} />
             </div>
           </div>
+          <RequiredDimensionFields
+            tenantId={tenantId} missing={requiredDims} picks={dimPicks} fieldErrors={fieldErrors}
+            onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
+          />
           {/* item 18: the effective date — when the stock/service actually
               took effect, if that ever differs from the sale itself (a
               dispatch that trails the sale by a day or two). Left blank, it
@@ -658,6 +685,15 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   // mechanism as ui-shared.tsx's fieldErrorStyle/FieldError.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
+  // ── Required dimensions this purchase's touched accounts can't derive on
+  // their own (forms-supply-required-dimensions fix) ─────────────────────
+  // A purchase already knows its farm (FARM is derived automatically once
+  // one is chosen) but never a production unit — unlike a sale, a purchase
+  // carries no batch/unit of its own in this schema — so a UNIT requirement
+  // always has to be asked for here.
+  const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
+  const { missing: requiredDims } = useRequiredDimensions(tenantId, 'purchase', farmId ? 'farm' : undefined, farmId || undefined);
+
   // item 18: the farm's own timezone, not the browser's — see the sale
   // sheet's identical comment.
   const { timezone } = useRegional();
@@ -730,6 +766,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     else if (amountPaidCents !== null && unitCostCents !== null && amountPaidCents > qty * unitCostCents) {
       errs.amountPaid = 'Paid now is more than the purchase total';
     }
+    Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       setError('');
@@ -760,6 +797,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
       transactionDate: transactionDate || undefined,
       postingDate: postingDate || undefined,
       farmId,
+      dimensions: dimensionsForSubmit(requiredDims, dimPicks),
     });
     setSaving(false);
     if (res.success) {
@@ -805,6 +843,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
             </select>
             <FieldError id="purchase-farm-error" message={fieldErrors.farmId} />
           </div>
+          <RequiredDimensionFields
+            tenantId={tenantId} missing={requiredDims} picks={dimPicks} fieldErrors={fieldErrors}
+            onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
+          />
           <div style={{ marginBottom: 12 }}>
             <MasterPicker
               label="Supplier *" listId="finance-suppliers" options={suppliers}
@@ -1452,6 +1494,17 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   const [confirmText, setConfirmText] = useState('');
   const [result, setResult] = useState<{ run: ApiPayrollRun; payslips: ApiPayslip[] } | null>(null);
 
+  // ── Required dimensions this run's touched accounts can't derive on their
+  // own (forms-supply-required-dimensions fix) ───────────────────────────
+  // postPayrollJournal posts ONE aggregate entry for the whole run, so it
+  // can only carry a Farm dimension when the preview says every eligible
+  // employee actually shares one (`preview.farmId`) — a run spanning
+  // several farms, or any OTHER dimension, always has to be asked for here.
+  const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
+  const { missing: requiredDims } = useRequiredDimensions(
+    tenantId, 'payroll_run', preview?.farmId ? 'farm' : undefined, preview?.farmId || undefined,
+  );
+
   const CONFIRM_WORD = 'PAY';
 
   async function loadPreview() {
@@ -1465,14 +1518,21 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
     if (!res.success) { setError(res.error || 'Could not preview this payroll run.'); return; }
     setPreview(res.data);
     setConfirmText('');
+    setDimPicks({});
   }
 
   async function run() {
     if (!preview) return;
+    const dimErrs = missingDimensionErrors(requiredDims, dimPicks);
+    if (Object.keys(dimErrs).length > 0) {
+      setError(`This run needs a value for: ${requiredDims.map((d) => d.dimensionName).join(', ')}`);
+      return;
+    }
     setSaving(true);
     setError('');
     const res = await apiClient.post<{ run: ApiPayrollRun; payslips: ApiPayslip[] }>('/api/payroll/runs', {
       tenantId, periodStart, periodEnd, memo: memo.trim() || undefined,
+      dimensions: dimensionsForSubmit(requiredDims, dimPicks),
     });
     setSaving(false);
     if (!res.success) { setError(res.error || 'Failed to run payroll.'); return; }
@@ -1519,6 +1579,10 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
               <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} · {fmtDate(preview.periodStart)} – {fmtDate(preview.periodEnd)}</span>
               <span style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>{formatMoney(preview.totalAmountCents)}</span>
             </div>
+            <RequiredDimensionFields
+              tenantId={tenantId} missing={requiredDims} picks={dimPicks}
+              onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
+            />
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
               Type {CONFIRM_WORD} to confirm you want to pay {preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} {formatMoney(preview.totalAmountCents)}
             </label>
@@ -1529,7 +1593,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
               <button
                 className="btn-primary"
                 style={{ flex: 2, justifyContent: 'center' }}
-                disabled={saving || confirmText.trim().toUpperCase() !== CONFIRM_WORD}
+                disabled={saving || confirmText.trim().toUpperCase() !== CONFIRM_WORD || Object.keys(missingDimensionErrors(requiredDims, dimPicks)).length > 0}
                 onClick={run}
               >
                 {saving ? 'Running…' : `Confirm & pay ${formatMoney(preview.totalAmountCents)}`}

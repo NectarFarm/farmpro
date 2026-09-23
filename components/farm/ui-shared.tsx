@@ -10,6 +10,7 @@ import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
 import { PAYMENT_METHODS, referenceLabel } from '@/lib/payment-method';
 import { formatMoney } from '@/lib/money';
 import { Button } from '@/components/ui-kit/button';
+import { apiClient } from '@/lib/request';
 
 /* ─────────────────────────────────────────────
    TOAST SYSTEM
@@ -294,6 +295,157 @@ export function SaveError({ message, onSetupDimensions }: { message: string; onS
           Set up reporting dimensions
         </button>
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   REQUIRED DIMENSIONS — supply what a posting needs (forms-supply-required-
+   dimensions fix)
+
+   lib/dimensions.ts's attachLineDimensions has always refused a posting that
+   leaves a REQUIRED account dimension empty — correctly. What was missing
+   was any way for the sale/purchase/payroll forms to COMPLY: the moment an
+   owner marked one account dimension Required, that document type could
+   never be recorded again, from any form, with no field anywhere to supply
+   it. This is that field.
+
+   Two pieces:
+   - useRequiredDimensions() calls the exact same preview the real post runs
+     (POST /api/dimensions/resolve -> lib/dimensions.ts's
+     previewDocumentDimensions, wrapping resolveMasterDimensions +
+     applyAccountRules) and returns the UNION, across every account this
+     document type touches, of dimensions still required and NOT derivable
+     from whatever master (a sale's batch, a purchase's/payroll run's farm)
+     the form currently knows. A dimension the master chain already supplies
+     (a sale against a batch already carries BATCH, and the batch's own UNIT
+     and FARM) never shows up here — this is only for what the form cannot
+     work out on its own.
+   - RequiredDimensionFields renders one <select> per still-missing
+     dimension, labelled with its real name (never the internal code) and
+     listing that dimension's own active values (GET
+     /api/dimensions/[id]/values) — an owner picks the same values they set
+     up on the Reporting dimensions screen, nothing invented here.
+
+   `picks` is keyed by dimension CODE, because that's what POST
+   /api/data/sales, /api/purchases and /api/payroll/runs all accept in their
+   optional `dimensions` body field (lib/dimensions.ts's
+   isPlainDimensionMap) — a caller passes it straight through.
+────────────────────────────────────────────── */
+export interface RequiredDimensionRule { dimensionId: string; dimensionCode: string; dimensionName: string }
+interface DimensionValueOption { id: string; code: string; name: string; archived: boolean }
+interface ResolvePreviewAccount { requiredMissing: RequiredDimensionRule[] }
+interface ResolvePreviewResponse { perAccount: ResolvePreviewAccount[] }
+
+// Mirrors lib/dimensions.ts's MasterType — duplicated here because that
+// module is `server-only` and cannot be imported into a client component.
+export type DimensionMasterType = 'employee' | 'unit' | 'batch' | 'farm' | 'product' | 'account';
+export type DimensionDocType = 'sale' | 'purchase' | 'payroll_run';
+
+// What's asked for depends only on the master the form has chosen (a batch,
+// a farm) — never on what the user has typed into a picker so far. Passing
+// in-progress picks back into this preview would make a field disappear out
+// from under whoever is in the middle of filling it in; instead the picks
+// are merged in only once, right before the real POST (see each sheet's
+// `save()`).
+export function useRequiredDimensions(
+  tenantId: string, docType: DimensionDocType, masterType?: DimensionMasterType, masterId?: string,
+): { missing: RequiredDimensionRule[]; loading: boolean } {
+  const [missing, setMissing] = useState<RequiredDimensionRule[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    apiClient.post<ResolvePreviewResponse>('/api/dimensions/resolve', {
+      tenantId, docType, masterType: masterType || undefined, masterId: masterId || undefined,
+    }).then((res) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!res.success) { setMissing([]); return; }
+      const byId = new Map<string, RequiredDimensionRule>();
+      for (const account of res.data.perAccount) {
+        for (const m of account.requiredMissing) byId.set(m.dimensionId, m);
+      }
+      setMissing([...byId.values()]);
+    });
+    return () => { cancelled = true; };
+  }, [tenantId, docType, masterType, masterId]);
+
+  return { missing, loading };
+}
+
+function DimensionValueSelect({ tenantId, dim, value, onChange, error }: {
+  tenantId: string; dim: RequiredDimensionRule; value: string; onChange: (valueCode: string) => void; error?: string;
+}) {
+  const [values, setValues] = useState<DimensionValueOption[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get<DimensionValueOption[]>(`/api/dimensions/${dim.dimensionId}/values?tenantId=${tenantId}`).then((res) => {
+      if (!cancelled && res.success) setValues(res.data.filter((v) => !v.archived));
+    });
+    return () => { cancelled = true; };
+  }, [dim.dimensionId, tenantId]);
+
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{dim.dimensionName} *</label>
+      <select className="farm-input" value={value} onChange={(e) => onChange(e.target.value)} style={fieldErrorStyle(!!error)}>
+        <option value="">{values === null ? 'Loading…' : values.length === 0 ? `No ${dim.dimensionName} values set up yet` : `Select ${dim.dimensionName}`}</option>
+        {(values ?? []).map((v) => <option key={v.id} value={v.code}>{v.name}</option>)}
+      </select>
+      <FieldError message={error} />
+    </div>
+  );
+}
+
+// Shared validation/submit helpers — every sheet that posts (Record Sale,
+// both Record Purchase sheets, Run Payroll) needs the exact same two rules:
+// every still-missing required dimension needs a pick before save is
+// allowed, and only picks for CURRENTLY-required dimensions are worth
+// sending (a stale pick for a dimension that stopped being required, e.g.
+// after the batch/farm changed, is simply dropped rather than sent).
+export function missingDimensionErrors(missing: RequiredDimensionRule[], picks: Record<string, string>): Record<string, string> {
+  const errs: Record<string, string> = {};
+  for (const dim of missing) {
+    if (!picks[dim.dimensionCode]) errs[`dim_${dim.dimensionCode}`] = `${dim.dimensionName} is required to post this`;
+  }
+  return errs;
+}
+export function dimensionsForSubmit(missing: RequiredDimensionRule[], picks: Record<string, string>): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const dim of missing) {
+    if (picks[dim.dimensionCode]) out[dim.dimensionCode] = picks[dim.dimensionCode];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+// Renders nothing when `missing` is empty — the common case for every
+// tenant that hasn't marked any account dimension Required, so every
+// existing posting flow (and its tests) is unaffected.
+export function RequiredDimensionFields({ tenantId, missing, picks, onPick, fieldErrors }: {
+  tenantId: string;
+  missing: RequiredDimensionRule[];
+  picks: Record<string, string>;
+  onPick: (dimensionCode: string, valueCode: string) => void;
+  fieldErrors?: Record<string, string>;
+}) {
+  if (missing.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ padding: '8px 10px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.2)', borderRadius: 8, marginBottom: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+        Posting this needs a value for {missing.map((m) => m.dimensionName).join(', ')} — set up under Reporting dimensions.
+      </div>
+      {missing.map((dim) => (
+        <DimensionValueSelect
+          key={dim.dimensionId}
+          tenantId={tenantId}
+          dim={dim}
+          value={picks[dim.dimensionCode] ?? ''}
+          onChange={(valueCode) => onPick(dim.dimensionCode, valueCode)}
+          error={fieldErrors?.[`dim_${dim.dimensionCode}`]}
+        />
+      ))}
     </div>
   );
 }
