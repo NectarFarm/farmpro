@@ -5,6 +5,7 @@
 // Used across all screens for consistent feedback patterns
 // ============================================================
 
+import { cn } from '@/lib/utils';
 import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
 import { X, Check, AlertTriangle, Info, DoorOpen, ChevronRight } from './icons';
 import { PAYMENT_METHODS, referenceLabel } from '@/lib/payment-method';
@@ -832,13 +833,53 @@ export function MasterPicker({ label, listId, options, name, onNameChange, onRes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchedId]);
 
+  // A native <datalist> renders its own popup, which the browser styles and
+  // CSS cannot reach — on Chrome it lands as a dark tooltip nothing like the
+  // rest of the app. This is the same behaviour (type to narrow, click to
+  // choose) drawn with our own tokens instead.
+  const [open, setOpen] = useState(false);
+  const matches = trimmed
+    ? options.filter((o) => o.name.toLowerCase().includes(trimmed.toLowerCase()))
+    : options;
+  const showList = open && matches.length > 0 && !(exactMatch && matches.length === 1);
+
   return (
     <div>
       <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{label}</label>
-      <input className="farm-input" list={listId} value={name} onChange={(e) => onNameChange(e.target.value)} placeholder={placeholder} />
-      <datalist id={listId}>
-        {options.map((o) => <option key={o.id} value={o.name} />)}
-      </datalist>
+      <div className="relative">
+        <input
+          className="farm-input" value={name} placeholder={placeholder}
+          role="combobox" aria-expanded={showList} aria-controls={listId} aria-autocomplete="list"
+          onChange={(e) => { onNameChange(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          // A click on an option fires after blur, so let it land first.
+          onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}
+        />
+        {showList && (
+          <ul
+            id={listId}
+            role="listbox"
+            className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl bg-surface py-1 shadow-(--shadow-raised) ring-1 ring-border"
+          >
+            {matches.slice(0, 50).map((o) => (
+              <li key={o.id}>
+                <button
+                  type="button" role="option" aria-selected={o.id === matchedId}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { onNameChange(o.name); setOpen(false); }}
+                  className={cn(
+                    'flex min-h-11 w-full items-center px-3 text-left text-sm hover:bg-primary-soft',
+                    o.id === matchedId ? 'font-medium text-primary' : 'text-fg',
+                  )}
+                >
+                  {o.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       {onCreate && trimmed && !exactMatch && (
         <button type="button" onClick={onCreate} disabled={!!creating} className="mt-1 text-xs font-medium text-primary">
           {creating ? 'Saving…' : `+ Save "${trimmed}" as a new ${label.toLowerCase()}`}
