@@ -1499,7 +1499,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   // employee actually shares one (`preview.farmId`) — a run spanning
   // several farms, or any OTHER dimension, always has to be asked for here.
   const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
-  const { missing: requiredDims } = useRequiredDimensions(
+  const { missing: requiredDims, requiredBy } = useRequiredDimensions(
     tenantId, 'payroll_run', preview?.farmId ? 'farm' : undefined, preview?.farmId || undefined,
   );
 
@@ -1581,6 +1581,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
               tenantId={tenantId} missing={requiredDims} picks={dimPicks}
               onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
               knownFarmId={preview.farmId ?? undefined}
+              requiredBy={requiredBy}
             />
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
               Type {CONFIRM_WORD} to confirm you want to pay {preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} {formatMoney(preview.totalAmountCents)}
