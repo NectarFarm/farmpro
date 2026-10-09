@@ -233,11 +233,12 @@ export default function Home() {
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }
 
-  function handleLogin(r: Role, tenant: string | null = null, name = '') {
+  function handleLogin(r: Role, tenant: string | null = null, name = '', id = '') {
     clearScreenHash();
     setRole(r);
     setTenantId(tenant);
     setUserName(name);
+    setUserId(id);
     setAuthState('app');
   }
 
