@@ -1935,9 +1935,14 @@ export function FinanceScreen() {
             // Overview the button read "Record sale" and did nothing at all.
             // The click handler now mirrors the label's own fallback instead
             // of a narrower, silently-different condition.
-            <Button onClick={() => { if (tab === 'purchases') setShowRecordPurchase(true); else if (tab === 'payroll') setShowRunPayroll(true); else setShowRecordSale(true); }}>
+            // The Expenses tab lists both stock purchases and expenses that
+            // are not stock. The header action is the common case, Record
+            // expense (transport, labour, a vet visit, airtime); the stock
+            // path stays in the body, labelled "Record stock purchase", so
+            // the two buttons no longer look alike and behave differently.
+            <Button onClick={() => { if (tab === 'purchases') setShowRecordExpense(true); else if (tab === 'payroll') setShowRunPayroll(true); else setShowRecordSale(true); }}>
               <Plus size={16} />
-              {tab === 'payroll' ? 'Run payroll' : tab === 'purchases' ? 'Record purchase' : 'Record sale'}
+              {tab === 'payroll' ? 'Run payroll' : tab === 'purchases' ? 'Record expense' : 'Record sale'}
             </Button>
           }
         />
@@ -2140,7 +2145,7 @@ export function FinanceScreen() {
               <Plus size={16} /> Record expense
             </Button>
             <Button size="lg" variant="secondary" className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}>
-              <Plus size={16} /> Record Purchase
+              <Plus size={16} /> Record stock purchase
             </Button>
             <Button size="lg" variant="secondary" className="w-full justify-center" onClick={() => setShowSupplierBalances(true)}>
               Supplier balances
