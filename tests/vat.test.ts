@@ -25,6 +25,7 @@ import { GET as adminRatesGET, POST as adminRatesPOST } from '@/app/api/admin/ta
 import { POST as saleReversePOST } from '@/app/api/data/sales/[id]/reverse/route'
 import { POST as expenseReversePOST } from '@/app/api/expenses/[id]/reverse/route'
 import { PATCH as adminRatePATCH } from '@/app/api/admin/tax-rates/[id]/route'
+import { splitLotCost } from '@/lib/inventory'
 import { db } from '@/db'
 import {
   tenants, users, sessions, farms, productionUnits, employees, payslips, payrollRuns,
@@ -208,6 +209,18 @@ describe('VAT arithmetic', () => {
     expect(computeTax({ code: 'VATABLE', baseCents: 100, inclusive: false, rateBps: null })).toEqual({
       ok: false, message: NO_VAT_RATE_MESSAGE,
     })
+  })
+})
+
+describe('stock lot cost', () => {
+  it('carries the net exactly across awkward quantities', () => {
+    for (const [net, qty] of [[7759, 3], [1005, 7], [1, 3], [2, 7], [100, 3], [999999, 13], [5, 5], [0, 4], [12345, 1], [10001, 100]]) {
+      const pieces = splitLotCost(net, qty)
+      expect(pieces.reduce((s, p) => s + p.qty, 0)).toBe(qty)
+      expect(pieces.reduce((s, p) => s + p.qty * p.unitCostCents, 0)).toBe(net)
+      expect(pieces.length).toBeLessThanOrEqual(2)
+      for (const p of pieces) { expect(p.qty).toBeGreaterThan(0); expect(Number.isInteger(p.unitCostCents)).toBe(true) }
+    }
   })
 })
 
@@ -667,7 +680,9 @@ run('VAT on sales, purchases and expenses (issue #419)', () => {
     })
     expect([bill.purchase.totalCostCents, bill.purchase.taxCents, bill.purchase.netCents]).toEqual([9000, 1241, 7759])
     expect(bill.purchase.unitCostCents).toBe(3000)
-    expect(bill.lot.unitCostCents).toBe(2586)
+    // 7759 over 3 units does not divide: 2 at 2586 + 1 at 2587 = 7759 exactly.
+    expect(bill.lots.map((l: { qtyOnHand: number; unitCostCents: number }) => [l.qtyOnHand, l.unitCostCents])).toEqual([[2, 2586], [1, 2587]])
+    expect(bill.lots.reduce((sum: number, l: { qtyOnHand: number; unitCostCents: number }) => sum + l.qtyOnHand * l.unitCostCents, 0)).toBe(7759)
     const exempt = await post('http://localhost/api/expenses', {
       payee: 'Exempt payee', categoryId: transportCategoryId, amountCents: 5000, amountPaidCents: 5000, paymentMethod: 'Cash', farmId,
       date: '2026-09-07', postingDate: '2026-09-07', taxCode: 'EXEMPT',
