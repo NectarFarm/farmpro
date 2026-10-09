@@ -13,7 +13,7 @@
 // once, before it expires.
 import 'server-only'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { and, eq, gt, isNull } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { db } from '@/db'
 import { setPasswordTokens, users } from '@/db/schemas'
 import { hashSecret } from '@/lib/auth'
@@ -119,4 +119,57 @@ export async function consumeSetPasswordToken(token: string, newPassword: string
     await tx.update(users).set({ passwordHash, passwordSalt: salt }).where(eq(users.id, info.userId))
     return { ok: true }
   })
+}
+
+// ── "Who is still waiting to sign in?" ──────────────────────────────────────
+// There is no "password set" column, and a token's usedAt is also stamped when
+// a NEWER token supersedes it (issueSetPasswordToken above). So the only
+// honest signal is the user's most recent token: if it is still unused, no
+// link has ever been redeemed (a supersede always leaves the newest one
+// live) — the person is waiting, and the link is either live or expired. If
+// the newest is used, that is a redemption: a password was set. A user with
+// no token at all got their credentials another way (a temp password, a PIN)
+// and is not "waiting" in this sense.
+export type SetPasswordWait = {
+  /** 'waiting' = unused, unexpired link out; 'expired' = unused and past expiresAt. */
+  state: 'waiting' | 'expired'
+  issuedAt: Date
+  expiresAt: Date
+}
+
+export function classifyLatestToken(
+  latest: { createdAt: Date; expiresAt: Date; usedAt: Date | null } | undefined,
+  now: Date = new Date(),
+): SetPasswordWait | null {
+  if (!latest || latest.usedAt) return null
+  return {
+    state: latest.expiresAt.getTime() > now.getTime() ? 'waiting' : 'expired',
+    issuedAt: latest.createdAt,
+    expiresAt: latest.expiresAt,
+  }
+}
+
+// One query for any number of users (no N+1): every token for these users,
+// newest first, reduced to the first seen per user.
+export async function setPasswordWaitFor(userIds: string[]): Promise<Map<string, SetPasswordWait>> {
+  const out = new Map<string, SetPasswordWait>()
+  if (userIds.length === 0) return out
+  const rows = await db
+    .select({
+      userId: setPasswordTokens.userId,
+      createdAt: setPasswordTokens.createdAt,
+      expiresAt: setPasswordTokens.expiresAt,
+      usedAt: setPasswordTokens.usedAt,
+    })
+    .from(setPasswordTokens)
+    .where(inArray(setPasswordTokens.userId, userIds))
+    .orderBy(desc(setPasswordTokens.createdAt))
+  const seen = new Set<string>()
+  for (const r of rows) {
+    if (seen.has(r.userId)) continue
+    seen.add(r.userId)
+    const wait = classifyLatestToken(r)
+    if (wait) out.set(r.userId, wait)
+  }
+  return out
 }
