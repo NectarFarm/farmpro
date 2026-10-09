@@ -172,6 +172,11 @@ export function previewTax(input: {
   }
 }
 
+/** Revenue or expense with the VAT taken out. Null tax is "no code recorded" and subtracts nothing. */
+export function netOfTax(gross: number, taxCents: number | null | undefined): number {
+  return gross - (taxCents ?? 0)
+}
+
 export function formatRatePercent(rateBps: number): string {
   return `${(rateBps / 100).toFixed(2)}%`
 }

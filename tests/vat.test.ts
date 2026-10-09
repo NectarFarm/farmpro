@@ -22,6 +22,8 @@ import { POST as payrollPOST } from '@/app/api/payroll/runs/route'
 import { GET as vatGET } from '@/app/api/reports/vat/route'
 import { GET as taxCodesGET } from '@/app/api/tax-codes/route'
 import { GET as adminRatesGET, POST as adminRatesPOST } from '@/app/api/admin/tax-rates/route'
+import { POST as saleReversePOST } from '@/app/api/data/sales/[id]/reverse/route'
+import { POST as expenseReversePOST } from '@/app/api/expenses/[id]/reverse/route'
 import { PATCH as adminRatePATCH } from '@/app/api/admin/tax-rates/[id]/route'
 import { db } from '@/db'
 import {
@@ -155,6 +157,39 @@ describe('VAT arithmetic', () => {
     expect(result).toMatchObject({ ok: true, taxCents: tax, netCents: base, grossCents: base + tax })
     const over = computeTax({ code: 'VATABLE', baseCents: 99_999_999_999_999, inclusive: false, rateBps: 1600 })
     expect(over).toEqual({ ok: false, message: 'The amount with VAT is too large to record.' })
+  })
+
+  it('holds gross = net + tax exactly, with one rounding point, for every rate and both directions', () => {
+    // Worked: 16% inclusive of KSh 9.99 (999 cents) is 999 * 1600 / 11600 =
+    // 137.79 -> tax 138, net 861, and 861 + 138 = 999. Exclusive KSh 31.25
+    // (3125 cents) is exactly 500 tax -> gross 3625.
+    expect(computeTax({ code: 'VATABLE', baseCents: 999, inclusive: true, rateBps: 1600 })).toMatchObject({
+      ok: true, grossCents: 999, taxCents: 138, netCents: 861,
+    })
+    expect(computeTax({ code: 'VATABLE', baseCents: 3125, inclusive: false, rateBps: 1600 })).toMatchObject({
+      ok: true, grossCents: 3625, taxCents: 500, netCents: 3125,
+    })
+    let seed = 20261009
+    const next = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed }
+    for (const rateBps of [0, 1, 800, 1400, 1600, 10000]) {
+      for (let i = 0; i < 2000; i += 1) {
+        const base = i < 300 ? i : next() % 100_000_000
+        for (const inclusive of [true, false]) {
+          const r = computeTax({ code: 'VATABLE', baseCents: base, inclusive, rateBps })
+          if (!r.ok) throw new Error(`refused ${base} @${rateBps}`)
+          expect(r.netCents + r.taxCents).toBe(r.grossCents)
+          expect(r.taxCents).toBeGreaterThanOrEqual(0)
+          expect(r.netCents).toBeGreaterThanOrEqual(0)
+          // The figure the user typed comes back exactly: gross when they
+          // said "includes VAT", net when they said "excludes".
+          expect(inclusive ? r.grossCents : r.netCents).toBe(base)
+          if (rateBps === 0) expect(r.taxCents).toBe(0)
+          // Rounded once, within half a cent of the true figure.
+          const exact = inclusive ? (base * rateBps) / (10000 + rateBps) : (base * rateBps) / 10000
+          expect(Math.abs(r.taxCents - exact)).toBeLessThanOrEqual(0.5 + 1e-9)
+        }
+      }
+    }
   })
 
   it('treats the end date as inclusive and refuses two covering rates', () => {
@@ -566,6 +601,81 @@ run('VAT on sales, purchases and expenses (issue #419)', () => {
     expect(marchUncoded.length).toBeGreaterThan(0)
     expect(auditor.payload.data.meta.outputTaxCents).toBe(0)
     expect(auditor.payload.data.headline[0].caption).toBe('No document in this period has a tax code.')
+  })
+
+  it('keeps the ledger, the VAT summary and the books together, with a reversal and an inclusive purchase', async () => {
+    const novRate = randomUUID()
+    rateIds.push(novRate)
+    await db.insert(taxRates).values({ id: novRate, taxCode: 'VATABLE', rateBps: 1600, effectiveFrom: '2026-09-01', effectiveTo: '2026-09-30' })
+    mockCookie = ownerToken
+    const post = async (url: string, body: Record<string, unknown>) => {
+      const res = await readJson(await (url.includes('purchases') ? purchasesPOST : url.includes('expenses') ? expensesPOST : salesPOST)(postRequest(url, { tenantId, ...body })))
+      expect(res.status, res.payload.error).toBe(201)
+      return res.payload.data
+    }
+    const baseSale = { method: 'Cash', status: 'paid', soldAt: '2026-09-05', postingDate: '2026-09-05', taxCode: 'VATABLE' }
+    const oddInclusive = await post('http://localhost/api/data/sales', { ...baseSale, item: 'Odd inclusive', amountCents: 999, taxInclusive: true })
+    expect([oddInclusive.amountCents, oddInclusive.taxCents, oddInclusive.netCents, oddInclusive.grossCents]).toEqual([999, 138, 861, 999])
+    const exclusive = await post('http://localhost/api/data/sales', { ...baseSale, item: 'Exclusive', amountCents: 3125, taxInclusive: false })
+    expect([exclusive.amountCents, exclusive.taxCents, exclusive.netCents]).toEqual([3625, 500, 3125])
+    const pending = await post('http://localhost/api/data/sales', { ...baseSale, status: 'pending', item: 'On credit', amountCents: 11600, taxInclusive: true })
+    expect(await linesFor(tenantId, 'sale', pending.id)).toEqual([
+      { code: '1002', debitCents: 11600, creditCents: 0 },
+      { code: '2300', debitCents: 0, creditCents: 1600 },
+      { code: '4001', debitCents: 0, creditCents: 10000 },
+    ])
+    const doomed = await post('http://localhost/api/data/sales', { ...baseSale, item: 'Reversed', amountCents: 20000, taxInclusive: false })
+
+    // Inclusive purchase: 3 x KSh 30.00 typed, VAT included. Gross 9000,
+    // tax 9000 * 1600 / 11600 = 1241.38 -> 1241, net 7759. Stock is valued
+    // at net per unit (7759 / 3 = 2586.33 -> 2586), not at the typed 3000.
+    const bill = await post('http://localhost/api/purchases', {
+      supplier: 'Incl Mill', itemName: 'Incl Mash', unit: 'kg', quantity: 3, unitCostCents: 3000, farmId,
+      postingDate: '2026-09-06', receivedDate: '2026-09-06', taxCode: 'VATABLE', taxInclusive: true,
+    })
+    expect([bill.purchase.totalCostCents, bill.purchase.taxCents, bill.purchase.netCents]).toEqual([9000, 1241, 7759])
+    expect(bill.purchase.unitCostCents).toBe(3000)
+    expect(bill.lot.unitCostCents).toBe(2586)
+    const exempt = await post('http://localhost/api/expenses', {
+      payee: 'Exempt payee', categoryId: transportCategoryId, amountCents: 5000, amountPaidCents: 5000, paymentMethod: 'Cash', farmId,
+      date: '2026-09-07', postingDate: '2026-09-07', taxCode: 'EXEMPT',
+    })
+    expect(exempt.expense.taxCents).toBe(0)
+    const expense = await post('http://localhost/api/expenses', {
+      payee: 'Doomed payee', categoryId: transportCategoryId, amountCents: 10000, amountPaidCents: 0, paymentMethod: 'Credit', farmId,
+      date: '2026-09-08', postingDate: '2026-09-08', taxCode: 'VATABLE', taxInclusive: false,
+    })
+
+    const reversedSale = await readJson(await saleReversePOST(postRequest('http://localhost/x', { tenantId, reason: 'test' }), { params: Promise.resolve({ id: doomed.id }) }))
+    expect(reversedSale.status).toBe(200)
+    const reversedExpense = await readJson(await expenseReversePOST(postRequest('http://localhost/x', { tenantId, reason: 'test' }), { params: Promise.resolve({ id: expense.expense.id }) }))
+    expect(reversedExpense.status).toBe(200)
+
+    // Output = 138 + 500 + 1600 (the reversed 3200 is out). Input = 1241.
+    mockCookie = auditorToken
+    const report = await readJson(await vatGET(new Request(`http://localhost/api/reports/vat?from=2026-09-01&to=2026-09-30&tenantId=${tenantId}`)))
+    expect(report.status).toBe(200)
+    expect(report.payload.data.meta.outputTaxCents).toBe(138 + 500 + 1600)
+    expect(report.payload.data.meta.inputTaxCents).toBe(1241)
+    expect(report.payload.data.meta.netTaxCents).toBe(138 + 500 + 1600 - 1241)
+    // Zero-rated, exempt and outside scope are rows of their own, never merged into VATable.
+    const exemptRow = report.payload.data.rows.find((row: (string | number | null)[]) => row[0] === 'Expenses' && row[1] === 'Exempt')
+    expect(exemptRow.slice(2)).toEqual([1, 50, 0, 50])
+
+    // The ledger agrees with the summary. VAT sits in 2300 / 1300 only, reversal included.
+    const tb = await computeTrialBalance(tenantId)
+    expect(tb.balanced).toBe(true)
+    const bal = (code: string) => tb.rows.find((r) => r.code === code)?.balanceCents ?? 0
+    const juneOutput = 16000 + 1600
+    const juneInput = 16000 + 1600
+    expect(bal('2300')).toBe(juneOutput + 138 + 500 + 1600)
+    expect(bal('1300')).toBe(juneInput + 1241)
+
+    // The P&L reports net of VAT, the reversed rows are out.
+    const nov = await computePlReport(tenantId, new Date('2026-09-01T00:00:00.000Z'), new Date('2026-09-30T23:59:59.999Z'))
+    expect(nov.meta.periodRevenue).toBe((861 + 3125 + 10000) / 100)
+    expect(nov.meta.periodPurchaseExpense).toBe(7759 / 100)
+    expect(nov.meta.periodOperatingExpense).toBe(5000 / 100)
   })
 
   it('lists the four codes for a tenant and does not seed a rate beyond what this test added', async () => {

@@ -254,6 +254,12 @@ export async function POST(req: Request) {
       lowStockThreshold,
       quantity,
       unitCostCents,
+      // An inclusive VATable bill: the typed unit cost carries the VAT the
+      // farm claims back, so stock is valued at net per unit (rounded to the
+      // cent). Exclusive and uncoded bills keep the typed unit cost.
+      lotUnitCostCents: tax.columns.taxInclusive === true && tax.columns.netCents != null
+        ? Math.round(tax.columns.netCents / quantity)
+        : undefined,
       totalCostCents,
       paymentMethod,
       amountPaidCents,

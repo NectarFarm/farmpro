@@ -176,7 +176,7 @@ export const purchases = pgTable('purchases', {
   farmId: text('farm_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   // Issue #419. Same five nullable columns as sales. total_cost_cents stays
-  // the settled amount. The lot's unit cost stays the typed unit cost.
+  // the settled amount. The lot's unit cost is the typed unit cost, or net per unit on an inclusive VATable bill.
   taxCode: text('tax_code'),
   taxInclusive: boolean('tax_inclusive'),
   grossCents: bigint('gross_cents', { mode: 'number' }),

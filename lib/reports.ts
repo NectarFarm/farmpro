@@ -20,13 +20,14 @@
 // `columnFormats` tells the renderer which columns are money/weight so the
 // screen, the CSV and the PDF cannot disagree about a number.
 import 'server-only'
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sum } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql, sum } from 'drizzle-orm'
 import { db } from '@/db'
 import {
   batches, sales, purchases, expenses, expenseCategories, taxCodes, records, products, employees, tenantSettings, farms,
   payrollRuns, journalEntries, journalLines, journalLineDimensions, accounts,
 } from '@/db/schemas'
 import { computeTrialBalance } from '@/lib/finance'
+import { netOfTax } from '@/lib/tax'
 import { batchIdsForFarm, unitIdsForFarm } from '@/lib/farm-scope'
 import { dimensionByCode, dimensionValuesFor, ancestorAtLevel, DimensionNotFoundError } from '@/lib/dimensions'
 import type { ReportRow, ReportPayload } from '@/lib/report-types'
@@ -156,13 +157,6 @@ export async function withReportCache(
 }
 
 const DATE_FORMAT_SET = new Set(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'])
-
-// Null tax is "no code was recorded", which subtracts nothing. A stored 0
-// (zero-rated, exempt, outside scope) also subtracts nothing. The row stays
-// in the same period either way.
-function netOfTax(gross: number, taxCents: number | null | undefined): number {
-  return gross - (taxCents ?? 0)
-}
 
 function fmtInt(n: number): string {
   return Math.round(n).toLocaleString('en-US')
@@ -494,7 +488,7 @@ export async function computeBatchPlReport(tenantId: string, from: Date | null, 
   if (from) saleConditions.push(gte(sales.postingDate, from))
   if (to) saleConditions.push(lte(sales.postingDate, to))
   const revenueBySale = await db
-    .select({ batchId: sales.batchId, total: sum(sales.amountCents) })
+    .select({ batchId: sales.batchId, total: sum(sql`${sales.amountCents} - coalesce(${sales.taxCents}, 0)`) })
     .from(sales)
     .where(and(...saleConditions))
     .groupBy(sales.batchId)

@@ -6,6 +6,7 @@ import { syncTaskNotifications, DONE_STATUSES } from '@/app/api/notifications/ro
 import { batchEnterpriseType } from '@/lib/codes'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession } from '@/lib/api-auth'
+import { netOfTax } from '@/lib/tax'
 import { mortalityQtyForBatches } from '@/lib/batch-ledger'
 
 // ── GET /api/dashboard/kpis (issue #228, revisited #292, #296) ──────────────
@@ -377,12 +378,12 @@ export async function GET(req: Request) {
   // so `revenueCents`/`periodRevenueCents`/the trend bucket totals are all
   // cents too — no `sales.amountCents`-whole-units conversion anywhere in this
   // route anymore.
-  const revenueCents = salesRows.reduce((s, sale) => s + sale.amountCents, 0)
+  const revenueCents = salesRows.reduce((s, sale) => s + netOfTax(sale.amountCents, sale.taxCents), 0)
 
   // Period-scoped revenue + day-bucketed trend — see file header.
   const start = periodStart(period, now)
   const periodSalesRows = salesRows.filter((s) => (s.soldAt as Date) >= start && (s.soldAt as Date) <= now)
-  const periodRevenueCents = periodSalesRows.reduce((s, sale) => s + sale.amountCents, 0)
+  const periodRevenueCents = periodSalesRows.reduce((s, sale) => s + netOfTax(sale.amountCents, sale.taxCents), 0)
 
   const startDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
   const endDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
@@ -395,7 +396,7 @@ export async function GET(req: Request) {
     // Guard rather than crash: every periodSalesRows entry should fall within
     // [startDay, endDay] by construction, but a sale exactly at a boundary
     // instant is safer handled defensively than assumed.
-    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + s.amountCents)
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + netOfTax(s.amountCents, s.taxCents))
   }
   const revenueTrend = [...buckets.entries()].map(([date, amountCents]) => ({ date, amountCents }))
 

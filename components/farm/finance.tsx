@@ -382,7 +382,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   const totalCents = unitPriceCents !== null && Number.isFinite(qtyForTotal) && qtyForTotal > 0
     ? unitPriceCents * Math.max(1, Math.trunc(qtyForTotal))
     : null;
-  const taxDay = salePostingDate || soldAt || null;
+  const taxDay = salePostingDate || effectiveDate || soldAt || todayIso;
   const taxPreview = previewTax({
     code: taxCode,
     baseCents: totalCents,
@@ -729,7 +729,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   const qtyNum = Number(quantity);
   const unitCostCentsLive = parseMoneyToCents(unitCost);
   const totalCentsLive = Number.isFinite(qtyNum) && qtyNum > 0 && unitCostCentsLive !== null ? qtyNum * unitCostCentsLive : null;
-  const purchaseTaxDay = postingDate || receivedDate || null;
+  const purchaseTaxDay = postingDate || receivedDate || todayIso;
   const purchaseTaxPreview = previewTax({
     code: purchaseTaxCode,
     baseCents: totalCentsLive,

@@ -140,6 +140,9 @@ export async function recordPurchase(input: {
   lowStockThreshold?: number
   quantity: number
   unitCostCents: number
+  // Stock valuation per unit when it differs from the typed unit cost (an
+  // inclusive VATable bill values stock net of VAT). Defaults to unitCostCents.
+  lotUnitCostCents?: number
   totalCostCents?: number
   paymentMethod?: string
   amountPaidCents?: number
@@ -245,7 +248,7 @@ export async function recordPurchase(input: {
         itemId: item.id,
         lotNo,
         qtyOnHand: input.quantity,
-        unitCostCents: input.unitCostCents,
+        unitCostCents: input.lotUnitCostCents ?? input.unitCostCents,
         expiryDate: input.expiryDate ?? null,
         receivedDate,
         farmId: input.farmId ?? null,
