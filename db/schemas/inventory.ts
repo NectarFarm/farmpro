@@ -182,10 +182,33 @@ export const purchases = pgTable('purchases', {
   grossCents: bigint('gross_cents', { mode: 'number' }),
   taxCents: bigint('tax_cents', { mode: 'number' }),
   netCents: bigint('net_cents', { mode: 'number' }),
+  // Issue #423. Null receipt_group_id is a purchase recorded on its own.
+  // Null raw_unit_cost_cents means the raw cost is unit_cost_cents — every
+  // row that predates landed cost, and every single-item purchase that
+  // still posts the old body. unit_cost_cents on a receipt line is the
+  // landed unit cost. The exact line total stays in total_cost_cents.
+  receiptGroupId: text('receipt_group_id'),
+  rawUnitCostCents: bigint('raw_unit_cost_cents', { mode: 'number' }),
 }, (t) => [
   index('idx_purchases_tenant').on(t.tenantId),
   index('idx_purchases_tenant_item').on(t.tenantId, t.itemId),
   index('idx_purchases_farm').on(t.farmId),
+  index('idx_purchases_receipt_group').on(t.receiptGroupId),
+])
+
+// Freight, loading and levies on one delivery. One row per charge, shared by
+// every purchase line with that receipt_group_id. The apportionment is not
+// stored again: it is already inside each line's landed total. No row is
+// seeded. A purchase that is not part of a receipt has no charge rows.
+export const purchaseCharges = pgTable('purchase_charges', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  receiptGroupId: text('receipt_group_id').notNull(),
+  kind: text('kind').notNull(),
+  amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_purchase_charges_receipt').on(t.receiptGroupId),
 ])
 
 // ── Stock actually used (feed-from-stock task) ─────────────────────────────

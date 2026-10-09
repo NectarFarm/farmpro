@@ -51,6 +51,7 @@ export function TaxFields({
   onInclusive,
   baseCents,
   postingDay,
+  figures,
 }: {
   catalogue: TaxCatalogue | null;
   catalogueError: string;
@@ -60,6 +61,9 @@ export function TaxFields({
   onInclusive: (inclusive: boolean) => void;
   baseCents: number | null;
   postingDay: string | null;
+  // A receipt taxes each line, then adds the results. Passing the sum as
+  // baseCents would show a different cent. When set, these are the figures.
+  figures?: { grossCents: number; taxCents: number; netCents: number; rateBps: number | null } | null;
 }) {
   if (catalogueError) {
     return (
@@ -121,20 +125,20 @@ export function TaxFields({
       )}
       {preview.status === 'ok' && (
         <div className="flex flex-col gap-1 rounded-lg bg-primary-soft px-3 py-2.5 text-sm">
-          {preview.rateBps != null && (
-            <p className="text-xs text-muted">Rate {formatRatePercent(preview.rateBps)} on this date.</p>
+          {(figures?.rateBps ?? preview.rateBps) != null && (
+            <p className="text-xs text-muted">Rate {formatRatePercent((figures?.rateBps ?? preview.rateBps) as number)} on this date.</p>
           )}
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted">Gross</span>
-            <span className="font-medium">{formatMoney(preview.grossCents)}</span>
+            <span className="font-medium">{formatMoney(figures?.grossCents ?? preview.grossCents)}</span>
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted">Tax</span>
-            <span className="font-medium">{formatMoney(preview.taxCents)}</span>
+            <span className="font-medium">{formatMoney(figures?.taxCents ?? preview.taxCents)}</span>
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted">Net</span>
-            <span className="font-medium">{formatMoney(preview.netCents)}</span>
+            <span className="font-medium">{formatMoney(figures?.netCents ?? preview.netCents)}</span>
           </div>
           <p className="text-[11px] leading-relaxed text-muted">The settled amount is the gross. That is what is stored.</p>
         </div>
