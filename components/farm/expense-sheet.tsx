@@ -147,17 +147,16 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
     return () => { cancelled = true; };
   }, [tenantId, farmId]);
 
+  // Credit means unpaid: choosing it locks "Paid now" at 0. A different
+  // method afterwards hands control of "Paid now" back to the owner rather
+  // than guessing what they paid — same rule as the purchase sheet
+  // (components/farm/finance.tsx). Copying the amount in here went stale the
+  // moment the amount was corrected, leaving the difference in Accounts
+  // Payable on an expense the owner had marked paid.
   function onMethodChange(next: string) {
     setPaymentMethod(next);
-    if (next === 'Credit') {
-      setAmountPaid('0');
-      return;
-    }
-    if (paymentMethod === 'Credit') {
-      setAmountPaid(amount.trim() ? amount : '');
-      return;
-    }
-    if (!amountPaid.trim() && amount.trim()) setAmountPaid(amount);
+    if (next === 'Credit') setAmountPaid('0');
+    else if (paymentMethod === 'Credit') setAmountPaid('');
   }
 
   async function createSupplier() {

@@ -114,6 +114,13 @@ describe('finance screen offers an expense that is not a purchase', () => {
     expect(finance).not.toContain('there is no expense-only record')
   })
 
+  it('never copies the amount into Paid now (it goes stale when the amount is corrected)', () => {
+    const fn = sheet.slice(sheet.indexOf('function onMethodChange'), sheet.indexOf('async function createSupplier'))
+    expect(fn).toContain("if (next === 'Credit') setAmountPaid('0')")
+    expect(fn).not.toMatch(/setAmountPaid\((amount|amount\.trim)/)
+    expect(fn).toContain("setAmountPaid('')")
+  })
+
   it('uses the styled date and select primitives', () => {
     expect(sheet).toContain('<DateField')
     expect(sheet).toContain('<Select')
