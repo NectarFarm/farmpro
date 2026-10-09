@@ -139,3 +139,66 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   return ok({ userId, email, setPasswordUrl }, 201)
 }
+
+// PATCH /api/employees/[id]/email-login — re-issue the set-password link for
+// a login that already exists. Body: { tenantId? }
+//
+// A set-password token expires (lib/set-password.ts's
+// SET_PASSWORD_TOKEN_TTL_MS), and until this existed an expired link was a
+// dead end: POST refuses once a login exists, told the owner to ask the
+// platform admin, and the platform admin had no such action either, so the
+// person simply could not sign in. issueSetPasswordToken already invalidates
+// whatever is outstanding before minting a new one, so this cannot leave two
+// live links for one account.
+//
+// It deliberately does NOT touch the password itself. The account keeps the
+// unusable hash it was born with (or the password its owner already chose,
+// if they set one and merely want a new link) — nobody, including the owner
+// issuing it, ever learns a working password.
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  let body: Record<string, unknown> = {}
+  try { body = await req.json() } catch { /* an empty body is fine here */ }
+
+  const auth = await requireTenantSession({
+    roles: ['owner'],
+    explicitTenantId: typeof body.tenantId === 'string' ? body.tenantId : null,
+  })
+  if ('error' in auth) return auth.error
+  const { session, tenantId } = auth
+
+  const employee = await loadEmployee(id, tenantId)
+  if (!employee) return fail('Employee not found', 404)
+
+  if (employee.role === 'worker') {
+    return fail('Worker accounts sign in with a phone and PIN — set a new PIN on this same card instead.', 400)
+  }
+  if (!ALLOWED_ROLES.has(employee.role)) {
+    return fail('Cannot issue a login for this role from here', 403)
+  }
+  if (!employee.userId) {
+    return fail('This employee has no login yet — create one first.', 404)
+  }
+
+  const [user] = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(and(eq(users.id, employee.userId), eq(users.tenantId, tenantId)))
+    .limit(1)
+  if (!user) return fail('This employee has no login yet — create one first.', 404)
+
+  await writeAuditLog({
+    tenantId,
+    actor: session.email,
+    action: 'employee.login.link_reissued',
+    entity: 'user',
+    entityId: user.id,
+    meta: { employeeId: employee.id, email: user.email, role: employee.role },
+  })
+
+  const { token, expiresAt } = await issueSetPasswordToken(user.id)
+  const setPasswordUrl = `${resolveAppBaseUrl(req)}/set-password/${token}`
+
+  return ok({ userId: user.id, email: user.email, setPasswordUrl, expiresAt })
+}
+

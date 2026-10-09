@@ -647,6 +647,18 @@ function WorkerLoginCard({ employee, tenantId, onLinked }: {
       onLinked();
     }
 
+    // A set-password link expires. Before this, that was the end of the road:
+    // creating refuses once a login exists, and the platform admin it pointed
+    // at has no such action either — so the person could never sign in.
+    async function reissueLink() {
+      setError('');
+      setBusy(true);
+      const res = await apiClient.patch<{ email: string; setPasswordUrl: string }>(`/api/employees/${employee.id}/email-login`, { tenantId });
+      setBusy(false);
+      if (!res.success) { setError(res.error || 'Could not generate a new link.'); return; }
+      setSetPasswordLink({ email: res.data.email, url: res.data.setPasswordUrl });
+    }
+
     return (
       <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
         <div className="section-eyebrow" style={{ marginBottom: 8 }}>Sign-in</div>
@@ -658,9 +670,18 @@ function WorkerLoginCard({ employee, tenantId, onLinked }: {
         ) : state === null ? (
           <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Loading…</div>
         ) : state.hasLogin ? (
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            {employee.name} already has a sign-in account{state.status && state.status !== 'ACTIVE' ? ` (currently ${state.status.toLowerCase()})` : ''}. There is no reset action here yet — ask the platform admin to reset their password.
-          </div>
+          <>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10 }}>
+              {employee.name} already has a sign-in account{state.status && state.status !== 'ACTIVE' ? ` (currently ${state.status.toLowerCase()})` : ''}. If their set-password link expired, or they never used it, generate a fresh one — the old link stops working straight away.
+            </div>
+            {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
+            <button className="btn-secondary" disabled={busy} onClick={reissueLink} style={{ width: '100%', justifyContent: 'center' }}>
+              {busy ? 'Generating…' : 'Generate a new set-password link'}
+            </button>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted">
+              This does not change their password — it only lets them set one. To reset a password they already use, ask the platform admin.
+            </p>
+          </>
         ) : (
           <>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>

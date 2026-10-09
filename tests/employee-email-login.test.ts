@@ -21,7 +21,7 @@ vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => ({ get: () => (mockCookie ? { value: mockCookie } : undefined) })),
 }))
 
-import { POST as emailLoginPOST } from '@/app/api/employees/[id]/email-login/route'
+import { POST as emailLoginPOST, PATCH as emailLoginPATCH } from '@/app/api/employees/[id]/email-login/route'
 import { POST as setPasswordPOST } from '@/app/api/set-password/[token]/route'
 import { POST as authLoginPOST } from '@/app/api/auth/login/route'
 import { db } from '@/db'
@@ -55,6 +55,7 @@ run('owner-issued email sign-ins (POST /api/employees/[id]/email-login)', () => 
   const workerEmployeeId = `emp-worker-${randomUUID()}`
   const ownerEmployeeId = `emp-owner-${randomUUID()}`
   const dupTargetEmployeeId = `emp-dup-${randomUUID()}`
+  const managerEmployeeId2 = `emp-manager2-${randomUUID()}`
   const otherTenantEmployeeId = `emp-other-${randomUUID()}`
 
   const managerEmail = `grace-${randomUUID()}@example.com`
@@ -81,6 +82,7 @@ run('owner-issued email sign-ins (POST /api/employees/[id]/email-login)', () => 
       { id: workerEmployeeId, tenantId, name: 'Worker Wanjiku', role: 'worker' },
       { id: ownerEmployeeId, tenantId, name: 'Second Owner', role: 'owner' },
       { id: dupTargetEmployeeId, tenantId, name: 'Duplicate Target', role: 'auditor' },
+      { id: managerEmployeeId2, tenantId, name: 'Second Manager', role: 'manager' },
       { id: otherTenantEmployeeId, tenantId: otherTenantId, name: 'Outsider', role: 'manager' },
     ])
     ownerSession = await createSession(ownerId)
@@ -130,6 +132,43 @@ run('owner-issued email sign-ins (POST /api/employees/[id]/email-login)', () => 
     expect(login.status).toBe(200)
     expect(login.payload.data.role).toBe('manager')
     expect(login.payload.data.tenantId).toBe(tenantId)
+  })
+
+  it('re-issues a set-password link when the first one expired, and the old one stops working', async () => {
+    const email = `reissue-${randomUUID()}@example.com`
+    const first = await issue(managerEmployeeId2, { email })
+    expect(first.status).toBe(201)
+    const oldToken = first.payload.data.setPasswordUrl.split('/').pop()
+
+    mockCookie = ownerSession
+    const again = await readJson(await emailLoginPATCH(jsonRequest('http://localhost', 'PATCH', {}), { params: Promise.resolve({ id: managerEmployeeId2 }) }))
+    mockCookie = undefined
+    expect(again.status).toBe(200)
+    expect(again.payload.data.email).toBe(email)
+    const newToken = again.payload.data.setPasswordUrl.split('/').pop()
+    expect(newToken).not.toBe(oldToken)
+
+    // The superseded link must be dead — two live links for one account is
+    // the whole thing issueSetPasswordToken exists to prevent.
+    const stale = await readJson(await setPasswordPOST(jsonRequest('http://localhost', 'POST', { password: 'another-password-1' }), { params: Promise.resolve({ token: oldToken }) }))
+    expect(stale.status).not.toBe(200)
+
+    const fresh = await readJson(await setPasswordPOST(jsonRequest('http://localhost', 'POST', { password: 'another-password-1' }), { params: Promise.resolve({ token: newToken }) }))
+    expect(fresh.status).toBe(200)
+  })
+
+  it('refuses to re-issue for an employee who has no login yet', async () => {
+    mockCookie = ownerSession
+    const res = await readJson(await emailLoginPATCH(jsonRequest('http://localhost', 'PATCH', {}), { params: Promise.resolve({ id: vetEmployeeId }) }))
+    mockCookie = undefined
+    expect(res.status).toBe(404)
+  })
+
+  it('only an owner may re-issue a link', async () => {
+    mockCookie = managerCallerSession
+    const res = await readJson(await emailLoginPATCH(jsonRequest('http://localhost', 'PATCH', {}), { params: Promise.resolve({ id: managerEmployeeId }) }))
+    mockCookie = undefined
+    expect(res.status).toBe(403)
   })
 
   it('also issues a login for a vet', async () => {
