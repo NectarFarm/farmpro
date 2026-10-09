@@ -20,6 +20,7 @@ export const CAPABILITIES = [
   'onboarding.review',
   'impersonate',
   'analytics.view',
+  'catalogue.manage',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -38,6 +39,7 @@ export const CAPABILITY_LABEL: Record<Capability, string> = {
   'onboarding.review': 'Review onboarding requests',
   'impersonate': 'Impersonate tenant users',
   'analytics.view': 'View platform stats',
+  'catalogue.manage': 'Maintain shared catalogues (expense categories, tax and statutory rates)',
 };
 
 export const CAPABILITY_DESCRIPTION: Record<Capability, string> = {
@@ -50,6 +52,7 @@ export const CAPABILITY_DESCRIPTION: Record<Capability, string> = {
   'onboarding.review': 'Approve, reject or request more information on new-tenant applications.',
   'impersonate': 'Sign in as a tenant user for a time-boxed, audited window.',
   'analytics.view': 'See platform-wide stats on the Overview screen.',
+  'catalogue.manage': 'Add and retire shared expense categories, and later tax and statutory rate rows. Does not post a tenant’s transactions.',
 };
 
 // Presets offered on the staff-create/edit sheet (brief: "Support agent" =

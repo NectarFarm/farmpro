@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { and, eq, sql, desc } from 'drizzle-orm'
 import { db } from '@/db'
-import { suppliers, purchases } from '@/db/schemas'
+import { suppliers, purchases, expenses } from '@/db/schemas'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 
@@ -44,7 +44,19 @@ export async function GET(req: Request) {
       creditTerms: suppliers.creditTerms,
       active: suppliers.active,
       createdAt: suppliers.createdAt,
-      balanceCents: sql<string>`coalesce(sum(greatest(${purchases.totalCostCents} - ${purchases.amountPaidCents}, 0)), 0)`,
+      // Unpaid purchases plus unpaid (non-reversed) expenses recorded on
+      // account — postExpenseJournal credits Accounts Payable for the unpaid
+      // part, so the balance has to include it or the supplier screen and the
+      // trial balance disagree. The expense side is a correlated scalar
+      // subquery, not a second join: joining both child tables would multiply
+      // every purchase row by every expense row. Still one query for the page.
+      balanceCents: sql<string>`coalesce(sum(greatest(${purchases.totalCostCents} - ${purchases.amountPaidCents}, 0)), 0) + coalesce((
+        select sum(greatest(${expenses.amountCents} - ${expenses.amountPaidCents}, 0))
+        from ${expenses}
+        where ${expenses.supplierId} = ${suppliers.id}
+          and ${expenses.tenantId} = ${tenantId}
+          and ${expenses.reversedAt} is null
+      ), 0)`,
     })
     .from(suppliers)
     .leftJoin(purchases, and(eq(purchases.supplierId, suppliers.id), eq(purchases.tenantId, tenantId)))

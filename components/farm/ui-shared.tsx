@@ -336,13 +336,13 @@ export function SaveError({ message, onSetupDimensions }: { message: string; onS
 ────────────────────────────────────────────── */
 export interface RequiredDimensionRule { dimensionId: string; dimensionCode: string; dimensionName: string }
 interface DimensionValueOption { id: string; code: string; name: string; archived: boolean }
-interface ResolvePreviewAccount { requiredMissing: RequiredDimensionRule[] }
+interface ResolvePreviewAccount { accountName?: string; requiredMissing: RequiredDimensionRule[] }
 interface ResolvePreviewResponse { perAccount: ResolvePreviewAccount[] }
 
 // Mirrors lib/dimensions.ts's MasterType — duplicated here because that
 // module is `server-only` and cannot be imported into a client component.
 export type DimensionMasterType = 'employee' | 'unit' | 'batch' | 'farm' | 'product' | 'account';
-export type DimensionDocType = 'sale' | 'purchase' | 'payroll_run';
+export type DimensionDocType = 'sale' | 'purchase' | 'payroll_run' | 'expense';
 
 // What's asked for depends only on the master the form has chosen (a batch,
 // a farm) — never on what the user has typed into a picker so far. Passing
@@ -351,9 +351,10 @@ export type DimensionDocType = 'sale' | 'purchase' | 'payroll_run';
 // are merged in only once, right before the real POST (see each sheet's
 // `save()`).
 export function useRequiredDimensions(
-  tenantId: string, docType: DimensionDocType, masterType?: DimensionMasterType, masterId?: string,
-): { missing: RequiredDimensionRule[]; loading: boolean } {
+  tenantId: string, docType: DimensionDocType, masterType?: DimensionMasterType, masterId?: string, accountCode?: string,
+): { missing: RequiredDimensionRule[]; requiredBy: Record<string, string[]>; loading: boolean } {
   const [missing, setMissing] = useState<RequiredDimensionRule[]>([]);
+  const [requiredBy, setRequiredBy] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -361,20 +362,26 @@ export function useRequiredDimensions(
     setLoading(true);
     apiClient.post<ResolvePreviewResponse>('/api/dimensions/resolve', {
       tenantId, docType, masterType: masterType || undefined, masterId: masterId || undefined,
+      accountCode: accountCode || undefined,
     }).then((res) => {
       if (cancelled) return;
       setLoading(false);
-      if (!res.success) { setMissing([]); return; }
+      if (!res.success) { setMissing([]); setRequiredBy({}); return; }
       const byId = new Map<string, RequiredDimensionRule>();
+      const by: Record<string, string[]> = {};
       for (const account of res.data.perAccount) {
-        for (const m of account.requiredMissing) byId.set(m.dimensionId, m);
+        for (const m of account.requiredMissing) {
+          byId.set(m.dimensionId, m);
+          if (account.accountName) (by[m.dimensionCode] ??= []).push(account.accountName);
+        }
       }
       setMissing([...byId.values()]);
+      setRequiredBy(by);
     });
     return () => { cancelled = true; };
-  }, [tenantId, docType, masterType, masterId]);
+  }, [tenantId, docType, masterType, masterId, accountCode]);
 
-  return { missing, loading };
+  return { missing, requiredBy, loading };
 }
 
 // ── A "pick one of these, by name, searching as you type" control keyed by
@@ -664,7 +671,7 @@ export function dimensionsForSubmit(missing: RequiredDimensionRule[], picks: Rec
 // tenant's own custom dimensions) is independent and stays a flat picker.
 const HIERARCHICAL_CODES = new Set(['FARM', 'UNIT', 'BATCH']);
 
-export function RequiredDimensionFields({ tenantId, missing, picks, onPick, fieldErrors, knownFarmId }: {
+export function RequiredDimensionFields({ tenantId, missing, picks, onPick, fieldErrors, knownFarmId, requiredBy }: {
   tenantId: string;
   missing: RequiredDimensionRule[];
   picks: Record<string, string>;
@@ -676,6 +683,10 @@ export function RequiredDimensionFields({ tenantId, missing, picks, onPick, fiel
    * farm yet (an ad-hoc sale, or a payroll run whose eligible employees
    * span more than one farm). */
   knownFarmId?: string;
+  /** dimension code -> names of the accounts this posting hits that make it
+   * Required. When given, the notice names them, so an owner who did not
+   * expect to be asked can see which account rule to change. */
+  requiredBy?: Record<string, string[]>;
 }) {
   if (missing.length === 0) return null;
   const hierarchical = missing.filter((m) => HIERARCHICAL_CODES.has(m.dimensionCode));
@@ -683,7 +694,10 @@ export function RequiredDimensionFields({ tenantId, missing, picks, onPick, fiel
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ padding: '8px 10px', background: 'rgba(var(--warning-rgb),0.08)', border: '1px solid rgba(var(--warning-rgb),0.2)', borderRadius: 8, marginBottom: 8, fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-        Posting this needs a value for {missing.map((m) => m.dimensionName).join(', ')} — set up under Reporting dimensions.
+        Posting this needs a value for {missing.map((m) => {
+          const accts = requiredBy?.[m.dimensionCode];
+          return accts?.length ? `${m.dimensionName} (Required on ${accts.join(' and ')})` : m.dimensionName;
+        }).join(', ')} — set up under Reporting dimensions.
       </div>
       {hierarchical.length > 0 && (
         <FarmUnitBatchDimensionFields

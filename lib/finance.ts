@@ -37,6 +37,15 @@ export const ACCOUNT_CODES = {
   // Added by the payroll-and-gps task — see db/schemas/finance.ts's
   // chart-of-accounts comment for why payroll posts at all.
   PAYROLL_EXPENSE: '5002',
+  // Operating expenses that are not stock (issue #416). A purchase still
+  // debits 5001. These exist so transport, labour, a vet visit and airtime
+  // can be posted without an inventory lot. Insert-only: no historical line
+  // uses them until an expense is recorded.
+  TRANSPORT: '5010',
+  CASUAL_LABOUR: '5011',
+  VETERINARY: '5012',
+  AIRTIME: '5013',
+  GENERAL_OPERATING: '5019',
 } as const
 
 // The standard farm chart of accounts this issue seeds — see
@@ -49,6 +58,11 @@ const STANDARD_ACCOUNTS: { code: string; name: string; class: string; normalBala
   { code: ACCOUNT_CODES.SALES_REVENUE, name: 'Sales Revenue', class: 'REVENUE', normalBalance: 'CREDIT' },
   { code: ACCOUNT_CODES.PURCHASES_EXPENSE, name: 'Purchases Expense', class: 'EXPENSE', normalBalance: 'DEBIT' },
   { code: ACCOUNT_CODES.PAYROLL_EXPENSE, name: 'Payroll Expense', class: 'EXPENSE', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.TRANSPORT, name: 'Transport and delivery', class: 'EXPENSE', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.CASUAL_LABOUR, name: 'Casual labour', class: 'EXPENSE', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.VETERINARY, name: 'Veterinary and animal health', class: 'EXPENSE', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.AIRTIME, name: 'Airtime and communication', class: 'EXPENSE', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.GENERAL_OPERATING, name: 'General operating expense', class: 'EXPENSE', normalBalance: 'DEBIT' },
 ]
 
 // Idempotent: ON CONFLICT DO NOTHING on the unique `code` index, so this is
@@ -99,7 +113,7 @@ async function captureDimensions(
   tx: Tx,
   args: {
     tenantId: string
-    docType: 'sale' | 'purchase' | 'payroll_run'
+    docType: 'sale' | 'purchase' | 'payroll_run' | 'expense'
     docId: string
     sourceMaster: MasterRef | null
     explicit?: Record<string, string>
@@ -246,6 +260,114 @@ export async function postPurchaseJournal(
   return entry
 }
 
+// ── Expense -> journal entry (issue #416) ────────────────────────────────────
+// Same shape as a purchase, and deliberately not a purchase: debit the
+// category's own expense account (never Purchases Expense, never an
+// inventory account), credit Cash for what was paid and Accounts Payable for
+// the rest. No lot is created. The entry balances because paid + owed = total.
+export async function postExpenseJournal(
+  tx: Tx,
+  expense: {
+    id: string
+    tenantId: string
+    amountCents: number
+    amountPaidCents: number
+    accountCode: string
+    farmId?: string | null
+    postingDate?: Date | null
+    payee?: string
+  },
+  opts: { dimensions?: Record<string, string> } = {},
+) {
+  await ensureAccountsSeeded(tx)
+  const expenseAccountId = await accountIdByCode(tx, expense.accountCode)
+  const total = Math.max(0, expense.amountCents)
+  const paid = Math.min(Math.max(0, expense.amountPaidCents), total)
+  const owed = total - paid
+
+  const farmId = expense.farmId ?? null
+  const sourceMaster: MasterRef | null = farmId ? { masterType: 'farm', masterId: farmId } : null
+
+  const [entry] = await tx
+    .insert(journalEntries)
+    .values({
+      id: randomUUID(),
+      tenantId: expense.tenantId,
+      sourceType: 'expense',
+      sourceId: expense.id,
+      farmId,
+      memo: owed > 0
+        ? (paid > 0 ? `Expense to ${expense.payee ?? 'payee'} recorded, partially paid` : `Expense to ${expense.payee ?? 'payee'} recorded on account`)
+        : `Expense to ${expense.payee ?? 'payee'} recorded, paid in full`,
+      ...(expense.postingDate ? { entryDate: expense.postingDate } : {}),
+    })
+    .returning()
+
+  const lines: (typeof journalLines.$inferInsert)[] = [
+    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: total, creditCents: 0 },
+  ]
+  if (paid > 0) {
+    const cashAccountId = await accountIdByCode(tx, ACCOUNT_CODES.CASH)
+    lines.push({ id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debitCents: 0, creditCents: paid })
+  }
+  if (owed > 0) {
+    const apAccountId = await accountIdByCode(tx, ACCOUNT_CODES.ACCOUNTS_PAYABLE)
+    lines.push({ id: randomUUID(), entryId: entry.id, accountId: apAccountId, debitCents: 0, creditCents: owed })
+  }
+  const insertedLines = await tx.insert(journalLines).values(lines).returning()
+
+  await captureDimensions(tx, {
+    tenantId: expense.tenantId, docType: 'expense', docId: expense.id, sourceMaster, explicit: opts.dimensions,
+    lines: insertedLines.map((l) => ({ id: l.id, accountId: l.accountId })),
+  })
+
+  return entry
+}
+
+// ── Settling an expense recorded on account ─────────────────────────────────
+// postExpenseJournal credits Accounts Payable for the unpaid part. Paying it
+// later is its OWN entry — Dr Accounts Payable, Cr Cash — so the original
+// posting is never rewritten (same stance as a reversal). Each settlement
+// carries sourceType 'expense_payment' and the expense's id as sourceId, so
+// the expense's own entry (sourceType 'expense') still resolves unambiguously.
+export async function postExpensePaymentJournal(
+  tx: Tx,
+  payment: { tenantId: string; expenseId: string; amountCents: number; farmId?: string | null; postingDate?: Date | null; payee?: string },
+  opts: { dimensions?: Record<string, string> } = {},
+) {
+  await ensureAccountsSeeded(tx)
+  const apAccountId = await accountIdByCode(tx, ACCOUNT_CODES.ACCOUNTS_PAYABLE)
+  const cashAccountId = await accountIdByCode(tx, ACCOUNT_CODES.CASH)
+  const farmId = payment.farmId ?? null
+  const sourceMaster: MasterRef | null = farmId ? { masterType: 'farm', masterId: farmId } : null
+
+  const [entry] = await tx
+    .insert(journalEntries)
+    .values({
+      id: randomUUID(),
+      tenantId: payment.tenantId,
+      sourceType: 'expense_payment',
+      sourceId: payment.expenseId,
+      farmId,
+      memo: `Payment to ${payment.payee ?? 'payee'} against an expense on account`,
+      ...(payment.postingDate ? { entryDate: payment.postingDate } : {}),
+    })
+    .returning()
+
+  const lines = await tx.insert(journalLines).values([
+    { id: randomUUID(), entryId: entry.id, accountId: apAccountId, debitCents: payment.amountCents, creditCents: 0 },
+    { id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debitCents: 0, creditCents: payment.amountCents },
+  ]).returning()
+
+  // Line dimensions only. The expense's document-level set was written when
+  // it was recorded; writing it again here would double it.
+  const base = await resolveMasterDimensions(tx, payment.tenantId, sourceMaster, opts.dimensions ?? {})
+  for (const line of lines) {
+    await attachLineDimensions(tx, { tenantId: payment.tenantId, lineId: line.id, accountId: line.accountId, base })
+  }
+  return entry
+}
+
 // ── Payroll run -> journal entry (payroll-and-gps task) ─────────────────────
 // A payroll run posts Dr Payroll Expense for the run's full total, Cr Cash
 // for the same amount — treated as paid in full, in cash, at run time (same
@@ -345,7 +467,7 @@ export async function postPayrollJournal(
 // today's master data, which could have changed since.
 export async function reverseJournalEntry(
   tx: Tx,
-  args: { tenantId: string; sourceType: 'sale' | 'purchase'; sourceId: string; memo: string },
+  args: { tenantId: string; sourceType: 'sale' | 'purchase' | 'expense' | 'expense_payment'; sourceId: string; memo: string; entryId?: string },
 ) {
   const [original] = await tx
     .select()
@@ -354,6 +476,7 @@ export async function reverseJournalEntry(
       eq(journalEntries.tenantId, args.tenantId),
       eq(journalEntries.sourceType, args.sourceType),
       eq(journalEntries.sourceId, args.sourceId),
+      ...(args.entryId ? [eq(journalEntries.id, args.entryId)] : []),
     ))
     .limit(1)
   if (!original) {

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
-import { inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { accounts } from '@/db/schemas'
 import { requireTenantSession } from '@/lib/api-auth'
 import { previewDocumentDimensions, isPlainDimensionMap, type MasterType } from '@/lib/dimensions'
-import { ACCOUNT_CODES } from '@/lib/finance'
+import { ACCOUNT_CODES, ensureAccountsSeeded } from '@/lib/finance'
 
 // ── POST /api/dimensions/resolve (dimensions-operable task, owner addition
 // 2026-09-20: "we also have purchase and sell pages which will also be
@@ -32,7 +32,7 @@ const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 
 const badRequest = (msg: string, fields?: Record<string, string>) =>
   NextResponse.json({ success: false, error: msg, ...(fields ? { fields } : {}) }, { status: 400 })
 
-const DOC_TYPES = new Set(['sale', 'purchase', 'payroll_run'])
+const DOC_TYPES = new Set(['sale', 'purchase', 'payroll_run', 'expense'])
 const MASTER_TYPES = new Set(['employee', 'unit', 'batch', 'farm', 'product', 'account'])
 
 // Which account(s) each document type posts to — mirrors
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
   const { tenantId } = auth
 
   const docType = typeof b.docType === 'string' ? b.docType : ''
-  if (!DOC_TYPES.has(docType)) return badRequest('docType must be one of: sale, purchase, payroll_run', { docType: 'Invalid' })
+  if (!DOC_TYPES.has(docType)) return badRequest('docType must be one of: sale, purchase, payroll_run, expense', { docType: 'Invalid' })
 
   const masterType = typeof b.masterType === 'string' ? b.masterType : ''
   const masterId = typeof b.masterId === 'string' ? b.masterId : ''
@@ -68,7 +68,21 @@ export async function POST(req: Request) {
 
   const explicit = isPlainDimensionMap(b.dimensions) ? b.dimensions : {}
 
-  const codes = DOC_ACCOUNT_CODES[docType]
+  // An expense posts to whichever expense account its category names, plus
+  // Cash and Accounts Payable. Until a category is chosen there is no
+  // expense account to check — the form asks again once one is picked.
+  let codes: string[]
+  if (docType === 'expense') {
+    await ensureAccountsSeeded()
+    const accountCode = typeof b.accountCode === 'string' ? b.accountCode.trim() : ''
+    if (accountCode) {
+      const [acct] = await db.select().from(accounts).where(eq(accounts.code, accountCode))
+      if (!acct || acct.class !== 'EXPENSE') return badRequest('accountCode is not an expense account', { accountCode: 'Not an expense account' })
+    }
+    codes = [ACCOUNT_CODES.CASH, ACCOUNT_CODES.ACCOUNTS_PAYABLE, ...(accountCode ? [accountCode] : [])]
+  } else {
+    codes = DOC_ACCOUNT_CODES[docType]
+  }
   const accountRows = await db.select().from(accounts).where(inArray(accounts.code, codes))
   // Accounts not yet seeded for this database (ensureAccountsSeeded not run) —
   // treat as "nothing to check" rather than erroring; the real post will

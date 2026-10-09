@@ -28,6 +28,7 @@ import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dial
 import { controlClass } from '@/components/ui-kit/field';
 import { Select } from '@/components/ui-kit/select';
 import { StatusTimeline } from './status-timeline';
+import { RecordExpenseSheet, ExpenseDetailSheet, type ApiExpense } from './expense-sheet';
 
 // ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
 // Ports src/components/finance/finance-page.tsx's layout onto this screen's
@@ -617,10 +618,9 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   );
 }
 
-/* ── Record Purchase/Expense sheet — real POST /api/purchases (same route
- * Inventory's Purchases tab uses; there is no expense-only concept in the
- * backend separate from a stock purchase). No edit/PATCH UI — GET/POST are
- * the only verbs the route supports. ── */
+/* ── Record Purchase sheet — real POST /api/purchases (same route Inventory's
+ * Purchases tab uses). This path always creates an inventory lot. An expense
+ * that is not stock is Record expense (components/farm/expense-sheet.tsx). ── */
 function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, activeFarmId, onCreated, onViewList, onClose }: {
   tenantId: string;
   itemNames: string[];
@@ -825,9 +825,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
           sheet without scrolling past every field first. */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4">
-          <SheetTitle className="mb-3.5">Record Purchase / Expense</SheetTitle>
+          <SheetTitle className="mb-3.5">Record Purchase</SheetTitle>
           <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
-            This also brings the item into Inventory stock — there is no expense-only record separate from a purchase.
+            This brings the item into Inventory stock. For transport, labour, a vet visit or airtime, use Record expense — that records the cost and does not create stock.
           </div>
 
           <div style={{ marginBottom: 12 }}>
@@ -1499,7 +1499,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   // employee actually shares one (`preview.farmId`) — a run spanning
   // several farms, or any OTHER dimension, always has to be asked for here.
   const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
-  const { missing: requiredDims } = useRequiredDimensions(
+  const { missing: requiredDims, requiredBy } = useRequiredDimensions(
     tenantId, 'payroll_run', preview?.farmId ? 'farm' : undefined, preview?.farmId || undefined,
   );
 
@@ -1581,6 +1581,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
               tenantId={tenantId} missing={requiredDims} picks={dimPicks}
               onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
               knownFarmId={preview.farmId ?? undefined}
+              requiredBy={requiredBy}
             />
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
               Type {CONFIRM_WORD} to confirm you want to pay {preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} {formatMoney(preview.totalAmountCents)}
@@ -1639,16 +1640,20 @@ export function FinanceScreen() {
   const [salesSearch, setSalesSearch] = useState('');
   const [showRecordSale, setShowRecordSale] = useState(false);
   const [showRecordPurchase, setShowRecordPurchase] = useState(false);
+  const [showRecordExpense, setShowRecordExpense] = useState(false);
   const [showSupplierBalances, setShowSupplierBalances] = useState(false);
   const [showCustomerBalances, setShowCustomerBalances] = useState(false);
   // Item 23: detail sheet (edit/reverse/history) for one selected row.
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
+  const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(null);
 
   const [sales, setSales] = useState<ApiSale[] | null>(null);
   const [salesError, setSalesError] = useState('');
   const [purchases, setPurchases] = useState<ApiPurchase[] | null>(null);
   const [purchasesError, setPurchasesError] = useState('');
+  const [operatingExpenses, setOperatingExpenses] = useState<ApiExpense[] | null>(null);
+  const [expensesError, setExpensesError] = useState('');
   const [items, setItems] = useState<ApiInventoryItemLite[]>([]);
   const [batches, setBatches] = useState<ApiBatchLite[] | null>(null);
   const [batchesError, setBatchesError] = useState('');
@@ -1683,6 +1688,13 @@ export function FinanceScreen() {
     apiClient.get<ApiPurchase[]>(`/api/purchases?tenantId=${tenantId}&farmId=${activeFarmId}`).then((res) => {
       if (res.success) { setPurchases(res.data); setPurchasesError(''); }
       else setPurchasesError(res.error || 'Failed to load purchases.');
+    });
+  }, [tenantId, activeFarmId]);
+
+  const loadExpenses = useCallback(() => {
+    apiClient.get<ApiExpense[]>(`/api/expenses?tenantId=${tenantId}&farmId=${activeFarmId}`).then((res) => {
+      if (res.success) { setOperatingExpenses(res.data); setExpensesError(''); }
+      else setExpensesError(res.error || 'Failed to load expenses.');
     });
   }, [tenantId, activeFarmId]);
 
@@ -1750,6 +1762,7 @@ export function FinanceScreen() {
 
   useEffect(() => { loadSales(); }, [loadSales]);
   useEffect(() => { loadPurchases(); }, [loadPurchases]);
+  useEffect(() => { loadExpenses(); }, [loadExpenses]);
   useEffect(() => { loadBatches(); }, [loadBatches]);
   useEffect(() => { loadGL(); }, [loadGL]);
   useEffect(() => { loadBudget(); }, [loadBudget]);
@@ -1818,6 +1831,7 @@ export function FinanceScreen() {
   // shape) for whichever sale/purchase the detail sheet has open.
   const selectedSale = useMemo(() => (sales ?? []).find((s) => s.id === selectedSaleId) ?? null, [sales, selectedSaleId]);
   const selectedPurchase = useMemo(() => (purchases ?? []).find((p) => p.id === selectedPurchaseId) ?? null, [purchases, selectedPurchaseId]);
+  const selectedExpense = useMemo(() => (operatingExpenses ?? []).find((e) => e.id === selectedExpenseId) ?? null, [operatingExpenses, selectedExpenseId]);
 
   // Batch P&L rows: revenue = this batch's real sales summed; cost = the
   // batch's real cost-breakdown total (currently just acquisitionCostCents —
@@ -1921,9 +1935,14 @@ export function FinanceScreen() {
             // Overview the button read "Record sale" and did nothing at all.
             // The click handler now mirrors the label's own fallback instead
             // of a narrower, silently-different condition.
-            <Button onClick={() => { if (tab === 'purchases') setShowRecordPurchase(true); else if (tab === 'payroll') setShowRunPayroll(true); else setShowRecordSale(true); }}>
+            // The Expenses tab lists both stock purchases and expenses that
+            // are not stock. The header action is the common case, Record
+            // expense (transport, labour, a vet visit, airtime); the stock
+            // path stays in the body, labelled "Record stock purchase", so
+            // the two buttons no longer look alike and behave differently.
+            <Button onClick={() => { if (tab === 'purchases') setShowRecordExpense(true); else if (tab === 'payroll') setShowRunPayroll(true); else setShowRecordSale(true); }}>
               <Plus size={16} />
-              {tab === 'payroll' ? 'Run payroll' : tab === 'purchases' ? 'Record purchase' : 'Record sale'}
+              {tab === 'payroll' ? 'Run payroll' : tab === 'purchases' ? 'Record expense' : 'Record sale'}
             </Button>
           }
         />
@@ -2067,44 +2086,70 @@ export function FinanceScreen() {
       {tab === 'purchases' && (
         <div className="mt-5">
           {purchasesError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{purchasesError}</div>}
-          {purchases === null && !purchasesError ? (
-            <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading purchases…</div>
-          ) : (purchases ?? []).length === 0 ? (
+          {expensesError && <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--status-critical)', marginBottom: 10 }}>{expensesError}</div>}
+          {((purchases === null && !purchasesError) || (operatingExpenses === null && !expensesError)) && (
+            <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-dim)', fontSize: 'var(--fs-base)' }}>Loading…</div>
+          )}
+          {purchases !== null && operatingExpenses !== null && purchases.length === 0 && operatingExpenses.length === 0 && !purchasesError && !expensesError ? (
             <div style={{ padding: 24, textAlign: 'center' }}>
               <div style={{ marginBottom: 8, color: 'var(--text-dim)' }}><Receipt size={40} aria-hidden="true" /></div>
               <div style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>No expenses yet</div>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Record one below.</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Record a stock purchase, or an expense that is not stock.</div>
             </div>
-          ) : (
+          ) : (purchases ?? []).length + (operatingExpenses ?? []).length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
-              {(purchases ?? []).map((p) => (
-                <div key={p.id} className="farm-card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => setSelectedPurchaseId(p.id)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{itemNameById.get(p.itemId) ?? p.itemId}</div>
-                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{p.supplier} · {fmtDate(p.createdAt)}</div>
+              {[
+                ...(purchases ?? []).map((p) => ({ kind: 'purchase' as const, at: new Date(p.createdAt).getTime(), purchase: p })),
+                ...(operatingExpenses ?? []).map((e) => ({ kind: 'expense' as const, at: new Date(e.postingDate ?? e.transactionDate ?? e.createdAt).getTime(), expense: e })),
+              ].sort((a, b) => b.at - a.at).map((row) => row.kind === 'purchase' ? (
+                <div key={row.purchase.id} className="farm-card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => setSelectedPurchaseId(row.purchase.id)}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8 }}>
+                    <div className="min-w-0">
+                      <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{itemNameById.get(row.purchase.itemId) ?? row.purchase.itemId}</div>
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{row.purchase.supplier} · {fmtDate(row.purchase.createdAt)}</div>
                     </div>
-                    {p.reversedAt ? (
+                    {row.purchase.reversedAt ? (
                       <span className="chip chip-critical" style={{ fontSize: 'var(--fs-2xs)' }}>REVERSED</span>
-                    ) : itemCategoryById.get(p.itemId) && (
-                      <span className={`chip ${catChipClass(itemCategoryById.get(p.itemId) as string)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{itemCategoryById.get(p.itemId)}</span>
+                    ) : itemCategoryById.get(row.purchase.itemId) && (
+                      <span className={`chip ${catChipClass(itemCategoryById.get(row.purchase.itemId) as string)}`} style={{ fontSize: 'var(--fs-2xs)' }}>{itemCategoryById.get(row.purchase.itemId)}</span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{p.quantity.toLocaleString()} units</span>
-                    <span style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(p.totalCostCents).toLocaleString()}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{row.purchase.quantity.toLocaleString()} units</span>
+                    <span style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--status-critical)' }}>KSh {centsToMajor(row.purchase.totalCostCents).toLocaleString()}</span>
+                  </div>
+                </div>
+              ) : (
+                <div key={row.expense.id} className="farm-card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => setSelectedExpenseId(row.expense.id)}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8 }}>
+                    <div className="min-w-0">
+                      <div style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text-primary)' }}>{row.expense.payee}</div>
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', marginTop: 1 }}>{row.expense.categoryName} · {fmtDate(row.expense.postingDate ?? row.expense.transactionDate ?? row.expense.createdAt)}</div>
+                    </div>
+                    {row.expense.reversedAt ? (
+                      <span className="chip chip-critical" style={{ fontSize: 'var(--fs-2xs)' }}>REVERSED</span>
+                    ) : (
+                      <span className="chip chip-info" style={{ fontSize: 'var(--fs-2xs)' }}>Expense</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>No stock</span>
+                    <span style={{ fontSize: 'var(--fs-md)', fontWeight: 700, color: 'var(--status-critical)' }}>{formatMoney(row.expense.amountCents)}</span>
                   </div>
                 </div>
               ))}
             </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-            <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowSupplierBalances(true)}>
+          ) : null}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+            <Button size="lg" className="w-full justify-center" onClick={() => setShowRecordExpense(true)}>
+              <Plus size={16} /> Record expense
+            </Button>
+            <Button size="lg" variant="secondary" className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}>
+              <Plus size={16} /> Record stock purchase
+            </Button>
+            <Button size="lg" variant="secondary" className="w-full justify-center" onClick={() => setShowSupplierBalances(true)}>
               Supplier balances
-            </button>
-            <button className="btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={() => setShowRecordPurchase(true)}>
-              <Plus size={16} /> Record Purchase
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -2240,6 +2285,16 @@ export function FinanceScreen() {
           onClose={() => setShowRecordPurchase(false)}
         />
       )}
+      {showRecordExpense && (
+        <RecordExpenseSheet
+          tenantId={tenantId}
+          farms={farms}
+          activeFarmId={activeFarmId}
+          onCreated={() => { loadExpenses(); loadGL(); loadBudget(); }}
+          onViewList={() => { setShowRecordExpense(false); setTab('purchases'); }}
+          onClose={() => setShowRecordExpense(false)}
+        />
+      )}
       {showRunPayroll && (
         <RunPayrollSheet
           tenantId={tenantId}
@@ -2264,6 +2319,15 @@ export function FinanceScreen() {
           itemLabel={itemNameById.get(selectedPurchase.itemId) ?? selectedPurchase.itemId}
           onClose={() => setSelectedPurchaseId(null)}
           onChanged={() => { loadPurchases(); loadGL(); }}
+        />
+      )}
+      {selectedExpense && (
+        <ExpenseDetailSheet
+          tenantId={tenantId}
+          expense={selectedExpense}
+          farms={farms}
+          onClose={() => setSelectedExpenseId(null)}
+          onChanged={() => { loadExpenses(); loadGL(); loadBudget(); }}
         />
       )}
     </div>

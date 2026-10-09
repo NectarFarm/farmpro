@@ -31,7 +31,8 @@ describe('lib/reports.ts — payroll counts as an expense', () => {
 
   it('adds payroll runs in range to the period expense', () => {
     expect(source).toMatch(/const periodPayrollExpense = centsToMajor\(periodPayroll\.reduce/)
-    expect(source).toMatch(/const periodExpense = periodPurchaseExpense \+ periodPayrollExpense/)
+    expect(source).toMatch(/const periodOperatingExpense = centsToMajor\(periodOperating\.reduce/)
+    expect(source).toMatch(/const periodExpense = periodPurchaseExpense \+ periodPayrollExpense \+ periodOperatingExpense/)
   })
 
   it('queries payroll runs that overlap the reporting window', () => {
@@ -52,6 +53,7 @@ describe('lib/reports.ts — payroll counts as an expense', () => {
   it('splits the two kinds of expense in meta, since they behave differently', () => {
     expect(source).toMatch(/periodPurchaseExpense,/)
     expect(source).toMatch(/periodPayrollExpense,/)
+    expect(source).toMatch(/periodOperatingExpense,/)
   })
 
   it('says so when a farm filter excludes payroll, rather than omitting it silently', () => {
