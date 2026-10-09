@@ -4,7 +4,7 @@
 // the admin route: it supersedes the old link, refuses anyone who has already
 // set a password (that is Reset password), needs users.manage, and the list
 // reports who is still waiting.
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { eq, inArray } from 'drizzle-orm'
 
@@ -88,6 +88,61 @@ run('admin set-password link re-issue', () => {
     await db.delete(platformStaff).where(eq(platformStaff.userId, limitedId))
     await db.delete(users).where(inArray(users.id, ids))
     await db.delete(tenants).where(eq(tenants.id, tenantId))
+  })
+
+  describe('emailing the re-issued link', () => {
+    const originalKey = process.env.BREVO_API_KEY
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      if (originalKey === undefined) delete process.env.BREVO_API_KEY
+      else process.env.BREVO_API_KEY = originalKey
+    })
+    const freshWaiting = async () => {
+      const id = `usr-mail-${randomUUID()}`
+      ids.push(id)
+      await db.insert(users).values(mk(id, 'owner') as never)
+      await issueSetPasswordToken(id)
+      return id
+    }
+    const reissue = async (id: string) => {
+      mockCookie = adminSession
+      const res = await post(id)
+      mockCookie = undefined
+      return res
+    }
+
+    it('emails the link to the account address and reports emailed: true', async () => {
+      process.env.BREVO_API_KEY = 'test-key'
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messageId: 'm1' }) })
+      vi.stubGlobal('fetch', fetchMock)
+      const id = await freshWaiting()
+      const { status, payload } = await reissue(id)
+      expect(status).toBe(200)
+      expect(payload.data.emailed).toBe(true)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
+      expect(sent.to).toEqual([{ email: `${id}@test.ifms` }])
+      expect(sent.textContent).toContain(payload.data.setPasswordUrl)
+    })
+
+    it('a failing send still returns 200 with the URL and emailed: false', async () => {
+      process.env.BREVO_API_KEY = 'test-key'
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
+      const { status, payload } = await reissue(await freshWaiting())
+      expect(status).toBe(200)
+      expect(payload.data.emailed).toBe(false)
+      expect(payload.data.setPasswordUrl).toContain('/set-password/')
+    })
+
+    it('with no BREVO_API_KEY the link is still returned and emailed is false', async () => {
+      delete process.env.BREVO_API_KEY
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      const { status, payload } = await reissue(await freshWaiting())
+      expect(status).toBe(200)
+      expect(payload.data.emailed).toBe(false)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
   })
 
   it('supersedes the old link: old token dead, new one works', async () => {

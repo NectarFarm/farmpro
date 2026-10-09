@@ -5,7 +5,7 @@ import { setPasswordTokens, users } from '@/db/schemas'
 import { requirePlatformCapability } from '@/lib/api-auth'
 import { writeAuditLog } from '@/lib/audit'
 import { issueSetPasswordToken, setPasswordWaitFor } from '@/lib/set-password'
-import { resolveAppBaseUrl } from '@/lib/email'
+import { resolveAppBaseUrl, sendSetPasswordLinkEmail } from '@/lib/email'
 
 // ── POST /api/admin/users/[id]/set-password-link ────────────────────────────
 // The platform-admin twin of PATCH /api/employees/[id]/email-login. A
@@ -17,7 +17,8 @@ import { resolveAppBaseUrl } from '@/lib/email'
 //
 // It changes no password and reveals none — the account keeps whatever
 // credential it has; the person chooses their own through the link. The link
-// is returned once for the admin to copy (this app sends no email here).
+// is emailed to the account's own address and also returned once for the
+// admin to copy, in case email is not configured or does not arrive.
 //
 // Refusals, each deliberate:
 //   - a user whose newest link was already redeemed (or who never had one):
@@ -34,7 +35,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const { id } = await params
   const [user] = await db
-    .select({ id: users.id, tenantId: users.tenantId, email: users.email, role: users.role, status: users.status })
+    .select({ id: users.id, name: users.name, tenantId: users.tenantId, email: users.email, role: users.role, status: users.status })
     .from(users)
     .where(eq(users.id, id))
     .limit(1)
@@ -68,5 +69,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { token, expiresAt } = await issueSetPasswordToken(user.id)
   const setPasswordUrl = `${resolveAppBaseUrl(req)}/set-password/${token}`
 
-  return NextResponse.json({ success: true, data: { userId: user.id, email: user.email, setPasswordUrl, expiresAt } }, { status: 200 })
+  // A failed or skipped send (no BREVO_API_KEY) never fails the request or
+  // loses the link: the URL is still returned and `emailed` says what happened.
+  let emailed = false
+  try {
+    const result = await sendSetPasswordLinkEmail({ to: user.email, name: user.name, setPasswordUrl })
+    emailed = result.ok && !result.skipped
+    if (!result.ok) console.error('[set-password-link] re-issued link email failed', { userId: user.id, error: result.error })
+  } catch (err) {
+    console.error('[set-password-link] re-issued link email threw', { userId: user.id, err: err instanceof Error ? err.message : String(err) })
+  }
+
+  return NextResponse.json({ success: true, data: { userId: user.id, email: user.email, setPasswordUrl, expiresAt, emailed } }, { status: 200 })
 }
