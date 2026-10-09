@@ -48,6 +48,13 @@ export const expenses = pgTable('expenses', {
   recordedBy: text('recorded_by'),
   reversedAt: timestamp('reversed_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  // Issue #419. Same five nullable columns as sales. amount_cents stays the
+  // settled amount (the gross, once a code is present).
+  taxCode: text('tax_code'),
+  taxInclusive: boolean('tax_inclusive'),
+  grossCents: bigint('gross_cents', { mode: 'number' }),
+  taxCents: bigint('tax_cents', { mode: 'number' }),
+  netCents: bigint('net_cents', { mode: 'number' }),
 }, (t) => [
   index('idx_expenses_tenant').on(t.tenantId),
   index('idx_expenses_tenant_posting').on(t.tenantId, t.postingDate),

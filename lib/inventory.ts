@@ -181,6 +181,13 @@ export async function recordPurchase(input: {
   // lib/finance.ts's postPurchaseJournal / lib/dimensions.ts's
   // resolveMasterDimensions for the resolution order this participates in.
   dimensions?: Record<string, string>
+  // Issue #419. Omitted leaves the tax columns null. totalCostCents stays
+  // the settled amount; the lot keeps the typed unit cost.
+  taxCode?: string | null
+  taxInclusive?: boolean | null
+  grossCents?: number | null
+  taxCents?: number | null
+  netCents?: number | null
 }): Promise<RecordPurchaseResult> {
   return db.transaction(async (tx): Promise<RecordPurchaseResult> => {
     const existing = await tx
@@ -272,6 +279,11 @@ export async function recordPurchase(input: {
         postingDate,
         supplierId: input.supplierId ?? null,
         recordedBy: input.recordedBy ?? null,
+        taxCode: input.taxCode ?? null,
+        taxInclusive: input.taxInclusive ?? null,
+        grossCents: input.grossCents ?? null,
+        taxCents: input.taxCents ?? null,
+        netCents: input.netCents ?? null,
       })
       .returning()
 

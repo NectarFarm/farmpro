@@ -29,6 +29,8 @@ import { controlClass } from '@/components/ui-kit/field';
 import { Select } from '@/components/ui-kit/select';
 import { StatusTimeline } from './status-timeline';
 import { RecordExpenseSheet, ExpenseDetailSheet, type ApiExpense } from './expense-sheet';
+import { TaxFields, useTaxCatalogue } from './tax-fields';
+import { previewTax, taxBlockMessage } from '@/lib/tax';
 
 // ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
 // Ports src/components/finance/finance-page.tsx's layout onto this screen's
@@ -290,6 +292,9 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   const [soldAt, setSoldAt] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
   const [salePostingDate, setSalePostingDate] = useState('');
+  const [taxCode, setTaxCode] = useState('');
+  const [taxInclusive, setTaxInclusive] = useState(false);
+  const { catalogue: taxCatalogue, error: taxCatalogueError } = useTaxCatalogue(tenantId);
   const [soldTo, setSoldTo] = useState('');
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<MasterOption[]>([]);
@@ -377,6 +382,15 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   const totalCents = unitPriceCents !== null && Number.isFinite(qtyForTotal) && qtyForTotal > 0
     ? unitPriceCents * Math.max(1, Math.trunc(qtyForTotal))
     : null;
+  const taxDay = salePostingDate || soldAt || null;
+  const taxPreview = previewTax({
+    code: taxCode,
+    baseCents: totalCents,
+    inclusive: taxInclusive,
+    rates: taxCatalogue?.rates ?? [],
+    day: taxDay,
+  });
+  const taxBlocks = taxBlockMessage(taxPreview);
 
   async function save() {
     const label = productId ? (product?.name ?? '') : item.trim();
@@ -393,6 +407,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
     if (soldAt && soldAt > todayIso) errs.soldAt = 'A sale cannot be dated in the future';
     if (effectiveDate && effectiveDate > todayIso) errs.effectiveDate = 'The effective date cannot be in the future';
     if (salePostingDate && salePostingDate > todayIso) errs.salePostingDate = 'The posting date cannot be in the future';
+    if (taxBlocks) errs.tax = taxBlocks;
     Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -404,12 +419,13 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
     const amountCents = totalCents as number;
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ id: string }>('/api/data/sales', {
+    const res = await apiClient.post<{ id: string; amountCents?: number }>('/api/data/sales', {
       tenantId,
       productId: productId || undefined,
       item: label,
       qty: qtyNum ?? undefined,
       amountCents,
+      ...(taxCode ? { taxCode, taxInclusive: taxCode === 'VATABLE' ? taxInclusive : false } : {}),
       method: method.trim() || undefined,
       paymentReference: reference.trim() || undefined,
       status,
@@ -429,7 +445,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
       setReceipt({
         id: res.data?.id,
         totalLabel: 'Total',
-        totalCents: amountCents,
+        totalCents: typeof res.data?.amountCents === 'number' ? res.data.amountCents : amountCents,
         stockEffect: needsQty && qtyNum ? `${qtyNum} × ${product?.name} out of ${batches.find((b) => b.id === batchId)?.code ?? 'the batch'}` : undefined,
       });
     } else {
@@ -519,12 +535,24 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
               <FieldError id="sale-qty-error" message={fieldErrors.qty} />
             </div>
           </div>
-          {/* The calculated total — never a lone typed figure. This is the
-              exact number that gets stored, shown before it's committed to. */}
+          {/* Goods amount: quantity times unit price. With no tax code this
+              is what is stored. With a code, the tax block below shows the
+              settled gross. */}
           <div className="mb-3 flex items-center justify-between rounded-lg bg-primary-soft px-3 py-2.5">
             <span className="text-xs font-semibold text-muted">Total</span>
             <span className="font-display text-lg font-medium text-primary">{totalCents !== null ? formatMoney(totalCents) : '—'}</span>
           </div>
+          <TaxFields
+            catalogue={taxCatalogue}
+            catalogueError={taxCatalogueError}
+            taxCode={taxCode}
+            onTaxCode={setTaxCode}
+            inclusive={taxInclusive}
+            onInclusive={setTaxInclusive}
+            baseCents={totalCents}
+            postingDay={taxDay}
+          />
+          {fieldErrors.tax && <p className="mb-2 text-xs text-danger">{fieldErrors.tax}</p>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Batch (optional)</label>
@@ -609,7 +637,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
-          <Button className="w-full justify-center" disabled={saving} onClick={save}>
+          <Button className="w-full justify-center" disabled={saving || !!taxBlocks} onClick={save}>
             {saving ? 'Saving…' : 'Record Sale'}
           </Button>
         </div>
@@ -661,6 +689,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   const [receivedDate, setReceivedDate] = useState('');
   const [transactionDate, setTransactionDate] = useState('');
   const [postingDate, setPostingDate] = useState('');
+  const [purchaseTaxCode, setPurchaseTaxCode] = useState('');
+  const [purchaseTaxInclusive, setPurchaseTaxInclusive] = useState(false);
+  const { catalogue: purchaseTaxCatalogue, error: purchaseTaxCatalogueError } = useTaxCatalogue(tenantId);
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
@@ -698,8 +729,18 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   const qtyNum = Number(quantity);
   const unitCostCentsLive = parseMoneyToCents(unitCost);
   const totalCentsLive = Number.isFinite(qtyNum) && qtyNum > 0 && unitCostCentsLive !== null ? qtyNum * unitCostCentsLive : null;
+  const purchaseTaxDay = postingDate || receivedDate || null;
+  const purchaseTaxPreview = previewTax({
+    code: purchaseTaxCode,
+    baseCents: totalCentsLive,
+    inclusive: purchaseTaxInclusive,
+    rates: purchaseTaxCatalogue?.rates ?? [],
+    day: purchaseTaxDay,
+  });
+  const purchaseTaxBlocks = taxBlockMessage(purchaseTaxPreview);
+  const purchaseBillCents = purchaseTaxPreview.status === 'ok' ? purchaseTaxPreview.grossCents : totalCentsLive;
   const amountPaidCentsLive = amountPaid ? parseMoneyToCents(amountPaid) : 0;
-  const amountDueCents = totalCentsLive !== null ? Math.max(0, totalCentsLive - (amountPaidCentsLive ?? 0)) : null;
+  const amountDueCents = purchaseBillCents !== null ? Math.max(0, purchaseBillCents - (amountPaidCentsLive ?? 0)) : null;
 
   // Credit means unpaid (item 2): choosing it locks "Paid now" at 0 and
   // reveals the due date. A different method afterwards hands control of
@@ -760,9 +801,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     if (unitCostCents === null || unitCostCents < 0) errs.unitCost = 'Unit cost must be a non-negative number';
     if (amountPaid && amountPaidCents === null) errs.amountPaid = 'Paid now must be a number';
     else if (amountPaidCents !== null && amountPaidCents < 0) errs.amountPaid = 'Paid now cannot be negative';
-    else if (amountPaidCents !== null && unitCostCents !== null && amountPaidCents > qty * unitCostCents) {
+    else if (!purchaseTaxBlocks && amountPaidCents !== null && purchaseBillCents !== null && amountPaidCents > purchaseBillCents) {
       errs.amountPaid = 'Paid now is more than the purchase total';
     }
+    if (purchaseTaxBlocks) errs.tax = purchaseTaxBlocks;
     Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -774,7 +816,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     const totalCents = qty * (unitCostCents as number);
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ id: string }>('/api/purchases', {
+    const res = await apiClient.post<{ purchase?: { id?: string; totalCostCents?: number } }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
       supplierId: supplierId || undefined,
@@ -783,6 +825,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
       unit: unit.trim(),
       quantity: qty,
       unitCostCents,
+      ...(purchaseTaxCode ? { taxCode: purchaseTaxCode, taxInclusive: purchaseTaxCode === 'VATABLE' ? purchaseTaxInclusive : false } : {}),
       paymentMethod: paymentMethod.trim() || undefined,
       paymentReference: reference.trim() || undefined,
       amountPaidCents: amountPaidCents ?? undefined,
@@ -800,9 +843,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     if (res.success) {
       onCreated();
       setReceipt({
-        id: (res.data as { purchase?: { id?: string } }).purchase?.id,
+        id: res.data.purchase?.id,
         totalLabel: 'Total',
-        totalCents,
+        totalCents: typeof res.data.purchase?.totalCostCents === 'number' ? res.data.purchase.totalCostCents : (purchaseBillCents ?? totalCents),
         stockEffect: `${qty} ${unit.trim()} of ${itemName.trim()} added to Inventory`,
       });
     } else {
@@ -902,6 +945,17 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
             <span className="text-xs font-semibold text-muted">Total</span>
             <span className="font-display text-lg font-medium text-primary">{totalCentsLive !== null ? formatMoney(totalCentsLive) : '—'}</span>
           </div>
+          <TaxFields
+            catalogue={purchaseTaxCatalogue}
+            catalogueError={purchaseTaxCatalogueError}
+            taxCode={purchaseTaxCode}
+            onTaxCode={setPurchaseTaxCode}
+            inclusive={purchaseTaxInclusive}
+            onInclusive={setPurchaseTaxInclusive}
+            baseCents={totalCentsLive}
+            postingDay={purchaseTaxDay}
+          />
+          {fieldErrors.tax && <p className="mb-2 text-xs text-danger">{fieldErrors.tax}</p>}
           <div style={{ marginBottom: 12 }}>
             <PaymentMethodFields method={paymentMethod} onMethodChange={onMethodChange} reference={reference} onReferenceChange={setReference} />
           </div>
@@ -979,7 +1033,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
-          <Button className="w-full justify-center" disabled={saving} onClick={save}>
+          <Button className="w-full justify-center" disabled={saving || !!purchaseTaxBlocks} onClick={save}>
             {saving ? 'Saving…' : 'Record Purchase'}
           </Button>
         </div>

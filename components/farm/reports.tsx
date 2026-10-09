@@ -66,6 +66,7 @@ const REPORT_TYPES: { id: string; name: string; desc: string; icon: LucideIcon; 
   // screen exists to set up.
   { id: 'dimension-pl', name: 'P&L by Dimension', desc: 'Revenue & expense, rolled up by farm, unit, batch or enterprise', icon: Layers, color: 'var(--accent-purple)' },
   { id: 'sales', name: 'Sales & Collections Register', desc: 'Recorded sales, collections and outstanding balances', icon: Receipt, color: 'var(--status-ok)' },
+  { id: 'vat', name: 'VAT summary', desc: 'Output and input VAT for a period. Not a return.', icon: FileText, color: 'var(--accent-amber)' },
 ];
 
 // Report types with a real /api/reports/* endpoint behind them.
@@ -79,6 +80,7 @@ const REPORT_ENDPOINTS: Record<string, string> = {
   fcr: '/api/reports/fcr',
   'dimension-pl': '/api/reports/dimension-pl',
   sales: '/api/reports/sales',
+  vat: '/api/reports/vat',
 };
 
 // The four built-in system dimensions (db/schemas/dimensions.ts's seed) —
