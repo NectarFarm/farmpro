@@ -143,8 +143,105 @@ const PEOPLE_COLS: ColDef<Record<string, unknown>>[] = [
   },
 ];
 
+// ── "Not signed in yet" (owner only) ────────────────────────────────────────
+// An unused or expired link looks exactly like an active account on the
+// roster, so the owner had no way to know who was waiting. Fed by
+// GET /api/employees/sign-in-waiting (lib/pending-logins.ts). Email roles get
+// Resend link (the same PATCH the Sign-in card uses); workers wait on a PIN,
+// which needs typing, so they are taken to their Sign-in card instead.
+interface WaitingRow {
+  employeeId: string;
+  name: string;
+  role: string;
+  kind: 'email' | 'pin';
+  reason: 'no-login' | 'no-pin' | 'link-waiting' | 'link-expired';
+  since: string | null;
+  expiresAt: string | null;
+}
+
+function waitingFor(since: string | null): string {
+  if (!since) return '';
+  const ms = Math.max(0, Date.now() - new Date(since).getTime());
+  const d = Math.floor(ms / 86_400_000);
+  if (d >= 1) return `waiting ${d} day${d === 1 ? '' : 's'}`;
+  const h = Math.floor(ms / 3_600_000);
+  return h >= 1 ? `waiting ${h} hour${h === 1 ? '' : 's'}` : 'waiting less than an hour';
+}
+
+function waitingStatus(r: WaitingRow): string {
+  if (r.reason === 'link-expired') return `Link expired ${fmtFarmDate(r.expiresAt)}`;
+  if (r.reason === 'link-waiting') return `Link sent ${fmtFarmDate(r.since)}, not used yet`;
+  if (r.reason === 'no-pin') return 'No PIN set — cannot sign in';
+  return r.kind === 'pin' ? 'No login yet — needs a phone and PIN' : 'No login yet — needs an email';
+}
+
+function WaitingToSignIn({ tenantId, onOpen }: { tenantId: string; onOpen: (employeeId: string) => void }) {
+  const [rows, setRows] = useState<WaitingRow[] | null>(null);
+  const [open, setOpen] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [link, setLink] = useState<{ email: string; url: string } | null>(null);
+
+  const load = useCallback(() => {
+    apiClient.get<WaitingRow[]>('/api/employees/sign-in-waiting').then((res) => { if (res.success) setRows(res.data); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function resend(r: WaitingRow) {
+    setBusyId(r.employeeId);
+    setError('');
+    const res = await apiClient.patch<{ email: string; setPasswordUrl: string }>(`/api/employees/${r.employeeId}/email-login`, { tenantId });
+    setBusyId(null);
+    if (!res.success) { setError(res.error || 'Could not generate a link.'); return; }
+    setLink({ email: res.data.email, url: res.data.setPasswordUrl });
+    load();
+  }
+
+  if (!rows || rows.length === 0) return null;
+  const expired = rows.filter((r) => r.reason === 'link-expired').length;
+  return (
+    <div className="mt-5 rounded-xl bg-surface p-4 shadow-(--shadow-border)">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between text-left">
+        <span className="text-sm font-medium">
+          Not signed in yet · {rows.length}
+          {expired > 0 && <span className="ml-2 text-xs text-danger">{expired} link{expired === 1 ? '' : 's'} expired</span>}
+        </span>
+        <ChevronRight size={16} className={open ? 'rotate-90 text-subtle' : 'text-subtle'} />
+      </button>
+      {open && (
+        <ul className="mt-3 divide-y divide-border-subtle">
+          {error && <li className="pb-2 text-xs text-danger">{error}</li>}
+          {rows.map((r) => (
+            <li key={r.employeeId} className="flex items-center gap-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium">{r.name}</span>
+                  <Badge variant="primary">{roleLabel(r.role)}</Badge>
+                </div>
+                <div className={`mt-0.5 text-xs ${r.reason === 'link-expired' ? 'text-danger' : 'text-muted'}`}>
+                  {waitingStatus(r)}{r.since ? ` · ${waitingFor(r.since)}` : ''}
+                </div>
+              </div>
+              {r.kind === 'email' && r.reason !== 'no-login' ? (
+                <Button size="sm" variant="secondary" disabled={busyId === r.employeeId} onClick={() => void resend(r)}>
+                  {busyId === r.employeeId ? 'Generating…' : 'Resend link'}
+                </Button>
+              ) : (
+                <Button size="sm" variant="secondary" onClick={() => onOpen(r.employeeId)}>
+                  {r.reason === 'no-pin' ? 'Set PIN' : 'Set up login'}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {link && <SetPasswordLinkModal email={link.email} url={link.url} onClose={() => setLink(null)} />}
+    </div>
+  );
+}
+
 export function PeopleScreen() {
-  const { navigate, tenantId, activeFarmId, farms } = useNav();
+  const { navigate, tenantId, activeFarmId, farms, role } = useNav();
   const [filter, setFilter] = useState('All');
   // Status filter (farms/employees CRUD task) — the summary strip above
   // already counted Active/Inactive, but nothing let an admin actually see
@@ -279,6 +376,8 @@ export function PeopleScreen() {
         </div>
 
         {loadError && <div className="mt-3 text-sm text-danger">{loadError}</div>}
+
+        {role === 'owner' && <WaitingToSignIn tenantId={tenantId} onOpen={(id) => navigate('people-detail', { id })} />}
 
         <div className="relative mt-5 mb-3">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
@@ -569,7 +668,7 @@ function SetPasswordLinkModal({ email, url, onClose }: { email: string; url: str
       <div className="farm-card" style={{ width: '100%', maxWidth: 420, padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <CheckCircle2 size={18} color="var(--status-ok)" />
-          <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>Login created</div>
+          <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>Sign-in link ready</div>
         </div>
         <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
           Send this one-time link to <strong>{email}</strong> — through a channel you trust, out of band. They use it to set their own password.
