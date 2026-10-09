@@ -44,6 +44,11 @@ export async function recordExpense(input: {
   postingDate: Date
   recordedBy: string
   dimensions?: Record<string, string>
+  taxCode?: string | null
+  taxInclusive?: boolean | null
+  grossCents?: number | null
+  taxCents?: number | null
+  netCents?: number | null
 }) {
   return db.transaction(async (tx) => {
     const [expense] = await tx
@@ -65,6 +70,11 @@ export async function recordExpense(input: {
         transactionDate: input.transactionDate,
         postingDate: input.postingDate,
         recordedBy: input.recordedBy,
+        taxCode: input.taxCode ?? null,
+        taxInclusive: input.taxInclusive ?? null,
+        grossCents: input.grossCents ?? null,
+        taxCents: input.taxCents ?? null,
+        netCents: input.netCents ?? null,
       })
       .returning()
 
@@ -77,6 +87,8 @@ export async function recordExpense(input: {
       farmId: expense.farmId,
       postingDate: expense.postingDate,
       payee: expense.payee,
+      taxCents: expense.taxCents,
+      netCents: expense.netCents,
     }, { dimensions: input.dimensions })
 
     await tx.insert(auditLog).values({

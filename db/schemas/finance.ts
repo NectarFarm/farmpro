@@ -165,6 +165,15 @@ export const sales = pgTable('sales', {
   // treated as editable by any actor the module gate already lets in, not
   // locked to nobody.
   recordedBy: text('recorded_by'),
+  // Issue #419. All five nullable, no default, no backfill. Null means the
+  // document was recorded with no tax code — distinguishable from a
+  // zero-rated document, which stores tax_cents 0. amount_cents stays the
+  // settled amount (the gross, once a code is present).
+  taxCode: text('tax_code'),
+  taxInclusive: boolean('tax_inclusive'),
+  grossCents: bigint('gross_cents', { mode: 'number' }),
+  taxCents: bigint('tax_cents', { mode: 'number' }),
+  netCents: bigint('net_cents', { mode: 'number' }),
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),

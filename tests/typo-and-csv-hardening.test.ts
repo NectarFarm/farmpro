@@ -194,7 +194,10 @@ describe('app/api/purchases — the server is the authority', () => {
   it('computes the total instead of accepting one from the caller', () => {
     // A curl-reachable totalCostCents was debited verbatim to Purchases
     // Expense, so the GL and the stock ledger could disagree permanently.
-    expect(source).toMatch(/const totalCostCents = quantity \* unitCostCents/)
+    // The goods figure is still quantity × unit cost. VAT, when a code is
+    // set, settles the stored total from that goods figure on the server.
+    expect(source).toMatch(/const goodsCents = quantity \* unitCostCents/)
+    expect(source).toMatch(/const totalCostCents = tax\.settledCents/)
     expect(source).not.toMatch(/b\.totalCostCents/)
   })
 

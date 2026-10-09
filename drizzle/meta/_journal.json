@@ -379,6 +379,13 @@
       "when": 1790500000000,
       "tag": "0053_variance_approval_threshold",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790600000000,
+      "tag": "0054_vat",
+      "breakpoints": true
     }
   ]
 }

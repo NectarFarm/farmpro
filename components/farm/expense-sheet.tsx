@@ -29,6 +29,8 @@ import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dial
 import { controlClass } from '@/components/ui-kit/field';
 import { Kv } from '@/components/ui-kit/inspector';
 import { StatusTimeline } from './status-timeline';
+import { TaxFields, useTaxCatalogue } from './tax-fields';
+import { previewTax, taxBlockMessage } from '@/lib/tax';
 
 const inputClass = 'min-h-11 h-11';
 
@@ -106,6 +108,9 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [receipt, setReceipt] = useState<SaveReceipt | null>(null);
   const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
+  const [taxCode, setTaxCode] = useState('');
+  const [taxInclusive, setTaxInclusive] = useState(false);
+  const { catalogue: taxCatalogue, error: taxCatalogueError } = useTaxCatalogue(tenantId);
 
   const selectedCategory = (categories ?? []).find((c) => c.id === categoryId) ?? null;
   const { missing: requiredDims } = useRequiredDimensions(
@@ -114,6 +119,16 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
 
   const amountCentsLive = parseMoneyToCents(amount);
   const paidCentsLive = amountPaid.trim() ? parseMoneyToCents(amountPaid) : 0;
+  const taxDay = postingDate || date || null;
+  const taxPreview = previewTax({
+    code: taxCode,
+    baseCents: amountCentsLive,
+    inclusive: taxInclusive,
+    rates: taxCatalogue?.rates ?? [],
+    day: taxDay,
+  });
+  const taxBlocks = taxBlockMessage(taxPreview);
+  const settledCents = taxPreview.status === 'ok' ? taxPreview.grossCents : amountCentsLive;
 
   useEffect(() => {
     apiClient.get<MasterOption[]>(`/api/suppliers?tenantId=${tenantId}&active=true`).then((res) => {
@@ -199,9 +214,10 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
     if (refLabel && !reference.trim()) errs.reference = `${refLabel} is required`;
     if (amountPaid.trim() && amountPaidCents === null) errs.amountPaid = 'Paid now must be a number';
     else if (amountPaidCents !== null && amountPaidCents < 0) errs.amountPaid = 'Paid now cannot be negative';
-    else if (amountPaidCents !== null && amountCents !== null && amountPaidCents > amountCents) {
+    else if (!taxBlocks && amountPaidCents !== null && settledCents !== null && amountPaidCents > settledCents) {
       errs.amountPaid = 'Paid now is more than the expense';
     }
+    if (taxBlocks) errs.tax = taxBlocks;
     Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -211,12 +227,13 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
     setFieldErrors({});
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ expense: { id: string } }>('/api/expenses', {
+    const res = await apiClient.post<{ expense: { id: string; amountCents?: number } }>('/api/expenses', {
       tenantId,
       payee: payee.trim(),
       supplierId: supplierId || undefined,
       categoryId,
       amountCents,
+      ...(taxCode ? { taxCode, taxInclusive: taxCode === 'VATABLE' ? taxInclusive : false } : {}),
       amountPaidCents: amountPaidCents ?? undefined,
       paymentMethod,
       paymentReference: reference.trim() || undefined,
@@ -234,7 +251,7 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
       setReceipt({
         id: res.data.expense?.id,
         totalLabel: 'Amount',
-        totalCents: amountCents as number,
+        totalCents: typeof res.data.expense?.amountCents === 'number' ? res.data.expense.amountCents : (settledCents ?? amountCents as number),
         stockEffect: 'No stock was created. This is an expense only.',
       });
     } else {
@@ -358,6 +375,17 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
                 <p className="text-xs text-muted">{formatMoney(amountCentsLive)}</p>
               )}
             </Field>
+            <TaxFields
+              catalogue={taxCatalogue}
+              catalogueError={taxCatalogueError}
+              taxCode={taxCode}
+              onTaxCode={setTaxCode}
+              inclusive={taxInclusive}
+              onInclusive={setTaxInclusive}
+              baseCents={amountCentsLive}
+              postingDay={taxDay}
+            />
+            {fieldErrors.tax && <p className="text-xs text-danger">{fieldErrors.tax}</p>}
             <div>
               <PaymentMethodFields method={paymentMethod} onMethodChange={onMethodChange} reference={reference} onReferenceChange={setReference} />
               <FieldError message={fieldErrors.paymentMethod || fieldErrors.reference} />
@@ -372,8 +400,8 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
               />
               <p className="text-[11px] leading-relaxed text-muted">Leave this blank if it has not been paid yet. The unpaid part is owed to the payee.</p>
               <FieldError message={fieldErrors.amountPaid} />
-              {amountCentsLive !== null && paidCentsLive !== null && (
-                <p className="text-xs text-muted">Still owed {formatMoney(Math.max(0, amountCentsLive - paidCentsLive))}</p>
+              {settledCents !== null && paidCentsLive !== null && (
+                <p className="text-xs text-muted">Still owed {formatMoney(Math.max(0, settledCents - paidCentsLive))}</p>
               )}
             </Field>
             <Field label="Posting date (optional)">
@@ -399,7 +427,7 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
-          <Button size="lg" className="w-full justify-center" disabled={!canSave} onClick={save}>
+          <Button size="lg" className="w-full justify-center" disabled={!canSave || !!taxBlocks} onClick={save}>
             {saving ? 'Saving…' : 'Record expense'}
           </Button>
         </div>

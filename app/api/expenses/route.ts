@@ -10,6 +10,9 @@ import { DimensionRequirementError, DimensionValidationError, isPlainDimensionMa
 import { isInvalid, requireCents, requireEventDate } from '@/lib/validate-input'
 import { isImageDataUrl, dataUrlByteSize, MAX_PHOTO_BYTES } from '@/lib/record-photos'
 import { PAYMENT_METHODS, referenceLabel } from '@/lib/payment-method'
+import { postingDayFrom } from '@/lib/tax'
+import { resolveDocumentTax } from '@/lib/tax-catalogue'
+import { UnbalancedTaxError } from '@/lib/finance'
 
 // ── GET/POST /api/expenses (issue #416) ─────────────────────────────────────
 // Money out that is not stock. POST writes an expense row and a journal
@@ -119,9 +122,6 @@ export async function POST(req: Request) {
     if (isInvalid(parsed)) return badRequest(parsed.problem)
     amountPaidCents = parsed
   }
-  if (amountPaidCents > amountCents) {
-    return badRequest('Amount paid is more than the expense — check the figures')
-  }
 
   const farmRaw = typeof b.farmId === 'string' ? b.farmId.trim() : ''
   if (!farmRaw || farmRaw === 'ALL') return badRequest('farmId is required')
@@ -169,6 +169,21 @@ export async function POST(req: Request) {
     photoUrl = candidate
   }
 
+  const postingDay = postingDayFrom(
+    [typeof b.postingDate === 'string' ? b.postingDate : null, typeof b.date === 'string' ? b.date : null],
+    postingDate,
+  )
+  const tax = await resolveDocumentTax({
+    taxCode: b.taxCode,
+    taxInclusive: b.taxInclusive,
+    baseCents: amountCents,
+    postingDay,
+  })
+  if ('refused' in tax) return badRequest(tax.refused)
+  if (amountPaidCents > tax.settledCents) {
+    return badRequest('Amount paid is more than the expense — check the figures')
+  }
+
   try {
     const result = await recordExpense({
       tenantId,
@@ -176,7 +191,7 @@ export async function POST(req: Request) {
       supplierId,
       categoryId: category.id,
       accountCode: category.accountCode,
-      amountCents,
+      amountCents: tax.settledCents,
       amountPaidCents,
       paymentMethod,
       paymentReference: paymentReference || null,
@@ -188,10 +203,11 @@ export async function POST(req: Request) {
       postingDate,
       recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
+      ...tax.columns,
     })
     return created(result)
   } catch (err) {
-    if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError) {
+    if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError || err instanceof UnbalancedTaxError) {
       return badRequest(err.message)
     }
     throw err

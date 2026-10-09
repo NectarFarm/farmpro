@@ -12,6 +12,9 @@ import {
   requireEventDate, requireFutureAllowedDate,
 } from '@/lib/validate-input'
 import { isImageDataUrl, dataUrlByteSize, MAX_PHOTO_BYTES } from '@/lib/record-photos'
+import { postingDayFrom } from '@/lib/tax'
+import { resolveDocumentTax } from '@/lib/tax-catalogue'
+import { UnbalancedTaxError } from '@/lib/finance'
 
 // ── GET/POST /api/purchases (issue #235 task 2) ─────────────────────────────
 // Fresh build: no `purchases` table existed on this branch before this issue.
@@ -126,31 +129,21 @@ export async function POST(req: Request) {
 
   const paymentMethod = typeof b.paymentMethod === 'string' ? b.paymentMethod.trim() : undefined
 
-  // ── The total is computed, never supplied ────────────────────────────────
-  // `totalCostCents` used to be accepted from the request body and honoured
-  // verbatim by recordPurchase, which is what postPurchaseJournal then debits
-  // to Purchases Expense. Neither client ever sent it, so it was a
-  // curl-reachable field with no validation beyond "non-negative": quantity 1
-  // at 100 with totalCostCents 99999999 posted a KSh 999,999.99 expense
-  // against one unit costing KSh 1, and the GL and the stock ledger disagreed
-  // permanently with nothing to reconcile them.
-  //
-  // quantity x unitCostCents is the only defensible value, and both operands
-  // are now bounded so the product is exactly representable.
-  const totalCostCents = quantity * unitCostCents
+  // ── The goods total is computed, never supplied ─────────────────────────
+  // `totalCostCents` used to be accepted from the request body. quantity x
+  // unitCostCents is the goods figure. A tax code, resolved after the
+  // posting date is known, turns that into the settled gross. With no tax
+  // code the settled total stays quantity x unitCostCents, and the lot keeps
+  // the typed unit cost either way.
+  const goodsCents = quantity * unitCostCents
 
-  // ── Paid cannot exceed the bill ──────────────────────────────────────────
-  // lib/finance.ts already clamps the JOURNAL to the total, but the purchases
-  // row kept the raw figure — so paying 50,000 on a 500 purchase showed a
-  // "PAID" chip while Cash was credited only 500, and 49,500 of cash outflow
-  // vanished from the ledger. Refused here so the row and the journal agree.
+  // Paid is compared to the settled gross further down, once tax is known.
+  // Comparing it to the goods figure would refuse a payment of the gross on
+  // an exclusive VATable purchase.
   let amountPaidCents: number | undefined
   if (b.amountPaidCents !== undefined) {
     const parsed = requireCents(b.amountPaidCents, 'amountPaidCents')
     if (isInvalid(parsed)) return badRequest(parsed.problem)
-    if (parsed > totalCostCents) {
-      return badRequest('Amount paid is more than the purchase total — check the figures')
-    }
     amountPaidCents = parsed
   }
 
@@ -234,6 +227,22 @@ export async function POST(req: Request) {
     if (rows.length === 0) return notFound('Supplier not found for this tenant')
   }
 
+  const postingDay = postingDayFrom(
+    [typeof b.postingDate === 'string' ? b.postingDate : null, typeof b.receivedDate === 'string' ? b.receivedDate : null],
+    postingDate ?? receivedDate ?? new Date(),
+  )
+  const tax = await resolveDocumentTax({
+    taxCode: b.taxCode,
+    taxInclusive: b.taxInclusive,
+    baseCents: goodsCents,
+    postingDay,
+  })
+  if ('refused' in tax) return badRequest(tax.refused)
+  const totalCostCents = tax.settledCents
+  if (amountPaidCents !== undefined && amountPaidCents > totalCostCents) {
+    return badRequest('Amount paid is more than the purchase total — check the figures')
+  }
+
   let result
   try {
     result = await recordPurchase({
@@ -245,6 +254,13 @@ export async function POST(req: Request) {
       lowStockThreshold,
       quantity,
       unitCostCents,
+      // An inclusive VATable bill: the typed unit cost carries the VAT the
+      // farm claims back, so stock is valued at the net, exactly (a net that
+      // does not divide by the quantity becomes two lots, see splitLotCost).
+      // Exclusive and uncoded bills keep the typed unit cost.
+      lotValueCents: tax.columns.taxInclusive === true && tax.columns.netCents != null
+        ? tax.columns.netCents
+        : undefined,
       totalCostCents,
       paymentMethod,
       amountPaidCents,
@@ -262,13 +278,14 @@ export async function POST(req: Request) {
       farmId: farmFilter ?? null,
       recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
+      ...tax.columns,
     })
   } catch (err) {
     // dimensions-on-gl task: a required dimension missing on an account this
     // purchase posts to refuses the whole write (transaction rolled back)
     // rather than posting an unanalysed line — see lib/dimensions.ts's
     // attachLineDimensions.
-    if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError) {
+    if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError || err instanceof UnbalancedTaxError) {
       return badRequest(err.message)
     }
     throw err

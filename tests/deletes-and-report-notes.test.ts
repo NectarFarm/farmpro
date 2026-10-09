@@ -124,8 +124,9 @@ describe('Report notes are the farmer\'s call — except the safety line', () =>
 
   it('routes every report\'s notes through the one gate', () => {
     expect(reports).not.toMatch(/notes: \[/)
-    // Sales & Collections is the ninth report and uses the same gate.
-    expect(reports.match(/notes: notesFor\(/g)?.length).toBe(9)
+    // Sales & Collections is the ninth report. The VAT summary is the tenth.
+    // Both use the same gate.
+    expect(reports.match(/notes: notesFor\(/g)?.length).toBe(10)
   })
 
   it('defaults to printing notes when a tenant has no settings row', () => {

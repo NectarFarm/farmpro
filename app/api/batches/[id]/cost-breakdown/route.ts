@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { batches, sales, inventoryConsumption } from '@/db/schemas'
 import { and, eq, sum } from 'drizzle-orm'
 import { requireTenantSession } from '@/lib/api-auth'
+import { netOfTax } from '@/lib/tax'
 
 // ── GET /api/batches/[id]/cost-breakdown (issue #231 task 4) ───────────────
 // Deliberately NOT a fabricated feed/labour/overhead split. The UI's own mock
@@ -115,11 +116,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   // was cents. Converting `sales.amountCents` to cents at the source removes
   // that asymmetry instead of managing it at every read site.)
   const saleRows = await db
-    .select({ amountCents: sales.amountCents })
+    .select({ amountCents: sales.amountCents, taxCents: sales.taxCents })
     .from(sales)
     .where(and(eq(sales.batchId, id), eq(sales.tenantId, tenantId)))
   const hasSales = saleRows.length > 0
-  const revenueCents = saleRows.reduce((s, r) => s + r.amountCents, 0)
+  const revenueCents = saleRows.reduce((s, r) => s + netOfTax(r.amountCents, r.taxCents), 0)
 
   // Gross margin against tracked cost only (same "tracked cost only" honesty
   // already used for Break-even above — feed/health/labour/overhead aren't

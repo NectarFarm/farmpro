@@ -128,8 +128,30 @@ export type RecordPurchaseResult =
   | {
       item: typeof inventoryItems.$inferSelect
       lot: typeof inventoryLots.$inferSelect
+      // Normally just [lot]; two when an inclusive-VAT net does not divide by
+      // the quantity (see splitLotCost).
+      lots: (typeof inventoryLots.$inferSelect)[]
       purchase: typeof purchases.$inferSelect
     }
+
+/**
+ * Split a stock value across whole-cent unit costs so it is carried exactly.
+ * A lot has one integer unit cost and every consumer (FIFO consumption, lot
+ * adjustments, the cost breakdown) prices a draw as qty x lot.unitCostCents,
+ * so a single rounded unit cost makes qty x unit drift from the value that was
+ * debited. When the value divides evenly it is one lot. Otherwise it is two
+ * lots of the same stock: `remainder` units one cent dearer, the rest at the
+ * floor. The sum of qty x unit over the pieces is exactly valueCents.
+ */
+export function splitLotCost(valueCents: number, quantity: number): { qty: number; unitCostCents: number }[] {
+  const base = Math.floor(valueCents / quantity)
+  const remainder = valueCents - base * quantity
+  if (remainder === 0) return [{ qty: quantity, unitCostCents: base }]
+  return [
+    { qty: quantity - remainder, unitCostCents: base },
+    { qty: remainder, unitCostCents: base + 1 },
+  ]
+}
 
 export async function recordPurchase(input: {
   tenantId: string
@@ -140,6 +162,11 @@ export async function recordPurchase(input: {
   lowStockThreshold?: number
   quantity: number
   unitCostCents: number
+  // The value stock is carried at when it differs from quantity x typed unit
+  // cost (an inclusive VATable bill values stock net of VAT). Defaults to
+  // quantity x unitCostCents. See splitLotCost for how an amount that does not
+  // divide evenly is carried without drifting.
+  lotValueCents?: number
   totalCostCents?: number
   paymentMethod?: string
   amountPaidCents?: number
@@ -181,6 +208,13 @@ export async function recordPurchase(input: {
   // lib/finance.ts's postPurchaseJournal / lib/dimensions.ts's
   // resolveMasterDimensions for the resolution order this participates in.
   dimensions?: Record<string, string>
+  // Issue #419. Omitted leaves the tax columns null. totalCostCents stays
+  // the settled amount; the lot keeps the typed unit cost.
+  taxCode?: string | null
+  taxInclusive?: boolean | null
+  grossCents?: number | null
+  taxCents?: number | null
+  netCents?: number | null
 }): Promise<RecordPurchaseResult> {
   return db.transaction(async (tx): Promise<RecordPurchaseResult> => {
     const existing = await tx
@@ -230,20 +264,28 @@ export async function recordPurchase(input: {
     // explicitly instead of inheriting a silent default.
     const totalCostCents = input.totalCostCents ?? input.quantity * input.unitCostCents
 
-    const [lot] = await tx
-      .insert(inventoryLots)
-      .values({
-        id: randomUUID(),
-        tenantId: input.tenantId,
-        itemId: item.id,
-        lotNo,
-        qtyOnHand: input.quantity,
-        unitCostCents: input.unitCostCents,
-        expiryDate: input.expiryDate ?? null,
-        receivedDate,
-        farmId: input.farmId ?? null,
-      })
-      .returning()
+    const pieces = input.lotValueCents === undefined
+      ? [{ qty: input.quantity, unitCostCents: input.unitCostCents }]
+      : splitLotCost(input.lotValueCents, input.quantity)
+    const lots = []
+    for (const [i, piece] of pieces.entries()) {
+      const [row] = await tx
+        .insert(inventoryLots)
+        .values({
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          itemId: item.id,
+          lotNo: i === 0 ? lotNo : `${lotNo}-${String.fromCharCode(65 + i)}`,
+          qtyOnHand: piece.qty,
+          unitCostCents: piece.unitCostCents,
+          expiryDate: input.expiryDate ?? null,
+          receivedDate,
+          farmId: input.farmId ?? null,
+        })
+        .returning()
+      lots.push(row)
+    }
+    const lot = lots[0]
 
     const [purchase] = await tx
       .insert(purchases)
@@ -272,6 +314,11 @@ export async function recordPurchase(input: {
         postingDate,
         supplierId: input.supplierId ?? null,
         recordedBy: input.recordedBy ?? null,
+        taxCode: input.taxCode ?? null,
+        taxInclusive: input.taxInclusive ?? null,
+        grossCents: input.grossCents ?? null,
+        taxCents: input.taxCents ?? null,
+        netCents: input.netCents ?? null,
       })
       .returning()
 
@@ -281,6 +328,6 @@ export async function recordPurchase(input: {
     // without its journal entry. See lib/finance.ts's postPurchaseJournal.
     await postPurchaseJournal(tx, purchase, { dimensions: input.dimensions })
 
-    return { item, lot, purchase }
+    return { item, lot, lots, purchase }
   })
 }
