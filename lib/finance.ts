@@ -14,6 +14,7 @@ import { db } from '@/db'
 import { accounts, journalEntries, journalLines, journalLineDimensions, sales, purchases, batches, productionUnits } from '@/db/schemas'
 import { applyMovement } from '@/lib/batch-ledger'
 import { availableProduce, ProduceShortfallError } from '@/lib/produce'
+import { insertMoneyApproval } from '@/lib/raise-money-approval'
 import {
   resolveMasterDimensions, attachLineDimensions, attachDocumentDimensions,
   DimensionValidationError, DimensionRequirementError, type MasterRef,
@@ -658,6 +659,9 @@ export async function recordSale(input: {
   grossCents?: number | null
   taxCents?: number | null
   netCents?: number | null
+  // Issue #424. A hold stores the sale and reserves produce, and does not
+  // post a journal or move a batch until the approval is decided.
+  hold?: boolean
 }) {
   return db.transaction(async (tx) => {
     const soldAt = input.soldAt ?? new Date()
@@ -689,10 +693,11 @@ export async function recordSale(input: {
         grossCents: input.grossCents ?? null,
         taxCents: input.taxCents ?? null,
         netCents: input.netCents ?? null,
+        approvalStatus: input.hold ? 'pending' : null,
       })
       .returning()
 
-    await postSaleJournal(tx, sale, { dimensions: input.dimensions })
+    if (!input.hold) await postSaleJournal(tx, sale, { dimensions: input.dimensions })
 
     // ── Selling livestock takes it off the batch (batch-ledger task) ───────
     // Only when the product says it should. A sale of eggs leaves the hens
@@ -709,6 +714,23 @@ export async function recordSale(input: {
       if (remaining < 0) {
         throw new ProduceShortfallError(input.item, input.qty, input.qty + remaining)
       }
+    }
+
+    if (input.hold) {
+      if (!input.recordedBy) throw new Error('recordedBy is required to hold a sale')
+      await insertMoneyApproval(tx, {
+        tenantId: input.tenantId,
+        requestedBy: input.recordedBy,
+        title: `Sale ${sale.item} waiting for approval`,
+        details: {
+          docType: 'sale',
+          documentId: sale.id,
+          amountCents: sale.amountCents,
+          stockEffect: input.stockEffect ?? null,
+          dimensions: input.dimensions ?? null,
+        },
+      })
+      return sale
     }
 
     if (input.stockEffect === 'batch_quantity' && input.batchId && input.qty && input.qty > 0) {

@@ -32,6 +32,8 @@ import { RecordExpenseSheet, ExpenseDetailSheet, type ApiExpense } from './expen
 import { TaxFields, useTaxCatalogue } from './tax-fields';
 import { ReceiptExtras, buildReceiptParts, previewReceipt, receiptIsActive, type LineDraft, type LotDraft } from './receipt-extras';
 import { previewTax, taxBlockMessage } from '@/lib/tax';
+import { judgeMoney, purchaseLegs, saleLegs, PENDING_MESSAGE } from '@/lib/posting-policy';
+import { PostingLine, usePostingPolicies } from './posting-line';
 
 // ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
 // Ports src/components/finance/finance-page.tsx's layout onto this screen's
@@ -277,7 +279,9 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   onViewList: () => void;
   onClose: () => void;
 }) {
-  const { navigate } = useNav();
+  const { navigate, activeFarmId } = useNav();
+  const posting = usePostingPolicies(tenantId);
+  const [waiting, setWaiting] = useState(false);
   const [products, setProducts] = useState<ApiProductLite[] | null>(null);
   const [productId, setProductId] = useState('');
   const [item, setItem] = useState('');
@@ -393,6 +397,25 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
     day: taxDay,
   });
   const taxBlocks = taxBlockMessage(taxPreview);
+  const saleGross = taxPreview.status === 'ok' ? taxPreview.grossCents : totalCents;
+  const previewFarmId = activeFarmId !== 'ALL' && batchId ? activeFarmId : null;
+  const farmCaveat = posting.status === 'ready' && !!batchId && activeFarmId === 'ALL'
+    && posting.policies.some((policy) => policy.kind === 'farm' || (policy.kind === 'account' && policy.farmId))
+    ? 'The farm comes from the batch. The server checks a farm threshold when you save.'
+    : null;
+  const saleJudged = posting.status === 'ready' && saleGross !== null
+    ? judgeMoney(posting.policies, {
+      amountCents: saleGross,
+      farmId: previewFarmId,
+      legs: saleLegs({
+        amountCents: saleGross,
+        paymentStatus: status,
+        netCents: taxPreview.status === 'ok' ? taxPreview.netCents : null,
+        taxCents: taxPreview.status === 'ok' ? taxPreview.taxCents : null,
+      }),
+    })
+    : null;
+  const saleLine = farmCaveat && saleJudged?.outcome === 'post' ? null : saleJudged;
 
   async function save() {
     const label = productId ? (product?.name ?? '') : item.trim();
@@ -410,6 +433,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
     if (effectiveDate && effectiveDate > todayIso) errs.effectiveDate = 'The effective date cannot be in the future';
     if (salePostingDate && salePostingDate > todayIso) errs.salePostingDate = 'The posting date cannot be in the future';
     if (taxBlocks) errs.tax = taxBlocks;
+    if (saleLine?.outcome === 'block') errs.approval = saleLine.message;
     Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -421,7 +445,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
     const amountCents = totalCents as number;
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ id: string; amountCents?: number }>('/api/data/sales', {
+    const res = await apiClient.post<{ id: string; amountCents?: number; approvalStatus?: string | null }>('/api/data/sales', {
       tenantId,
       productId: productId || undefined,
       item: label,
@@ -443,12 +467,16 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
     });
     setSaving(false);
     if (res.success) {
+      const pending = res.data?.approvalStatus === 'pending';
+      setWaiting(pending);
       onCreated();
       setReceipt({
         id: res.data?.id,
         totalLabel: 'Total',
         totalCents: typeof res.data?.amountCents === 'number' ? res.data.amountCents : amountCents,
-        stockEffect: needsQty && qtyNum ? `${qtyNum} × ${product?.name} out of ${batches.find((b) => b.id === batchId)?.code ?? 'the batch'}` : undefined,
+        stockEffect: pending
+          ? PENDING_MESSAGE
+          : (needsQty && qtyNum ? `${qtyNum} × ${product?.name} out of ${batches.find((b) => b.id === batchId)?.code ?? 'the batch'}` : undefined),
       });
     } else {
       setError(res.error || 'Failed to record sale.');
@@ -458,8 +486,8 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
   if (receipt) {
     return (
       <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
-        <SheetTitle className="sr-only">Sale recorded</SheetTitle>
-        <SaveConfirmation title="Sale recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
+        <SheetTitle className="sr-only">{waiting ? 'Waiting for approval' : 'Sale recorded'}</SheetTitle>
+        <SaveConfirmation title={waiting ? 'Waiting for approval' : 'Sale recorded'} receipt={receipt} onViewList={onViewList} onDone={onClose} />
       </Sheet>
     );
   }
@@ -639,7 +667,9 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
-          <Button className="w-full justify-center" disabled={saving || !!taxBlocks} onClick={save}>
+          {farmCaveat && saleLine === null && <p className="mb-2 text-xs leading-relaxed text-muted">{farmCaveat}</p>}
+          <PostingLine status={posting.status} decision={saleLine} />
+          <Button className="w-full justify-center" disabled={saving || !!taxBlocks || saleLine?.outcome === 'block'} onClick={save}>
             {saving ? 'Saving…' : 'Record Sale'}
           </Button>
         </div>
@@ -675,6 +705,8 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   onClose: () => void;
 }) {
   const { navigate } = useNav();
+  const posting = usePostingPolicies(tenantId);
+  const [waiting, setWaiting] = useState(false);
   const [supplier, setSupplier] = useState('');
   const [supplierId, setSupplierId] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<MasterOption[]>([]);
@@ -782,6 +814,24 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     : (purchaseTaxPreview.status === 'ok' ? purchaseTaxPreview.grossCents : totalCentsLive);
   const amountPaidCentsLive = amountPaid ? parseMoneyToCents(amountPaid) : 0;
   const amountDueCents = purchaseBillCents !== null ? Math.max(0, purchaseBillCents - (amountPaidCentsLive ?? 0)) : null;
+  const purchaseNet = purchaseTaxCode
+    ? (receiptActive ? (receiptFigures?.netCents ?? null) : (purchaseTaxPreview.status === 'ok' ? purchaseTaxPreview.netCents : null))
+    : null;
+  const purchaseTax = purchaseTaxCode
+    ? (receiptActive ? (receiptFigures?.taxCents ?? null) : (purchaseTaxPreview.status === 'ok' ? purchaseTaxPreview.taxCents : null))
+    : null;
+  const purchaseLine = posting.status === 'ready' && purchaseBillCents !== null && (!purchaseTaxCode || purchaseNet !== null)
+    ? judgeMoney(posting.policies, {
+      amountCents: purchaseBillCents,
+      farmId: farmId || null,
+      legs: purchaseLegs({
+        totalCents: purchaseBillCents,
+        paidCents: Math.min(Math.max(amountPaidCentsLive ?? 0, 0), purchaseBillCents),
+        netCents: purchaseNet,
+        taxCents: purchaseTax,
+      }),
+    })
+    : null;
 
   // Credit means unpaid (item 2): choosing it locks "Paid now" at 0 and
   // reveals the due date. A different method afterwards hands control of
@@ -850,6 +900,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
       errs.amountPaid = 'Paid now is more than the purchase total';
     }
     if (purchaseTaxBlocks) errs.tax = purchaseTaxBlocks;
+    if (purchaseLine?.outcome === 'block') errs.approval = purchaseLine.message;
     Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -861,7 +912,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     const totalCents = qty * (unitCostCents as number);
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ purchase?: { id?: string; totalCostCents?: number } }>('/api/purchases', {
+    const res = await apiClient.post<{ purchase?: { id?: string; totalCostCents?: number; approvalStatus?: string | null } }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
       supplierId: supplierId || undefined,
@@ -886,12 +937,14 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     });
     setSaving(false);
     if (res.success) {
+      const pending = res.data.purchase?.approvalStatus === 'pending';
+      setWaiting(pending);
       onCreated();
       setReceipt({
         id: res.data.purchase?.id,
         totalLabel: 'Total',
         totalCents: typeof res.data.purchase?.totalCostCents === 'number' ? res.data.purchase.totalCostCents : (purchaseBillCents ?? totalCents),
-        stockEffect: `${qty} ${unit.trim()} of ${itemName.trim()} added to Inventory`,
+        stockEffect: pending ? PENDING_MESSAGE : `${qty} ${unit.trim()} of ${itemName.trim()} added to Inventory`,
       });
     } else {
       setError(res.error || 'Failed to record purchase.');
@@ -909,6 +962,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
       errs.amountPaid = 'Paid now is more than the purchase total';
     }
     if (purchaseTaxBlocks) errs.tax = purchaseTaxBlocks;
+    if (purchaseLine?.outcome === 'block') errs.approval = purchaseLine.message;
     const built = buildReceiptParts({
       first: { itemName, category, unit, quantity, unitCost, expiry: '', lotNo: '', lots: firstLots },
       extraLines, freight, loading: loadingCharge, levy,
@@ -924,7 +978,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     setFieldErrors({});
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ purchases?: { purchase?: { id?: string; totalCostCents?: number } }[] }>('/api/purchases', {
+    const res = await apiClient.post<{ purchases?: { purchase?: { id?: string; totalCostCents?: number; approvalStatus?: string | null } }[] }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
       supplierId: supplierId || undefined,
@@ -955,6 +1009,8 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
     });
     setSaving(false);
     if (res.success) {
+      const pending = (res.data.purchases ?? []).some((row) => row.purchase?.approvalStatus === 'pending');
+      setWaiting(pending);
       onCreated();
       const stored = (res.data.purchases ?? []).reduce((sum, row) => sum + (row.purchase?.totalCostCents ?? 0), 0);
       const names = built.lines.map((line) => line.itemName).join(', ');
@@ -962,7 +1018,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
         id: res.data.purchases?.[0]?.purchase?.id,
         totalLabel: 'Total',
         totalCents: stored || purchaseBillCents || built.goodsPlusCharges,
-        stockEffect: `${names} added to Inventory`,
+        stockEffect: pending ? PENDING_MESSAGE : `${names} added to Inventory`,
       });
     } else {
       setError(res.error || 'Failed to record purchase.');
@@ -972,8 +1028,8 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
   if (receipt) {
     return (
       <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
-        <SheetTitle className="sr-only">Purchase recorded</SheetTitle>
-        <SaveConfirmation title="Purchase recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
+        <SheetTitle className="sr-only">{waiting ? 'Waiting for approval' : 'Purchase recorded'}</SheetTitle>
+        <SaveConfirmation title={waiting ? 'Waiting for approval' : 'Purchase recorded'} receipt={receipt} onViewList={onViewList} onDone={onClose} />
       </Sheet>
     );
   }
@@ -1167,7 +1223,8 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
-          <Button className="w-full justify-center" disabled={saving || !!purchaseTaxBlocks} onClick={save}>
+          <PostingLine status={posting.status} decision={purchaseLine} />
+          <Button className="w-full justify-center" disabled={saving || !!purchaseTaxBlocks || purchaseLine?.outcome === 'block'} onClick={save}>
             {saving ? 'Saving…' : 'Record Purchase'}
           </Button>
         </div>

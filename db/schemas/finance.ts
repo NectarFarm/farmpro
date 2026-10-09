@@ -174,6 +174,9 @@ export const sales = pgTable('sales', {
   grossCents: bigint('gross_cents', { mode: 'number' }),
   taxCents: bigint('tax_cents', { mode: 'number' }),
   netCents: bigint('net_cents', { mode: 'number' }),
+  // Issue #424. Null means the sale was posted when it was recorded.
+  // sales.status stays cash-versus-credit. This column is the approval hold.
+  approvalStatus: text('approval_status'),
 }, (t) => [
   index('idx_sales_tenant').on(t.tenantId),
   index('idx_sales_tenant_batch').on(t.tenantId, t.batchId),
@@ -195,6 +198,22 @@ export const accounts = pgTable('accounts', {
   normalBalance: text('normal_balance').notNull(), // 'DEBIT' | 'CREDIT'
 }, (t) => [
   uniqueIndex('idx_accounts_code').on(t.code),
+])
+
+// Approval lines on money (issue #424). Empty for a tenant means a document
+// still posts when it is recorded. Nothing is seeded, and the stock-count
+// column on tenant_settings is not copied into this table.
+export const postingPolicies = pgTable('posting_policies', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  kind: text('kind').notNull(),
+  accountCode: text('account_code'),
+  farmId: text('farm_id'),
+  thresholdCents: bigint('threshold_cents', { mode: 'number' }).notNull(),
+  effect: text('effect').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_posting_policies_tenant').on(t.tenantId),
 ])
 
 // One journal entry per posted sale, purchase or payroll run. `sourceType`/

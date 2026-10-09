@@ -27,6 +27,7 @@ import { downloadReportCsv, downloadReportPdf, type ExportOptions } from '@/lib/
 import { periodDateRange } from '@/lib/period-range';
 import { formatMoney } from '@/lib/money';
 import { adjustmentTypeLabel, parseInventoryAdjustmentDetails } from '@/lib/inventory-adjustment';
+import { parseMoneyDetails, PENDING_MESSAGE } from '@/lib/posting-policy';
 
 // ── Governance screen, redesigned onto the reference (ui/governance-
 // reference-redesign) but wired to the exact same backend as before:
@@ -1113,6 +1114,7 @@ function labelledEntries(raw: [string, unknown][]): [string, string][] {
 
 function approvalTypeLabel(type: string): string {
   if (type === 'inventory_adjustment') return 'Stock adjustment';
+  if (type === 'money_posting') return 'Money posting';
   return type;
 }
 
@@ -1138,9 +1140,10 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
   const [currencyUnknown, setCurrencyUnknown] = useState(false);
 
   const adjustment = approval.type === 'inventory_adjustment' ? parseInventoryAdjustmentDetails(approval.details) : null;
+  const money = approval.type === 'money_posting' ? parseMoneyDetails(approval.details) : null;
 
   useEffect(() => {
-    if (approval.type !== 'inventory_adjustment') return;
+    if (approval.type !== 'inventory_adjustment' && approval.type !== 'money_posting') return;
     let cancelled = false;
     setCurrencySymbol(null);
     setCurrencyUnknown(false);
@@ -1159,7 +1162,7 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
     setOriginal(null);
     // A stock count is not a livestock record. Fetching /api/records with the
     // lot id fails, and the failure copy would claim the submission was lost.
-    if (approval.type === 'inventory_adjustment') return;
+    if (approval.type === 'inventory_adjustment' || approval.type === 'money_posting') return;
     if (!approval.entityId) { setLoadFailed(true); return; }
     let cancelled = false;
     apiClient.get<RecordRow[]>(`/api/records?tenantId=${tenantId}&id=${approval.entityId}`).then((res) => {
@@ -1303,7 +1306,38 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
         </>
       )}
 
-      {approval.type !== 'inventory_adjustment' && (
+      {approval.type === 'money_posting' && (
+        <>
+          <div className="mt-6 text-xs font-medium tracking-wide text-subtle uppercase">What is waiting</div>
+          {money === null ? (
+            <div className="mt-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2.5 text-xs leading-relaxed text-fg">
+              This proposal could not be read, so the amount is not shown.
+            </div>
+          ) : (
+            <div className="mt-2 overflow-hidden rounded-lg border border-border">
+              <div className="flex flex-col gap-0.5 border-b border-border px-3 py-2.5 text-sm sm:flex-row sm:justify-between sm:gap-3">
+                <span className="shrink-0 text-subtle">Document</span>
+                <span className="font-medium break-words sm:text-right">{money.docType}</span>
+              </div>
+              <div className="flex flex-col gap-0.5 px-3 py-2.5 text-sm sm:flex-row sm:justify-between sm:gap-3">
+                <span className="shrink-0 text-subtle">Amount</span>
+                <span className="font-medium break-words sm:text-right">
+                  {typeof money.amountCents === 'number'
+                    ? (currencyUnknown
+                      ? `${money.amountCents.toLocaleString()} cents — the farm currency could not be loaded`
+                      : currencySymbol
+                        ? formatMoney(money.amountCents, currencySymbol)
+                        : 'Loading the farm currency…')
+                    : 'The amount is not on this proposal.'}
+                </span>
+              </div>
+            </div>
+          )}
+          <p className="mt-2 text-xs leading-relaxed text-muted">{PENDING_MESSAGE}</p>
+        </>
+      )}
+
+      {approval.type !== 'inventory_adjustment' && approval.type !== 'money_posting' && (
       <>
       <div className="mt-6 text-xs font-medium tracking-wide text-subtle uppercase">What the worker submitted</div>
       {record === null && !loadFailed && <div className="py-2.5 text-sm text-muted">Loading the full submission…</div>}

@@ -18,6 +18,8 @@ import {
   useRequiredDimensions, RequiredDimensionFields, missingDimensionErrors, dimensionsForSubmit,
   useToast, type SaveReceipt, type MasterOption,
 } from './ui-shared';
+import { expenseLegs, judgeMoney, PENDING_MESSAGE } from '@/lib/posting-policy';
+import { PostingLine, usePostingPolicies } from './posting-line';
 import { Button } from '@/components/ui-kit/button';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { Field } from '@/components/ui-kit/field';
@@ -79,6 +81,8 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
   onClose: () => void;
 }) {
   const { navigate } = useNav();
+  const posting = usePostingPolicies(tenantId);
+  const [waiting, setWaiting] = useState(false);
   const { timezone } = useRegional();
   const todayIso = todayInTimezone(timezone);
 
@@ -129,6 +133,19 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
   });
   const taxBlocks = taxBlockMessage(taxPreview);
   const settledCents = taxPreview.status === 'ok' ? taxPreview.grossCents : amountCentsLive;
+  const expenseLine = posting.status === 'ready' && settledCents !== null && settledCents > 0
+    ? judgeMoney(posting.policies, {
+      amountCents: settledCents,
+      farmId: farmId || null,
+      legs: selectedCategory ? expenseLegs({
+        totalCents: settledCents,
+        paidCents: Math.min(Math.max(paidCentsLive ?? 0, 0), settledCents),
+        netCents: taxPreview.status === 'ok' ? taxPreview.netCents : null,
+        taxCents: taxPreview.status === 'ok' ? taxPreview.taxCents : null,
+        expenseAccount: selectedCategory.accountCode,
+      }) : [],
+    })
+    : null;
 
   useEffect(() => {
     apiClient.get<MasterOption[]>(`/api/suppliers?tenantId=${tenantId}&active=true`).then((res) => {
@@ -218,6 +235,7 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
       errs.amountPaid = 'Paid now is more than the expense';
     }
     if (taxBlocks) errs.tax = taxBlocks;
+    if (expenseLine?.outcome === 'block') errs.approval = expenseLine.message;
     Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -227,7 +245,7 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
     setFieldErrors({});
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ expense: { id: string; amountCents?: number } }>('/api/expenses', {
+    const res = await apiClient.post<{ expense: { id: string; amountCents?: number; approvalStatus?: string | null } }>('/api/expenses', {
       tenantId,
       payee: payee.trim(),
       supplierId: supplierId || undefined,
@@ -247,12 +265,14 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
     });
     setSaving(false);
     if (res.success) {
+      const pending = res.data.expense?.approvalStatus === 'pending';
+      setWaiting(pending);
       onCreated();
       setReceipt({
         id: res.data.expense?.id,
         totalLabel: 'Amount',
         totalCents: typeof res.data.expense?.amountCents === 'number' ? res.data.expense.amountCents : (settledCents ?? amountCents as number),
-        stockEffect: 'No stock was created. This is an expense only.',
+        stockEffect: pending ? PENDING_MESSAGE : 'No stock was created. This is an expense only.',
       });
     } else {
       setError(res.error || 'Failed to record the expense.');
@@ -262,8 +282,8 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
   if (receipt) {
     return (
       <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
-        <SheetTitle className="sr-only">Expense recorded</SheetTitle>
-        <SaveConfirmation title="Expense recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
+        <SheetTitle className="sr-only">{waiting ? 'Waiting for approval' : 'Expense recorded'}</SheetTitle>
+        <SaveConfirmation title={waiting ? 'Waiting for approval' : 'Expense recorded'} receipt={receipt} onViewList={onViewList} onDone={onClose} />
       </Sheet>
     );
   }
@@ -427,7 +447,8 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
-          <Button size="lg" className="w-full justify-center" disabled={!canSave || !!taxBlocks} onClick={save}>
+          <PostingLine status={posting.status} decision={expenseLine} />
+          <Button size="lg" className="w-full justify-center" disabled={!canSave || !!taxBlocks || expenseLine?.outcome === 'block'} onClick={save}>
             {saving ? 'Saving…' : 'Record expense'}
           </Button>
         </div>

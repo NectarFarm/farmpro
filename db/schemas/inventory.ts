@@ -189,6 +189,8 @@ export const purchases = pgTable('purchases', {
   // landed unit cost. The exact line total stays in total_cost_cents.
   receiptGroupId: text('receipt_group_id'),
   rawUnitCostCents: bigint('raw_unit_cost_cents', { mode: 'number' }),
+  // Issue #424. Null means the purchase was posted when it was recorded.
+  approvalStatus: text('approval_status'),
 }, (t) => [
   index('idx_purchases_tenant').on(t.tenantId),
   index('idx_purchases_tenant_item').on(t.tenantId, t.itemId),

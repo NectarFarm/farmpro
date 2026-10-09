@@ -18,7 +18,9 @@ import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
 import { ReceiptExtras, buildReceiptParts, previewReceipt, receiptIsActive, type LineDraft, type LotDraft } from './receipt-extras';
-import { ADJUSTMENT_TYPES, adjustmentIsHeld } from '@/lib/inventory-adjustment';
+import { ADJUSTMENT_TYPES } from '@/lib/inventory-adjustment';
+import { judgeMoney, purchaseLegs, varianceDecision, PENDING_MESSAGE } from '@/lib/posting-policy';
+import { PostingLine, usePostingPolicies } from './posting-line';
 import { cn } from '@/lib/utils';
 import { PageHeader, Kpi } from '@/components/ui-kit/page-header';
 import { Segmented, Chips } from '@/components/ui-kit/segmented';
@@ -180,6 +182,8 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   onClose: () => void;
 }) {
   const { navigate } = useNav();
+  const posting = usePostingPolicies(tenantId);
+  const [waiting, setWaiting] = useState(false);
   const [supplier, setSupplier] = useState('');
   const [supplierId, setSupplierId] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<MasterOption[]>([]);
@@ -255,6 +259,18 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   const amountPaidCentsLive = amountPaid ? parseMoneyToCents(amountPaid) : 0;
   const billCents = receiptActive ? receiptLandedCents : totalCentsLive;
   const amountDueCents = billCents !== null ? Math.max(0, billCents - (amountPaidCentsLive ?? 0)) : null;
+  const purchaseLine = posting.status === 'ready' && billCents !== null
+    ? judgeMoney(posting.policies, {
+      amountCents: billCents,
+      farmId: farmId || null,
+      legs: purchaseLegs({
+        totalCents: billCents,
+        paidCents: Math.min(Math.max(amountPaidCentsLive ?? 0, 0), billCents),
+        netCents: null,
+        taxCents: null,
+      }),
+    })
+    : null;
 
   // Credit means unpaid (item 2): choosing it locks "Paid now" at 0 and
   // reveals the due date.
@@ -326,6 +342,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
     else if (amountPaidCents !== null && unitCostCents !== null && amountPaidCents > qty * unitCostCents) {
       errs.amountPaid = 'Paid now is more than the purchase total';
     }
+    if (purchaseLine?.outcome === 'block') errs.approval = purchaseLine.message;
     Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -337,7 +354,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
     const totalCents = qty * (unitCostCents as number);
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ id: string; lot: { lotNo: string } }>('/api/purchases', {
+    const res = await apiClient.post<{ purchase?: { id?: string; approvalStatus?: string | null }; lot: { lotNo: string } | null }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
       supplierId: supplierId || undefined,
@@ -364,12 +381,14 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
     });
     setSaving(false);
     if (res.success) {
+      const pending = res.data.purchase?.approvalStatus === 'pending';
+      setWaiting(pending);
       onCreated();
       setReceipt({
-        id: (res.data as { purchase?: { id?: string } }).purchase?.id,
+        id: res.data.purchase?.id,
         totalLabel: 'Total',
         totalCents,
-        stockEffect: `${qty} ${unit.trim()} of ${itemName.trim()} out of ${res.data.lot?.lotNo ?? 'the new lot'}`,
+        stockEffect: pending ? PENDING_MESSAGE : `${qty} ${unit.trim()} of ${itemName.trim()} out of ${res.data.lot?.lotNo ?? 'the new lot'}`,
       });
     } else {
       setError(res.error || 'Could not record this purchase.');
@@ -391,6 +410,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
       extraLines, freight, loading: loadingCharge, levy,
     });
     if ('error' in built) errs.lines = built.error;
+    if (purchaseLine?.outcome === 'block') errs.approval = purchaseLine.message;
     Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -401,7 +421,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
     setFieldErrors({});
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ purchases?: { purchase?: { id?: string; totalCostCents?: number }; lot?: { lotNo?: string } }[] }>('/api/purchases', {
+    const res = await apiClient.post<{ purchases?: { purchase?: { id?: string; totalCostCents?: number; approvalStatus?: string | null }; lot?: { lotNo?: string } | null }[] }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
       supplierId: supplierId || undefined,
@@ -432,13 +452,15 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
     });
     setSaving(false);
     if (res.success) {
+      const pending = (res.data.purchases ?? []).some((row) => row.purchase?.approvalStatus === 'pending');
+      setWaiting(pending);
       onCreated();
       const stored = (res.data.purchases ?? []).reduce((sum, row) => sum + (row.purchase?.totalCostCents ?? 0), 0);
       setReceipt({
         id: res.data.purchases?.[0]?.purchase?.id,
         totalLabel: 'Total',
         totalCents: stored || receiptLandedCents || built.goodsPlusCharges,
-        stockEffect: built.lines.map((line) => `${line.quantity} ${line.unit} of ${line.itemName}`).join(', '),
+        stockEffect: pending ? PENDING_MESSAGE : built.lines.map((line) => `${line.quantity} ${line.unit} of ${line.itemName}`).join(', '),
       });
     } else {
       setError(res.error || 'Could not record this purchase.');
@@ -448,8 +470,8 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   if (receipt) {
     return (
       <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[92dvh]">
-        <SheetTitle className="sr-only">Purchase recorded</SheetTitle>
-        <SaveConfirmation title="Purchase recorded" receipt={receipt} onViewList={onViewList} onDone={onClose} />
+        <SheetTitle className="sr-only">{waiting ? 'Waiting for approval' : 'Purchase recorded'}</SheetTitle>
+        <SaveConfirmation title={waiting ? 'Waiting for approval' : 'Purchase recorded'} receipt={receipt} onViewList={onViewList} onDone={onClose} />
       </Sheet>
     );
   }
@@ -638,7 +660,8 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
-          <Button className="w-full justify-center" onClick={save} disabled={saving}>
+          <PostingLine status={posting.status} decision={purchaseLine} />
+          <Button className="w-full justify-center" onClick={save} disabled={saving || purchaseLine?.outcome === 'block'}>
             {saving ? 'Saving…' : 'Record Purchase'}
           </Button>
         </div>
@@ -771,7 +794,13 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
   const newQtyNum = Number(qty);
   const variance = qty.trim() !== '' && Number.isFinite(newQtyNum) ? Math.trunc(newQtyNum) - lot.qtyOnHand : null;
   const costImpactCents = variance !== null ? variance * lot.unitCostCents : null;
-  const held = threshold.status === 'ready' && costImpactCents !== null && adjustmentIsHeld(costImpactCents, threshold.cents);
+  const posting = usePostingPolicies(tenantId);
+  const decision = threshold.status === 'ready' && posting.status === 'ready' && costImpactCents !== null
+    ? varianceDecision(costImpactCents, posting.policies, threshold.cents)
+    : null;
+  const held = decision?.outcome === 'pending';
+  const blocked = decision?.outcome === 'block';
+  const variancePolicies = posting.policies.filter((policy) => policy.kind === 'variance');
 
   useEffect(() => {
     if (!open) return;
@@ -885,19 +914,25 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
               </div>
             </div>
           )}
-          {threshold.status === 'loading' && (
+          {(threshold.status === 'loading' || posting.status === 'loading') && (
             <p className="text-xs leading-relaxed text-muted">Checking the approval line…</p>
           )}
           {threshold.status === 'unknown' && (
             <p className="text-xs leading-relaxed text-muted">The approval line could not be loaded. The server decides whether this count waits for approval when you save.</p>
           )}
-          {threshold.status === 'ready' && threshold.cents === null && (
+          {posting.status === 'failed' && (
+            <p className="text-xs leading-relaxed text-muted">The approval thresholds could not be loaded. The server decides whether this posts when you save.</p>
+          )}
+          {threshold.status === 'ready' && posting.status === 'ready' && threshold.cents === null && variancePolicies.length === 0 && (
             <p className="text-xs leading-relaxed text-muted">No approval line is set. This count saves now, whatever it is worth.</p>
           )}
-          {threshold.status === 'ready' && threshold.cents !== null && held && (
-            <p className="text-xs leading-relaxed text-fg">This cost impact is above the {formatMoney(threshold.cents, threshold.currency)} line. Stock will not change until it is approved.</p>
+          {held && decision && (
+            <p className="text-xs leading-relaxed text-fg">This cost impact is above the {formatMoney(decision.thresholdCents ?? 0, threshold.currency)} line. Stock will not change until it is approved.</p>
           )}
-          {threshold.status === 'ready' && threshold.cents !== null && !held && costImpactCents !== null && (
+          {blocked && decision && (
+            <p className="text-xs leading-relaxed text-fg">{decision.message}</p>
+          )}
+          {decision?.outcome === 'post' && (threshold.cents !== null || variancePolicies.length > 0) && costImpactCents !== null && (
             <p className="text-xs leading-relaxed text-muted">This count is at or under the approval line. Stock updates as soon as you save.</p>
           )}
           <Field label="Adjustment type">
@@ -927,7 +962,7 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
             {photoError && <p className="mt-1 text-xs text-danger">{photoError}</p>}
           </Field>
           {error && <p className="text-xs text-danger">{error}</p>}
-          <Button size="lg" className="w-full" onClick={save} disabled={saving || !reason.trim()}>
+          <Button size="lg" className="w-full" onClick={save} disabled={saving || !reason.trim() || blocked}>
             {saving ? 'Saving…' : held ? 'Submit for approval' : 'Save adjustment'}
           </Button>
         </div>
