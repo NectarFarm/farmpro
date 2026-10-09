@@ -1,4 +1,5 @@
 'use client';
+import { fmtFarmDate } from '@/lib/datetime';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { Plus, Key, ChevronRight, Check, X, Search, List, Grid3X3, CheckCircle2, Upload, AlertTriangle } from './icons';
@@ -99,7 +100,7 @@ function initials(name: string) {
 }
 
 function fmtDate(iso: string): string {
-  return iso.slice(0, 10);
+  return fmtFarmDate(iso);
 }
 
 /* Column definitions for the table view */

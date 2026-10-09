@@ -1,4 +1,5 @@
 'use client';
+import { fmtFarmDate } from '@/lib/datetime';
 import { DateField } from '@/components/ui-kit';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
@@ -111,7 +112,7 @@ function CategoryIcon({ category }: { category: string }) {
 
 function fmtDate(d?: string | null): string | undefined {
   if (!d) return undefined;
-  return d.slice(0, 10);
+  return fmtFarmDate(d);
 }
 
 function avgUnitCostCents(item: ApiInventoryItem): number {

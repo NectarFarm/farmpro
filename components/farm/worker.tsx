@@ -1,4 +1,5 @@
 'use client';
+import { fmtFarmDate } from '@/lib/datetime';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNav, TopNav, requestLogout } from './navigation';
 import { useToast } from './ui-shared';
@@ -1220,7 +1221,7 @@ function FeedingForm({ ctx, onBack }: { ctx: WorkerCtx; onBack: () => void }) {
                       {left !== null && left < 0
                         ? `That is ${Math.abs(left)} ${item.unit} more than the farm has.`
                         : `${left} ${item.unit} will be left after this.`}
-                      {item.nextExpiry && ` · Oldest stock expires ${new Date(item.nextExpiry).toLocaleDateString()}`}
+                      {item.nextExpiry && ` · Oldest stock expires ${fmtFarmDate(item.nextExpiry)}`}
                     </p>
                   )}
 
@@ -2289,7 +2290,7 @@ function PhysicalCountForm({ ctx, onBack, resubmitOf }: { ctx: WorkerCtx; onBack
 // Presented as a plain statement: one total, then one line per period —
 // nothing to tap, nothing to configure, the way a payslip actually reads.
 function periodLabel(startIso: string, endIso: string): string {
-  const fmt = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const fmt = (iso: string) => fmtFarmDate(iso);
   return `${fmt(startIso)} – ${fmt(endIso)}`;
 }
 

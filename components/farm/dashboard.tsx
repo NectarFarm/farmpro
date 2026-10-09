@@ -48,6 +48,7 @@
 //   resolves or if it fails, so there's no blank/broken state either way.
 // ============================================================
 "use client";
+import { fmtFarmDate } from '@/lib/datetime';
 import React, { useState, useEffect, useCallback } from "react";
 import { useNav, TopNav, ticketIdFromNotificationSource } from "./navigation";
 // NOTE: no import from ./data — this screen renders real API data only.
@@ -151,7 +152,7 @@ function RevenueTrendChart({ trend, color }: { trend: { date: string; amountCent
   const max = Math.max(1, ...amounts);
   const peakIdx = amounts.indexOf(Math.max(...amounts));
   const active = activeIdx ?? peakIdx;
-  const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const fmtDate = (d: string) => fmtFarmDate(d);
 
   return (
     <div>

@@ -22,10 +22,12 @@ interface DateFieldProps {
   required?: boolean;
   className?: string;
   id?: string;
+  invalid?: boolean;
+  'aria-describedby'?: string;
   'aria-label'?: string;
 }
 
-export function DateField({ value, onChange, min, max, disabled, required, className, id, ...rest }: DateFieldProps) {
+export function DateField({ value, onChange, min, max, disabled, required, className, id, invalid, ...rest }: DateFieldProps) {
   const { dateFormat } = useRegional();
   const shown = value ? formatIsoDay(value, dateFormat) : '';
   const [text, setText] = useState(shown);
@@ -60,7 +62,8 @@ export function DateField({ value, onChange, min, max, disabled, required, class
         value={text}
         disabled={disabled}
         required={required}
-        aria-invalid={bad || undefined}
+        aria-invalid={bad || invalid || undefined}
+        aria-describedby={rest['aria-describedby']}
         aria-label={rest['aria-label']}
         data-slot="input"
         onChange={(e) => setText(e.target.value)}
@@ -70,7 +73,7 @@ export function DateField({ value, onChange, min, max, disabled, required, class
           'h-10 w-full min-w-0 rounded-md bg-surface pl-3 pr-10 text-sm text-fg shadow-(--shadow-border) outline-none placeholder:text-subtle',
           'transition-[box-shadow,background-color] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring/30',
           'disabled:pointer-events-none disabled:opacity-50',
-          bad && 'ring-2 ring-red-500/50',
+          (bad || invalid) && 'ring-2 ring-red-500/50',
         )}
       />
       <button

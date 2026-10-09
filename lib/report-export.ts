@@ -25,6 +25,7 @@
 //
 // jsPDF is dynamically imported so the ~350KB bundle loads only on export.
 'use client'
+import { fmtFarmDate } from '@/lib/datetime';
 import type { ColumnFormat, ReportPayload } from './report-types'
 import type { RowInput, Styles } from 'jspdf-autotable'
 
@@ -433,7 +434,7 @@ export function initialsFor(name: string | undefined): string {
 }
 
 function fmtStampDate(d: Date): string {
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  return fmtFarmDate(d)
 }
 function fmtStamp(d: Date): string {
   const hh = String(d.getHours()).padStart(2, '0')

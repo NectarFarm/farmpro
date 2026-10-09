@@ -159,3 +159,23 @@ export function parseDateInput(text: string, dateFormat: DateFormat = DEFAULT_DA
   if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null
   return `${y}-${pad2(mo)}-${pad2(d)}`
 }
+
+// ── Ambient farm format, for module-level helpers ───────────────────────────
+// Dozens of screens format dates in plain module-level functions (fmtDate
+// helpers) that have no hook access. The Regional provider (components/farm/
+// settings.tsx) publishes the farm's setting here as it renders, before any
+// child does, so those helpers read the same setting the hook would. This is
+// client display state only; nothing stored or sent depends on it. Server
+// code (lib/reports.ts) passes the tenant's settings explicitly instead.
+let activeRegional: { timezone: string; dateFormat: DateFormat } = { timezone: DEFAULT_TIMEZONE, dateFormat: DEFAULT_DATE_FORMAT }
+
+export function setActiveRegional(r: { timezone: string; dateFormat: DateFormat }) {
+  activeRegional = r
+}
+
+/** A stored day or instant, shown in the farm's date format. '—' when empty/invalid. */
+export function fmtFarmDate(input: string | Date | null | undefined): string {
+  if (!input) return '—'
+  if (input instanceof Date) return formatDate(input, activeRegional)
+  return formatIsoDay(input, activeRegional.dateFormat, activeRegional.timezone)
+}

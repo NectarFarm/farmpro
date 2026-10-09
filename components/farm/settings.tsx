@@ -30,7 +30,7 @@ import {
   Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, CreditCard, ClipboardList, Layers,
   type LucideIcon,
 } from './icons';
-import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, formatDate, formatDateTime, formatIsoDay, type DateFormat } from '@/lib/datetime';
+import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, formatDate, formatDateTime, formatIsoDay, setActiveRegional, type DateFormat } from '@/lib/datetime';
 
 /* ── Theme Context (global, used by globals.css overrides) ── */
 export type ThemeMode = 'dark-farm' | 'high-contrast' | 'light-farm' | 'sun-mode';
@@ -159,7 +159,7 @@ export function ThemeProvider({ children, tenantId }: { children: React.ReactNod
 
   return (
     <ThemeCtx.Provider value={{ theme, fontSize, setTheme, setFontSize }}>
-      <RegionalCtx.Provider value={{ timezone, dateFormat }}>
+      <RegionalCtx.Provider value={(setActiveRegional({ timezone, dateFormat }), { timezone, dateFormat })}>
         {children}
       </RegionalCtx.Provider>
     </ThemeCtx.Provider>

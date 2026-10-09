@@ -1,4 +1,5 @@
 'use client';
+import { fmtFarmDate } from '@/lib/datetime';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import {
@@ -255,9 +256,7 @@ function fmtTimestamp(iso: string): string {
   return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  return fmtFarmDate(iso);
 }
 function fmtTime(iso: string): string {
   const d = new Date(iso);
