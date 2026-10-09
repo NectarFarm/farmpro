@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { inventoryLots, auditLog } from '@/db/schemas'
+import { inventoryLots, auditLog, approvalRequests, tenantSettings } from '@/db/schemas'
 import { canEdit, MODULES } from '@/lib/permissions'
 import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { isInvalid, requireNonNegativeCount } from '@/lib/validate-input'
 import { isImageDataUrl, dataUrlByteSize, MAX_PHOTO_BYTES } from '@/lib/record-photos'
+import { ADJUSTMENT_TYPE_IDS, adjustmentIsHeld, type InventoryAdjustmentProposal } from '@/lib/inventory-adjustment'
+import { notifyApprovalRaised } from '@/lib/governance'
 
 // ── PATCH /api/inventory/lots/[id] (issue #235 task 5) ──────────────────────
 // Reason-required quantity adjustment. Every adjustment writes a real
@@ -32,7 +34,7 @@ const notFound = () => NextResponse.json({ success: false, error: 'Inventory lot
 // reused rather than a second mechanism — see this file's own header
 // comment). Optional, so an older/simpler caller that only sends `reason`
 // still works exactly as before.
-const ADJUSTMENT_TYPES = new Set(['count', 'spoilage', 'damage', 'theft', 'transfer', 'opening_balance'])
+const ADJUSTMENT_TYPES = ADJUSTMENT_TYPE_IDS
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -108,11 +110,85 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // units found that much cost gone; more found is a positive correction.
   const costImpactCents = (newQty - before) * existing.unitCostCents
 
-  // Who physically did the count — optional, and distinct from `actor`
-  // (the session that recorded it): an owner often logs a count a worker or
-  // storekeeper actually did. Free text, same "no new master for this" call
-  // as sales.soldTo.
+  // Who physically did the count — optional below the approval line, and
+  // distinct from `actor` (the session that recorded it). Free text, same
+  // "no new master for this" call as sales.soldTo.
   const countedBy = typeof b.countedBy === 'string' && b.countedBy.trim() ? b.countedBy.trim() : null
+  const witnessName = typeof b.witnessName === 'string' && b.witnessName.trim() ? b.witnessName.trim() : null
+
+  // No settings row, or a null column, means the farm has not set a line.
+  // That keeps today's immediate save. Zero is a real line and is not the
+  // default this query invents.
+  const [settings] = await db
+    .select({ threshold: tenantSettings.varianceApprovalThresholdCents })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.tenantId, tenantId))
+    .limit(1)
+  const thresholdCents = settings?.threshold ?? null
+  const held = adjustmentIsHeld(costImpactCents, thresholdCents)
+
+  if (held) {
+    if (!countedBy) return badRequest('Name the person who counted.')
+    if (!witnessName) return badRequest('Name a witness. A cost impact above the approval line needs a second person.')
+    if (countedBy.toLowerCase() === witnessName.toLowerCase()) return badRequest('The witness has to be a different person from the one who counted.')
+
+    const variance = newQty - before
+    const proposal: InventoryAdjustmentProposal = {
+      lotId: id,
+      lotNo: existing.lotNo,
+      beforeQty: before,
+      qtyOnHand: newQty,
+      variance,
+      costImpactCents,
+      unitCostCents: existing.unitCostCents,
+      reason,
+      adjustmentType,
+      countedBy,
+      witnessName,
+      photoUrl,
+    }
+    const title = `Stock count ${existing.lotNo}: ${variance > 0 ? '+' : ''}${variance}`
+    const approval = await db.transaction(async (tx) => {
+      const [row] = await tx.insert(approvalRequests).values({
+        id: randomUUID(),
+        tenantId,
+        type: 'inventory_adjustment',
+        title,
+        requestedBy: actor,
+        batchId: null,
+        entityId: id,
+        details: JSON.stringify(proposal),
+        status: 'pending',
+        priority: 'medium',
+        assignedApproverId: null,
+      }).returning()
+      await tx.insert(auditLog).values({
+        id: randomUUID(),
+        tenantId,
+        actor,
+        action: 'inventory.adjust.pending',
+        entity: 'inventory_lot',
+        entityId: id,
+        meta: {
+          itemId: existing.itemId,
+          before,
+          after: newQty,
+          reason,
+          adjustmentType,
+          photoUrl,
+          costImpactCents,
+          countedBy,
+          witnessName,
+          approvalId: row.id,
+        },
+      })
+      return row
+    })
+    await notifyApprovalRaised(approval)
+    // The lot row is unchanged. `pending` is how the screen knows not to
+    // tell the owner the quantity already moved.
+    return ok({ ...existing, costImpactCents, pending: true, approvalId: approval.id })
+  }
 
   const result = await db.transaction(async (tx) => {
     const [updated] = await tx
@@ -128,11 +204,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       action: 'inventory.adjust',
       entity: 'inventory_lot',
       entityId: id,
-      meta: { itemId: existing.itemId, before, after: newQty, reason, adjustmentType, photoUrl, costImpactCents, countedBy },
+      meta: { itemId: existing.itemId, before, after: newQty, reason, adjustmentType, photoUrl, costImpactCents, countedBy, witnessName },
     })
 
     return updated
   })
 
-  return ok({ ...result, costImpactCents })
+  return ok({ ...result, costImpactCents, pending: false })
 }

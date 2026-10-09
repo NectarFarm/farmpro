@@ -9,7 +9,8 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { approvalRequests, auditLog, records, tasks } from '@/db/schemas'
+import { approvalRequests, auditLog, inventoryLots, records, tasks } from '@/db/schemas'
+import { parseInventoryAdjustmentDetails } from '@/lib/inventory-adjustment'
 import { spawnNextOccurrence } from '@/lib/tasks'
 import { applyCount, applyMovement } from '@/lib/batch-ledger'
 import { createAndEmailNotification } from '@/lib/notification-email'
@@ -141,8 +142,11 @@ export async function decideApproval(
     const [updatedApproval] = await tx
       .update(approvalRequests)
       .set({ status: decision, decidedBy: actor, decidedAt: new Date(), decisionNote: reason ?? null })
-      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.tenantId, tenantId)))
+      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.tenantId, tenantId), eq(approvalRequests.status, 'pending')))
       .returning()
+    // Two simultaneous decisions can both have read 'pending'. Only the one
+    // that actually flipped the row may go on to apply anything.
+    if (!updatedApproval) throw new ApprovalError('Approval request already decided', 409)
 
     let resolvedTask: typeof tasks.$inferSelect | undefined
     let nextOccurrenceId: string | null = null
@@ -225,6 +229,55 @@ export async function decideApproval(
         .update(records)
         .set({ data: { ...rest, approvalDecision: decision, decidedBy: actor, decisionNote: reason ?? undefined } })
         .where(eq(records.id, record.id))
+    }
+
+    // Stock count held above the farm's approval line (issue #418). The lot
+    // quantity was deliberately not changed when the count was filed.
+    // Approving applies that counted quantity once. Rejecting leaves the lot
+    // alone. A proposal whose figures do not agree, or a lot whose quantity
+    // moved after the count, is refused and the transaction rolls back, so
+    // the request stays pending and can still be rejected.
+    if (approval.type === 'inventory_adjustment' && decision === 'approved') {
+      const proposal = parseInventoryAdjustmentDetails(approval.details)
+      if (!proposal) {
+        throw new ApprovalError('The proposal could not be read. Reject it and count again.', 400)
+      }
+      if (proposal.lotId !== approval.entityId) {
+        throw new ApprovalError('The proposal could not be read. Reject it and count again.', 400)
+      }
+      const [lot] = await tx
+        .select()
+        .from(inventoryLots)
+        .where(and(eq(inventoryLots.id, approval.entityId), eq(inventoryLots.tenantId, tenantId)))
+        .limit(1)
+      if (!lot) throw new ApprovalError('The lot this count refers to no longer exists', 404)
+      if (lot.qtyOnHand !== proposal.beforeQty) {
+        throw new ApprovalError('The lot quantity changed after this count was submitted. Reject it and count again.', 409)
+      }
+      await tx
+        .update(inventoryLots)
+        .set({ qtyOnHand: proposal.qtyOnHand })
+        .where(and(eq(inventoryLots.id, lot.id), eq(inventoryLots.tenantId, tenantId)))
+      await tx.insert(auditLog).values({
+        id: randomUUID(),
+        tenantId,
+        actor,
+        action: 'inventory.adjust',
+        entity: 'inventory_lot',
+        entityId: lot.id,
+        meta: {
+          itemId: lot.itemId,
+          before: proposal.beforeQty,
+          after: proposal.qtyOnHand,
+          reason: proposal.reason,
+          adjustmentType: proposal.adjustmentType,
+          photoUrl: proposal.photoUrl,
+          costImpactCents: proposal.costImpactCents,
+          countedBy: proposal.countedBy,
+          witnessName: proposal.witnessName,
+          approvalId: approval.id,
+        },
+      })
     }
 
     await tx.insert(auditLog).values({

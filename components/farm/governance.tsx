@@ -25,6 +25,8 @@ import { controlClass } from '@/components/ui-kit/field';
 import type { ReportPayload } from '@/lib/report-types';
 import { downloadReportCsv, downloadReportPdf, type ExportOptions } from '@/lib/report-export';
 import { periodDateRange } from '@/lib/period-range';
+import { formatMoney } from '@/lib/money';
+import { adjustmentTypeLabel, parseInventoryAdjustmentDetails } from '@/lib/inventory-adjustment';
 
 // ── Governance screen, redesigned onto the reference (ui/governance-
 // reference-redesign) but wired to the exact same backend as before:
@@ -1109,6 +1111,11 @@ function labelledEntries(raw: [string, unknown][]): [string, string][] {
     .map(([k, v]) => [humanLabel(k), typeof v === 'object' ? JSON.stringify(v) : String(v)] as [string, string]);
 }
 
+function approvalTypeLabel(type: string): string {
+  if (type === 'inventory_adjustment') return 'Stock adjustment';
+  return type;
+}
+
 function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requesterName, isOverride, canDecide }: {
   approval: ApprovalRequestRow;
   tenantId: string;
@@ -1127,11 +1134,32 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
   // request fires on the common (non-resubmission) path.
   const [original, setOriginal] = useState<RecordRow | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [currencySymbol, setCurrencySymbol] = useState<string | null>(null);
+  const [currencyUnknown, setCurrencyUnknown] = useState(false);
+
+  const adjustment = approval.type === 'inventory_adjustment' ? parseInventoryAdjustmentDetails(approval.details) : null;
+
+  useEffect(() => {
+    if (approval.type !== 'inventory_adjustment') return;
+    let cancelled = false;
+    setCurrencySymbol(null);
+    setCurrencyUnknown(false);
+    apiClient.get<{ currencySymbol?: string }>(`/api/settings?tenantId=${tenantId}`).then((res) => {
+      if (cancelled) return;
+      const symbol = res.success && typeof res.data.currencySymbol === 'string' ? res.data.currencySymbol.trim() : '';
+      if (symbol) setCurrencySymbol(symbol);
+      else setCurrencyUnknown(true);
+    });
+    return () => { cancelled = true; };
+  }, [approval.type, tenantId]);
 
   useEffect(() => {
     setRecord(null);
     setLoadFailed(false);
     setOriginal(null);
+    // A stock count is not a livestock record. Fetching /api/records with the
+    // lot id fails, and the failure copy would claim the submission was lost.
+    if (approval.type === 'inventory_adjustment') return;
     if (!approval.entityId) { setLoadFailed(true); return; }
     let cancelled = false;
     apiClient.get<RecordRow[]>(`/api/records?tenantId=${tenantId}&id=${approval.entityId}`).then((res) => {
@@ -1140,7 +1168,7 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
       else setLoadFailed(true);
     });
     return () => { cancelled = true; };
-  }, [approval.entityId, tenantId]);
+  }, [approval.entityId, approval.type, tenantId]);
 
   const resubmitsId = typeof record?.data.resubmitsRecordId === 'string' ? record.data.resubmitsRecordId : null;
   useEffect(() => {
@@ -1181,7 +1209,7 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
 
       <dl className="mt-6 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         <Kv label="Requested by" value={requesterName(approval.requestedBy)} />
-        <Kv label="Type" value={approval.type} />
+        <Kv label="Type" value={approvalTypeLabel(approval.type)} />
         <Kv label="Opened" value={fmtTimestamp(approval.requestedAt)} />
         <Kv label="Resolved" value={approval.decidedAt ? fmtTimestamp(approval.decidedAt) : 'Still open'} />
         {approval.status !== 'pending' && approval.decidedBy && (
@@ -1235,6 +1263,48 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
         </div>
       )}
 
+      {approval.type === 'inventory_adjustment' && (
+        <>
+          <div className="mt-6 text-xs font-medium tracking-wide text-subtle uppercase">What was counted</div>
+          {adjustment === null ? (
+            <div className="mt-2 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2.5 text-xs leading-relaxed text-fg">
+              This proposal could not be read, so the quantities and cost impact are not shown. Reject it and count again.
+            </div>
+          ) : (
+            <div className="mt-2 overflow-hidden rounded-lg border border-border">
+              {([
+                ['Lot', adjustment.lotNo || '—'],
+                ['System quantity', adjustment.beforeQty.toLocaleString()],
+                ['Counted quantity', adjustment.qtyOnHand.toLocaleString()],
+                ['Variance', adjustment.variance > 0 ? `+${adjustment.variance.toLocaleString()}` : adjustment.variance.toLocaleString()],
+                ['Cost impact', currencyUnknown
+                  ? `${adjustment.costImpactCents.toLocaleString()} cents — the farm currency could not be loaded`
+                  : currencySymbol
+                    ? formatMoney(adjustment.costImpactCents, currencySymbol)
+                    : 'Loading the farm currency…'],
+                ['Counted by', adjustment.countedBy],
+                ['Witness', adjustment.witnessName],
+                ['Reason', adjustment.reason],
+                ['Adjustment type', adjustmentTypeLabel(adjustment.adjustmentType)],
+              ] as [string, string][]).map(([label, value], i, rows) => (
+                <div key={label} className={cn('flex flex-col gap-0.5 px-3 py-2.5 text-sm sm:flex-row sm:justify-between sm:gap-3', i < rows.length - 1 && 'border-b border-border')}>
+                  <span className="shrink-0 text-subtle">{label}</span>
+                  <span className="font-medium break-words sm:text-right">{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {adjustment?.photoUrl && (
+            <div className="mt-4">
+              <div className="text-xs font-medium tracking-wide text-subtle uppercase">Evidence photo</div>
+              <img src={adjustment.photoUrl} alt="Evidence photo submitted with this count" className="mt-2 max-h-48 w-full rounded-lg object-cover" />
+            </div>
+          )}
+        </>
+      )}
+
+      {approval.type !== 'inventory_adjustment' && (
+      <>
       <div className="mt-6 text-xs font-medium tracking-wide text-subtle uppercase">What the worker submitted</div>
       {record === null && !loadFailed && <div className="py-2.5 text-sm text-muted">Loading the full submission…</div>}
       {loadFailed && (
@@ -1278,6 +1348,8 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
         >
           <img src={lightbox} alt="Photo submitted with this record, enlarged" className="max-h-full max-w-full rounded-lg object-contain" />
         </div>
+      )}
+      </>
       )}
 
       {isOverride && approval.status === 'pending' && (

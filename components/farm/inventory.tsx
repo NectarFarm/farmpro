@@ -16,7 +16,8 @@ import { todayInTimezone } from '@/lib/datetime';
 import { useRegional } from './settings';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
-import { parseMoneyToCents, centsToMajor } from '@/lib/money';
+import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
+import { ADJUSTMENT_TYPES, adjustmentIsHeld } from '@/lib/inventory-adjustment';
 import { cn } from '@/lib/utils';
 import { PageHeader, Kpi } from '@/components/ui-kit/page-header';
 import { Segmented, Chips } from '@/components/ui-kit/segmented';
@@ -637,15 +638,6 @@ function AddItemSheet({ tenantId, categories, units, onCreated, onClose }: {
 // pilfered bag is another, and both used to write the identical shape of
 // row (new quantity + free-text reason). No new column — stored in
 // audit_log.meta alongside reason (see PATCH /api/inventory/lots/[id]).
-const ADJUSTMENT_TYPES: { id: string; label: string }[] = [
-  { id: 'count', label: 'Count correction' },
-  { id: 'spoilage', label: 'Spoilage' },
-  { id: 'damage', label: 'Damage' },
-  { id: 'theft', label: 'Theft' },
-  { id: 'transfer', label: 'Transfer' },
-  { id: 'opening_balance', label: 'Opening balance' },
-];
-
 function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: string; tenantId: string; onSaved: () => void }) {
   const { showToast } = useToast();
   const [open, setOpen] = useState(false);
@@ -653,17 +645,39 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
   const [adjustmentType, setAdjustmentType] = useState('');
   const [reason, setReason] = useState('');
   const [countedBy, setCountedBy] = useState('');
+  const [witness, setWitness] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // loading until GET /api/settings answers. `unknown` means the line could
+  // not be read — the screen then refuses to guess whether this count waits.
+  const [threshold, setThreshold] = useState<{ status: 'loading' | 'unknown' | 'ready'; cents: number | null; currency: string }>({ status: 'loading', cents: null, currency: 'KSh' });
 
-  // item 12: the variance, not just the new number — computed live as the
-  // owner types, before anything is saved.
+  // The variance and its shilling impact, computed live as the owner types,
+  // before anything is saved. The server recomputes the same product.
   const newQtyNum = Number(qty);
-  const variance = Number.isFinite(newQtyNum) ? Math.trunc(newQtyNum) - lot.qtyOnHand : null;
+  const variance = qty.trim() !== '' && Number.isFinite(newQtyNum) ? Math.trunc(newQtyNum) - lot.qtyOnHand : null;
   const costImpactCents = variance !== null ? variance * lot.unitCostCents : null;
+  const held = threshold.status === 'ready' && costImpactCents !== null && adjustmentIsHeld(costImpactCents, threshold.cents);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setThreshold((t) => ({ ...t, status: 'loading' }));
+    apiClient.get<{ varianceApprovalThresholdCents?: number | null; currencySymbol?: string }>(`/api/settings?tenantId=${tenantId}`).then((res) => {
+      if (cancelled) return;
+      const cents = res.success ? res.data.varianceApprovalThresholdCents : undefined;
+      const currency = res.success && typeof res.data.currencySymbol === 'string' && res.data.currencySymbol.trim() ? res.data.currencySymbol : 'KSh';
+      if (!res.success || (cents !== null && typeof cents !== 'number')) {
+        setThreshold({ status: 'unknown', cents: null, currency });
+        return;
+      }
+      setThreshold({ status: 'ready', cents, currency });
+    });
+    return () => { cancelled = true; };
+  }, [open, tenantId]);
 
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -683,23 +697,36 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
     const newQty = Number(qty);
     if (!Number.isFinite(newQty) || newQty < 0) { setError('Enter a valid quantity.'); return; }
     if (!reason.trim()) { setError('A reason is required for this adjustment.'); return; }
+    if (held) {
+      if (!countedBy.trim()) { setError('Name the person who counted.'); return; }
+      if (!witness.trim()) { setError('Name a witness. A cost impact above the approval line needs a second person.'); return; }
+      if (countedBy.trim() === witness.trim()) { setError('The witness has to be a different person from the one who counted.'); return; }
+    }
     setSaving(true);
     setError('');
-    const res = await apiClient.patch(`/api/inventory/lots/${lot.id}?tenantId=${tenantId}`, {
+    const res = await apiClient.patch<{ pending?: boolean }>(`/api/inventory/lots/${lot.id}?tenantId=${tenantId}`, {
       qtyOnHand: Math.trunc(newQty),
       reason: reason.trim(),
       adjustmentType: adjustmentType || undefined,
       countedBy: countedBy.trim() || undefined,
+      witnessName: witness.trim() || undefined,
       photoUrl: photo || undefined,
     });
     setSaving(false);
     if (res.success) {
+      const waiting = res.data.pending === true;
       setOpen(false);
       setReason('');
       setAdjustmentType('');
       setCountedBy('');
+      setWitness('');
       setPhoto(null);
-      showToast(`${lot.lotNo} is now ${Math.trunc(newQty).toLocaleString()}.`, 'success');
+      showToast(
+        waiting
+          ? `${lot.lotNo} is waiting for approval. Stock has not changed.`
+          : `${lot.lotNo} is now ${Math.trunc(newQty).toLocaleString()}.`,
+        'success',
+      );
       onSaved();
     } else {
       setError(res.error || 'Could not adjust this lot.');
@@ -717,7 +744,7 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
         </div>
         <div className="shrink-0 text-right">
           <div className="text-sm font-medium">{lot.qtyOnHand.toLocaleString()}</div>
-          <button type="button" onClick={() => setOpen(o => !o)} className="mt-0.5 text-xs font-medium text-primary">
+          <button type="button" onClick={() => setOpen(o => !o)} className="mt-0.5 inline-flex min-h-11 items-center text-xs font-medium text-primary">
             {open ? 'Cancel' : 'Adjust'}
           </button>
         </div>
@@ -725,18 +752,42 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
       {open && (
         <div className="mt-2.5 grid gap-2.5">
           <Field label="System quantity">
-            <div className="flex h-10 items-center rounded-md bg-card px-3 text-sm text-muted shadow-(--shadow-border)">{lot.qtyOnHand.toLocaleString()} {itemUnit}</div>
+            <div className="flex min-h-11 items-center rounded-md bg-card px-3 text-sm text-muted shadow-(--shadow-border)">{lot.qtyOnHand.toLocaleString()} {itemUnit}</div>
           </Field>
           <Field label="Counted quantity">
-            <Input type="number" inputMode="numeric" value={qty} onChange={e => setQty(e.target.value)} />
+            <Input type="number" inputMode="numeric" className="min-h-11 h-11" value={qty} onChange={e => setQty(e.target.value)} />
           </Field>
-          {/* item 12: the variance, calculated live, not just the new number. */}
-          {variance !== null && variance !== 0 && (
-            <div className={cn('flex items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold', variance > 0 ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger')}>
-              <span>{variance > 0 ? `+${variance}` : variance} {itemUnit} variance</span>
-              {/* item 22 (part): the shilling impact, from the lot's own recorded cost. */}
-              {costImpactCents !== null && <span>{costImpactCents >= 0 ? '+' : '−'}KSh {Math.abs(centsToMajor(costImpactCents)).toLocaleString()}</span>}
+          {variance === null || costImpactCents === null ? (
+            <p className="text-xs leading-relaxed text-muted">Enter a counted quantity to see the variance and the cost impact.</p>
+          ) : (
+            <div className="grid gap-2 rounded-lg bg-surface-2 px-3 py-2.5">
+              <div>
+                <div className="text-xs text-subtle">Variance</div>
+                <div className={cn('text-sm font-semibold', variance > 0 ? 'text-success' : variance < 0 ? 'text-danger' : 'text-fg')}>
+                  {variance > 0 ? `+${variance.toLocaleString()}` : variance.toLocaleString()} {itemUnit}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-subtle">Cost impact</div>
+                <div className="text-sm font-semibold">{formatMoney(costImpactCents, threshold.currency)}</div>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted">Counted quantity minus the quantity on hand, at this lot&apos;s recorded cost of {formatMoney(lot.unitCostCents, threshold.currency)} each.</p>
+              </div>
             </div>
+          )}
+          {threshold.status === 'loading' && (
+            <p className="text-xs leading-relaxed text-muted">Checking the approval line…</p>
+          )}
+          {threshold.status === 'unknown' && (
+            <p className="text-xs leading-relaxed text-muted">The approval line could not be loaded. The server decides whether this count waits for approval when you save.</p>
+          )}
+          {threshold.status === 'ready' && threshold.cents === null && (
+            <p className="text-xs leading-relaxed text-muted">No approval line is set. This count saves now, whatever it is worth.</p>
+          )}
+          {threshold.status === 'ready' && threshold.cents !== null && held && (
+            <p className="text-xs leading-relaxed text-fg">This cost impact is above the {formatMoney(threshold.cents, threshold.currency)} line. Stock will not change until it is approved.</p>
+          )}
+          {threshold.status === 'ready' && threshold.cents !== null && !held && costImpactCents !== null && (
+            <p className="text-xs leading-relaxed text-muted">This count is at or under the approval line. Stock updates as soon as you save.</p>
           )}
           <Field label="Adjustment type">
             <Select value={adjustmentType} onChange={v => setAdjustmentType(v)}>
@@ -745,10 +796,13 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
             </Select>
           </Field>
           <Field label="Reason * (required, goes to the audit trail)">
-            <Input placeholder="e.g. physical recount, spoilage, theft" value={reason} onChange={e => setReason(e.target.value)} />
+            <Input className="min-h-11 h-11" placeholder="e.g. physical recount, spoilage, theft" value={reason} onChange={e => setReason(e.target.value)} />
           </Field>
-          <Field label="Counted by (optional)">
-            <Input placeholder="Who physically did the count" value={countedBy} onChange={e => setCountedBy(e.target.value)} />
+          <Field label={held ? 'Counted by *' : 'Counted by (optional)'}>
+            <Input className="min-h-11 h-11" placeholder="Who physically did the count" value={countedBy} onChange={e => setCountedBy(e.target.value)} />
+          </Field>
+          <Field label={held ? 'Witness *' : 'Witness (optional)'}>
+            <Input className="min-h-11 h-11" placeholder="A different person who saw the count" value={witness} onChange={e => setWitness(e.target.value)} />
           </Field>
           <Field label="Evidence photo (optional)">
             {photo && <img src={photo} alt="Adjustment evidence" className="mb-2 max-h-40 w-full rounded-lg object-cover" />}
@@ -762,8 +816,8 @@ function LotRow({ lot, itemUnit, tenantId, onSaved }: { lot: ApiLot; itemUnit: s
             {photoError && <p className="mt-1 text-xs text-danger">{photoError}</p>}
           </Field>
           {error && <p className="text-xs text-danger">{error}</p>}
-          <Button size="sm" onClick={save} disabled={saving || !reason.trim()}>
-            {saving ? 'Saving…' : 'Save adjustment'}
+          <Button size="lg" className="w-full" onClick={save} disabled={saving || !reason.trim()}>
+            {saving ? 'Saving…' : held ? 'Submit for approval' : 'Save adjustment'}
           </Button>
         </div>
       )}
