@@ -3,7 +3,7 @@
 // column existed. Re-applying the migration does not move a seeded period.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq, inArray, sql } from 'drizzle-orm'
 
@@ -24,7 +24,8 @@ import { GET as taxCodesGET } from '@/app/api/tax-codes/route'
 import { GET as adminRatesGET, POST as adminRatesPOST } from '@/app/api/admin/tax-rates/route'
 import { POST as saleReversePOST } from '@/app/api/data/sales/[id]/reverse/route'
 import { POST as expenseReversePOST } from '@/app/api/expenses/[id]/reverse/route'
-import { PATCH as adminRatePATCH } from '@/app/api/admin/tax-rates/[id]/route'
+import { PATCH as adminRatePATCH, DELETE as adminRateDELETE } from '@/app/api/admin/tax-rates/[id]/route'
+import { splitLotCost } from '@/lib/inventory'
 import { db } from '@/db'
 import {
   tenants, users, sessions, farms, productionUnits, employees, payslips, payrollRuns,
@@ -211,11 +212,54 @@ describe('VAT arithmetic', () => {
   })
 })
 
+describe('stock lot cost', () => {
+  it('carries the net exactly across awkward quantities', () => {
+    for (const [net, qty] of [[7759, 3], [1005, 7], [1, 3], [2, 7], [100, 3], [999999, 13], [5, 5], [0, 4], [12345, 1], [10001, 100]]) {
+      const pieces = splitLotCost(net, qty)
+      expect(pieces.reduce((s, p) => s + p.qty, 0)).toBe(qty)
+      expect(pieces.reduce((s, p) => s + p.qty * p.unitCostCents, 0)).toBe(net)
+      expect(pieces.length).toBeLessThanOrEqual(2)
+      for (const p of pieces) { expect(p.qty).toBeGreaterThan(0); expect(Number.isInteger(p.unitCostCents)).toBe(true) }
+    }
+  })
+})
+
 describe('VAT screens', () => {
   const finance = readFileSync(join(process.cwd(), 'components/farm/finance.tsx'), 'utf8')
   const expense = readFileSync(join(process.cwd(), 'components/farm/expense-sheet.tsx'), 'utf8')
+  const inventory = readFileSync(join(process.cwd(), 'components/farm/inventory.tsx'), 'utf8')
   const fields = readFileSync(join(process.cwd(), 'components/farm/tax-fields.tsx'), 'utf8')
   const panel = readFileSync(join(process.cwd(), 'components/farm/tax-rates-panel.tsx'), 'utf8')
+
+  it('every screen that POSTs a purchase, sale or expense sends a tax code', () => {
+    // Walk every component; a new Record sheet that posts without the tax
+    // fields fails here. The CSV opening-stock import is the one documented
+    // exception: it loads stock on hand, it is not a tax invoice.
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(e.name)) files.push(full)
+      }
+    }
+    walk(join(process.cwd(), 'components'))
+    const posts: string[] = []
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8')
+      const re = /\.post(?:<[^(]*>)?\(\s*'\/api\/(purchases|data\/sales|expenses)'\s*,\s*\{/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(src))) {
+        const body = src.slice(m.index, src.indexOf('\n    });', m.index))
+        if (body.includes("supplier: 'CSV Import'")) continue
+        posts.push(f)
+        expect(body, `${f} posts to /api/${m[1]} without taxCode`).toContain('taxCode')
+        expect(src, `${f} has no <TaxFields>`).toContain('<TaxFields')
+      }
+    }
+    // finance (sale + purchase), inventory (purchase), expense sheet.
+    expect(posts.length).toBeGreaterThanOrEqual(4)
+  })
 
   it('puts the tax block on sale, purchase, and expense, and not on payroll', () => {
     const payrollAt = finance.indexOf('function RunPayrollSheet')
@@ -224,6 +268,7 @@ describe('VAT screens', () => {
     expect(beforePayroll.match(/<TaxFields/g)).toHaveLength(2)
     expect(finance.slice(payrollAt)).not.toContain('<TaxFields')
     expect(expense).toContain('<TaxFields')
+    expect(inventory).toContain('<TaxFields')
     expect(fields).not.toMatch(/<select[\s>]/)
     expect(fields).not.toContain('type="date"')
     expect(panel).not.toMatch(/<select[\s>]/)
@@ -575,6 +620,41 @@ run('VAT on sales, purchases and expenses (issue #419)', () => {
     expect(retired.payload.data.effectiveTo).toBe('2026-06-20')
   })
 
+  it('serialises concurrent rate inserts and lets an admin correct or remove a mistake', async () => {
+    mockCookie = adminToken
+    const body = (percent: string) => postRequest('http://localhost/api/admin/tax-rates', {
+      taxCode: 'VATABLE', percent, effectiveFrom: '2030-01-01', effectiveTo: '2030-12-31',
+    })
+    const results = await Promise.all([adminRatesPOST(body('14')), adminRatesPOST(body('12')), adminRatesPOST(body('10'))])
+    const parsed = await Promise.all(results.map(readJson))
+    expect(parsed.map((r) => r.status).sort()).toEqual([201, 400, 400])
+    const winner = parsed.find((r) => r.status === 201)!.payload.data
+    rateIds.push(winner.id)
+    const rows = await db.select().from(taxRates).where(eq(taxRates.effectiveFrom, '2030-01-01'))
+    expect(rows).toHaveLength(1)
+
+    // An end date that is already set can be corrected.
+    const shortened = await readJson(await adminRatePATCH(patchRequest(`http://localhost/api/admin/tax-rates/${winner.id}`, {
+      effectiveTo: '2030-06-30',
+    }), { params: Promise.resolve({ id: winner.id }) }))
+    expect(shortened.status).toBe(200)
+    expect(shortened.payload.data.effectiveTo).toBe('2030-06-30')
+
+    // A rate nothing was posted against can be removed...
+    const del = (id: string) => adminRateDELETE(new Request(`http://localhost/api/admin/tax-rates/${id}`, { method: 'DELETE' }), { params: Promise.resolve({ id }) })
+    const removed = await readJson(await del(winner.id))
+    expect(removed.status).toBe(200)
+    expect(await db.select().from(taxRates).where(eq(taxRates.id, winner.id))).toHaveLength(0)
+    expect((await readJson(await del(winner.id))).status).toBe(404)
+
+    // ...and one with documents inside its window cannot.
+    const used = await readJson(await del(rateIds[0]))
+    expect(used.status).toBe(400)
+    expect(used.payload.error).toContain('cannot be removed')
+    mockCookie = ownerToken
+    expect((await readJson(await del(rateIds[0]))).status).toBe(403)
+  })
+
   it('refuses an inactive code and hides it from the sheet catalogue', async () => {
     await db.update(taxCodes).set({ active: false }).where(eq(taxCodes.code, 'EXEMPT'))
     mockCookie = ownerToken
@@ -635,7 +715,9 @@ run('VAT on sales, purchases and expenses (issue #419)', () => {
     })
     expect([bill.purchase.totalCostCents, bill.purchase.taxCents, bill.purchase.netCents]).toEqual([9000, 1241, 7759])
     expect(bill.purchase.unitCostCents).toBe(3000)
-    expect(bill.lot.unitCostCents).toBe(2586)
+    // 7759 over 3 units does not divide: 2 at 2586 + 1 at 2587 = 7759 exactly.
+    expect(bill.lots.map((l: { qtyOnHand: number; unitCostCents: number }) => [l.qtyOnHand, l.unitCostCents])).toEqual([[2, 2586], [1, 2587]])
+    expect(bill.lots.reduce((sum: number, l: { qtyOnHand: number; unitCostCents: number }) => sum + l.qtyOnHand * l.unitCostCents, 0)).toBe(7759)
     const exempt = await post('http://localhost/api/expenses', {
       payee: 'Exempt payee', categoryId: transportCategoryId, amountCents: 5000, amountPaidCents: 5000, paymentMethod: 'Cash', farmId,
       date: '2026-09-07', postingDate: '2026-09-07', taxCode: 'EXEMPT',

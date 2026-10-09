@@ -87,6 +87,14 @@ export function TaxRatesPanel() {
     else setFormError(res.error || 'Could not set that end date.');
   }
 
+  async function removeRate(row: TaxRateRow) {
+    setFormError('');
+    if (!window.confirm(`Remove the ${formatRatePercent(row.rateBps)} rate starting ${row.effectiveFrom}?`)) return;
+    const res = await apiClient.delete<TaxRateRow>(`/api/admin/tax-rates/${row.id}`);
+    if (res.success) load();
+    else setFormError(res.error || 'Could not remove that rate.');
+  }
+
   if (!capLoading && !has('catalogue.manage')) {
     return (
       <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
@@ -104,7 +112,7 @@ export function TaxRatesPanel() {
     <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
       <div className="section-eyebrow" style={{ marginBottom: 8 }}>VAT rates</div>
       <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
-        Shared across every farm. A rate applies to VATable documents whose posting date falls in its window, including the end date. The percent cannot be edited afterwards. No rate is filled in until you add one.
+        Shared across every farm. A rate applies to VATable documents whose posting date falls in its window, including the end date. The percent cannot be edited afterwards; a wrong end date can be changed, and a rate nothing has been posted against can be removed. No rate is filled in until you add one.
       </p>
       {capLoading && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>Checking access…</div>}
       {loadError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{loadError}</div>}
@@ -122,12 +130,15 @@ export function TaxRatesPanel() {
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
                 {rate.effectiveFrom} to {rate.effectiveTo ?? 'open'}
               </div>
-              {rate.effectiveTo == null && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-                  <DateField value={endDates[rate.id] ?? ''} onChange={(value) => setEndDates((prev) => ({ ...prev, [rate.id]: value }))} aria-label={`End date for ${formatRatePercent(rate.rateBps)}`} />
-                  <Button type="button" size="lg" variant="outline" className="min-h-11 w-full" onClick={() => setEnd(rate)}>Set end date</Button>
-                </div>
-              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                <DateField value={endDates[rate.id] ?? ''} onChange={(value) => setEndDates((prev) => ({ ...prev, [rate.id]: value }))} aria-label={`End date for ${formatRatePercent(rate.rateBps)}`} />
+                <Button type="button" size="lg" variant="outline" className="min-h-11 w-full" onClick={() => setEnd(rate)}>
+                  {rate.effectiveTo == null ? 'Set end date' : 'Change end date'}
+                </Button>
+                <Button type="button" size="lg" variant="outline" className="min-h-11 w-full" onClick={() => removeRate(rate)}>
+                  Remove rate
+                </Button>
+              </div>
             </div>
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
-import { asc, eq } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { taxCodes, taxRates } from '@/db/schemas'
 import { requirePlatformCapability } from '@/lib/api-auth'
@@ -31,7 +31,6 @@ export async function GET() {
   const auth = await requirePlatformCapability('catalogue.manage')
   if ('error' in auth) return auth.error
 
-  await ensureTaxCodes()
   const codes = await db.select().from(taxCodes).orderBy(asc(taxCodes.name))
   const rates = await db.select().from(taxRates).orderBy(asc(taxRates.effectiveFrom))
   return ok({ codes, rates })
@@ -71,17 +70,23 @@ export async function POST(req: Request) {
     effectiveTo = to
   }
 
-  const existing = await db.select().from(taxRates).where(eq(taxRates.taxCode, code))
-  if (existing.some((row) => rateWindowsOverlap(from, effectiveTo, row.effectiveFrom, row.effectiveTo))) {
-    return badRequest('That rate overlaps one already configured for this code.')
-  }
-
-  const [row] = await db.insert(taxRates).values({
-    id: randomUUID(),
-    taxCode: code,
-    rateBps,
-    effectiveFrom: from,
-    effectiveTo,
-  }).returning()
+  // The overlap check and the insert run under one per-code advisory lock, so
+  // two concurrent POSTs queue up and the second sees the first. The lock is
+  // taken in PATCH too (see [id]/route.ts). An exclusion constraint would
+  // need the btree_gist extension, which a migration cannot assume.
+  const row = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'tax_rates:' + code}))`)
+    const existing = await tx.select().from(taxRates).where(eq(taxRates.taxCode, code))
+    if (existing.some((r) => rateWindowsOverlap(from, effectiveTo, r.effectiveFrom, r.effectiveTo))) return null
+    const [inserted] = await tx.insert(taxRates).values({
+      id: randomUUID(),
+      taxCode: code,
+      rateBps,
+      effectiveFrom: from,
+      effectiveTo,
+    }).returning()
+    return inserted
+  })
+  if (!row) return badRequest('That rate overlaps one already configured for this code.')
   return created(row)
 }
