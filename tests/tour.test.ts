@@ -111,3 +111,32 @@ describe('guided tour', () => {
     })
   })
 })
+
+// ── Replay from Settings: source guards (client-only behaviour) ────────────
+// Two bugs found by driving the app at 390px: (1) after a fresh sign-in (no
+// reload) the page never learned the user id, so TourController never mounted
+// and "Show me around" did nothing; (2) the overlay resolved its steps once
+// at mount, before the dashboard it had just navigated to rendered, so the
+// replay silently dropped the setup card and farm switcher (4 of 8 steps).
+import { readFileSync } from 'node:fs'
+
+describe('tour source guards', () => {
+  const tour = readFileSync('components/farm/tour.tsx', 'utf8')
+  const page = readFileSync('app/page.tsx', 'utf8')
+  const auth = readFileSync('components/farm/auth.tsx', 'utf8')
+
+  it('keeps the user id from a fresh sign-in so the tour controller mounts', () => {
+    expect(auth).toMatch(/onLogin\(res\.data\.role,[^)]*res\.data\.id\)/)
+    expect(page).toMatch(/function handleLogin\([^)]*id = ''\)/)
+    expect(page).toMatch(/setUserId\(id\)/)
+  })
+
+  it('re-resolves steps as the page changes instead of once at mount', () => {
+    expect(tour).toContain('new MutationObserver')
+    expect(tour).toContain('resolveSteps(steps)')
+  })
+
+  it('does not smooth-scroll the target (spotlight chased it for 320ms)', () => {
+    expect(tour).not.toContain("behavior: 'smooth'")
+  })
+})

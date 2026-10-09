@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { X, ChevronLeft, ChevronRight, Check } from './icons';
 
 /* ── Guided tour ────────────────────────────────────────────────────────────
@@ -88,62 +88,111 @@ function readRect(target: string): Rect | null {
   return null;
 }
 
+function resolveSteps(steps: TourStep[]): TourStep[] {
+  return steps.filter((s) => readRect(s.target) !== null);
+}
+
+function sameTargets(a: TourStep[], b: TourStep[]): boolean {
+  return a.length === b.length && a.every((s, i) => s.target === b[i].target);
+}
+
 export function TourOverlay({ steps, onFinish }: { steps: TourStep[]; onFinish: (how: 'completed' | 'dismissed') => void }) {
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
+  const [cardHeight, setCardHeight] = useState(170);
   const cardRef = useRef<HTMLDivElement | null>(null);
 
-  // Only steps whose element is actually on the page right now. Recomputed
-  // when the viewport changes, so rotating a phone or resizing a window
-  // between the two shells doesn't strand the tour on a step that vanished.
-  const [visibleSteps, setVisibleSteps] = useState<TourStep[]>([]);
+  // Only steps whose element is actually on the page. This is NOT computed
+  // once: the tour is routinely asked for from Settings, which navigates to
+  // the dashboard and starts the tour in the same tick, so the dashboard's
+  // own anchors (setup card, farm switcher, the Go-to tiles) do not exist yet
+  // when the overlay mounts. A one-shot check dropped them for good and the
+  // replay silently ran 4 steps of 8. Instead the list is re-resolved
+  // whenever the page changes (DOM mutations, resize), and the person stays
+  // on the step they are looking at, found by its target rather than its
+  // position, when an earlier step turns up.
+  const [visibleSteps, setVisibleSteps] = useState<TourStep[]>(() => resolveSteps(steps));
+  const moved = useRef(false);        // has the person pressed Next/Back yet?
+  const currentTarget = useRef<string | null>(null);
 
   const recompute = useCallback(() => {
-    const present = steps.filter((s) => readRect(s.target) !== null);
-    setVisibleSteps(present);
-    setIndex((current) => Math.min(current, Math.max(present.length - 1, 0)));
+    const present = resolveSteps(steps);
+    setVisibleSteps((prev) => (sameTargets(prev, present) ? prev : present));
   }, [steps]);
 
   useEffect(() => {
     recompute();
-    window.addEventListener('resize', recompute);
-    return () => window.removeEventListener('resize', recompute);
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => { frame = 0; recompute(); });
+    };
+    window.addEventListener('resize', schedule);
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      window.removeEventListener('resize', schedule);
+      observer.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, [recompute]);
 
+  // Keep `index` pointing at the same step when the list changes under it.
+  useEffect(() => {
+    setIndex((i) => {
+      if (!moved.current) return 0; // untouched: always sit on the first step
+      const at = visibleSteps.findIndex((s) => s.target === currentTarget.current);
+      return at >= 0 ? at : Math.min(i, Math.max(visibleSteps.length - 1, 0));
+    });
+  }, [visibleSteps]);
+
   const step = visibleSteps[index];
+  useEffect(() => { if (step) currentTarget.current = step.target; }, [step]);
 
   useEffect(() => {
     if (!step) return;
     const update = () => setRect(readRect(step.target));
-    update();
-    // Scroll the highlighted control into view before measuring it, or the
-    // spotlight lands off-screen on a long page.
+    // Bring the control into view before measuring it, or the spotlight lands
+    // off-screen on a long page. Instant, not smooth: a smooth scroll made
+    // the spotlight chase a moving target for a third of a second.
     const el = Array.from(document.querySelectorAll(`[data-tour="${CSS.escape(step.target)}"]`))
       .find((candidate) => candidate.getBoundingClientRect().height > 0);
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    const timer = window.setTimeout(update, 320);
+    el?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    update();
     window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
     return () => {
-      window.clearTimeout(timer);
       window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
     };
   }, [step]);
+
+  // The card's real height, so it is placed correctly on the first paint
+  // instead of from a guess (it used to overlap the control it described).
+  useLayoutEffect(() => {
+    const h = cardRef.current?.offsetHeight;
+    if (h && h !== cardHeight) setCardHeight(h);
+  }, [cardHeight, step, rect]);
+
+  const go = useCallback((delta: 1 | -1) => {
+    moved.current = true;
+    setIndex((i) => Math.min(Math.max(i + delta, 0), Math.max(visibleSteps.length - 1, 0)));
+  }, [visibleSteps.length]);
 
   // Escape closes it, like every other dismissible layer in the app.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onFinish('dismissed');
-      if (e.key === 'ArrowRight') setIndex((i) => Math.min(i + 1, visibleSteps.length - 1));
-      if (e.key === 'ArrowLeft') setIndex((i) => Math.max(i - 1, 0));
+      if (e.key === 'ArrowRight') go(1);
+      if (e.key === 'ArrowLeft') go(-1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onFinish, visibleSteps.length]);
+  }, [onFinish, go]);
 
   const cardPosition = useMemo(() => {
     if (!rect) return null;
     const margin = 12;
-    const cardHeight = cardRef.current?.offsetHeight ?? 170;
     const below = rect.top + rect.height + margin;
     const wantsAbove = step?.placement === 'top' || below + cardHeight > window.innerHeight;
     const top = wantsAbove
@@ -156,7 +205,7 @@ export function TourOverlay({ steps, onFinish }: { steps: TourStep[]; onFinish: 
       window.innerWidth - width - margin
     );
     return { top, left, width, pointingUp: !wantsAbove };
-  }, [rect, step]);
+  }, [rect, step, cardHeight]);
 
   if (!step || visibleSteps.length === 0) return null;
 
@@ -228,14 +277,14 @@ export function TourOverlay({ steps, onFinish }: { steps: TourStep[]; onFinish: 
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               {index > 0 && (
-                <button className="btn-secondary" style={{ padding: '7px 10px' }} onClick={() => setIndex((i) => i - 1)}>
+                <button className="btn-secondary" style={{ padding: '7px 10px' }} onClick={() => go(-1)}>
                   <ChevronLeft size={13} /> Back
                 </button>
               )}
               <button
                 className="btn-primary"
                 style={{ padding: '7px 12px' }}
-                onClick={() => (isLast ? onFinish('completed') : setIndex((i) => i + 1))}
+                onClick={() => (isLast ? onFinish('completed') : go(1))}
               >
                 {isLast ? <><Check size={13} /> Got it</> : <>Next <ChevronRight size={13} /></>}
               </button>

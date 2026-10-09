@@ -360,7 +360,7 @@ export function ForgotPasswordScreen({ onBack }: { onBack: () => void }) {
 }
 
 /* ── LOGIN SCREEN ── */
-export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin: (role: Role, tenantId?: string | null, name?: string) => void; onRegister?: () => void; onForgotPassword?: () => void }) {
+export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin: (role: Role, tenantId?: string | null, name?: string, userId?: string) => void; onRegister?: () => void; onForgotPassword?: () => void }) {
   const [tab, setTab] = useState<'email' | 'pin'>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -380,10 +380,10 @@ export function LoginScreen({ onLogin, onRegister, onForgotPassword }: { onLogin
     if (payload.email && emailLock.locked) return;
     if (payload.pin && pinLock.locked) return;
     setBusy(true); setError('');
-    const res = await apiClient.post<{ role: Role; tenantId: string | null; name?: string }>('/api/auth/login', payload);
+    const res = await apiClient.post<{ id?: string; role: Role; tenantId: string | null; name?: string }>('/api/auth/login', payload);
     setBusy(false);
     if (res.success && res.data?.role) {
-      onLogin(res.data.role, res.data.tenantId, res.data.name ?? '');
+      onLogin(res.data.role, res.data.tenantId, res.data.name ?? '', res.data.id);
       return;
     }
     setShowPwd(false);
