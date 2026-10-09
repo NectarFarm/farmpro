@@ -21,23 +21,20 @@
 //     reference" reasoning `journal_lines.debitCents/creditCents` already
 //     embodies for a sale/purchase's amount.
 //
-// No tax/statutory-deduction/overtime columns anywhere here — deliberately.
-// This app has no NHIF/NSSF/PAYE bracket data and guessing Kenyan statutory
-// rates would be worse than omitting them outright (explicit instruction).
-// `amountCents` is therefore always the employee's full gross pay for the
-// period; net-of-deductions payroll is a real, separate follow-up once those
-// rules are sourced for real.
-import { pgTable, text, timestamp, integer, bigint, index, uniqueIndex } from 'drizzle-orm/pg-core'
+// `amountCents` stays the snapshotted gross. Gross, deductions, net and
+// employer cost are stored beside it when a run is approved. Statutory
+// amounts live on payslip_lines, snapshotted from statutory_rates. No rate
+// is seeded. A scheme with no row on the period end contributes no line.
+import { pgTable, text, timestamp, integer, bigint, real, date, index } from 'drizzle-orm/pg-core'
 import { employees } from './people'
 
 // A single payroll run: one tenant, one period, triggered once. `periodStart`/
 // `periodEnd` are both normalized to UTC-midnight by the route (same
 // "calendar day in server UTC" convention app/api/tasks/route.ts's
 // `startOfUtcDay` already uses for `due=today`) so two runs for "the same"
-// period collide reliably at the DB level (idx_payroll_runs_tenant_period)
-// instead of only by accident of matching timestamps to the millisecond —
-// this is what stops an accidental double-click (or a retried request) from
-// paying every employee twice for one period.
+// period can be found again. The index is not unique: a second employee may
+// be paid for the same dates. The same employee cannot — overlap is checked
+// per payslip before a run is saved.
 export const payrollRuns = pgTable('payroll_runs', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
@@ -52,9 +49,28 @@ export const payrollRuns = pgTable('payroll_runs', {
   createdByUserId: text('created_by_user_id').notNull(),
   memo: text('memo').notNull().default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  // Null on a row the migration has not marked. Backfill sets existing runs
+  // to 'paid' because they already have journals. New runs are 'approved'
+  // until payment, then 'paid'. total_amount_cents is not redefined.
+  status: text('status'),
+  payDate: timestamp('pay_date'),
+  paymentMethod: text('payment_method'),
+  paymentReference: text('payment_reference'),
+  grossCents: bigint('gross_cents', { mode: 'number' }),
+  deductionCents: bigint('deduction_cents', { mode: 'number' }),
+  netCents: bigint('net_cents', { mode: 'number' }),
+  employerCostCents: bigint('employer_cost_cents', { mode: 'number' }),
+  // Money-threshold hold on the payment. Distinct from status. Null means
+  // the pay step was not held. The P&L does not read this column.
+  approvalStatus: text('approval_status'),
+  // The one farm every included employee shared, for the journal dimension
+  // only. The P&L does not attribute a run to a farm from this column.
+  sharedFarmId: text('shared_farm_id'),
+  dimensionOverrides: text('dimension_overrides'),
+  statutoryNote: text('statutory_note'),
 }, (t) => [
   index('idx_payroll_runs_tenant').on(t.tenantId),
-  uniqueIndex('idx_payroll_runs_tenant_period').on(t.tenantId, t.periodStart, t.periodEnd),
+  index('idx_payroll_runs_tenant_period').on(t.tenantId, t.periodStart, t.periodEnd),
 ])
 
 // One line per employee paid in a run — see this file's top comment for why
@@ -67,10 +83,52 @@ export const payslips = pgTable('payslips', {
   employeeName: text('employee_name').notNull(),
   amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  // amountCents stays the snapshotted gross. These are the breakdown.
+  grossCents: bigint('gross_cents', { mode: 'number' }),
+  deductionCents: bigint('deduction_cents', { mode: 'number' }),
+  netCents: bigint('net_cents', { mode: 'number' }),
+  employerCostCents: bigint('employer_cost_cents', { mode: 'number' }),
+  payBasis: text('pay_basis'),
+  daysWorked: integer('days_worked'),
+  dailyRateCents: bigint('daily_rate_cents', { mode: 'number' }),
+  overtimeHours: real('overtime_hours'),
+  overtimeRateCents: bigint('overtime_rate_cents', { mode: 'number' }),
 }, (t) => [
   index('idx_payslips_tenant').on(t.tenantId),
   index('idx_payslips_run').on(t.runId),
   // GET /api/payroll/me and GET /api/payroll/payslips?employeeId= both scan
   // by employee — this is the index either query needs.
   index('idx_payslips_employee').on(t.employeeId),
+])
+
+// Snapshotted lines. Advances and loan repayments are stored negative.
+// Not recomputed when a rate row changes later.
+export const payslipLines = pgTable('payslip_lines', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  payslipId: text('payslip_id').notNull().references(() => payslips.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  label: text('label').notNull(),
+  amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
+}, (t) => [
+  index('idx_payslip_lines_payslip').on(t.payslipId),
+])
+
+// Platform catalogue. No rows are seeded. effectiveTo is inclusive.
+// A fixed row stores its cents in rateBps. A bracket row stores 0 there
+// and the bands in brackets (JSON).
+export const statutoryRates = pgTable('statutory_rates', {
+  id: text('id').primaryKey(),
+  code: text('code').notNull(),
+  payer: text('payer').notNull(),
+  kind: text('kind').notNull(),
+  rateBps: integer('rate_bps').notNull(),
+  brackets: text('brackets'),
+  ceilingCents: bigint('ceiling_cents', { mode: 'number' }),
+  floorCents: bigint('floor_cents', { mode: 'number' }),
+  effectiveFrom: date('effective_from', { mode: 'string' }).notNull(),
+  effectiveTo: date('effective_to', { mode: 'string' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('idx_statutory_rates_code').on(t.code),
 ])

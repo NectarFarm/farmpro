@@ -28,6 +28,7 @@ vi.mock('next/headers', () => ({
 
 import { GET as runsGET, POST as runsPOST } from '@/app/api/payroll/runs/route'
 import { GET as runGET } from '@/app/api/payroll/runs/[id]/route'
+import { POST as payPOST } from '@/app/api/payroll/runs/[id]/pay/route'
 import { GET as meGET } from '@/app/api/payroll/me/route'
 import { db } from '@/db'
 import { tenants, users, sessions, employees, payrollRuns, payslips, journalEntries, journalLines } from '@/db/schemas'
@@ -108,6 +109,7 @@ run('payroll v1 (payroll-and-gps task)', () => {
     it('every payroll route is 401 with no session', async () => {
       mockCookie = undefined
       expect((await runsPOST(jsonRequest('http://localhost/api/payroll/runs', 'POST', { tenantId, periodStart: '2026-01-01', periodEnd: '2026-01-31' }))).status).toBe(401)
+      expect((await payPOST(jsonRequest('http://localhost/api/payroll/runs/x/pay', 'POST', {}), { params: Promise.resolve({ id: 'x' }) })).status).toBe(401)
       expect((await runsGET(jsonRequest(`http://localhost/api/payroll/runs?tenantId=${tenantId}`, 'GET'))).status).toBe(401)
       expect((await meGET()).status).toBe(401)
     })
@@ -135,28 +137,40 @@ run('payroll v1 (payroll-and-gps task)', () => {
       expect(status).toBe(403)
     })
 
-    it('an owner runs payroll: only rated ACTIVE employees are paid, amounts snapshotted, and the journal entry balances', async () => {
+    it('an owner approves the named people, then paying posts one balanced journal on the period end', async () => {
       mockCookie = ownerSession
+      const employees = [{ employeeId: empAId }, { employeeId: empBId }]
       const { status, payload } = await readJson(
-        await runsPOST(jsonRequest('http://localhost/api/payroll/runs', 'POST', { tenantId, periodStart: '2026-03-01', periodEnd: '2026-03-31', memo: 'March payroll' }))
+        await runsPOST(jsonRequest('http://localhost/api/payroll/runs', 'POST', {
+          tenantId, periodStart: '2026-03-01', periodEnd: '2026-03-31', memo: 'March payroll', employees,
+        }))
       )
       expect(status).toBe(201)
       expect(payload.success).toBe(true)
+      expect(payload.data.run.status).toBe('approved')
       runIds.push(payload.data.run.id)
 
       expect(payload.data.run.totalAmountCents).toBe(3000000 + 2500000)
       expect(payload.data.run.employeeCount).toBe(2)
       expect(payload.data.payslips).toHaveLength(2)
-      // The unpaid (no rate) employee never appears.
       expect(payload.data.payslips.some((p: { employeeId: string }) => p.employeeId === empUnpaidId)).toBe(false)
       const slipA = payload.data.payslips.find((p: { employeeId: string }) => p.employeeId === empAId)
       const slipB = payload.data.payslips.find((p: { employeeId: string }) => p.employeeId === empBId)
       expect(slipA.amountCents).toBe(3000000)
       expect(slipB.amountCents).toBe(2500000)
+      expect(await db.select().from(journalEntries).where(eq(journalEntries.sourceId, payload.data.run.id))).toHaveLength(0)
 
-      // Real ledger entry, genuinely balanced.
+      const paid = await readJson(await payPOST(jsonRequest('http://localhost/api/payroll/runs/pay', 'POST', {
+        tenantId, confirmation: 'PAY', payDate: '2026-03-31', paymentMethod: 'Cash', paymentReference: 'MARCH',
+      }), { params: Promise.resolve({ id: payload.data.run.id }) }))
+      expect(paid.status).toBe(200)
+      expect(paid.payload.data.run.status).toBe('paid')
+      expect(paid.payload.data.pending).toBe(false)
+
       const entryRows = await db.select().from(journalEntries).where(eq(journalEntries.sourceId, payload.data.run.id))
       expect(entryRows).toHaveLength(1)
+      const [stored] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, payload.data.run.id))
+      expect(entryRows[0].entryDate.getTime()).toBe(stored.periodEnd.getTime())
       const lines = await db.select().from(journalLines).where(eq(journalLines.entryId, entryRows[0].id))
       const totalDebit = lines.reduce((s, l) => s + l.debitCents, 0)
       const totalCredit = lines.reduce((s, l) => s + l.creditCents, 0)
@@ -172,6 +186,7 @@ run('payroll v1 (payroll-and-gps task)', () => {
       const { status, payload } = await readJson(
         await runsPOST(jsonRequest('http://localhost/api/payroll/runs', 'POST', {
           tenantId, periodStart: '2026-04-01', periodEnd: '2026-04-30', dryRun: true,
+          employees: [{ employeeId: empAId }, { employeeId: empBId }],
         }))
       )
       expect(status).toBe(200)
@@ -190,10 +205,14 @@ run('payroll v1 (payroll-and-gps task)', () => {
     it('refuses to create a run for the exact same period twice', async () => {
       mockCookie = ownerSession
       const { status, payload } = await readJson(
-        await runsPOST(jsonRequest('http://localhost/api/payroll/runs', 'POST', { tenantId, periodStart: '2026-03-01', periodEnd: '2026-03-31' }))
+        await runsPOST(jsonRequest('http://localhost/api/payroll/runs', 'POST', {
+          tenantId, periodStart: '2026-03-01', periodEnd: '2026-03-31',
+          employees: [{ employeeId: empAId }, { employeeId: empBId }],
+        }))
       )
       expect(status).toBe(400)
       expect(payload.success).toBe(false)
+      expect(payload.error).toMatch(/would be paid twice/)
     })
 
     it('refuses a period with zero eligible employees', async () => {
@@ -209,6 +228,7 @@ run('payroll v1 (payroll-and-gps task)', () => {
       )
       expect(status).toBe(400)
       expect(payload.success).toBe(false)
+      expect(payload.error).toMatch(/Say who is being paid/)
 
       await db.delete(sessions).where(eq(sessions.userId, soloOwnerId))
       await db.delete(users).where(eq(users.id, soloOwnerId))

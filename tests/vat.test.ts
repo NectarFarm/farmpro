@@ -19,6 +19,7 @@ import { POST as purchasesPOST } from '@/app/api/purchases/route'
 import { POST as expensesPOST } from '@/app/api/expenses/route'
 import { GET as categoriesGET } from '@/app/api/expense-categories/route'
 import { POST as payrollPOST } from '@/app/api/payroll/runs/route'
+import { POST as payrollPayPOST } from '@/app/api/payroll/runs/[id]/pay/route'
 import { GET as vatGET } from '@/app/api/reports/vat/route'
 import { GET as taxCodesGET } from '@/app/api/tax-codes/route'
 import { GET as adminRatesGET, POST as adminRatesPOST } from '@/app/api/admin/tax-rates/route'
@@ -255,8 +256,13 @@ run('VAT on sales, purchases and expenses (issue #419)', () => {
     marchPurchaseId = purchase.payload.data.purchase.id
     const payroll = await readJson(await payrollPOST(postRequest('http://localhost/api/payroll/runs', {
       tenantId, periodStart: '2026-03-01', periodEnd: '2026-03-31', memo: 'March wages',
+      employees: [{ employeeId }],
     })))
     expect(payroll.status).toBe(201)
+    const payrollPaid = await readJson(await payrollPayPOST(postRequest('http://localhost/api/payroll/runs/pay', {
+      tenantId, confirmation: 'PAY', payDate: '2026-03-31', paymentMethod: 'Cash', paymentReference: 'MARCH-WAGES',
+    }), { params: Promise.resolve({ id: payroll.payload.data.run.id }) }))
+    expect(payrollPaid.status).toBe(200)
     const cats = await readJson(await categoriesGET(new Request(`http://localhost/api/expense-categories?tenantId=${tenantId}`)))
     transportCategoryId = cats.payload.data.find((c: { code: string }) => c.code === 'transport').id
   })

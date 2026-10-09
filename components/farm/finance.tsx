@@ -22,6 +22,8 @@ import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/ui-kit/page-header';
 import { Segmented } from '@/components/ui-kit/segmented';
 import { Button } from '@/components/ui-kit/button';
+import { Field } from '@/components/ui-kit/field';
+import { Input } from '@/components/ui-kit/input';
 import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { Kv } from '@/components/ui-kit/inspector';
 import { Dialog, DialogTitle, DialogDescription } from '@/components/ui-kit/dialog';
@@ -32,7 +34,8 @@ import { RecordExpenseSheet, ExpenseDetailSheet, type ApiExpense } from './expen
 import { TaxFields, useTaxCatalogue } from './tax-fields';
 import { ReceiptExtras, buildReceiptParts, previewReceipt, receiptIsActive, type LineDraft, type LotDraft } from './receipt-extras';
 import { previewTax, taxBlockMessage } from '@/lib/tax';
-import { judgeMoney, purchaseLegs, saleLegs, PENDING_MESSAGE } from '@/lib/posting-policy';
+import { judgeMoney, payrollLegs, purchaseLegs, saleLegs, PENDING_MESSAGE } from '@/lib/posting-policy';
+import { journalSplits } from '@/lib/payroll-calc';
 import { PostingLine, usePostingPolicies } from './posting-line';
 
 // ── Restyle pass (ui/governance-reference-redesign, package F) ─────────────
@@ -216,12 +219,29 @@ interface ApiPayrollRun {
   employeeCount: number;
   memo: string;
   createdAt: string | null;
+  status?: string | null;
+  approvalStatus?: string | null;
+  grossCents?: number | null;
+  deductionCents?: number | null;
+  netCents?: number | null;
+  employerCostCents?: number | null;
+  statutoryNote?: string | null;
+  sharedFarmId?: string | null;
+  payDate?: string | null;
+  paymentMethod?: string | null;
+  paymentReference?: string | null;
 }
+interface ApiPayslipLine { kind: string; label: string; amountCents: number }
 interface ApiPayslip {
   id: string;
   employeeId: string;
   employeeName: string;
   amountCents: number;
+  grossCents?: number | null;
+  deductionCents?: number | null;
+  netCents?: number | null;
+  employerCostCents?: number | null;
+  lines?: ApiPayslipLine[];
 }
 // owner-roast finding #2: POST /api/payroll/runs { dryRun: true } — the
 // exact same eligibility/overlap/total computation the real run uses,
@@ -230,13 +250,21 @@ interface PayrollPreview {
   periodStart: string;
   periodEnd: string;
   totalAmountCents: number;
+  grossCents: number;
+  deductionCents: number;
+  netCents: number;
+  employerCostCents: number;
   employeeCount: number;
-  employees: { id: string; name: string; amountCents: number }[];
-  // forms-supply-required-dimensions fix: the one farm every eligible
-  // employee shares, or null when they don't (see
-  // app/api/payroll/runs/route.ts's identical `runFarmId` comment) — lets
-  // the sheet preview what a touched account can and can't derive before
-  // confirming, same as the sale/purchase forms.
+  statutoryNote: string | null;
+  unconfigured: string[];
+  employees: {
+    id: string; name: string; amountCents: number;
+    grossCents: number; deductionCents: number; netCents: number; employerCostCents: number;
+    lines: ApiPayslipLine[];
+  }[];
+  // forms-supply-required-dimensions fix: the one farm every included
+  // employee shares, or null when they don't — lets the sheet preview what
+  // a touched account can and can't derive before confirming.
   farmId: string | null;
 }
 
@@ -1712,20 +1740,139 @@ const GL_COLS: ColDef<Record<string, unknown>>[] = [
   },
 ];
 
-/* ── Run Payroll sheet — real POST /api/payroll/runs (payroll-and-gps task).
- * Only asks for the period: every ACTIVE employee with a monthlySalaryCents
- * > 0 is paid their full rate automatically — there is no per-employee
- * amount entry here, deliberately (see db/schemas/people.ts's comment on
- * why this app has no attendance data to compute anything finer-grained
- * from). A 403 here (a non-owner role) is shown as a plain inline error,
- * same as every other sheet on this screen.
- *
- * owner-roast finding #2: this used to be one click straight from the date
- * picker to a posted, unreversible ledger entry — no list of who was about
- * to be paid, no amount total, no confirmation beyond the button itself.
- * It's now three steps: form -> preview (a real dry-run against the API, so
- * it can never drift from what the run actually does) -> a typed
- * confirmation before the real POST fires. ── */
+/* ── Run Payroll sheet. The owner names who is in the run. Saving approves
+ * the payslips and does not post a journal. Paying is a later step, and
+ * that step is the one that asks for the word PAY. ── */
+interface ExtraLineDraft {
+  kind: 'allowance' | 'bonus' | 'advance' | 'loan_repayment';
+  label: string;
+  amount: string;
+}
+interface PayPerson {
+  id: string;
+  name: string;
+  monthlySalaryCents: number;
+  included: boolean;
+  casual: boolean;
+  days: string;
+  rate: string;
+  otHours: string;
+  otRate: string;
+  lines: ExtraLineDraft[];
+}
+const LINE_KIND_LABEL: Record<ExtraLineDraft['kind'], string> = {
+  allowance: 'Allowance',
+  bonus: 'Bonus',
+  advance: 'Advance',
+  loan_repayment: 'Loan repayment',
+};
+const PAY_METHODS = ['Cash', 'M-Pesa', 'Bank transfer', 'Cheque'] as const;
+
+function runStatusLine(run: ApiPayrollRun): string {
+  const count = `${run.employeeCount} employee${run.employeeCount === 1 ? '' : 's'}`;
+  const memo = run.memo ? ` · ${run.memo}` : '';
+  if (run.approvalStatus === 'pending') return `${count} · waiting for approval${memo}`;
+  if (run.status === 'approved') return `${count} · approved, not paid${memo}`;
+  if (run.status === 'paid') return `${count} paid${memo}`;
+  if (run.status == null) return `${count} · status was not stored${memo}`;
+  return `${count} · ${run.status}${memo}`;
+}
+
+function PayrollPayForm({ tenantId, runId, run, lines, farmId, onDone }: {
+  tenantId: string;
+  runId: string;
+  run: ApiPayrollRun;
+  lines: ApiPayslipLine[];
+  farmId: string | null;
+  onDone: (pending: boolean) => void;
+}) {
+  const policies = usePostingPolicies(tenantId);
+  const [payDate, setPayDate] = useState('');
+  const [method, setMethod] = useState('');
+  const [reference, setReference] = useState('');
+  const [word, setWord] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
+  const { missing: requiredDims, requiredBy } = useRequiredDimensions(
+    tenantId, 'payroll_run', farmId ? 'farm' : undefined, farmId || undefined,
+  );
+  const splits = journalSplits(lines);
+  const decision = policies.status === 'ready'
+    ? judgeMoney(policies.policies, {
+      amountCents: run.totalAmountCents,
+      farmId,
+      legs: payrollLegs({
+        expenseCents: run.totalAmountCents,
+        netCents: splits.netCents,
+        payeCents: splits.payeCents,
+        nssfCents: splits.nssfCents,
+        shifCents: splits.shifCents,
+        advanceCents: splits.advanceCents,
+      }),
+    })
+    : null;
+  const blocked = decision?.outcome === 'block';
+
+  async function pay() {
+    if (word !== 'PAY') { setError('Type PAY to record the payment.'); return; }
+    if (!payDate) { setError('Enter the pay date.'); return; }
+    if (!method) { setError('Choose a payment method.'); return; }
+    if (!reference.trim()) { setError('A payment reference is required.'); return; }
+    setSaving(true);
+    setError('');
+    const dimensions = dimensionsForSubmit(requiredDims, dimPicks);
+    const res = await apiClient.post<{ run: ApiPayrollRun; pending: boolean }>(`/api/payroll/runs/${runId}/pay`, {
+      tenantId,
+      confirmation: word,
+      payDate,
+      paymentMethod: method,
+      paymentReference: reference.trim(),
+      ...(dimensions ? { dimensions } : {}),
+    });
+    setSaving(false);
+    if (!res.success) { setError(res.error || 'Could not record the payment.'); return; }
+    onDone(res.data.pending);
+  }
+
+  return (
+    <div>
+      <div className="mb-3 text-sm text-muted">
+        Gross {formatMoney(run.grossCents ?? run.totalAmountCents)}
+        {run.deductionCents != null ? ` · Deductions ${formatMoney(run.deductionCents)}` : ''}
+        {run.netCents != null ? ` · Net ${formatMoney(run.netCents)}` : ''}
+        {run.employerCostCents != null ? ` · Employer ${formatMoney(run.employerCostCents)}` : ''}
+      </div>
+      <PostingLine status={policies.status} decision={decision} />
+      <div className="mb-3 flex flex-col gap-2">
+        <Field label="Pay date">
+          <DateField value={payDate} onChange={setPayDate} aria-label="Pay date" />
+        </Field>
+        <Field label="Payment method">
+          <Select value={method} onChange={setMethod} placeholder="Payment method" aria-label="Payment method" className="min-h-11 h-11 w-full">
+            {PAY_METHODS.map((item) => <option key={item} value={item}>{item}</option>)}
+          </Select>
+        </Field>
+        <Field label="Reference">
+          <Input className="min-h-11 h-11" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Receipt or transaction reference" />
+        </Field>
+        <Field label="Type PAY to record the payment">
+          <Input className="min-h-11 h-11" value={word} onChange={(e) => setWord(e.target.value)} placeholder="PAY" autoCapitalize="characters" />
+        </Field>
+      </div>
+      <RequiredDimensionFields
+        tenantId={tenantId} missing={requiredDims} picks={dimPicks}
+        onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
+        knownFarmId={farmId ?? undefined}
+        requiredBy={requiredBy}
+      />
+      {error && <p className="mb-2 text-xs text-danger">{error}</p>}
+      <Button type="button" size="lg" className="min-h-11 w-full" disabled={saving || blocked || policies.status === 'loading'} onClick={pay}>
+        {saving ? 'Recording…' : blocked ? 'Blocked' : 'Record payment'}
+      </Button>
+    </div>
+  );
+}
 function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   tenantId: string;
   onCreated: () => void;
@@ -1737,40 +1884,80 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   const [periodStart, setPeriodStart] = useState(firstOfMonth);
   const [periodEnd, setPeriodEnd] = useState(lastOfMonth);
   const [memo, setMemo] = useState('');
+  const [people, setPeople] = useState<PayPerson[] | null>(null);
+  const [peopleError, setPeopleError] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState<PayrollPreview | null>(null);
-  const [confirmText, setConfirmText] = useState('');
   const [result, setResult] = useState<{ run: ApiPayrollRun; payslips: ApiPayslip[] } | null>(null);
+  const [paidNote, setPaidNote] = useState('');
 
-  // ── Required dimensions this run's touched accounts can't derive on their
-  // own (forms-supply-required-dimensions fix) ───────────────────────────
-  // postPayrollJournal posts ONE aggregate entry for the whole run, so it
-  // can only carry a Farm dimension when the preview says every eligible
-  // employee actually shares one (`preview.farmId`) — a run spanning
-  // several farms, or any OTHER dimension, always has to be asked for here.
   const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
   const { missing: requiredDims, requiredBy } = useRequiredDimensions(
     tenantId, 'payroll_run', preview?.farmId ? 'farm' : undefined, preview?.farmId || undefined,
   );
 
-  const CONFIRM_WORD = 'PAY';
+  useEffect(() => {
+    apiClient.get<{ id: string; name: string; monthlySalaryCents: number; status: string }[]>('/api/employees?status=ACTIVE').then((res) => {
+      if (!res.success) { setPeopleError(res.error || 'The employee list could not be loaded.'); setPeople([]); return; }
+      setPeople(res.data.map((person) => ({
+        id: person.id,
+        name: person.name,
+        monthlySalaryCents: person.monthlySalaryCents,
+        included: person.monthlySalaryCents > 0,
+        casual: false,
+        days: '',
+        rate: '',
+        otHours: '',
+        otRate: '',
+        lines: [],
+      })));
+    });
+  }, []);
+
+  function updatePerson(id: string, patch: Partial<PayPerson>) {
+    setPeople((current) => current?.map((person) => person.id === id ? { ...person, ...patch } : person) ?? current);
+  }
+
+  function employeeBody() {
+    return (people ?? []).filter((person) => person.included).map((person) => {
+      const lines = person.lines
+        .filter((line) => line.label.trim() || line.amount.trim())
+        .map((line) => ({
+          kind: line.kind,
+          label: line.label.trim(),
+          amountCents: parseMoneyToCents(line.amount),
+        }));
+      const body: Record<string, unknown> = { employeeId: person.id };
+      if (person.casual) {
+        const days = Number(person.days);
+        body.daysWorked = Number.isInteger(days) ? days : person.days;
+        body.dailyRateCents = parseMoneyToCents(person.rate);
+        if (person.otHours.trim() || person.otRate.trim()) {
+          body.overtimeHours = Number(person.otHours);
+          body.overtimeRateCents = parseMoneyToCents(person.otRate);
+        }
+      }
+      if (lines.length > 0) body.lines = lines;
+      return body;
+    });
+  }
 
   async function loadPreview() {
     if (!periodStart || !periodEnd) { setError('Select a period start and end date.'); return; }
+    if (!people || people.every((person) => !person.included)) { setError('Say who is being paid.'); return; }
     setSaving(true);
     setError('');
     const res = await apiClient.post<PayrollPreview>('/api/payroll/runs', {
-      tenantId, periodStart, periodEnd, memo: memo.trim() || undefined, dryRun: true,
+      tenantId, periodStart, periodEnd, memo: memo.trim() || undefined, dryRun: true, employees: employeeBody(),
     });
     setSaving(false);
     if (!res.success) { setError(res.error || 'Could not preview this payroll run.'); return; }
     setPreview(res.data);
-    setConfirmText('');
     setDimPicks({});
   }
 
-  async function run() {
+  async function approve() {
     if (!preview) return;
     const dimErrs = missingDimensionErrors(requiredDims, dimPicks);
     if (Object.keys(dimErrs).length > 0) {
@@ -1780,101 +1967,264 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
     setSaving(true);
     setError('');
     const res = await apiClient.post<{ run: ApiPayrollRun; payslips: ApiPayslip[] }>('/api/payroll/runs', {
-      tenantId, periodStart, periodEnd, memo: memo.trim() || undefined,
+      tenantId, periodStart, periodEnd, memo: memo.trim() || undefined, employees: employeeBody(),
       dimensions: dimensionsForSubmit(requiredDims, dimPicks),
     });
     setSaving(false);
-    if (!res.success) { setError(res.error || 'Failed to run payroll.'); return; }
+    if (!res.success) { setError(res.error || 'Failed to approve payroll.'); return; }
     setResult(res.data);
     onCreated();
   }
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        <SheetTitle className="mb-3.5">Run Payroll</SheetTitle>
-
-        {result ? (
-          <div>
-            <div style={{ padding: '14px', background: 'rgba(var(--primary-rgb),0.08)', border: '1px solid rgba(var(--primary-rgb),0.25)', borderRadius: 12, marginBottom: 14, textAlign: 'center' }}>
-              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 4 }}>Payroll run complete</div>
-              <div style={{ fontSize: 'var(--fs-3xl)', fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(result.run.totalAmountCents)}</div>
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{result.run.employeeCount} employee{result.run.employeeCount === 1 ? '' : 's'} paid · posted to the ledger</div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4">
+          <SheetTitle className="mb-3.5">Run Payroll</SheetTitle>
+          {result ? (
+            <div>
+              <p className="mb-1 text-sm font-semibold text-fg">Approved — not paid.</p>
+              <p className="mb-3 text-xs leading-relaxed text-muted">
+                The payslips are recorded. Nobody has been paid, and this has not entered the books.
+              </p>
+              <div className="mb-3 text-sm">
+                {result.payslips.map((slip) => (
+                  <div key={slip.id} className="flex min-h-11 items-center justify-between gap-3 border-b border-border py-2">
+                    <span>{slip.employeeName}</span>
+                    <span className="font-semibold">{formatMoney(slip.netCents ?? slip.amountCents)}</span>
+                  </div>
+                ))}
+              </div>
+              {paidNote ? (
+                <p className="text-sm text-fg">{paidNote}</p>
+              ) : (
+                <PayrollPayForm
+                  tenantId={tenantId}
+                  runId={result.run.id}
+                  run={result.run}
+                  lines={preview?.employees.flatMap((person) => person.lines) ?? []}
+                  farmId={preview?.farmId ?? null}
+                  onDone={(pending) => {
+                    setPaidNote(pending
+                      ? 'Waiting for approval. This has not entered the books.'
+                      : 'Paid. The wages are in the books for this period.');
+                    onCreated();
+                  }}
+                />
+              )}
             </div>
-            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-              {result.payslips.map((p, i, arr) => (
-                <div key={p.id} style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>{p.employeeName}</span>
-                  <span style={{ fontWeight: 700 }}>{formatMoney(p.amountCents)}</span>
-                </div>
-              ))}
+          ) : preview ? (
+            <div>
+              <p className="mb-3 text-xs leading-relaxed text-muted">
+                This is a preview. Approving records these payslips. It does not pay anyone and does not enter the books.
+                These statutory lines use the rates effective on the period end.
+              </p>
+              {preview.statutoryNote && <p className="mb-3 text-xs leading-relaxed text-fg">{preview.statutoryNote}</p>}
+              <div className="mb-3">
+                {preview.employees.map((person) => (
+                  <div key={person.id} className="border-b border-border py-2">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-semibold">{person.name}</span>
+                      <span>Net {formatMoney(person.netCents)}</span>
+                    </div>
+                    <p className="text-xs text-muted">
+                      Gross {formatMoney(person.grossCents)} · Deductions {formatMoney(person.deductionCents)} · Employer {formatMoney(person.employerCostCents)}
+                    </p>
+                    {person.lines.map((line, index) => (
+                      <div key={`${person.id}-${index}`} className="flex justify-between text-xs text-muted">
+                        <span>{line.label}</span>
+                        <span>{formatMoney(line.amountCents)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <p className="mb-3 text-sm">
+                {preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} · {fmtDate(preview.periodStart)} – {fmtDate(preview.periodEnd)} · Expense {formatMoney(preview.totalAmountCents)}
+              </p>
+              <RequiredDimensionFields
+                tenantId={tenantId} missing={requiredDims} picks={dimPicks}
+                onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
+                knownFarmId={preview.farmId ?? undefined}
+                requiredBy={requiredBy}
+              />
             </div>
-            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={onClose}>Done</button>
-          </div>
-        ) : preview ? (
-          <>
-            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.08)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.25)', marginBottom: 12, fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              This is a preview — nothing has been paid yet. Confirming below posts a Payroll Expense entry to the ledger and cannot be undone from here.
+          ) : (
+            <div>
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <Field label="Period start">
+                  <DateField value={periodStart} onChange={setPeriodStart} aria-label="Period start" />
+                </Field>
+                <Field label="Period end">
+                  <DateField value={periodEnd} onChange={setPeriodEnd} aria-label="Period end" />
+                </Field>
+              </div>
+              <Field label="Memo (optional)">
+                <Input className="min-h-11 h-11" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="e.g. August 2026 salaries" />
+              </Field>
+              <p className="my-3 text-xs leading-relaxed text-muted">
+                Tick who is in this run. A person with no monthly salary and no daily rate is left out. Statutory lines appear on the preview only when a rate is effective on the period end.
+              </p>
+              {peopleError && <p className="mb-2 text-xs text-danger">{peopleError}</p>}
+              {people === null && !peopleError && <p className="mb-2 text-xs text-muted">Loading employees…</p>}
+              {people !== null && people.length === 0 && !peopleError && (
+                <p className="mb-2 text-xs text-muted">No active employees. Add someone under People before running payroll.</p>
+              )}
+              <div className="flex flex-col gap-3">
+                {(people ?? []).map((person) => (
+                  <div key={person.id} className="rounded-lg border border-border p-3">
+                    <label className="flex min-h-11 items-center gap-3">
+                      <input
+                        type="checkbox"
+                        className="size-5"
+                        checked={person.included}
+                        onChange={(e) => updatePerson(person.id, { included: e.target.checked })}
+                      />
+                      <span className="text-sm font-semibold">{person.name}</span>
+                      <span className="ml-auto text-xs text-muted">
+                        {person.monthlySalaryCents > 0 ? formatMoney(person.monthlySalaryCents) : 'No monthly salary'}
+                      </span>
+                    </label>
+                    {person.included && (
+                      <div className="mt-2 flex flex-col gap-2">
+                        <label className="flex min-h-11 items-center gap-3 text-sm">
+                          <input
+                            type="checkbox"
+                            className="size-5"
+                            checked={person.casual}
+                            onChange={(e) => updatePerson(person.id, { casual: e.target.checked })}
+                          />
+                          Pay by days worked
+                        </label>
+                        {person.casual && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <Field label="Days worked">
+                              <Input className="min-h-11 h-11" inputMode="numeric" value={person.days} onChange={(e) => updatePerson(person.id, { days: e.target.value })} />
+                            </Field>
+                            <Field label="Daily rate">
+                              <Input className="min-h-11 h-11" inputMode="decimal" value={person.rate} onChange={(e) => updatePerson(person.id, { rate: e.target.value })} />
+                            </Field>
+                            <Field label="Overtime hours">
+                              <Input className="min-h-11 h-11" inputMode="decimal" value={person.otHours} onChange={(e) => updatePerson(person.id, { otHours: e.target.value })} />
+                            </Field>
+                            <Field label="Overtime rate">
+                              <Input className="min-h-11 h-11" inputMode="decimal" value={person.otRate} onChange={(e) => updatePerson(person.id, { otRate: e.target.value })} />
+                            </Field>
+                          </div>
+                        )}
+                        {person.lines.map((line, index) => (
+                          <div key={index} className="grid grid-cols-1 gap-2">
+                            <Select
+                              value={line.kind}
+                              onChange={(value) => {
+                                const next = person.lines.slice();
+                                next[index] = { ...line, kind: value as ExtraLineDraft['kind'] };
+                                updatePerson(person.id, { lines: next });
+                              }}
+                              aria-label="Payslip line"
+                              className="min-h-11 h-11 w-full"
+                            >
+                              <option value="allowance">Allowance</option>
+                              <option value="bonus">Bonus</option>
+                              <option value="advance">Advance</option>
+                              <option value="loan_repayment">Loan repayment</option>
+                            </Select>
+                            <Input className="min-h-11 h-11" value={line.label} placeholder="Label" aria-label="Line label" onChange={(e) => {
+                              const next = person.lines.slice();
+                              next[index] = { ...line, label: e.target.value };
+                              updatePerson(person.id, { lines: next });
+                            }} />
+                            <Input className="min-h-11 h-11" inputMode="decimal" value={line.amount} placeholder="Amount" aria-label="Line amount" onChange={(e) => {
+                              const next = person.lines.slice();
+                              next[index] = { ...line, amount: e.target.value };
+                              updatePerson(person.id, { lines: next });
+                            }} />
+                          </div>
+                        ))}
+                        <Button type="button" size="lg" variant="outline" className="min-h-11 w-full" onClick={() => updatePerson(person.id, { lines: [...person.lines, { kind: 'allowance', label: '', amount: '' }] })}>
+                          Add {LINE_KIND_LABEL.allowance.toLowerCase()}, bonus, advance or loan repayment
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="farm-card" style={{ overflow: 'hidden', marginBottom: 10, maxHeight: 220, overflowY: 'auto' }}>
-              {preview.employees.map((e, i, arr) => (
-                <div key={e.id} style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-sm)', borderBottom: i < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>{e.name}</span>
-                  <span style={{ fontWeight: 700 }}>{formatMoney(e.amountCents)}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 4px', marginBottom: 14 }}>
-              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} · {fmtDate(preview.periodStart)} – {fmtDate(preview.periodEnd)}</span>
-              <span style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>{formatMoney(preview.totalAmountCents)}</span>
-            </div>
-            <RequiredDimensionFields
-              tenantId={tenantId} missing={requiredDims} picks={dimPicks}
-              onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
-              knownFarmId={preview.farmId ?? undefined}
-              requiredBy={requiredBy}
-            />
-            <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
-              Type {CONFIRM_WORD} to confirm you want to pay {preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} {formatMoney(preview.totalAmountCents)}
-            </label>
-            <input className="farm-input" value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder={CONFIRM_WORD} style={{ marginBottom: 14 }} />
-            {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setPreview(null); setError(''); }}>Back</button>
-              <button
-                className="btn-primary"
-                style={{ flex: 2, justifyContent: 'center' }}
-                disabled={saving || confirmText.trim().toUpperCase() !== CONFIRM_WORD || Object.keys(missingDimensionErrors(requiredDims, dimPicks)).length > 0}
-                onClick={run}
+          )}
+        </div>
+        <div className="border-t border-border bg-surface px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          {error && !result && <p className="mb-2 text-xs text-danger">{error}</p>}
+          {result ? (
+            <Button type="button" size="lg" variant="outline" className="min-h-11 w-full" onClick={onClose}>Done</Button>
+          ) : preview ? (
+            <div className="flex gap-2">
+              <Button type="button" size="lg" variant="outline" className="min-h-11 flex-1" onClick={() => { setPreview(null); setError(''); }}>Back</Button>
+              <Button
+                type="button"
+                size="lg"
+                className="min-h-11 flex-[2]"
+                disabled={saving || Object.keys(missingDimensionErrors(requiredDims, dimPicks)).length > 0}
+                onClick={approve}
               >
-                {saving ? 'Running…' : `Confirm & pay ${formatMoney(preview.totalAmountCents)}`}
-              </button>
+                {saving ? 'Approving…' : 'Approve payslips'}
+              </Button>
             </div>
-          </>
-        ) : (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period start *</label>
-                <DateField value={periodStart} onChange={setPeriodStart} />
-              </div>
-              <div>
-                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period end *</label>
-                <DateField value={periodEnd} onChange={setPeriodEnd} />
-              </div>
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Memo (optional)</label>
-              <input className="farm-input" placeholder="e.g. August 2026 salaries" value={memo} onChange={e => setMemo(e.target.value)} />
-            </div>
-            <div style={{ padding: '10px 12px', background: 'rgba(var(--warning-rgb),0.06)', borderRadius: 10, border: '1px solid rgba(var(--warning-rgb),0.2)', marginBottom: 14, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-              Every active employee with a monthly salary set is paid their full rate for this period — gross pay only, no tax or statutory deductions. The next step shows exactly who and how much before anything is posted.
-            </div>
-            {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 10 }}>{error}</div>}
-            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={saving} onClick={loadPreview}>
+          ) : (
+            <Button type="button" size="lg" className="min-h-11 w-full" disabled={saving} onClick={loadPreview}>
               {saving ? 'Loading…' : 'Preview payroll'}
-            </button>
-          </>
+            </Button>
+          )}
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+function PayRunSheet({ tenantId, runId, onPaid, onClose }: {
+  tenantId: string;
+  runId: string;
+  onPaid: () => void;
+  onClose: () => void;
+}) {
+  const [loaded, setLoaded] = useState<{ run: ApiPayrollRun; payslips: ApiPayslip[] } | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    apiClient.get<{ run: ApiPayrollRun; payslips: ApiPayslip[] }>(`/api/payroll/runs/${runId}?tenantId=${tenantId}`).then((res) => {
+      if (res.success) setLoaded(res.data);
+      else setLoadError(res.error || 'Could not load this payroll run.');
+    });
+  }, [runId, tenantId]);
+  const lines = loaded?.payslips.flatMap((slip) => slip.lines ?? []) ?? [];
+  return (
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <SheetTitle className="mb-3">Record payment</SheetTitle>
+        {loadError && <p className="text-sm text-danger">{loadError}</p>}
+        {!loaded && !loadError && <p className="text-sm text-muted">Loading the run…</p>}
+        {loaded && loaded.run.status === 'paid' && <p className="text-sm">This run is already paid.</p>}
+        {loaded && loaded.run.approvalStatus === 'pending' && <p className="text-sm">This payment is waiting for approval.</p>}
+        {loaded && loaded.run.status !== 'paid' && loaded.run.status !== 'approved' && loaded.run.approvalStatus !== 'pending' && (
+          <p className="text-sm">{loaded.run.status == null ? 'Status was not stored on this run.' : 'This run is not approved.'}</p>
+        )}
+        {loaded && loaded.run.status === 'approved' && loaded.run.approvalStatus !== 'pending' && !note && (
+          <PayrollPayForm
+            tenantId={tenantId}
+            runId={runId}
+            run={loaded.run}
+            lines={lines}
+            farmId={loaded.run.sharedFarmId ?? null}
+            onDone={(pending) => {
+              setNote(pending
+                ? 'Waiting for approval. This has not entered the books.'
+                : 'Paid. The wages are in the books for this period.');
+              onPaid();
+            }}
+          />
+        )}
+        {note && <p className="mb-3 text-sm">{note}</p>}
+        {(note || loaded?.run.status === 'paid' || loaded?.run.approvalStatus === 'pending' || (loaded && loaded.run.status !== 'approved')) && (
+          <Button type="button" size="lg" variant="outline" className="mt-3 min-h-11 w-full" onClick={onClose}>Done</Button>
         )}
       </div>
     </Sheet>
@@ -1919,6 +2269,7 @@ export function FinanceScreen() {
   const [payrollRuns, setPayrollRuns] = useState<ApiPayrollRun[] | null>(null);
   const [payrollError, setPayrollError] = useState('');
   const [showRunPayroll, setShowRunPayroll] = useState(false);
+  const [payRunId, setPayRunId] = useState<string | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [expandedPayslips, setExpandedPayslips] = useState<ApiPayslip[] | null>(null);
   const [expandedError, setExpandedError] = useState('');
@@ -2487,7 +2838,7 @@ export function FinanceScreen() {
                   >
                     <div>
                       <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</div>
-                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{r.employeeCount} employee{r.employeeCount === 1 ? '' : 's'} paid{r.memo ? ` · ${r.memo}` : ''}</div>
+                      <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>{runStatusLine(r)}</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 'var(--fs-base)', fontWeight: 700, color: 'var(--primary-green)' }}>{formatMoney(r.totalAmountCents)}</span>
@@ -2499,11 +2850,19 @@ export function FinanceScreen() {
                       {expandedError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', padding: '8px 0' }}>{expandedError}</div>}
                       {!expandedError && expandedPayslips === null && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', padding: '8px 0' }}>Loading payslips…</div>}
                       {!expandedError && expandedPayslips !== null && expandedPayslips.map((p) => (
-                        <div key={p.id} style={{ padding: '7px 0', display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)' }}>
+                        <div key={p.id} style={{ padding: '7px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 'var(--fs-xs)' }}>
                           <span style={{ color: 'var(--text-secondary)' }}>{p.employeeName}</span>
-                          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{formatMoney(p.amountCents)}</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{formatMoney(p.netCents ?? p.amountCents)}</span>
+                            <a className="inline-flex min-h-11 items-center text-xs font-semibold underline" href={`/api/payroll/payslips/${p.id}/pdf?tenantId=${tenantId}`}>Payslip</a>
+                          </span>
                         </div>
                       ))}
+                      {r.status === 'approved' && r.approvalStatus !== 'pending' && (
+                        <Button type="button" size="lg" className="mb-2 min-h-11 w-full" onClick={(event) => { event.stopPropagation(); setPayRunId(r.id); }}>
+                          Record payment
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2551,6 +2910,14 @@ export function FinanceScreen() {
           tenantId={tenantId}
           onCreated={() => { loadPayrollRuns(); loadGL(); }}
           onClose={() => setShowRunPayroll(false)}
+        />
+      )}
+      {payRunId && (
+        <PayRunSheet
+          tenantId={tenantId}
+          runId={payRunId}
+          onPaid={() => { loadPayrollRuns(); loadGL(); }}
+          onClose={() => setPayRunId(null)}
         />
       )}
       {showSupplierBalances && <BalancesSheet kind="suppliers" tenantId={tenantId} onClose={() => setShowSupplierBalances(false)} />}

@@ -60,6 +60,11 @@ const ACCOUNTS_PAYABLE = '2001'
 const SALES_REVENUE = '4001'
 const VAT_RECEIVABLE = '1300'
 const VAT_PAYABLE = '2300'
+const PAYROLL_EXPENSE = '5002'
+const PAYE_PAYABLE = '2201'
+const NSSF_PAYABLE = '2202'
+const SHIF_PAYABLE = '2203'
+const EMPLOYEE_ADVANCES = '1250'
 
 function balanced(totalCents: number, netCents: number | null, taxCents: number | null): { net: number; tax: number } | null {
   if (typeof netCents !== 'number' || typeof taxCents !== 'number') return null
@@ -217,14 +222,36 @@ export function varianceDecision(
   return { outcome: 'post', message: POSTS_NOW, thresholdCents: null }
 }
 
+/** The credits a payroll payment posts. Zero legs are omitted. */
+export function payrollLegs(input: {
+  expenseCents: number
+  netCents: number
+  payeCents: number
+  nssfCents: number
+  shifCents: number
+  advanceCents: number
+}): MoneyLeg[] {
+  const legs: MoneyLeg[] = []
+  if (input.expenseCents > 0) legs.push({ accountCode: PAYROLL_EXPENSE, amountCents: input.expenseCents })
+  if (input.netCents > 0) legs.push({ accountCode: CASH, amountCents: input.netCents })
+  if (input.payeCents > 0) legs.push({ accountCode: PAYE_PAYABLE, amountCents: input.payeCents })
+  if (input.nssfCents > 0) legs.push({ accountCode: NSSF_PAYABLE, amountCents: input.nssfCents })
+  if (input.shifCents > 0) legs.push({ accountCode: SHIF_PAYABLE, amountCents: input.shifCents })
+  if (input.advanceCents > 0) legs.push({ accountCode: EMPLOYEE_ADVANCES, amountCents: input.advanceCents })
+  return legs
+}
+
 export interface MoneyDetails {
-  docType: 'sale' | 'purchase' | 'expense'
+  docType: 'sale' | 'purchase' | 'expense' | 'payroll'
   documentId: string
   amountCents?: number
   accountCode?: string | null
   stockEffect?: string | null
   dimensions?: Record<string, string> | null
   lots?: { quantity: number; expiryDate: string | null; lotNo: string | null }[]
+  payDate?: string
+  paymentMethod?: string
+  paymentReference?: string
 }
 
 export function parseMoneyDetails(raw: string): MoneyDetails | null {
@@ -236,9 +263,17 @@ export function parseMoneyDetails(raw: string): MoneyDetails | null {
   }
   if (!parsed || typeof parsed !== 'object') return null
   const row = parsed as Record<string, unknown>
-  if (row.docType !== 'sale' && row.docType !== 'purchase' && row.docType !== 'expense') return null
+  if (row.docType !== 'sale' && row.docType !== 'purchase' && row.docType !== 'expense' && row.docType !== 'payroll') return null
   if (typeof row.documentId !== 'string' || !row.documentId) return null
   const details: MoneyDetails = { docType: row.docType, documentId: row.documentId }
+  if (row.docType === 'payroll') {
+    if (typeof row.payDate !== 'string' || typeof row.paymentMethod !== 'string' || typeof row.paymentReference !== 'string') {
+      return null
+    }
+    details.payDate = row.payDate
+    details.paymentMethod = row.paymentMethod
+    details.paymentReference = row.paymentReference
+  }
   if (typeof row.amountCents === 'number' && Number.isInteger(row.amountCents) && row.amountCents >= 0) {
     details.amountCents = row.amountCents
   }

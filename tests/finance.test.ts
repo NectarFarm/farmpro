@@ -128,16 +128,16 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
 
   describe('GET /api/gl/accounts: seeded standard chart of accounts', () => {
     // Payroll added 5002. Issue #416 added 5010–5019 for expenses that are
-    // not stock. Issue #419 added 1300 and 2300 for VAT. Accounts are one
-    // global chart, so every tenant sees them even when this tenant has
-    // never posted to them. A zero balance does not move the trial-balance
-    // totals.
+    // not stock. Issue #419 added 1300 and 2300 for VAT. Issue #420 added
+    // 1250 and 2201–2203. Accounts are one global chart, so every tenant
+    // sees them even when this tenant has never posted to them. A zero
+    // balance does not move the trial-balance totals.
     it('returns the standard farm accounts, including operating-expense accounts', async () => {
       mockCookie = ownerToken
       const { status, payload } = await readJson(await accountsGET())
       expect(status).toBe(200)
       const codes = payload.data.map((a: { code: string }) => a.code).sort()
-      expect(codes).toEqual(['1001', '1002', '1300', '2001', '2300', '3001', '4001', '5001', '5002', '5010', '5011', '5012', '5013', '5019'])
+      expect(codes).toEqual(['1001', '1002', '1250', '1300', '2001', '2201', '2202', '2203', '2300', '3001', '4001', '5001', '5002', '5010', '5011', '5012', '5013', '5019'])
       expect(payload.data.some((a: { name: string }) => /payroll/i.test(a.name))).toBe(true)
 
       const cash = payload.data.find((a: { code: string }) => a.code === ACCOUNT_CODES.CASH)

@@ -12,6 +12,7 @@ import { Input } from '@/components/ui-kit/input';
 import { Field } from '@/components/ui-kit/field';
 import { useAdminCapabilities } from '@/components/admin/capabilities';
 import { TaxRatesPanel } from './tax-rates-panel';
+import { StatutoryRatesPanel } from './statutory-rates-panel';
 
 // ── Real backend wiring (issue #252) ────────────────────────────────────────
 // GET /api/admin/tenants and GET /api/admin/stats are new, minimal,
@@ -1202,6 +1203,7 @@ export function AdminSettingsScreen() {
 
         <ExpenseCataloguePanel />
         <TaxRatesPanel />
+        <StatutoryRatesPanel />
 
         {/* Honest gap: plans/packages have no backend anywhere on this branch
             (no plans table, no route) — kept separate from the working
