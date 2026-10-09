@@ -4,7 +4,7 @@
 // the sale form uses to show the figure, so the number a user is shown and
 // the number enforced on submit come from the same query.
 import 'server-only'
-import { and, eq, sum } from 'drizzle-orm'
+import { and, eq, isNull, ne, or, sum } from 'drizzle-orm'
 import { db } from '@/db'
 import { productCollections, sales } from '@/db/schemas'
 
@@ -28,7 +28,13 @@ export async function availableProduce(
     .from(productCollections)
     .where(and(...collectedConditions))
 
-  const soldConditions = [eq(sales.tenantId, tenantId), eq(sales.productId, productId)]
+  // A rejected sale never left the shed. A pending sale still reserves the
+  // quantity, so two people cannot sell the last tray while one waits.
+  const soldConditions = [
+    eq(sales.tenantId, tenantId),
+    eq(sales.productId, productId),
+    or(isNull(sales.approvalStatus), ne(sales.approvalStatus, 'rejected'))!,
+  ]
   if (batchId) soldConditions.push(eq(sales.batchId, batchId))
   const [sold] = await conn
     .select({ qty: sum(sales.qty) })

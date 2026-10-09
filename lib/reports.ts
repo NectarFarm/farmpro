@@ -21,6 +21,7 @@
 // screen, the CSV and the PDF cannot disagree about a number.
 import 'server-only'
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql, sum } from 'drizzle-orm'
+import { inTheBooks } from '@/lib/in-the-books'
 import { db } from '@/db'
 import {
   batches, sales, purchases, expenses, expenseCategories, taxCodes, records, products, employees, tenantSettings, farms,
@@ -245,13 +246,13 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
   // by dropping the reversed row from the period it was reported in, exactly
   // as if it never happened — is the honest reading of "reverse it", not a
   // silent rewrite of history: the row and its audit trail still exist.
-  const saleConditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt)]
+  const saleConditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt), inTheBooks(sales.approvalStatus)]
   if (from) saleConditions.push(gte(sales.postingDate, from))
   if (to) saleConditions.push(lte(sales.postingDate, to))
   if (farmBatchIds !== null) saleConditions.push(inArray(sales.batchId, farmBatchIds.length ? farmBatchIds : ['__none__']))
   const periodSales = await db.select().from(sales).where(and(...saleConditions)).orderBy(asc(sales.postingDate))
 
-  const purchaseConditions = [eq(purchases.tenantId, tenantId), isNull(purchases.reversedAt)]
+  const purchaseConditions = [eq(purchases.tenantId, tenantId), isNull(purchases.reversedAt), inTheBooks(purchases.approvalStatus)]
   if (from) purchaseConditions.push(gte(purchases.postingDate, from))
   if (to) purchaseConditions.push(lte(purchases.postingDate, to))
   if (farmId) purchaseConditions.push(eq(purchases.farmId, farmId))
@@ -261,7 +262,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
   // They join the period on their own posting date, the same window
   // purchases already use. A period with no expense rows adds zero — the
   // purchase and payroll sums below are unchanged.
-  const expenseConditions = [eq(expenses.tenantId, tenantId), isNull(expenses.reversedAt)]
+  const expenseConditions = [eq(expenses.tenantId, tenantId), isNull(expenses.reversedAt), inTheBooks(expenses.approvalStatus)]
   if (from) expenseConditions.push(gte(expenses.postingDate, from))
   if (to) expenseConditions.push(lte(expenses.postingDate, to))
   if (farmId) expenseConditions.push(eq(expenses.farmId, farmId))
@@ -400,7 +401,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
     // as the treatment report's withdrawal-period line — a caveat about data
     // quality is the farmer's to hide; one that changes what the total MEANS
     // is not.
-    basis: `Compiled from recorded sales, purchases and payroll for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists. Payroll is EXCLUDED from this farm-scoped view — a payroll run covers the whole business and carries no farm, so attributing wages to one farm would be a guess. Run across all farms to include them. Operating expenses recorded against this farm are included.` : ', across all farms. Operating expenses are included where they were recorded.'} Amounts are net of VAT where the document has a tax code. A document with no tax code is unchanged.`,
+    basis: `Compiled from recorded sales, purchases and payroll for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists. Payroll is EXCLUDED from this farm-scoped view — a payroll run covers the whole business and carries no farm, so attributing wages to one farm would be a guess. Run across all farms to include them. Operating expenses recorded against this farm are included.` : ', across all farms. Operating expenses are included where they were recorded.'} Amounts are net of VAT where the document has a tax code. A document with no tax code is unchanged. A document waiting for approval, or one that was rejected, is not included. A document with no approval status is unchanged.`,
     totals: [null, null, 'Period net', null, periodNetIncome, null],
     columnAlign: ['left', 'left', 'left', 'left', 'right', 'left'],
     columnFormats: ['text', 'text', 'text', 'text', 'money', 'text'],
@@ -412,7 +413,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
 export async function computeSalesRegisterReport(tenantId: string, from: Date | null, to: Date | null, farmId?: string): Promise<ReportPayload> {
   const pres = await presentationSettings(tenantId)
   const scopedBatchIds = farmId ? await batchIdsForFarm(tenantId, farmId) : null
-  const conditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt)]
+  const conditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt), inTheBooks(sales.approvalStatus)]
   if (from) conditions.push(gte(sales.postingDate, from))
   if (to) conditions.push(lte(sales.postingDate, to))
   if (scopedBatchIds !== null) conditions.push(inArray(sales.batchId, scopedBatchIds.length ? scopedBatchIds : ['__none__']))
@@ -484,7 +485,7 @@ export async function computeBatchPlReport(tenantId: string, from: Date | null, 
   // sales fall in a given range.
   // Item 23: a reversed sale is excluded here too — see computePlReport's
   // identical comment above.
-  const saleConditions = [eq(sales.tenantId, tenantId), isNotNull(sales.batchId), isNull(sales.reversedAt)]
+  const saleConditions = [eq(sales.tenantId, tenantId), isNotNull(sales.batchId), isNull(sales.reversedAt), inTheBooks(sales.approvalStatus)]
   if (from) saleConditions.push(gte(sales.postingDate, from))
   if (to) saleConditions.push(lte(sales.postingDate, to))
   const revenueBySale = await db
@@ -1097,19 +1098,19 @@ export async function computeVatReport(tenantId: string, from: Date | null, to: 
   const farmBatchIds = farmId ? await batchIdsForFarm(tenantId, farmId) : null
   const codeNames = new Map((await db.select().from(taxCodes)).map((row) => [row.code, row.name]))
 
-  const saleConditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt)]
+  const saleConditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt), inTheBooks(sales.approvalStatus)]
   if (from) saleConditions.push(gte(sales.postingDate, from))
   if (to) saleConditions.push(lte(sales.postingDate, to))
   if (farmBatchIds !== null) saleConditions.push(inArray(sales.batchId, farmBatchIds.length ? farmBatchIds : ['__none__']))
   const periodSales = await db.select().from(sales).where(and(...saleConditions))
 
-  const purchaseConditions = [eq(purchases.tenantId, tenantId), isNull(purchases.reversedAt)]
+  const purchaseConditions = [eq(purchases.tenantId, tenantId), isNull(purchases.reversedAt), inTheBooks(purchases.approvalStatus)]
   if (from) purchaseConditions.push(gte(purchases.postingDate, from))
   if (to) purchaseConditions.push(lte(purchases.postingDate, to))
   if (farmId) purchaseConditions.push(eq(purchases.farmId, farmId))
   const periodPurchases = await db.select().from(purchases).where(and(...purchaseConditions))
 
-  const expenseConditions = [eq(expenses.tenantId, tenantId), isNull(expenses.reversedAt)]
+  const expenseConditions = [eq(expenses.tenantId, tenantId), isNull(expenses.reversedAt), inTheBooks(expenses.approvalStatus)]
   if (from) expenseConditions.push(gte(expenses.postingDate, from))
   if (to) expenseConditions.push(lte(expenses.postingDate, to))
   if (farmId) expenseConditions.push(eq(expenses.farmId, farmId))

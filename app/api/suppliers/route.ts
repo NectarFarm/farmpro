@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, sql, desc } from 'drizzle-orm'
 import { db } from '@/db'
 import { suppliers, purchases, expenses } from '@/db/schemas'
+import { inTheBooks } from '@/lib/in-the-books'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 
@@ -56,10 +57,11 @@ export async function GET(req: Request) {
         where ${expenses.supplierId} = ${suppliers.id}
           and ${expenses.tenantId} = ${tenantId}
           and ${expenses.reversedAt} is null
+          and (${expenses.approvalStatus} is null or ${expenses.approvalStatus} not in ('pending', 'rejected'))
       ), 0)`,
     })
     .from(suppliers)
-    .leftJoin(purchases, and(eq(purchases.supplierId, suppliers.id), eq(purchases.tenantId, tenantId)))
+    .leftJoin(purchases, and(eq(purchases.supplierId, suppliers.id), eq(purchases.tenantId, tenantId), inTheBooks(purchases.approvalStatus)))
     .where(and(...conditions))
     .groupBy(suppliers.id)
     .orderBy(desc(suppliers.createdAt))

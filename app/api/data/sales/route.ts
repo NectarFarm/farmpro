@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { batches, products, customers } from '@/db/schemas'
+import { batches, products, customers, productionUnits } from '@/db/schemas'
 import { listSales, recordSale, UnbalancedTaxError } from '@/lib/finance'
 import { postingDayFrom } from '@/lib/tax'
 import { resolveDocumentTax } from '@/lib/tax-catalogue'
@@ -12,6 +12,9 @@ import { BatchLedgerError } from '@/lib/batch-ledger'
 import { ProduceShortfallError } from '@/lib/produce'
 import { DimensionRequirementError, DimensionValidationError, isPlainDimensionMap } from '@/lib/dimensions'
 import { isInvalid, requireCents, requireCount, requireEventDate, requireFutureAllowedDate } from '@/lib/validate-input'
+import { judgeMoney, saleLegs } from '@/lib/posting-policy'
+import { loadPostingPolicies } from '@/lib/posting-policies'
+import { notifyMoneyPostings } from '@/lib/notify-money-posting'
 
 // ── GET/POST /api/data/sales (issue #239 task 1) ────────────────────────────
 // Fresh build: no `sales` table or route existed anywhere on this branch
@@ -33,6 +36,17 @@ const badRequest = (msg: string) => NextResponse.json({ success: false, error: m
 const notFound = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 404 })
 
 const VALID_STATUSES = new Set(['paid', 'pending'])
+
+async function farmIdForSale(tenantId: string, batchId: string | null): Promise<string | null> {
+  if (!batchId) return null
+  const [row] = await db
+    .select({ farmId: productionUnits.farmId })
+    .from(batches)
+    .innerJoin(productionUnits, eq(batches.unitId, productionUnits.id))
+    .where(and(eq(batches.id, batchId), eq(batches.tenantId, tenantId)))
+    .limit(1)
+  return row?.farmId ?? null
+}
 
 // GET /api/data/sales?tenantId=...&farmId= — list a tenant's sales, newest
 // first. `farmId` is a two-hop JOIN filter (farm-scoped-data task):
@@ -205,6 +219,19 @@ export async function POST(req: Request) {
   })
   if ('refused' in tax) return badRequest(tax.refused)
 
+  const farmId = await farmIdForSale(tenantId, batchId)
+  const decision = judgeMoney(await loadPostingPolicies(tenantId), {
+    amountCents: tax.settledCents,
+    farmId,
+    legs: saleLegs({
+      amountCents: tax.settledCents,
+      paymentStatus: status,
+      netCents: tax.columns.netCents,
+      taxCents: tax.columns.taxCents,
+    }),
+  })
+  if (decision.outcome === 'block') return badRequest(decision.message)
+
   try {
     const sale = await recordSale({
       tenantId,
@@ -228,7 +255,9 @@ export async function POST(req: Request) {
       recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
       ...tax.columns,
+      hold: decision.outcome === 'pending',
     })
+    if (sale.approvalStatus === 'pending') await notifyMoneyPostings(tenantId, [sale.id])
     return created(sale)
   } catch (err) {
     // Selling more birds than the batch has is a data-entry mistake worth
