@@ -23,10 +23,11 @@ import { DELETE as policiesDELETE } from '@/app/api/posting-policies/[id]/route'
 import { PATCH as lotPATCH } from '@/app/api/inventory/lots/[id]/route'
 import { PATCH as settingsPATCH } from '@/app/api/settings/route'
 import { POST as approvePOST } from '@/app/api/approvals/[id]/approve/route'
+import { POST as rejectPOST } from '@/app/api/approvals/[id]/reject/route'
 import { db } from '@/db'
 import {
   tenants, users, sessions, farms,
-  purchases, inventoryLots, inventoryItems,
+  purchases, inventoryLots, inventoryItems, purchaseCharges,
   journalEntries, journalLines, journalLineDimensions, documentDimensions,
   postingPolicies, approvalRequests, expenses, sales,
 } from '@/db/schemas'
@@ -143,6 +144,7 @@ run('approval thresholds (issue #424)', () => {
     await db.delete(documentDimensions).where(eq(documentDimensions.tenantId, tenantId))
     await db.delete(expenses).where(eq(expenses.tenantId, tenantId))
     await db.delete(sales).where(eq(sales.tenantId, tenantId))
+    await db.delete(purchaseCharges).where(eq(purchaseCharges.tenantId, tenantId))
     await db.delete(purchases).where(eq(purchases.tenantId, tenantId))
     await db.delete(inventoryLots).where(eq(inventoryLots.tenantId, tenantId))
     await db.delete(inventoryItems).where(eq(inventoryItems.tenantId, tenantId))
@@ -302,6 +304,62 @@ run('approval thresholds (issue #424)', () => {
     expect(lots.reduce((sum, lot) => sum + lot.qtyOnHand, 0)).toBe(3)
     // 3 x 100 plus 1 of freight: 301 cents, not 3 x round(100.33) = 300.
     expect(lots.reduce((sum, lot) => sum + lot.qtyOnHand * lot.unitCostCents, 0)).toBe(301)
+    await clearPolicies()
+  })
+
+  it('raises one approval for a held receipt: approving books every line, rejecting books none and drops the charges', async () => {
+    await clearPolicies()
+    await addPolicy({ kind: 'amount', effect: 'pending', thresholdCents: 0 })
+    mockCookie = ownerToken
+    const hold = async (tag: string) => readJson(await purchasesPOST(postRequest('http://localhost/api/purchases', {
+      tenantId, supplier: 'Mill', farmId: farmA, postingDate: '2026-03-15', receivedDate: '2026-03-15',
+      lines: [
+        { itemName: `${tag} Maize ${randomUUID().slice(0, 6)}`, unit: 'kg', quantity: 10, unitCostCents: 100 },
+        { itemName: `${tag} Soya ${randomUUID().slice(0, 6)}`, unit: 'kg', quantity: 5, unitCostCents: 200 },
+      ],
+      charges: [{ kind: 'freight', amountCents: 100 }],
+    })))
+    const decide = async (id: string, verb: 'approve' | 'reject') => {
+      const route = verb === 'approve' ? approvePOST : rejectPOST
+      return readJson(await route(
+        postRequest(`http://localhost/api/approvals/${id}/${verb}`, verb === 'reject' ? { reason: 'Not wanted' } : {}),
+        { params: Promise.resolve({ id }) },
+      ))
+    }
+    const lotsOf = async (ids: string[]) => db.select().from(inventoryLots).where(inArray(inventoryLots.itemId, ids))
+    const before = await snapshot()
+
+    const first = await hold('Approve')
+    expect(first.status).toBe(201)
+    const rowsA = first.payload.data.purchases as { purchase: { id: string; itemId: string; receiptGroupId: string; approvalStatus: string } }[]
+    expect(rowsA.every((r) => r.purchase.approvalStatus === 'pending')).toBe(true)
+    const approvalsA = await db.select().from(approvalRequests).where(and(
+      eq(approvalRequests.tenantId, tenantId), eq(approvalRequests.type, 'money_posting'), eq(approvalRequests.status, 'pending'),
+      inArray(approvalRequests.entityId, rowsA.map((r) => r.purchase.id)),
+    ))
+    expect(approvalsA).toHaveLength(1)
+    expect((await snapshot())).toEqual(before)
+    const decided = await decide(approvalsA[0].id, 'approve')
+    expect(decided.payload).toMatchObject({ success: true })
+    expect(decided.status).toBe(200)
+    const afterA = await db.select().from(purchases).where(inArray(purchases.id, rowsA.map((r) => r.purchase.id)))
+    expect(afterA.every((r) => r.approvalStatus === 'approved')).toBe(true)
+    expect((await lotsOf(rowsA.map((r) => r.purchase.itemId))).length).toBe(2)
+    expect((await snapshot()).periodPurchaseExpense).toBe(before.periodPurchaseExpense + 21)
+    expect(await db.select().from(purchaseCharges).where(eq(purchaseCharges.receiptGroupId, rowsA[0].purchase.receiptGroupId))).toHaveLength(1)
+
+    const second = await hold('Reject')
+    const rowsR = second.payload.data.purchases as { purchase: { id: string; itemId: string; receiptGroupId: string } }[]
+    const [approvalR] = await db.select().from(approvalRequests).where(and(
+      eq(approvalRequests.tenantId, tenantId), eq(approvalRequests.status, 'pending'),
+      inArray(approvalRequests.entityId, rowsR.map((r) => r.purchase.id)),
+    ))
+    expect((await decide(approvalR.id, 'reject')).status).toBe(200)
+    const afterR = await db.select().from(purchases).where(inArray(purchases.id, rowsR.map((r) => r.purchase.id)))
+    expect(afterR.every((r) => r.approvalStatus === 'rejected')).toBe(true)
+    expect(await lotsOf(rowsR.map((r) => r.purchase.itemId))).toHaveLength(0)
+    expect(await db.select().from(purchaseCharges).where(eq(purchaseCharges.receiptGroupId, rowsR[0].purchase.receiptGroupId))).toHaveLength(0)
+    expect((await snapshot()).periodPurchaseExpense).toBe(before.periodPurchaseExpense + 21)
     await clearPolicies()
   })
 

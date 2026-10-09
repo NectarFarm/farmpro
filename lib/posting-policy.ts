@@ -225,6 +225,28 @@ export interface MoneyDetails {
   stockEffect?: string | null
   dimensions?: Record<string, string> | null
   lots?: { quantity: number; expiryDate: string | null; lotNo: string | null }[]
+  // A held receipt: one approval for every line of the receipt group.
+  // documentId is the first line; each line carries its own lots.
+  receiptGroupId?: string
+  lines?: { documentId: string; lots: { quantity: number; expiryDate: string | null; lotNo: string | null }[] }[]
+}
+
+export type MoneyLot = { quantity: number; expiryDate: string | null; lotNo: string | null }
+
+function parseLots(value: unknown): MoneyLot[] | null {
+  if (!Array.isArray(value)) return null
+  const lots: MoneyLot[] = []
+  for (const lot of value) {
+    if (!lot || typeof lot !== 'object') return null
+    const item = lot as Record<string, unknown>
+    if (typeof item.quantity !== 'number' || !Number.isInteger(item.quantity) || item.quantity <= 0) return null
+    lots.push({
+      quantity: item.quantity,
+      expiryDate: typeof item.expiryDate === 'string' ? item.expiryDate : null,
+      lotNo: typeof item.lotNo === 'string' ? item.lotNo : null,
+    })
+  }
+  return lots
 }
 
 export function parseMoneyDetails(raw: string): MoneyDetails | null {
@@ -252,18 +274,21 @@ export function parseMoneyDetails(raw: string): MoneyDetails | null {
     details.dimensions = dimensions
   }
   if (Array.isArray(row.lots)) {
-    const lots: MoneyDetails['lots'] = []
-    for (const lot of row.lots) {
-      if (!lot || typeof lot !== 'object') return null
-      const item = lot as Record<string, unknown>
-      if (typeof item.quantity !== 'number' || !Number.isInteger(item.quantity) || item.quantity <= 0) return null
-      lots.push({
-        quantity: item.quantity,
-        expiryDate: typeof item.expiryDate === 'string' ? item.expiryDate : null,
-        lotNo: typeof item.lotNo === 'string' ? item.lotNo : null,
-      })
-    }
+    const lots = parseLots(row.lots)
+    if (!lots) return null
     details.lots = lots
+  }
+  if (typeof row.receiptGroupId === 'string') details.receiptGroupId = row.receiptGroupId
+  if (Array.isArray(row.lines)) {
+    const lines: NonNullable<MoneyDetails['lines']> = []
+    for (const line of row.lines) {
+      if (!line || typeof line !== 'object') return null
+      const item = line as Record<string, unknown>
+      const lots = parseLots(item.lots)
+      if (typeof item.documentId !== 'string' || !item.documentId || !lots) return null
+      lines.push({ documentId: item.documentId, lots })
+    }
+    details.lines = lines
   }
   return details
 }

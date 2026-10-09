@@ -260,9 +260,40 @@ export async function recordPurchaseReceipt(input: {
         ...line,
         tenantId: input.tenantId,
         receiptGroupId: input.receiptGroupId,
-      })
+      }, { deferApproval: true })
       if ('problem' in result) throw new PurchaseReceiptError(result.problem)
       purchasesRecorded.push(result)
+    }
+    // One approval for the whole receipt: the policy judged the receipt by its
+    // total, so approving books every line (and keeps the charges) together and
+    // rejecting books none. The approval hangs off the first line's id.
+    const held = purchasesRecorded.filter((row) => row.purchase.approvalStatus === 'pending')
+    if (held.length > 0) {
+      const first = input.lines[0]
+      if (!first.recordedBy) throw new PurchaseReceiptError('A document waiting for approval needs the person who recorded it.')
+      await insertMoneyApproval(tx, {
+        tenantId: input.tenantId,
+        requestedBy: first.recordedBy,
+        title: `Purchase receipt of ${held.length} line${held.length === 1 ? '' : 's'} waiting for approval`,
+        details: {
+          docType: 'purchase',
+          documentId: held[0].purchase.id,
+          receiptGroupId: input.receiptGroupId,
+          amountCents: held.reduce((sum, row) => sum + row.purchase.totalCostCents, 0),
+          dimensions: first.dimensions ?? null,
+          lines: held.map((row, i) => ({
+            documentId: row.purchase.id,
+            lots: (input.lines[i].lots && input.lines[i].lots!.length > 0
+              ? input.lines[i].lots!
+              : [{ quantity: input.lines[i].quantity, expiryDate: input.lines[i].expiryDate ?? null, lotNo: input.lines[i].lotNo }]
+            ).map((spec) => ({
+              quantity: spec.quantity,
+              expiryDate: spec.expiryDate ? spec.expiryDate.toISOString() : null,
+              lotNo: spec.lotNo ?? null,
+            })),
+          })),
+        },
+      })
     }
     return { receiptGroupId: input.receiptGroupId, charges, purchases: purchasesRecorded }
   })
@@ -320,7 +351,9 @@ export async function insertPurchaseLots(tx: Tx, input: {
   return lots
 }
 
-async function writePurchase(tx: Tx, input: Parameters<typeof recordPurchase>[0]): Promise<RecordPurchaseResult> {
+// `deferApproval`: a held line of a receipt does not raise its own approval;
+// recordPurchaseReceipt raises one for the whole receipt group.
+async function writePurchase(tx: Tx, input: Parameters<typeof recordPurchase>[0], opts: { deferApproval?: boolean } = {}): Promise<RecordPurchaseResult> {
     const existing = await tx
       .select()
       .from(inventoryItems)
@@ -411,22 +444,24 @@ async function writePurchase(tx: Tx, input: Parameters<typeof recordPurchase>[0]
           approvalStatus: 'pending',
         })
         .returning()
-      await insertMoneyApproval(tx, {
-        tenantId: input.tenantId,
-        requestedBy: input.recordedBy,
-        title: `Purchase ${input.itemName} waiting for approval`,
-        details: {
-          docType: 'purchase',
-          documentId: purchase.id,
-          amountCents: totalCostCents,
-          dimensions: input.dimensions ?? null,
-          lots: lotSpecs.map((spec) => ({
-            quantity: spec.quantity,
-            expiryDate: spec.expiryDate ? spec.expiryDate.toISOString() : null,
-            lotNo: spec.lotNo ?? null,
-          })),
-        },
-      })
+      if (!opts.deferApproval) {
+        await insertMoneyApproval(tx, {
+          tenantId: input.tenantId,
+          requestedBy: input.recordedBy,
+          title: `Purchase ${input.itemName} waiting for approval`,
+          details: {
+            docType: 'purchase',
+            documentId: purchase.id,
+            amountCents: totalCostCents,
+            dimensions: input.dimensions ?? null,
+            lots: lotSpecs.map((spec) => ({
+              quantity: spec.quantity,
+              expiryDate: spec.expiryDate ? spec.expiryDate.toISOString() : null,
+              lotNo: spec.lotNo ?? null,
+            })),
+          },
+        })
+      }
       return { item, lot: null, lots: [], purchase }
     }
 

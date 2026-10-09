@@ -5,7 +5,7 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
-import { expenses, purchases, sales } from '@/db/schemas'
+import { expenses, purchaseCharges, purchases, sales } from '@/db/schemas'
 import { applyMovement, BatchLedgerError } from '@/lib/batch-ledger'
 import { DimensionRequirementError, DimensionValidationError } from '@/lib/dimensions'
 import { postExpenseJournal, postPurchaseJournal, postSaleJournal, UnbalancedTaxError } from '@/lib/finance'
@@ -31,6 +31,51 @@ function asApprovalError(err: unknown): never {
     throw new MoneyApprovalError(err.message, 400)
   }
   throw err
+}
+
+async function applyOnePurchase(tx: Tx, input: {
+  tenantId: string
+  purchaseId: string
+  lots: { quantity: number; expiryDate: string | null; lotNo: string | null }[]
+  decision: 'approved' | 'rejected'
+  dimensions: Record<string, string> | undefined
+}) {
+  const [purchase] = await tx.update(purchases).set({
+    approvalStatus: input.decision === 'approved' ? 'approved' : 'rejected',
+  }).where(and(
+    eq(purchases.id, input.purchaseId),
+    eq(purchases.tenantId, input.tenantId),
+    eq(purchases.approvalStatus, 'pending'),
+  )).returning()
+  if (!purchase) throw new MoneyApprovalError('This purchase is not waiting for approval.', 409)
+  if (input.decision === 'rejected') return
+  const specs = input.lots.length > 0
+    ? input.lots
+    : [{ quantity: purchase.quantity, expiryDate: null, lotNo: null }]
+  const lotQty = specs.reduce((sum, lot) => sum + lot.quantity, 0)
+  if (lotQty !== purchase.quantity) {
+    throw new MoneyApprovalError('Lot quantities must add up to the line quantity.', 400)
+  }
+  // Stock is carried at what the books carry: the net of any tax, else the
+  // settled total. Same figure an immediate purchase uses, so approving a
+  // held purchase cannot make stock value drift from the ledger.
+  await insertPurchaseLots(tx, {
+    tenantId: purchase.tenantId,
+    itemId: purchase.itemId,
+    farmId: purchase.farmId,
+    receivedDate: purchase.receivedDate ?? purchase.createdAt,
+    specs: specs.map((spec) => ({
+      quantity: spec.quantity,
+      expiryDate: spec.expiryDate ? new Date(spec.expiryDate) : null,
+      lotNo: spec.lotNo,
+    })),
+    valueCents: purchase.netCents ?? purchase.totalCostCents,
+  })
+  try {
+    await postPurchaseJournal(tx, purchase, { dimensions: input.dimensions })
+  } catch (err) {
+    asApprovalError(err)
+  }
 }
 
 export async function applyMoneyDecision(tx: Tx, input: {
@@ -76,41 +121,28 @@ export async function applyMoneyDecision(tx: Tx, input: {
   }
 
   if (parsed.docType === 'purchase') {
-    const [purchase] = await tx.update(purchases).set({
-      approvalStatus: input.decision === 'approved' ? 'approved' : 'rejected',
-    }).where(and(
-      eq(purchases.id, input.entityId),
-      eq(purchases.tenantId, input.tenantId),
-      eq(purchases.approvalStatus, 'pending'),
-    )).returning()
-    if (!purchase) throw new MoneyApprovalError('This purchase is not waiting for approval.', 409)
-    if (input.decision === 'rejected') return
-    const specs = parsed.lots && parsed.lots.length > 0
-      ? parsed.lots
-      : [{ quantity: purchase.quantity, expiryDate: null, lotNo: null }]
-    const lotQty = specs.reduce((sum, lot) => sum + lot.quantity, 0)
-    if (lotQty !== purchase.quantity) {
-      throw new MoneyApprovalError('Lot quantities must add up to the line quantity.', 400)
+    // A receipt is one approval for every line: all are booked together or
+    // none is, and a rejected receipt takes its landed charges with it.
+    const targets = parsed.lines && parsed.lines.length > 0
+      ? parsed.lines
+      : [{ documentId: parsed.documentId, lots: parsed.lots ?? [] }]
+    if (targets[0].documentId !== parsed.documentId) {
+      throw new MoneyApprovalError('The proposal could not be read.', 400)
     }
-    // Stock is carried at what the books carry: the net of any tax, else the
-    // settled total. Same figure an immediate purchase uses, so approving a
-    // held purchase cannot make stock value drift from the ledger.
-    await insertPurchaseLots(tx, {
-      tenantId: purchase.tenantId,
-      itemId: purchase.itemId,
-      farmId: purchase.farmId,
-      receivedDate: purchase.receivedDate ?? purchase.createdAt,
-      specs: specs.map((spec) => ({
-        quantity: spec.quantity,
-        expiryDate: spec.expiryDate ? new Date(spec.expiryDate) : null,
-        lotNo: spec.lotNo,
-      })),
-      valueCents: purchase.netCents ?? purchase.totalCostCents,
-    })
-    try {
-      await postPurchaseJournal(tx, purchase, { dimensions })
-    } catch (err) {
-      asApprovalError(err)
+    for (const target of targets) {
+      await applyOnePurchase(tx, {
+        tenantId: input.tenantId,
+        purchaseId: target.documentId,
+        lots: target.lots,
+        decision: input.decision,
+        dimensions,
+      })
+    }
+    if (input.decision === 'rejected' && parsed.receiptGroupId) {
+      await tx.delete(purchaseCharges).where(and(
+        eq(purchaseCharges.tenantId, input.tenantId),
+        eq(purchaseCharges.receiptGroupId, parsed.receiptGroupId),
+      ))
     }
     return
   }
