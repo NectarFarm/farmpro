@@ -46,6 +46,8 @@ const ACTION_LABELS: Record<string, string> = {
   'sale.reversed': 'Reversed',
   'purchase.edited': 'Edited',
   'purchase.reversed': 'Reversed',
+  'expense.recorded': 'Recorded',
+  'expense.reversed': 'Reversed',
 };
 
 const ACTION_ICONS: Record<string, LucideIcon> = {
@@ -68,6 +70,8 @@ const ACTION_ICONS: Record<string, LucideIcon> = {
   'sale.reversed': RotateCcw,
   'purchase.edited': PenLine,
   'purchase.reversed': RotateCcw,
+  'expense.recorded': FileText,
+  'expense.reversed': RotateCcw,
 };
 
 // Recent entries (<24h) stay relative ("3h ago") regardless of settings —

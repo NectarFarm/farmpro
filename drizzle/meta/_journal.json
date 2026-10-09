@@ -358,6 +358,13 @@
       "when": 1790200000000,
       "tag": "0050_report_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1790300000000,
+      "tag": "0051_expense_not_stock",
+      "breakpoints": true
     }
   ]
 }

@@ -16,7 +16,7 @@ import { getDocumentDimensions } from '@/lib/dimensions'
 const ok = <T>(data: T) => NextResponse.json({ success: true, data }, { status: 200 })
 const badRequest = (msg: string) => NextResponse.json({ success: false, error: msg }, { status: 400 })
 
-const DOC_TYPES = new Set(['sale', 'purchase', 'payroll_run'])
+const DOC_TYPES = new Set(['sale', 'purchase', 'payroll_run', 'expense'])
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
@@ -26,8 +26,8 @@ export async function GET(req: Request) {
 
   const docType = url.searchParams.get('docType') ?? ''
   const docId = url.searchParams.get('docId') ?? ''
-  if (!DOC_TYPES.has(docType) || !docId) return badRequest('docType (sale|purchase|payroll_run) and docId are required')
+  if (!DOC_TYPES.has(docType) || !docId) return badRequest('docType (sale|purchase|payroll_run|expense) and docId are required')
 
-  const result = await getDocumentDimensions(db, tenantId, docType as 'sale' | 'purchase' | 'payroll_run', docId)
+  const result = await getDocumentDimensions(db, tenantId, docType as 'sale' | 'purchase' | 'payroll_run' | 'expense', docId)
   return ok(result)
 }

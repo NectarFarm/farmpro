@@ -127,20 +127,16 @@ run('finance: sales, chart of accounts, trial balance (issue #239)', () => {
   })
 
   describe('GET /api/gl/accounts: seeded standard chart of accounts', () => {
-    // Updated by the payroll-and-gps task: a 7th account (5002 Payroll
-    // Expense) now exists — payroll runs deliberately DO post to the ledger
-    // (see db/schemas/finance.ts's chart-of-accounts comment and
-    // lib/finance.ts's postPayrollJournal). This test's own tenant never
-    // runs payroll, so the assertion below still proves the OTHER six are
-    // exactly what a sale/purchase-only tenant posts against — it just no
-    // longer asserts a payroll account doesn't exist globally, since one now
-    // does (accounts are a single global, seeded taxonomy, not per-tenant).
-    it('returns the seven standard farm accounts, including Payroll Expense', async () => {
+    // Payroll added 5002. Issue #416 added 5010–5019 for expenses that are
+    // not stock. Accounts are one global chart, so every tenant sees them
+    // even when this tenant has never posted to them. A zero balance does
+    // not move the trial-balance totals.
+    it('returns the standard farm accounts, including operating-expense accounts', async () => {
       mockCookie = ownerToken
       const { status, payload } = await readJson(await accountsGET())
       expect(status).toBe(200)
       const codes = payload.data.map((a: { code: string }) => a.code).sort()
-      expect(codes).toEqual(['1001', '1002', '2001', '3001', '4001', '5001', '5002'])
+      expect(codes).toEqual(['1001', '1002', '2001', '3001', '4001', '5001', '5002', '5010', '5011', '5012', '5013', '5019'])
       expect(payload.data.some((a: { name: string }) => /payroll/i.test(a.name))).toBe(true)
 
       const cash = payload.data.find((a: { code: string }) => a.code === ACCOUNT_CODES.CASH)

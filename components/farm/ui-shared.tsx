@@ -342,7 +342,7 @@ interface ResolvePreviewResponse { perAccount: ResolvePreviewAccount[] }
 // Mirrors lib/dimensions.ts's MasterType — duplicated here because that
 // module is `server-only` and cannot be imported into a client component.
 export type DimensionMasterType = 'employee' | 'unit' | 'batch' | 'farm' | 'product' | 'account';
-export type DimensionDocType = 'sale' | 'purchase' | 'payroll_run';
+export type DimensionDocType = 'sale' | 'purchase' | 'payroll_run' | 'expense';
 
 // What's asked for depends only on the master the form has chosen (a batch,
 // a farm) — never on what the user has typed into a picker so far. Passing
@@ -351,7 +351,7 @@ export type DimensionDocType = 'sale' | 'purchase' | 'payroll_run';
 // are merged in only once, right before the real POST (see each sheet's
 // `save()`).
 export function useRequiredDimensions(
-  tenantId: string, docType: DimensionDocType, masterType?: DimensionMasterType, masterId?: string,
+  tenantId: string, docType: DimensionDocType, masterType?: DimensionMasterType, masterId?: string, accountCode?: string,
 ): { missing: RequiredDimensionRule[]; loading: boolean } {
   const [missing, setMissing] = useState<RequiredDimensionRule[]>([]);
   const [loading, setLoading] = useState(false);
@@ -361,6 +361,7 @@ export function useRequiredDimensions(
     setLoading(true);
     apiClient.post<ResolvePreviewResponse>('/api/dimensions/resolve', {
       tenantId, docType, masterType: masterType || undefined, masterId: masterId || undefined,
+      accountCode: accountCode || undefined,
     }).then((res) => {
       if (cancelled) return;
       setLoading(false);
@@ -372,7 +373,7 @@ export function useRequiredDimensions(
       setMissing([...byId.values()]);
     });
     return () => { cancelled = true; };
-  }, [tenantId, docType, masterType, masterId]);
+  }, [tenantId, docType, masterType, masterId, accountCode]);
 
   return { missing, loading };
 }

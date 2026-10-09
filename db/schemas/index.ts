@@ -21,6 +21,7 @@ export * from './dimensions'
 export * from './platform'
 export * from './billing'
 export * from './support'
+export * from './expenses'
 
 // A tenant's farms. One tenant owns several farms; each farm carries its own
 // production units. The farm switcher in the shell reads these via GET /api/farms.

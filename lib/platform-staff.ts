@@ -22,6 +22,11 @@ export const CAPABILITIES = [
   'onboarding.review',
   'impersonate',
   'analytics.view',
+  // Chart and statutory catalogues (expense categories, and later VAT and
+  // payroll rate tables). A staff row that listed the previous set does not
+  // gain this until it is granted — fail closed. A super_admin with no
+  // platform_staff row still has every capability.
+  'catalogue.manage',
 ] as const
 
 export type Capability = (typeof CAPABILITIES)[number]

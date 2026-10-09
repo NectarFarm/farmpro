@@ -7,6 +7,10 @@ import { useToast, useConfirm } from './ui-shared';
 import type { TenantOverview, AdminPlan, PlanPeriod, SubscriptionStatus } from '@/components/admin/types';
 import { centsToDisplay, fmtDate, fmtDateTime } from '@/components/admin/types';
 import { Select } from '@/components/ui-kit/select';
+import { Button } from '@/components/ui-kit/button';
+import { Input } from '@/components/ui-kit/input';
+import { Field } from '@/components/ui-kit/field';
+import { useAdminCapabilities } from '@/components/admin/capabilities';
 
 // ── Real backend wiring (issue #252) ────────────────────────────────────────
 // GET /api/admin/tenants and GET /api/admin/stats are new, minimal,
@@ -827,6 +831,141 @@ interface ApiTenantSettings {
   weightUnit: string;
 }
 
+interface ExpenseCategoryRow {
+  id: string;
+  code: string;
+  name: string;
+  accountCode: string;
+  active: boolean;
+}
+
+interface GlAccountRow {
+  id: string;
+  code: string;
+  name: string;
+  class: string;
+}
+
+// The expense catalogue is global — one list for every farm — so it sits
+// outside the per-tenant settings below. The route enforces catalogue.manage;
+// this only hides the form when the session is known not to have it.
+function ExpenseCataloguePanel() {
+  const { loading: capLoading, has } = useAdminCapabilities();
+  const [categories, setCategories] = useState<ExpenseCategoryRow[] | null>(null);
+  const [categoriesError, setCategoriesError] = useState('');
+  const [accounts, setAccounts] = useState<GlAccountRow[] | null>(null);
+  const [accountsError, setAccountsError] = useState('');
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [accountCode, setAccountCode] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  const load = useCallback(() => {
+    apiClient.get<ExpenseCategoryRow[]>('/api/admin/expense-categories').then((res) => {
+      if (res.success) { setCategories(res.data); setCategoriesError(''); }
+      else { setCategories(null); setCategoriesError(res.error || 'Could not load expense categories.'); }
+    });
+    apiClient.get<GlAccountRow[]>('/api/gl/accounts').then((res) => {
+      if (res.success) { setAccounts(res.data.filter((a) => a.class === 'EXPENSE')); setAccountsError(''); }
+      else { setAccounts(null); setAccountsError(res.error || 'Could not load the chart of accounts.'); }
+    });
+  }, []);
+
+  const canManageCatalogue = !capLoading && has('catalogue.manage');
+  useEffect(() => { if (canManageCatalogue) load(); }, [canManageCatalogue, load]);
+
+  async function addCategory() {
+    setFormError('');
+    if (!/^[a-z][a-z0-9_]*$/.test(code.trim())) {
+      setFormError('Code must be lowercase letters, numbers and underscores, starting with a letter.');
+      return;
+    }
+    if (!name.trim()) { setFormError('Name is required.'); return; }
+    if (!accountCode) { setFormError('Choose the expense account this category posts to.'); return; }
+    setSaving(true);
+    const res = await apiClient.post<ExpenseCategoryRow>('/api/admin/expense-categories', {
+      code: code.trim(), name: name.trim(), accountCode,
+    });
+    setSaving(false);
+    if (res.success) { setCode(''); setName(''); setAccountCode(''); load(); }
+    else setFormError(res.error || 'Could not add that category.');
+  }
+
+  async function toggleActive(row: ExpenseCategoryRow) {
+    const res = await apiClient.patch<ExpenseCategoryRow>(`/api/admin/expense-categories/${row.id}`, { active: !row.active });
+    if (res.success) load();
+    else setFormError(res.error || 'Could not update that category.');
+  }
+
+  if (!capLoading && !has('catalogue.manage')) {
+    return (
+      <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+        <div className="section-eyebrow" style={{ marginBottom: 8 }}>Expense categories</div>
+        <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Maintaining expense categories needs the catalogue.manage capability. This session does not have it.
+        </p>
+      </div>
+    );
+  }
+
+  const expenseAccounts = accounts ?? [];
+
+  return (
+    <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+      <div className="section-eyebrow" style={{ marginBottom: 8 }}>Expense categories</div>
+      <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+        Shared across every farm. A category posts to the expense account chosen here. Deactivating it hides it from new expenses. The account itself is not editable after the category is created.
+      </p>
+      {capLoading && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>Checking access…</div>}
+      {categoriesError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{categoriesError}</div>}
+      {categories === null && !categoriesError && !capLoading && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>Loading categories…</div>}
+      {categories !== null && categories.length === 0 && !categoriesError && (
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)', marginBottom: 10 }}>No expense categories yet.</div>
+      )}
+      {categories !== null && categories.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+          {categories.map((c) => (
+            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border-subtle)' }}>
+              <div className="min-w-0">
+                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{c.name}</div>
+                <div style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{c.code} · account {c.accountCode}{c.active ? '' : ' · inactive'}</div>
+              </div>
+              <Button type="button" size="lg" variant="secondary" onClick={() => toggleActive(c)}>
+                {c.active ? 'Deactivate' : 'Activate'}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <Field label="Code">
+          <Input className="min-h-11 h-11" value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. water" autoCapitalize="none" />
+        </Field>
+        <Field label="Name">
+          <Input className="min-h-11 h-11" value={name} onChange={(e) => setName(e.target.value)} placeholder="What a bookkeeper would call it" />
+        </Field>
+        <Field label="Expense account">
+          {accountsError && <p className="text-xs text-danger">{accountsError}</p>}
+          {accounts !== null && expenseAccounts.length === 0 && !accountsError && (
+            <p className="text-xs text-muted">No expense accounts are on the chart yet, so a category cannot be added.</p>
+          )}
+          {expenseAccounts.length > 0 && (
+            <Select value={accountCode} onChange={setAccountCode} placeholder="Choose an expense account…">
+              <option value="" disabled>Choose an expense account…</option>
+              {expenseAccounts.map((a) => <option key={a.id} value={a.code}>{a.code} · {a.name}</option>)}
+            </Select>
+          )}
+        </Field>
+        {formError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)' }}>{formError}</div>}
+        <Button type="button" size="lg" className="w-full justify-center" disabled={saving || expenseAccounts.length === 0} onClick={addCategory}>
+          {saving ? 'Adding…' : 'Add category'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AdminSettingsScreen() {
   const [tenants, setTenants] = useState<ApiTenant[] | null>(null);
   const [tenantsError, setTenantsError] = useState('');
@@ -1059,6 +1198,8 @@ export function AdminSettingsScreen() {
             )}
           </>
         )}
+
+        <ExpenseCataloguePanel />
 
         {/* Honest gap: plans/packages have no backend anywhere on this branch
             (no plans table, no route) — kept separate from the working

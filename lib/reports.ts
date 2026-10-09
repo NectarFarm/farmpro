@@ -23,7 +23,7 @@ import 'server-only'
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sum } from 'drizzle-orm'
 import { db } from '@/db'
 import {
-  batches, sales, purchases, records, products, employees, tenantSettings, farms,
+  batches, sales, purchases, expenses, expenseCategories, records, products, employees, tenantSettings, farms,
   payrollRuns, journalEntries, journalLines, journalLineDimensions, accounts,
 } from '@/db/schemas'
 import { computeTrialBalance } from '@/lib/finance'
@@ -256,6 +256,21 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
   if (farmId) purchaseConditions.push(eq(purchases.farmId, farmId))
   const periodPurchases = await db.select().from(purchases).where(and(...purchaseConditions)).orderBy(asc(purchases.postingDate))
 
+  // Operating expenses (issue #416) are money out that never became stock.
+  // They join the period on their own posting date, the same window
+  // purchases already use. A period with no expense rows adds zero — the
+  // purchase and payroll sums below are unchanged.
+  const expenseConditions = [eq(expenses.tenantId, tenantId), isNull(expenses.reversedAt)]
+  if (from) expenseConditions.push(gte(expenses.postingDate, from))
+  if (to) expenseConditions.push(lte(expenses.postingDate, to))
+  if (farmId) expenseConditions.push(eq(expenses.farmId, farmId))
+  const periodOperating = await db
+    .select({ expense: expenses, categoryName: expenseCategories.name })
+    .from(expenses)
+    .innerJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+    .where(and(...expenseConditions))
+    .orderBy(asc(expenses.postingDate))
+
   // ── Payroll is an expense, and it was missing from this figure ──────────
   // POST /api/payroll/runs posts a real journal entry (Dr Payroll Expense,
   // Cr Cash — lib/finance.ts#postPayrollJournal), so payroll has always been
@@ -296,6 +311,14 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       amount: centsToMajor(p.totalCostCents),
       status: p.amountPaidCents >= p.totalCostCents ? 'paid' : p.amountPaidCents > 0 ? 'partial' : 'pending',
     })),
+    ...periodOperating.map((row): Row => ({
+      date: row.expense.postingDate ?? row.expense.createdAt,
+      type: 'Expense',
+      description: `${row.expense.payee} · ${row.categoryName}`,
+      batch: '',
+      amount: centsToMajor(row.expense.amountCents),
+      status: row.expense.amountPaidCents >= row.expense.amountCents ? 'paid' : row.expense.amountPaidCents > 0 ? 'partial' : 'pending',
+    })),
     ...periodPayroll.map((r): Row => ({
       date: r.periodStart,
       type: 'Payroll',
@@ -311,7 +334,8 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
   const periodRevenue = centsToMajor(periodSales.reduce((s, r) => s + r.amountCents, 0))
   const periodPurchaseExpense = centsToMajor(periodPurchases.reduce((s, r) => s + r.totalCostCents, 0))
   const periodPayrollExpense = centsToMajor(periodPayroll.reduce((s, r) => s + r.totalAmountCents, 0))
-  const periodExpense = periodPurchaseExpense + periodPayrollExpense
+  const periodOperatingExpense = centsToMajor(periodOperating.reduce((s, r) => s + r.expense.amountCents, 0))
+  const periodExpense = periodPurchaseExpense + periodPayrollExpense + periodOperatingExpense
 
   const periodNetIncome = periodRevenue - periodExpense
   // farms row for the basis line — a real farm id resolves to its name; the
@@ -343,6 +367,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       // behave nothing alike, and one combined figure hides which grew.
       periodPurchaseExpense,
       periodPayrollExpense,
+      periodOperatingExpense,
       periodNetIncome,
       transactionCount: combined.length,
       // Human-readable period, formatted in the tenant's own timezone/date
@@ -356,13 +381,17 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
     // keys into readable prose.
     headline: [
       { label: 'Period revenue', value: fmtMajor(periodRevenue, pres.currencySymbol), caption: `${fmtInt(periodSales.length)} sale${periodSales.length === 1 ? '' : 's'} in range` },
-      { label: 'Period expenses', value: fmtMajor(periodExpense, pres.currencySymbol), caption: `${fmtInt(periodPurchases.length)} purchase${periodPurchases.length === 1 ? '' : 's'}${periodPayroll.length > 0 ? ` and ${fmtInt(periodPayroll.length)} payroll run${periodPayroll.length === 1 ? '' : 's'}` : ''} in range` },
+      { label: 'Period expenses', value: fmtMajor(periodExpense, pres.currencySymbol), caption: [
+        `${fmtInt(periodPurchases.length)} purchase${periodPurchases.length === 1 ? '' : 's'}`,
+        ...(periodOperating.length > 0 ? [`${fmtInt(periodOperating.length)} operating expense${periodOperating.length === 1 ? '' : 's'}`] : []),
+        ...(periodPayroll.length > 0 ? [`${fmtInt(periodPayroll.length)} payroll run${periodPayroll.length === 1 ? '' : 's'}`] : []),
+      ].join(', ') + ' in range' },
       { label: 'Period net', value: fmtMajor(periodNetIncome, pres.currencySymbol), caption: 'Revenue minus expenses' },
       { label: 'GL net position', value: fmtMajor(glTotalRevenue - glTotalExpense, pres.currencySymbol), caption: 'Cumulative, all-time' },
     ],
     notes: notesFor(pres, [
       'GL totals are all-time and cover every farm — not this period, not this farm.',
-      'Expenses cover purchases and payroll. Feed, health and overhead costs are not separately posted, so they may be understated.',
+      'Expenses cover stock purchases, operating costs recorded as expenses, and payroll. Anything that was never recorded is not in this figure.',
     ]),
     // The payroll-exclusion warning lives here, not in `notes`, and so cannot
     // be switched off: a farm-scoped P&L that silently omits wages overstates
@@ -370,7 +399,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
     // as the treatment report's withdrawal-period line — a caveat about data
     // quality is the farmer's to hide; one that changes what the total MEANS
     // is not.
-    basis: `Compiled from recorded sales, purchases and payroll for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists. Payroll is EXCLUDED from this farm-scoped view — a payroll run covers the whole business and carries no farm, so attributing wages to one farm would be a guess. Run across all farms to include them.` : ', across all farms'}.`,
+    basis: `Compiled from recorded sales, purchases and payroll for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists. Payroll is EXCLUDED from this farm-scoped view — a payroll run covers the whole business and carries no farm, so attributing wages to one farm would be a guess. Run across all farms to include them. Operating expenses recorded against this farm are included.` : ', across all farms. Operating expenses are included where they were recorded.'}`,
     totals: [null, null, 'Period net', null, periodNetIncome, null],
     columnAlign: ['left', 'left', 'left', 'left', 'right', 'left'],
     columnFormats: ['text', 'text', 'text', 'text', 'money', 'text'],

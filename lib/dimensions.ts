@@ -504,7 +504,7 @@ export async function attachLineDimensions(
 // with no account/enforcement involved, so a document is analysable on its
 // own even before its journal lines apply their own accounts' rules on top.
 export async function attachDocumentDimensions(
-  dbOrTx: DbOrTx, input: { tenantId: string; docType: 'sale' | 'purchase' | 'payroll_run'; docId: string; base: Map<string, string> },
+  dbOrTx: DbOrTx, input: { tenantId: string; docType: 'sale' | 'purchase' | 'payroll_run' | 'expense'; docId: string; base: Map<string, string> },
 ): Promise<void> {
   if (input.base.size === 0) return
   await dbOrTx.insert(documentDimensions).values(
@@ -582,7 +582,7 @@ export type DocumentDimensionsView = {
 }
 
 export async function getDocumentDimensions(
-  dbOrTx: DbOrTx, tenantId: string, docType: 'sale' | 'purchase' | 'payroll_run', docId: string,
+  dbOrTx: DbOrTx, tenantId: string, docType: 'sale' | 'purchase' | 'payroll_run' | 'expense', docId: string,
 ): Promise<DocumentDimensionsView> {
   const docRows = await dbOrTx
     .select({ dimensionId: documentDimensions.dimensionId, valueId: documentDimensions.valueId })
