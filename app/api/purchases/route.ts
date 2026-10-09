@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
 import { purchases, suppliers } from '@/db/schemas'
-import { recordPurchase } from '@/lib/inventory'
+import { PurchaseReceiptError, recordPurchase, recordPurchaseReceipt } from '@/lib/inventory'
+import { allocateCharges, allocatePayment, isChargeKind, landedUnitCostCents } from '@/lib/landed-cost'
 import { and, desc, eq } from 'drizzle-orm'
 import { farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
@@ -75,6 +77,13 @@ export async function POST(req: Request) {
 
   if (!(await canEdit(tenantId, session.role, MODULES.finance))) {
     return forbidden('Your role does not have edit access to finance')
+  }
+
+  // A receipt (several lines, or freight / loading / levies) is a different
+  // body. The single-item body below is unchanged: one lot, no charge rows,
+  // and the lot unit cost is the typed unit cost.
+  if (b.lines !== undefined || b.charges !== undefined) {
+    return postPurchaseReceipt(b, tenantId, session.id)
   }
 
   const supplier = typeof b.supplier === 'string' ? b.supplier.trim() : ''
@@ -293,4 +302,249 @@ export async function POST(req: Request) {
 
   if ('problem' in result) return badRequest(result.problem)
   return created(result)
+}
+
+// Several lines on one supplier invoice, with freight, loading and levies
+// apportioned into each line's landed cost. Each line is still one purchase
+// row and its own journal, so the P&L sum and a reversal keep working.
+// Stock stays expensed. The client does not send the landed total.
+async function postPurchaseReceipt(b: Record<string, unknown>, tenantId: string, recordedBy: string) {
+  const supplier = typeof b.supplier === 'string' ? b.supplier.trim() : ''
+  if (!supplier) return badRequest('supplier is required')
+  if (!Array.isArray(b.lines) || b.lines.length === 0) return badRequest('lines must list at least one item')
+  if (b.lines.length > 30) return badRequest('A receipt can have at most 30 lines')
+  if (b.charges !== undefined && !Array.isArray(b.charges)) return badRequest('charges must be a list')
+
+  const farmFilter = await resolveFarmFilter(tenantId, typeof b.farmId === 'string' ? b.farmId : undefined)
+  if (farmFilter === null) return NextResponse.json(farmNotFoundResponse(), { status: 404 })
+
+  const supplierId = typeof b.supplierId === 'string' && b.supplierId.trim() ? b.supplierId.trim() : undefined
+  if (supplierId) {
+    const rows = await db.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.id, supplierId), eq(suppliers.tenantId, tenantId)))
+    if (rows.length === 0) return notFound('Supplier not found for this tenant')
+  }
+
+  let receivedDate: Date | undefined
+  if (b.receivedDate !== undefined && b.receivedDate !== null && b.receivedDate !== '') {
+    const parsed = requireEventDate(b.receivedDate, 'receivedDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    receivedDate = parsed
+  }
+  let transactionDate: Date | undefined
+  if (b.transactionDate !== undefined && b.transactionDate !== null && b.transactionDate !== '') {
+    const parsed = requireEventDate(b.transactionDate, 'transactionDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    transactionDate = parsed
+  }
+  let postingDate: Date | undefined
+  if (b.postingDate !== undefined && b.postingDate !== null && b.postingDate !== '') {
+    const parsed = requireEventDate(b.postingDate, 'postingDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    postingDate = parsed
+  }
+  let dueDate: Date | undefined
+  if (b.dueDate !== undefined && b.dueDate !== null && b.dueDate !== '') {
+    const parsed = requireFutureAllowedDate(b.dueDate, 'dueDate')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    dueDate = parsed
+  }
+
+  let photoUrl: string | undefined
+  if (typeof b.photoUrl === 'string' && b.photoUrl.trim()) {
+    const candidate = b.photoUrl.trim()
+    if (!isImageDataUrl(candidate)) return badRequest("The receipt photo isn't a photo this app can read — retake it")
+    if (dataUrlByteSize(candidate) > MAX_PHOTO_BYTES) return badRequest('The receipt photo is too large — retake it and it will be compressed automatically')
+    photoUrl = candidate
+  }
+
+  const paymentMethod = typeof b.paymentMethod === 'string' ? b.paymentMethod.trim() : undefined
+  const paymentReference = typeof b.paymentReference === 'string' && b.paymentReference.trim() ? b.paymentReference.trim() : undefined
+  const invoiceNumber = typeof b.invoiceNumber === 'string' && b.invoiceNumber.trim() ? b.invoiceNumber.trim() : undefined
+  const notes = typeof b.notes === 'string' && b.notes.trim() ? b.notes.trim() : undefined
+  let amountPaidCents = 0
+  if (b.amountPaidCents !== undefined) {
+    const parsed = requireCents(b.amountPaidCents, 'amountPaidCents')
+    if (isInvalid(parsed)) return badRequest(parsed.problem)
+    amountPaidCents = parsed
+  }
+
+  const charges: { kind: string; amountCents: number }[] = []
+  for (const rawCharge of (b.charges as unknown[]) ?? []) {
+    if (!rawCharge || typeof rawCharge !== 'object') return badRequest('Each charge needs a kind and an amount')
+    const charge = rawCharge as Record<string, unknown>
+    const kind = typeof charge.kind === 'string' ? charge.kind.trim() : ''
+    if (!isChargeKind(kind)) return badRequest('A charge kind must be freight, loading or levy')
+    const amount = requireCents(charge.amountCents, 'amountCents')
+    if (isInvalid(amount)) return badRequest(amount.problem)
+    if (amount <= 0) return badRequest('A charge amount has to be more than zero')
+    charges.push({ kind, amountCents: amount })
+  }
+
+  type ParsedLine = {
+    itemName: string
+    category?: string
+    unit: string
+    quantity: number
+    rawUnitCostCents: number
+    extendedCents: number
+    lowStockThreshold?: number
+    notes?: string
+    expiryDate?: Date | null
+    lots?: { quantity: number; expiryDate: Date | null; lotNo?: string | null }[]
+  }
+  const parsedLines: ParsedLine[] = []
+  for (const rawLine of b.lines as unknown[]) {
+    if (!rawLine || typeof rawLine !== 'object') return badRequest('Each line needs an item, a unit, a quantity and a unit cost')
+    const line = rawLine as Record<string, unknown>
+    const itemName = typeof line.itemName === 'string' ? line.itemName.trim() : ''
+    const unit = typeof line.unit === 'string' ? line.unit.trim() : ''
+    if (!itemName) return badRequest('Each line needs an item')
+    if (!unit) return badRequest('Each line needs a unit')
+    const quantity = requireCount(line.quantity, 'quantity')
+    if (isInvalid(quantity)) return badRequest(quantity.problem)
+    const rawUnitCostCents = requireCents(line.unitCostCents, 'unitCostCents')
+    if (isInvalid(rawUnitCostCents)) return badRequest(rawUnitCostCents.problem)
+    let lowStockThreshold: number | undefined
+    if (line.lowStockThreshold !== undefined) {
+      const parsed = requireNonNegativeCount(line.lowStockThreshold, 'lowStockThreshold')
+      if (isInvalid(parsed)) return badRequest(parsed.problem)
+      lowStockThreshold = parsed
+    }
+    let expiryDate: Date | null | undefined
+    if (line.expiryDate !== undefined && line.expiryDate !== null && line.expiryDate !== '') {
+      const parsed = requireFutureAllowedDate(line.expiryDate, 'expiryDate')
+      if (isInvalid(parsed)) return badRequest(parsed.problem)
+      expiryDate = parsed
+    }
+    let lots: ParsedLine['lots']
+    if (line.lots !== undefined) {
+      if (!Array.isArray(line.lots) || line.lots.length === 0) return badRequest('lots must list at least one lot')
+      lots = []
+      for (const rawLot of line.lots) {
+        if (!rawLot || typeof rawLot !== 'object') return badRequest('Each lot needs a quantity')
+        const lot = rawLot as Record<string, unknown>
+        const lotQty = requireCount(lot.quantity, 'quantity')
+        if (isInvalid(lotQty)) return badRequest(lotQty.problem)
+        let lotExpiry: Date | null = null
+        if (lot.expiryDate !== undefined && lot.expiryDate !== null && lot.expiryDate !== '') {
+          const parsed = requireFutureAllowedDate(lot.expiryDate, 'expiryDate')
+          if (isInvalid(parsed)) return badRequest(parsed.problem)
+          lotExpiry = parsed
+        }
+        const lotNo = typeof lot.lotNo === 'string' && lot.lotNo.trim() ? lot.lotNo.trim() : null
+        lots.push({ quantity: lotQty, expiryDate: lotExpiry, lotNo })
+      }
+      const lotSum = lots.reduce((sum, lot) => sum + lot.quantity, 0)
+      if (lotSum !== quantity) return badRequest('Lot quantities must add up to the line quantity.')
+    }
+    parsedLines.push({
+      itemName,
+      category: typeof line.category === 'string' && line.category.trim() ? line.category.trim() : undefined,
+      unit,
+      quantity,
+      rawUnitCostCents,
+      extendedCents: quantity * rawUnitCostCents,
+      lowStockThreshold,
+      notes: typeof line.notes === 'string' && line.notes.trim() ? line.notes.trim() : undefined,
+      expiryDate,
+      lots,
+    })
+  }
+
+  const chargeTotal = charges.reduce((sum, charge) => sum + charge.amountCents, 0)
+  const allocated = allocateCharges(
+    parsedLines.map((line) => ({ extendedCents: line.extendedCents, quantity: line.quantity })),
+    charges,
+  )
+  if (chargeTotal > 0 && allocated.every((cents) => cents === 0)) {
+    return badRequest('These lines have no quantity to spread the charges across.')
+  }
+
+  const postingDay = postingDayFrom(
+    [typeof b.postingDate === 'string' ? b.postingDate : null, typeof b.receivedDate === 'string' ? b.receivedDate : null],
+    postingDate ?? receivedDate ?? new Date(),
+  )
+  const settled: number[] = []
+  const taxColumns: {
+    taxCode?: string | null
+    taxInclusive?: boolean | null
+    grossCents?: number | null
+    taxCents?: number | null
+    netCents?: number | null
+  }[] = []
+  for (let i = 0; i < parsedLines.length; i++) {
+    const landed = parsedLines[i].extendedCents + allocated[i]
+    const tax = await resolveDocumentTax({
+      taxCode: b.taxCode,
+      taxInclusive: b.taxInclusive,
+      baseCents: landed,
+      postingDay,
+    })
+    if ('refused' in tax) return badRequest(tax.refused)
+    settled.push(tax.settledCents)
+    taxColumns.push(tax.columns)
+  }
+  const settledTotal = settled.reduce((sum, cents) => sum + cents, 0)
+  if (amountPaidCents > settledTotal) {
+    return badRequest('Amount paid is more than the purchase total — check the figures')
+  }
+  const paid = allocatePayment(amountPaidCents, settled)
+
+  try {
+    const result = await recordPurchaseReceipt({
+      tenantId,
+      receiptGroupId: randomUUID(),
+      charges,
+      lines: parsedLines.map((line, i) => {
+        const landed = line.extendedCents + allocated[i]
+        return {
+          tenantId,
+          supplier,
+          supplierId,
+          itemName: line.itemName,
+          category: line.category,
+          unit: line.unit,
+          quantity: line.quantity,
+          unitCostCents: landedUnitCostCents(landed, line.quantity),
+          // What stock is carried at, exactly: the landed cost, or its net of
+          // VAT when the bill is inclusive. A figure that does not divide by
+          // the quantity becomes two lots (splitLotCost) rather than drifting
+          // from the ledger by the rounding of one unit cost.
+          lotValueCents: taxColumns[i].taxInclusive === true && taxColumns[i].netCents != null
+            ? taxColumns[i].netCents as number
+            : landed,
+          rawUnitCostCents: line.rawUnitCostCents,
+          totalCostCents: settled[i],
+          amountPaidCents: paid[i],
+          paymentMethod,
+          paymentReference,
+          dueDate,
+          invoiceNumber,
+          notes: line.notes ?? notes,
+          photoUrl,
+          receivedDate,
+          transactionDate,
+          postingDate,
+          expiryDate: line.expiryDate,
+          lots: line.lots,
+          lowStockThreshold: line.lowStockThreshold,
+          farmId: farmFilter ?? null,
+          recordedBy,
+          dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
+          ...taxColumns[i],
+        }
+      }),
+    })
+    return created(result)
+  } catch (err) {
+    if (
+      err instanceof PurchaseReceiptError
+      || err instanceof DimensionRequirementError
+      || err instanceof DimensionValidationError
+      || err instanceof UnbalancedTaxError
+    ) {
+      return badRequest(err.message)
+    }
+    throw err
+  }
 }

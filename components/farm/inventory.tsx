@@ -17,6 +17,7 @@ import { useRegional } from './settings';
 import { CsvImportModal } from './csv-import';
 import { DataTable, ColDef } from './data-table';
 import { parseMoneyToCents, centsToMajor, formatMoney } from '@/lib/money';
+import { ReceiptExtras, buildReceiptParts, previewReceipt, receiptIsActive, type LineDraft, type LotDraft } from './receipt-extras';
 import { ADJUSTMENT_TYPES, adjustmentIsHeld } from '@/lib/inventory-adjustment';
 import { cn } from '@/lib/utils';
 import { PageHeader, Kpi } from '@/components/ui-kit/page-header';
@@ -229,6 +230,11 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   // derives automatically once a farm is chosen, UNIT never does (a
   // purchase carries no unit of its own in this schema).
   const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
+  const [extraLines, setExtraLines] = useState<LineDraft[]>([]);
+  const [freight, setFreight] = useState('');
+  const [loadingCharge, setLoadingCharge] = useState('');
+  const [levy, setLevy] = useState('');
+  const [firstLots, setFirstLots] = useState<LotDraft[]>([]);
   const { missing: requiredDims } = useRequiredDimensions(tenantId, 'purchase', farmId ? 'farm' : undefined, farmId || undefined);
 
   // item 18: the farm's own timezone, not the browser's.
@@ -237,18 +243,55 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   const qtyNum = Number(quantity);
   const unitCostCentsLive = parseMoneyToCents(unitCost);
   const totalCentsLive = Number.isFinite(qtyNum) && qtyNum > 0 && unitCostCentsLive !== null ? qtyNum * unitCostCentsLive : null;
+  const receiptActive = receiptIsActive(extraLines, [freight, loadingCharge, levy], firstLots);
+  const receiptBuilt = receiptActive
+    ? buildReceiptParts({
+      first: { itemName, category, unit, quantity, unitCost, expiry: expiryDate, lotNo, lots: firstLots },
+      extraLines, freight, loading: loadingCharge, levy,
+    })
+    : null;
+  const receiptPreview = receiptBuilt && !('error' in receiptBuilt)
+    ? previewReceipt(
+      receiptBuilt.lines.map((line) => ({ quantity: line.quantity, unitCostCents: line.unitCostCents, label: line.itemName })),
+      receiptBuilt.charges.map((charge) => charge.amountCents),
+    )
+    : null;
+  const receiptLandedCents = receiptPreview ? receiptPreview.reduce((sum, line) => sum + line.landedTotalCents, 0) : null;
   // Same posting-day resolution as the Finance sheet's purchase form, so both
   // entry points pick the VAT rate in force on the same day.
   const purchaseTaxDay = postingDate || receivedDate || todayIso;
+  // A receipt is taxed line by line (as the server does), then added up.
+  const lineTax = receiptPreview
+    ? receiptPreview.map((line) => previewTax({
+      code: purchaseTaxCode,
+      baseCents: line.landedTotalCents,
+      inclusive: purchaseTaxInclusive,
+      rates: purchaseTaxCatalogue?.rates ?? [],
+      day: purchaseTaxDay,
+    }))
+    : null;
+  const receiptFigures = lineTax && lineTax.every((row) => row.status === 'ok')
+    ? {
+      grossCents: lineTax.reduce((sum, row) => sum + (row.status === 'ok' ? row.grossCents : 0), 0),
+      taxCents: lineTax.reduce((sum, row) => sum + (row.status === 'ok' ? row.taxCents : 0), 0),
+      netCents: lineTax.reduce((sum, row) => sum + (row.status === 'ok' ? row.netCents : 0), 0),
+      rateBps: lineTax[0].status === 'ok' ? lineTax[0].rateBps : null,
+    }
+    : null;
+  const taxBaseCents = receiptActive ? (receiptPreview?.[0]?.landedTotalCents ?? null) : totalCentsLive;
   const purchaseTaxPreview = previewTax({
     code: purchaseTaxCode,
-    baseCents: totalCentsLive,
+    baseCents: taxBaseCents,
     inclusive: purchaseTaxInclusive,
     rates: purchaseTaxCatalogue?.rates ?? [],
     day: purchaseTaxDay,
   });
-  const purchaseTaxBlocks = taxBlockMessage(purchaseTaxPreview);
-  const purchaseBillCents = purchaseTaxPreview.status === 'ok' ? purchaseTaxPreview.grossCents : totalCentsLive;
+  const purchaseTaxBlocks = receiptActive
+    ? (lineTax ? (lineTax.map(taxBlockMessage).find((message) => message) ?? null) : (purchaseTaxCode ? taxBlockMessage({ status: 'need-amount' }) : null))
+    : taxBlockMessage(purchaseTaxPreview);
+  const purchaseBillCents = receiptActive
+    ? (receiptFigures ? receiptFigures.grossCents : receiptLandedCents)
+    : (purchaseTaxPreview.status === 'ok' ? purchaseTaxPreview.grossCents : totalCentsLive);
   const amountPaidCentsLive = amountPaid ? parseMoneyToCents(amountPaid) : 0;
   const amountDueCents = purchaseBillCents !== null ? Math.max(0, purchaseBillCents - (amountPaidCentsLive ?? 0)) : null;
 
@@ -294,6 +337,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   }
 
   async function save() {
+    if (receiptActive) {
+      await saveReceipt();
+      return;
+    }
     const qty = Number(quantity);
     const unitCostCents = parseMoneyToCents(unitCost);
     const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
@@ -364,6 +411,77 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
         totalLabel: 'Total',
         totalCents: typeof res.data.purchase?.totalCostCents === 'number' ? res.data.purchase.totalCostCents : (purchaseBillCents ?? totalCents),
         stockEffect: `${qty} ${unit.trim()} of ${itemName.trim()} out of ${res.data.lot?.lotNo ?? 'the new lot'}`,
+      });
+    } else {
+      setError(res.error || 'Could not record this purchase.');
+    }
+  }
+
+  async function saveReceipt() {
+    const amountPaidCents = amountPaid ? parseMoneyToCents(amountPaid) : null;
+    const errs: Record<string, string> = {};
+    if (!farmId) errs.farmId = 'Select which farm this stock is for';
+    if (!supplier.trim()) errs.supplier = 'Supplier is required';
+    if (amountPaid && amountPaidCents === null) errs.amountPaid = 'Paid now must be a number';
+    else if (amountPaidCents !== null && amountPaidCents < 0) errs.amountPaid = 'Paid now cannot be negative';
+    else if (!purchaseTaxBlocks && amountPaidCents !== null && purchaseBillCents !== null && amountPaidCents > purchaseBillCents) {
+      errs.amountPaid = 'Paid now is more than the purchase total';
+    }
+    if (purchaseTaxBlocks) errs.tax = purchaseTaxBlocks;
+    const built = buildReceiptParts({
+      first: { itemName, category, unit, quantity, unitCost, expiry: expiryDate, lotNo, lots: firstLots },
+      extraLines, freight, loading: loadingCharge, levy,
+    });
+    if ('error' in built) errs.lines = built.error;
+    Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      setError(errs.lines ?? '');
+      return;
+    }
+    if ('error' in built) return;
+    setFieldErrors({});
+    setSaving(true);
+    setError('');
+    const res = await apiClient.post<{ purchases?: { purchase?: { id?: string; totalCostCents?: number }; lot?: { lotNo?: string } }[] }>('/api/purchases', {
+      tenantId,
+      supplier: supplier.trim(),
+      supplierId: supplierId || undefined,
+      lines: built.lines.map((line) => ({
+        itemName: line.itemName,
+        category: line.category,
+        unit: line.unit,
+        quantity: line.quantity,
+        unitCostCents: line.unitCostCents,
+        ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
+        ...(line.lotNo ? { lotNo: line.lotNo } : {}),
+        ...(line.lots ? { lots: line.lots } : {}),
+        ...(lowStockThreshold ? { lowStockThreshold: Math.trunc(Number(lowStockThreshold)) } : {}),
+      })),
+      charges: built.charges,
+      ...(purchaseTaxCode ? { taxCode: purchaseTaxCode, taxInclusive: purchaseTaxCode === 'VATABLE' ? purchaseTaxInclusive : false } : {}),
+      paymentMethod: paymentMethod.trim() || undefined,
+      paymentReference: reference.trim() || undefined,
+      amountPaidCents: amountPaidCents ?? undefined,
+      invoiceNumber: invoiceNumber.trim() || undefined,
+      receivedDate: receivedDate || undefined,
+      dueDate: dueDate || undefined,
+      notes: notes.trim() || undefined,
+      photoUrl: photo || undefined,
+      transactionDate: transactionDate || undefined,
+      postingDate: postingDate || undefined,
+      farmId,
+      dimensions: dimensionsForSubmit(requiredDims, dimPicks),
+    });
+    setSaving(false);
+    if (res.success) {
+      onCreated();
+      const stored = (res.data.purchases ?? []).reduce((sum, row) => sum + (row.purchase?.totalCostCents ?? 0), 0);
+      setReceipt({
+        id: res.data.purchases?.[0]?.purchase?.id,
+        totalLabel: 'Total',
+        totalCents: stored || purchaseBillCents || built.goodsPlusCharges,
+        stockEffect: built.lines.map((line) => `${line.quantity} ${line.unit} of ${line.itemName}`).join(', '),
       });
     } else {
       setError(res.error || 'Could not record this purchase.');
@@ -456,7 +574,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
                   aria-invalid={!!fieldErrors.quantity} aria-describedby={fieldErrors.quantity ? 'inv-purchase-qty-error' : undefined} />
                 <FieldError id="inv-purchase-qty-error" message={fieldErrors.quantity} />
               </Field>
-              <Field label="Unit cost (KSh) *">
+              <Field label={receiptActive ? 'Raw unit cost (KSh) *' : 'Unit cost (KSh) *'}>
                 <Input type="number" inputMode="decimal" placeholder="0" value={unitCost} onChange={e => setUnitCost(e.target.value)}
                   style={fieldErrorStyle(!!fieldErrors.unitCost)}
                   aria-invalid={!!fieldErrors.unitCost} aria-describedby={fieldErrors.unitCost ? 'inv-purchase-unitcost-error' : undefined} />
@@ -464,9 +582,26 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
               </Field>
             </div>
             <div className="flex items-center justify-between rounded-lg bg-primary-soft px-3 py-2.5">
-              <span className="text-xs font-semibold text-muted">Total</span>
-              <span className="font-display text-lg font-medium text-primary">{totalCentsLive !== null ? `KSh ${centsToMajor(totalCentsLive).toLocaleString()}` : '—'}</span>
+              <span className="text-xs font-semibold text-muted">{receiptPreview ? 'Landed total' : 'Total'}</span>
+              <span className="font-display text-lg font-medium text-primary">{(receiptPreview ? receiptLandedCents : totalCentsLive) !== null ? `KSh ${centsToMajor((receiptPreview ? receiptLandedCents : totalCentsLive) as number).toLocaleString()}` : '—'}</span>
             </div>
+            <ReceiptExtras
+              extraLines={extraLines}
+              onExtraLines={setExtraLines}
+              freight={freight}
+              onFreight={setFreight}
+              loading={loadingCharge}
+              onLoading={setLoadingCharge}
+              levy={levy}
+              onLevy={setLevy}
+              firstLots={firstLots}
+              onFirstLots={setFirstLots}
+              preview={receiptPreview}
+              itemNames={itemNames}
+              categories={categories}
+              units={units}
+            />
+            {fieldErrors.lines && <p className="text-xs text-danger">{fieldErrors.lines}</p>}
             <TaxFields
               catalogue={purchaseTaxCatalogue}
               catalogueError={purchaseTaxCatalogueError}
@@ -474,8 +609,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
               onTaxCode={setPurchaseTaxCode}
               inclusive={purchaseTaxInclusive}
               onInclusive={setPurchaseTaxInclusive}
-              baseCents={totalCentsLive}
+              baseCents={taxBaseCents}
               postingDay={purchaseTaxDay}
+              figures={receiptFigures}
             />
             {fieldErrors.tax && <p className="text-xs text-danger">{fieldErrors.tax}</p>}
 

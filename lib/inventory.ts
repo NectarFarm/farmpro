@@ -6,8 +6,11 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { inventoryItems, inventoryLots, purchases, auditLog } from '@/db/schemas'
+import type { PgTransaction } from 'drizzle-orm/pg-core'
+import { inventoryItems, inventoryLots, purchases, purchaseCharges, auditLog } from '@/db/schemas'
 import { postPurchaseJournal } from '@/lib/finance'
+
+type Tx = PgTransaction<any, any, any>
 
 // A lot is "expiring" once its expiry date is within this many days (this
 // includes lots that have already expired — a negative "days until expiry"
@@ -128,8 +131,8 @@ export type RecordPurchaseResult =
   | {
       item: typeof inventoryItems.$inferSelect
       lot: typeof inventoryLots.$inferSelect
-      // Normally just [lot]; two when an inclusive-VAT net does not divide by
-      // the quantity (see splitLotCost).
+      // One per requested lot; more when a value that does not divide by the
+      // quantity has to be carried at two unit costs (see splitLotCost).
       lots: (typeof inventoryLots.$inferSelect)[]
       purchase: typeof purchases.$inferSelect
     }
@@ -215,8 +218,52 @@ export async function recordPurchase(input: {
   grossCents?: number | null
   taxCents?: number | null
   netCents?: number | null
+  // Issue #423. Omitted on the old single-item body: raw stays null (the
+  // raw cost is unitCostCents) and the purchase is not part of a receipt.
+  rawUnitCostCents?: number | null
+  receiptGroupId?: string | null
+  // Omitted means one lot for the whole quantity, as before. When present,
+  // the quantities must add up to `quantity`. Value is carried as for one lot.
+  lots?: { quantity: number; expiryDate?: Date | null; lotNo?: string | null }[]
 }): Promise<RecordPurchaseResult> {
-  return db.transaction(async (tx): Promise<RecordPurchaseResult> => {
+  return db.transaction((tx) => writePurchase(tx, input))
+}
+
+export class PurchaseReceiptError extends Error {}
+
+export async function recordPurchaseReceipt(input: {
+  tenantId: string
+  receiptGroupId: string
+  charges: { kind: string; amountCents: number }[]
+  lines: Parameters<typeof recordPurchase>[0][]
+}) {
+  return db.transaction(async (tx) => {
+    const charges = []
+    for (const charge of input.charges) {
+      const [row] = await tx.insert(purchaseCharges).values({
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        receiptGroupId: input.receiptGroupId,
+        kind: charge.kind,
+        amountCents: charge.amountCents,
+      }).returning()
+      charges.push(row)
+    }
+    const purchasesRecorded = []
+    for (const line of input.lines) {
+      const result = await writePurchase(tx, {
+        ...line,
+        tenantId: input.tenantId,
+        receiptGroupId: input.receiptGroupId,
+      })
+      if ('problem' in result) throw new PurchaseReceiptError(result.problem)
+      purchasesRecorded.push(result)
+    }
+    return { receiptGroupId: input.receiptGroupId, charges, purchases: purchasesRecorded }
+  })
+}
+
+async function writePurchase(tx: Tx, input: Parameters<typeof recordPurchase>[0]): Promise<RecordPurchaseResult> {
     const existing = await tx
       .select()
       .from(inventoryItems)
@@ -256,7 +303,6 @@ export async function recordPurchase(input: {
     const receivedDate = input.receivedDate ?? new Date()
     const transactionDate = input.transactionDate ?? receivedDate
     const postingDate = input.postingDate ?? receivedDate
-    const lotNo = input.lotNo || `LOT-${receivedDate.toISOString().slice(0, 10)}-${randomUUID().slice(0, 8).toUpperCase()}`
     // The caller no longer gets to override this — POST /api/purchases now
     // computes it as quantity x unitCostCents and passes that in. Kept as a
     // parameter (rather than recomputed here) so the route stays the one place
@@ -264,26 +310,50 @@ export async function recordPurchase(input: {
     // explicitly instead of inheriting a silent default.
     const totalCostCents = input.totalCostCents ?? input.quantity * input.unitCostCents
 
-    const pieces = input.lotValueCents === undefined
-      ? [{ qty: input.quantity, unitCostCents: input.unitCostCents }]
-      : splitLotCost(input.lotValueCents, input.quantity)
-    const lots = []
-    for (const [i, piece] of pieces.entries()) {
-      const [row] = await tx
-        .insert(inventoryLots)
-        .values({
-          id: randomUUID(),
-          tenantId: input.tenantId,
-          itemId: item.id,
-          lotNo: i === 0 ? lotNo : `${lotNo}-${String.fromCharCode(65 + i)}`,
-          qtyOnHand: piece.qty,
-          unitCostCents: piece.unitCostCents,
-          expiryDate: input.expiryDate ?? null,
-          receivedDate,
-          farmId: input.farmId ?? null,
-        })
-        .returning()
-      lots.push(row)
+    const lotSpecs = input.lots && input.lots.length > 0
+      ? input.lots
+      : [{ quantity: input.quantity, expiryDate: input.expiryDate ?? null, lotNo: input.lotNo }]
+    const lotQty = lotSpecs.reduce((sum, lot) => sum + lot.quantity, 0)
+    if (lotQty !== input.quantity) {
+      return { problem: 'Lot quantities must add up to the line quantity.' }
+    }
+
+    // The stock value is carried exactly (splitLotCost): the units are dealt to
+    // the requested lots in order, so a lot that straddles the one-cent step
+    // becomes two rows and qty x unit cost over every row is the value.
+    const tiers = splitLotCost(input.lotValueCents ?? input.quantity * input.unitCostCents, input.quantity)
+      .map((tier) => ({ ...tier }))
+    const lots: (typeof inventoryLots.$inferSelect)[] = []
+    let tierIdx = 0
+    for (const spec of lotSpecs) {
+      const baseLotNo = spec.lotNo || `LOT-${receivedDate.toISOString().slice(0, 10)}-${randomUUID().slice(0, 8).toUpperCase()}`
+      let need = spec.quantity
+      let part = 0
+      while (need > 0) {
+        const tier = tiers[tierIdx]
+        const take = Math.min(need, tier.qty)
+        if (take > 0) {
+          const [row] = await tx
+            .insert(inventoryLots)
+            .values({
+              id: randomUUID(),
+              tenantId: input.tenantId,
+              itemId: item.id,
+              lotNo: part === 0 ? baseLotNo : `${baseLotNo}-${String.fromCharCode(65 + part)}`,
+              qtyOnHand: take,
+              unitCostCents: tier.unitCostCents,
+              expiryDate: spec.expiryDate ?? null,
+              receivedDate,
+              farmId: input.farmId ?? null,
+            })
+            .returning()
+          lots.push(row)
+          part++
+        }
+        tier.qty -= take
+        need -= take
+        if (tier.qty === 0) tierIdx++
+      }
     }
     const lot = lots[0]
 
@@ -319,6 +389,8 @@ export async function recordPurchase(input: {
         grossCents: input.grossCents ?? null,
         taxCents: input.taxCents ?? null,
         netCents: input.netCents ?? null,
+        receiptGroupId: input.receiptGroupId ?? null,
+        rawUnitCostCents: input.rawUnitCostCents ?? null,
       })
       .returning()
 
@@ -329,5 +401,4 @@ export async function recordPurchase(input: {
     await postPurchaseJournal(tx, purchase, { dimensions: input.dimensions })
 
     return { item, lot, lots, purchase }
-  })
-}
+  }
