@@ -4,7 +4,8 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
 import { expenseCategories, expenses, auditLog } from '@/db/schemas'
-import { ACCOUNT_CODES, ensureAccountsSeeded, postExpenseJournal } from '@/lib/finance'
+import { and, eq } from 'drizzle-orm'
+import { ACCOUNT_CODES, ensureAccountsSeeded, postExpenseJournal, postExpensePaymentJournal } from '@/lib/finance'
 
 export const SEEDED_EXPENSE_CATEGORIES = [
   { id: 'expcat-transport', code: 'transport', name: 'Transport and delivery', accountCode: ACCOUNT_CODES.TRANSPORT },
@@ -97,5 +98,72 @@ export async function recordExpense(input: {
     })
 
     return { expense, entry }
+  })
+}
+
+export class ExpensePaymentError extends Error {}
+
+// Settles part or all of what an expense still owes. The expense's own
+// posting is untouched: this adds a Dr Accounts Payable / Cr Cash entry and
+// moves `amountPaidCents` (the running paid total) so "still owed" falls. The
+// amount, the original journal entry and every P&L figure stay as they were,
+// because a settlement is a balance-sheet movement only.
+export async function recordExpensePayment(input: {
+  tenantId: string
+  expenseId: string
+  amountCents: number
+  paymentMethod: string
+  paymentReference?: string | null
+  reason: string
+  postingDate: Date
+  recordedBy: string
+  dimensions?: Record<string, string>
+}) {
+  return db.transaction(async (tx) => {
+    const [expense] = await tx
+      .select()
+      .from(expenses)
+      .where(and(eq(expenses.id, input.expenseId), eq(expenses.tenantId, input.tenantId)))
+      .for('update')
+    if (!expense) throw new ExpensePaymentError('Expense not found for this tenant')
+    if (expense.reversedAt) throw new ExpensePaymentError('This expense has been reversed — there is nothing left to pay')
+    const owed = expense.amountCents - expense.amountPaidCents
+    if (owed <= 0) throw new ExpensePaymentError('This expense is already paid in full')
+    if (input.amountCents > owed) throw new ExpensePaymentError('That is more than is still owed on this expense')
+
+    const entry = await postExpensePaymentJournal(tx, {
+      tenantId: input.tenantId,
+      expenseId: expense.id,
+      amountCents: input.amountCents,
+      farmId: expense.farmId,
+      postingDate: input.postingDate,
+      payee: expense.payee,
+    }, { dimensions: input.dimensions })
+
+    const [updated] = await tx
+      .update(expenses)
+      .set({ amountPaidCents: expense.amountPaidCents + input.amountCents })
+      .where(eq(expenses.id, expense.id))
+      .returning()
+
+    await tx.insert(auditLog).values({
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      actor: input.recordedBy,
+      action: 'expense.payment_recorded',
+      entity: 'expense',
+      entityId: expense.id,
+      meta: {
+        reason: input.reason,
+        amountCents: input.amountCents,
+        paymentMethod: input.paymentMethod,
+        paymentReference: input.paymentReference ?? null,
+        paidBeforeCents: expense.amountPaidCents,
+        paidAfterCents: updated.amountPaidCents,
+        journalEntryId: entry.id,
+      },
+    })
+
+    return { expense: updated, entry }
   })
 }

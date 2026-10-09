@@ -147,17 +147,16 @@ export function RecordExpenseSheet({ tenantId, farms, activeFarmId, onCreated, o
     return () => { cancelled = true; };
   }, [tenantId, farmId]);
 
+  // Credit means unpaid: choosing it locks "Paid now" at 0. A different
+  // method afterwards hands control of "Paid now" back to the owner rather
+  // than guessing what they paid — same rule as the purchase sheet
+  // (components/farm/finance.tsx). Copying the amount in here went stale the
+  // moment the amount was corrected, leaving the difference in Accounts
+  // Payable on an expense the owner had marked paid.
   function onMethodChange(next: string) {
     setPaymentMethod(next);
-    if (next === 'Credit') {
-      setAmountPaid('0');
-      return;
-    }
-    if (paymentMethod === 'Credit') {
-      setAmountPaid(amount.trim() ? amount : '');
-      return;
-    }
-    if (!amountPaid.trim() && amount.trim()) setAmountPaid(amount);
+    if (next === 'Credit') setAmountPaid('0');
+    else if (paymentMethod === 'Credit') setAmountPaid('');
   }
 
   async function createSupplier() {
@@ -424,6 +423,14 @@ export function ExpenseDetailSheet({ tenantId, expense, farms, onClose, onChange
   const [houseName, setHouseName] = useState<string | null>(null);
   const [houseMissing, setHouseMissing] = useState(false);
 
+  const [showPay, setShowPay] = useState(false);
+  const [payAmount, setPayAmount] = useState('');
+  const [payMethod, setPayMethod] = useState('');
+  const [payReference, setPayReference] = useState('');
+  const [payReason, setPayReason] = useState('');
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState('');
+
   const reversed = !!expense.reversedAt;
   const farmName = expense.farmId ? farms.find((f) => f.id === expense.farmId)?.name : null;
 
@@ -451,6 +458,24 @@ export function ExpenseDetailSheet({ tenantId, expense, farms, onClose, onChange
 
   const owed = Math.max(0, expense.amountCents - expense.amountPaidCents);
 
+  async function confirmPay() {
+    const cents = parseMoneyToCents(payAmount);
+    if (cents === null || cents <= 0) { setPayError('Enter the amount paid'); return; }
+    if (cents > owed) { setPayError(`That is more than the ${formatMoney(owed)} still owed`); return; }
+    if (!payMethod || payMethod === 'Credit') { setPayError('Choose how this was paid'); return; }
+    const refLabel = referenceLabel(payMethod);
+    if (refLabel && !payReference.trim()) { setPayError(`${refLabel} is required`); return; }
+    if (!payReason.trim()) { setPayError('Say what this payment is for'); return; }
+    setPaying(true); setPayError('');
+    const res = await apiClient.post(`/api/expenses/${expense.id}/payments`, {
+      tenantId, amountCents: cents, paymentMethod: payMethod,
+      paymentReference: payReference.trim() || undefined, reason: payReason.trim(),
+    });
+    setPaying(false);
+    if (res.success) { showToast('Payment recorded', 'success'); setShowPay(false); onChanged(); onClose(); }
+    else setPayError(res.error ?? 'Could not record this payment');
+  }
+
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose(); }} side="bottom" className="rounded-t-2xl max-h-[85dvh]">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
@@ -473,11 +498,34 @@ export function ExpenseDetailSheet({ tenantId, expense, farms, onClose, onChange
         </div>
         {expense.photoUrl && <img src={expense.photoUrl} alt="Receipt" className="mb-4 max-h-48 w-full rounded-lg object-cover" />}
         <p className="mb-4 text-sm text-muted">This did not create inventory. The amount is not editable — reversing posts a contra entry and leaves the original figure as it was.</p>
+        {!reversed && owed > 0 && (
+          <Button size="lg" className="mb-2 w-full justify-center" onClick={() => setShowPay(true)}>Record payment</Button>
+        )}
         {!reversed && (
           <Button variant="outline" size="lg" className="mb-4 w-full justify-center" onClick={() => setShowReverse(true)}>Reverse</Button>
         )}
         <StatusTimeline tenantId={tenantId} entity="expense" entityId={expense.id} />
       </div>
+      <Dialog open={showPay} onOpenChange={(o) => { if (!o) setShowPay(false); }}>
+        <DialogTitle>Record a payment</DialogTitle>
+        <DialogDescription>
+          {formatMoney(owed)} is still owed on this expense. A payment is recorded as its own entry; the original expense is not changed.
+        </DialogDescription>
+        <div className="mt-2 space-y-3">
+          <Field label="Amount paid (KSh) *">
+            <Input className={inputClass} inputMode="decimal" placeholder="0.00" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} autoFocus />
+          </Field>
+          <PaymentMethodFields method={payMethod} onMethodChange={setPayMethod} reference={payReference} onReferenceChange={setPayReference} />
+          <Field label="What is this payment for? *">
+            <Input className={inputClass} value={payReason} onChange={(e) => setPayReason(e.target.value)} placeholder="e.g. Settled the rider's weekly bill" />
+          </Field>
+        </div>
+        {payError && <div className="mt-2 text-sm text-danger">{payError}</div>}
+        <div className="mt-4 flex gap-2">
+          <Button variant="secondary" size="lg" className="flex-1" onClick={() => setShowPay(false)} disabled={paying}>Cancel</Button>
+          <Button size="lg" className="flex-1" disabled={paying} onClick={confirmPay}>{paying ? 'Saving…' : 'Record payment'}</Button>
+        </div>
+      </Dialog>
       <Dialog open={showReverse} onOpenChange={(o) => { if (!o) setShowReverse(false); }}>
         <DialogTitle>Reverse this expense?</DialogTitle>
         <DialogDescription>

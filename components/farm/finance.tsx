@@ -1499,7 +1499,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
   // employee actually shares one (`preview.farmId`) — a run spanning
   // several farms, or any OTHER dimension, always has to be asked for here.
   const [dimPicks, setDimPicks] = useState<Record<string, string>>({});
-  const { missing: requiredDims } = useRequiredDimensions(
+  const { missing: requiredDims, requiredBy } = useRequiredDimensions(
     tenantId, 'payroll_run', preview?.farmId ? 'farm' : undefined, preview?.farmId || undefined,
   );
 
@@ -1581,6 +1581,7 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
               tenantId={tenantId} missing={requiredDims} picks={dimPicks}
               onPick={(code, value) => setDimPicks((prev) => ({ ...prev, [code]: value }))}
               knownFarmId={preview.farmId ?? undefined}
+              requiredBy={requiredBy}
             />
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
               Type {CONFIRM_WORD} to confirm you want to pay {preview.employeeCount} employee{preview.employeeCount === 1 ? '' : 's'} {formatMoney(preview.totalAmountCents)}
@@ -1934,9 +1935,14 @@ export function FinanceScreen() {
             // Overview the button read "Record sale" and did nothing at all.
             // The click handler now mirrors the label's own fallback instead
             // of a narrower, silently-different condition.
-            <Button onClick={() => { if (tab === 'purchases') setShowRecordPurchase(true); else if (tab === 'payroll') setShowRunPayroll(true); else setShowRecordSale(true); }}>
+            // The Expenses tab lists both stock purchases and expenses that
+            // are not stock. The header action is the common case, Record
+            // expense (transport, labour, a vet visit, airtime); the stock
+            // path stays in the body, labelled "Record stock purchase", so
+            // the two buttons no longer look alike and behave differently.
+            <Button onClick={() => { if (tab === 'purchases') setShowRecordExpense(true); else if (tab === 'payroll') setShowRunPayroll(true); else setShowRecordSale(true); }}>
               <Plus size={16} />
-              {tab === 'payroll' ? 'Run payroll' : tab === 'purchases' ? 'Record purchase' : 'Record sale'}
+              {tab === 'payroll' ? 'Run payroll' : tab === 'purchases' ? 'Record expense' : 'Record sale'}
             </Button>
           }
         />
@@ -2139,7 +2145,7 @@ export function FinanceScreen() {
               <Plus size={16} /> Record expense
             </Button>
             <Button size="lg" variant="secondary" className="w-full justify-center" onClick={() => setShowRecordPurchase(true)}>
-              <Plus size={16} /> Record Purchase
+              <Plus size={16} /> Record stock purchase
             </Button>
             <Button size="lg" variant="secondary" className="w-full justify-center" onClick={() => setShowSupplierBalances(true)}>
               Supplier balances
