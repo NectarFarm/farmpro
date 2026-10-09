@@ -1,21 +1,21 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { employees, payrollRuns, payslips } from '@/db/schemas'
-import { and, desc, eq, gt, lt } from 'drizzle-orm'
+import { payrollRuns, payslips, payslipLines } from '@/db/schemas'
+import { desc, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, canView, MODULES } from '@/lib/permissions'
-import { postPayrollJournal, DimensionRequirementError, DimensionValidationError } from '@/lib/finance'
+import { DimensionRequirementError, DimensionValidationError } from '@/lib/finance'
 import { isPlainDimensionMap } from '@/lib/dimensions'
 import { isUniqueViolation } from '@/lib/db-errors'
+import { preparePayroll } from '@/lib/payroll-prepare'
 import { startOfUtcDay } from '@/app/api/tasks/route'
 
 // ── GET/POST /api/payroll/runs (payroll-and-gps task) ───────────────────────
 // Fresh build: no payroll table/route existed anywhere on this branch before
 // this task (see db/schemas/payroll.ts's top comment). GET lists a tenant's
-// past runs; POST creates a new run for a period and, in the same
-// transaction, snapshots a payslip per eligible employee and posts the
-// run's journal entry (lib/finance.ts's postPayrollJournal) — a run can
-// never exist without its payslips or its ledger entry.
+// past runs; POST approves a run for the people named in the body and
+// snapshots their payslips. It does not post a journal. Payment is
+// POST /api/payroll/runs/[id]/pay, and that is the step that posts.
 //
 // Guard: both verbs require a session; POST additionally requires
 // canEdit(tenantId, role, MODULES.payroll) — by default only `owner` (and
@@ -97,133 +97,109 @@ export async function POST(req: Request) {
 
   const memo = typeof b.memo === 'string' ? b.memo.trim() : ''
 
-  // ── Nobody gets paid twice for the same days ─────────────────────────────
-  // The only guard here was the unique index on
-  // (tenant_id, period_start, period_end), which catches an EXACT repeat — a
-  // double-click, or a retried request. It does not catch the mistake that
-  // actually loses money: a second run over an OVERLAPPING period. "1–31 Aug"
-  // followed by "15 Aug–15 Sep" are two different keys, so both inserted, and
-  // every employee was paid twice for the fortnight they share — with two
-  // journal entries debiting Payroll Expense for the full month each.
-  //
-  // Standard half-open overlap test: two ranges overlap when each starts
-  // before the other ends. Checked in the request rather than as a DB
-  // constraint because expressing it in Postgres needs an exclusion
-  // constraint over a range type, which is a schema change and a migration
-  // for a rule this route is the only writer for.
-  const overlapping = await db
-    .select({
-      id: payrollRuns.id,
-      periodStart: payrollRuns.periodStart,
-      periodEnd: payrollRuns.periodEnd,
-    })
-    .from(payrollRuns)
-    .where(and(
-      eq(payrollRuns.tenantId, tenantId),
-      lt(payrollRuns.periodStart, periodEnd),
-      gt(payrollRuns.periodEnd, periodStart),
-    ))
-    .limit(1)
-
-  if (overlapping.length > 0) {
-    const clash = overlapping[0]
-    const iso = (d: Date) => d.toISOString().slice(0, 10)
-    return badRequest(
-      `Payroll has already been run for ${iso(clash.periodStart)} to ${iso(clash.periodEnd)}, `
-      + 'which overlaps this period — those days would be paid twice. '
-      + 'Pick a period that starts after that run ends.',
-      { periodStart: 'Overlaps a payroll run that already exists' }
-    )
+  // The list is required. Omitting it used to pay every active salaried
+  // employee. Overlap is per employee, inside preparePayroll: a different
+  // person can be paid for the same dates.
+  const prepared = await preparePayroll({ tenantId, periodStart, periodEnd, employees: b.employees })
+  if ('refused' in prepared) {
+    const fields = prepared.refused.includes('would be paid twice')
+      ? { periodStart: 'Overlaps a payroll run that already exists' }
+      : undefined
+    return badRequest(prepared.refused, fields)
   }
+  const { figures, employees: included, farmId, statutoryNote } = prepared
 
-  const eligible = await db
-    .select({ id: employees.id, name: employees.name, monthlySalaryCents: employees.monthlySalaryCents, farmId: employees.farmId })
-    .from(employees)
-    .where(and(eq(employees.tenantId, tenantId), eq(employees.status, 'ACTIVE'), gt(employees.monthlySalaryCents, 0)))
-
-  if (eligible.length === 0) {
-    return badRequest('No active employees have a pay rate set — set a monthly salary on at least one employee before running payroll')
-  }
-
-  const totalAmountCents = eligible.reduce((sum, e) => sum + e.monthlySalaryCents, 0)
-
-  // ── One farm's worth of dimension analysis, or none (dimensions-on-gl task)
-  // postPayrollJournal posts ONE aggregate entry for the whole run, so it can
-  // only carry a Farm dimension when every eligible employee actually shares
-  // one — the common case for a single-farm tenant. A run spanning several
-  // farms (or any farm-less employee) posts with no Farm dimension rather
-  // than guessing whose farm the wages belong to, same stance
-  // lib/reports.ts's P&L already takes on payroll. Computed BEFORE the
-  // dryRun check (moved up, forms-supply-required-dimensions fix) so the
-  // preview can tell the Run Payroll sheet which farm (if any) it will be
-  // able to derive, and the sheet can preview/ask for anything else a
-  // touched account requires — same as the sale/purchase forms.
-  const firstFarmId = eligible[0].farmId
-  const runFarmId = firstFarmId && eligible.every((e) => e.farmId === firstFarmId) ? firstFarmId : null
-
-  // ── owner-roast finding #2: payroll used to be one irreversible click —
-  // no preview of who gets paid or how much, no confirmation beyond the
-  // button itself. `dryRun` runs every guard above (period parsing, the
-  // overlap check, the eligibility filter) and stops here, before anything
-  // is written, so the UI's preview is guaranteed to match what a real run
-  // would actually do rather than being a second, driftable calculation.
+  // dryRun writes nothing. The preview is this same preparation.
   if (b.dryRun === true) {
     return ok({
-      periodStart, periodEnd, totalAmountCents, employeeCount: eligible.length,
-      employees: eligible.map((e) => ({ id: e.id, name: e.name, amountCents: e.monthlySalaryCents })),
-      farmId: runFarmId,
+      periodStart,
+      periodEnd,
+      totalAmountCents: figures.expenseCents,
+      grossCents: figures.grossCents,
+      deductionCents: figures.deductionCents,
+      netCents: figures.netCents,
+      employerCostCents: figures.employerCostCents,
+      employeeCount: included.length,
+      statutoryNote,
+      unconfigured: figures.unconfigured,
+      employees: included.map((person, index) => {
+        const pay = figures.people[index]
+        return {
+          id: person.id,
+          name: person.name,
+          amountCents: pay.grossCents,
+          grossCents: pay.grossCents,
+          deductionCents: pay.deductionCents,
+          netCents: pay.netCents,
+          employerCostCents: pay.employerCostCents,
+          lines: pay.lines,
+        }
+      }),
+      farmId,
     })
   }
 
-  // ── Explicit dimension overrides (forms-supply-required-dimensions fix) —
-  // same optional, dimension-CODE-keyed body field POST /api/data/sales and
-  // POST /api/purchases already accept. The Run Payroll sheet supplies this
-  // for whatever a touched account requires that runFarmId can't cover (a
-  // run spanning several farms, or any dimension besides Farm).
   const dimensions = isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined
 
   try {
     const result = await db.transaction(async (tx) => {
-      const [run] = await tx
-        .insert(payrollRuns)
-        .values({
-          id: crypto.randomUUID(),
-          tenantId,
-          periodStart,
-          periodEnd,
-          totalAmountCents,
-          employeeCount: eligible.length,
-          createdByUserId: session.id,
-          memo,
-        })
-        .returning()
+      const [run] = await tx.insert(payrollRuns).values({
+        id: crypto.randomUUID(),
+        tenantId,
+        periodStart,
+        periodEnd,
+        totalAmountCents: figures.expenseCents,
+        employeeCount: included.length,
+        createdByUserId: session.id,
+        memo,
+        status: 'approved',
+        grossCents: figures.grossCents,
+        deductionCents: figures.deductionCents,
+        netCents: figures.netCents,
+        employerCostCents: figures.employerCostCents,
+        sharedFarmId: farmId,
+        dimensionOverrides: dimensions ? JSON.stringify(dimensions) : null,
+        statutoryNote,
+      }).returning()
 
-      const slipRows = await tx
-        .insert(payslips)
-        .values(eligible.map((e) => ({
+      const slipRows = await tx.insert(payslips).values(included.map((person, index) => {
+        const pay = figures.people[index]
+        return {
           id: crypto.randomUUID(),
           tenantId,
           runId: run.id,
-          employeeId: e.id,
-          employeeName: e.name,
-          amountCents: e.monthlySalaryCents,
-        })))
-        .returning()
+          employeeId: person.id,
+          employeeName: person.name,
+          amountCents: pay.grossCents,
+          grossCents: pay.grossCents,
+          deductionCents: pay.deductionCents,
+          netCents: pay.netCents,
+          employerCostCents: pay.employerCostCents,
+          payBasis: pay.payBasis,
+          daysWorked: pay.daysWorked,
+          dailyRateCents: pay.dailyRateCents,
+          overtimeHours: pay.overtimeHours,
+          overtimeRateCents: pay.overtimeRateCents,
+        }
+      })).returning()
 
-      await postPayrollJournal(tx, { id: run.id, tenantId, totalAmountCents, periodStart, periodEnd, farmId: runFarmId }, { dimensions })
+      const lineRows = slipRows.flatMap((slip, index) => figures.people[index].lines.map((line) => ({
+        id: crypto.randomUUID(),
+        tenantId,
+        payslipId: slip.id,
+        kind: line.kind,
+        label: line.label,
+        amountCents: line.amountCents,
+      })))
+      if (lineRows.length > 0) await tx.insert(payslipLines).values(lineRows)
 
       return { run, payslips: slipRows }
     })
-
     return created(result)
   } catch (err) {
     if (isUniqueViolation(err)) {
       return badRequest('A payroll run already exists for this exact period')
     }
-    // dimensions-on-gl task: a required dimension missing on an account this
-    // run posts to refuses the whole run (transaction rolled back) rather
-    // than posting an unanalysed line — see lib/dimensions.ts's
-    // attachLineDimensions.
     if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError) {
       return badRequest(err.message)
     }

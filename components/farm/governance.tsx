@@ -1319,6 +1319,24 @@ function ApprovalDetail({ approval, tenantId, busy, onDecide, approverName, requ
                 <span className="shrink-0 text-subtle">Document</span>
                 <span className="font-medium break-words sm:text-right">{money.docType}</span>
               </div>
+              {money.docType === 'payroll' && money.payDate && (
+                <div className="flex flex-col gap-0.5 border-b border-border px-3 py-2.5 text-sm sm:flex-row sm:justify-between sm:gap-3">
+                  <span className="shrink-0 text-subtle">Pay date</span>
+                  <span className="font-medium break-words sm:text-right">{fmtFarmDate(money.payDate)}</span>
+                </div>
+              )}
+              {money.docType === 'payroll' && money.paymentMethod && (
+                <div className="flex flex-col gap-0.5 border-b border-border px-3 py-2.5 text-sm sm:flex-row sm:justify-between sm:gap-3">
+                  <span className="shrink-0 text-subtle">Payment method</span>
+                  <span className="font-medium break-words sm:text-right">{money.paymentMethod}</span>
+                </div>
+              )}
+              {money.docType === 'payroll' && money.paymentReference && (
+                <div className="flex flex-col gap-0.5 border-b border-border px-3 py-2.5 text-sm sm:flex-row sm:justify-between sm:gap-3">
+                  <span className="shrink-0 text-subtle">Reference</span>
+                  <span className="font-medium break-words sm:text-right">{money.paymentReference}</span>
+                </div>
+              )}
               <div className="flex flex-col gap-0.5 px-3 py-2.5 text-sm sm:flex-row sm:justify-between sm:gap-3">
                 <span className="shrink-0 text-subtle">Amount</span>
                 <span className="font-medium break-words sm:text-right">

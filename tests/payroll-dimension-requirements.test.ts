@@ -16,6 +16,7 @@ vi.mock('next/headers', () => ({
 }))
 
 import { POST as payrollRunsPOST } from '@/app/api/payroll/runs/route'
+import { POST as payrollPayPOST } from '@/app/api/payroll/runs/[id]/pay/route'
 import { POST as resolvePOST } from '@/app/api/dimensions/resolve/route'
 import { db } from '@/db'
 import {
@@ -33,7 +34,7 @@ const jsonRequest = (url: string, body: unknown) =>
 const readJson = async (res: Response) => ({ status: res.status, payload: await res.json() })
 
 run('payroll: required dimensions reflect the accounts it actually posts to', () => {
-  let tenantId: string; let cookie: string
+  let tenantId: string; let cookie: string; let employeeId: string
   let unitDimId: string; let unitCode: string
   const acct: Record<string, string> = {}
 
@@ -51,11 +52,22 @@ run('payroll: required dimensions reflect the accounts it actually posts to', ()
     expect(res.status).toBe(200)
     return [...new Set<string>(res.payload.data.perAccount.flatMap((a: { requiredMissing: { dimensionCode: string }[] }) => a.requiredMissing.map((m) => m.dimensionCode)))]
   }
-  async function runPayroll(period: [string, string], dimensions?: Record<string, string>) {
+  async function savePayroll(period: [string, string], dimensions?: Record<string, string>) {
     mockCookie = cookie
     const res = await readJson(await payrollRunsPOST(jsonRequest('http://x/api/payroll/runs', {
-      tenantId, periodStart: period[0], periodEnd: period[1], ...(dimensions ? { dimensions } : {}),
+      tenantId, periodStart: period[0], periodEnd: period[1],
+      employees: [{ employeeId }],
+      ...(dimensions ? { dimensions } : {}),
     })))
+    mockCookie = undefined
+    return res
+  }
+  async function payPayroll(runId: string, periodEnd: string, dimensions?: Record<string, string>) {
+    mockCookie = cookie
+    const res = await readJson(await payrollPayPOST(jsonRequest('http://x/api/payroll/runs/pay', {
+      tenantId, confirmation: 'PAY', payDate: periodEnd, paymentMethod: 'Cash', paymentReference: `pay-${runId.slice(0, 8)}`,
+      ...(dimensions ? { dimensions } : {}),
+    }), { params: Promise.resolve({ id: runId }) }))
     mockCookie = undefined
     return res
   }
@@ -81,7 +93,8 @@ run('payroll: required dimensions reflect the accounts it actually posts to', ()
     await projectFarm(db, tenantId, { id: farmId, code: `FRM-PD-${randomUUID().slice(0, 8)}`, name: 'PD Farm' })
     await db.insert(productionUnits).values({ id: unitId, tenantId, farmId, type: 'poultry', name: 'PD Unit', code: unitCode })
     await projectUnit(db, tenantId, { id: unitId, code: unitCode, name: 'PD Unit' })
-    await db.insert(employees).values({ id: randomUUID(), tenantId, userId: null, name: 'Worker', phone: '', role: 'worker', monthlySalaryCents: 1000000, status: 'ACTIVE', farmId })
+    employeeId = randomUUID()
+    await db.insert(employees).values({ id: employeeId, tenantId, userId: null, name: 'Worker', phone: '', role: 'worker', monthlySalaryCents: 1000000, status: 'ACTIVE', farmId })
   })
 
   afterAll(async () => {
@@ -109,9 +122,11 @@ run('payroll: required dimensions reflect the accounts it actually posts to', ()
     await db.delete(tenants).where(eq(tenants.id, tenantId))
   })
 
-  it('with no dimension rules, a run needs no pickers and posts', async () => {
+  it('with no dimension rules, a run needs no pickers and posts when it is paid', async () => {
     expect(await previewMissing()).toEqual([])
-    expect((await runPayroll(['2026-01-01', '2026-01-31'])).status).toBe(201)
+    const saved = await savePayroll(['2026-01-01', '2026-01-31'])
+    expect(saved.status).toBe(201)
+    expect((await payPayroll(saved.payload.data.run.id, '2026-01-31')).status).toBe(200)
   })
 
   it('a rule on accounts payroll never touches does not make it ask', async () => {
@@ -120,24 +135,30 @@ run('payroll: required dimensions reflect the accounts it actually posts to', ()
     await setRule(ACCOUNT_CODES.ACCOUNTS_RECEIVABLE)
     await setRule(ACCOUNT_CODES.PURCHASES_EXPENSE)
     expect(await previewMissing()).toEqual([])
-    expect((await runPayroll(['2026-02-01', '2026-02-28'])).status).toBe(201)
+    const saved = await savePayroll(['2026-02-01', '2026-02-28'])
+    expect(saved.status).toBe(201)
+    expect((await payPayroll(saved.payload.data.run.id, '2026-02-28')).status).toBe(200)
   })
 
   it('Production Unit Required on the payroll expense account is asked for, refused without, posts once supplied', async () => {
     await clearRules()
     await setRule(ACCOUNT_CODES.PAYROLL_EXPENSE)
     expect(await previewMissing()).toEqual([SYSTEM_DIMENSION_CODES.UNIT])
-    const refused = await runPayroll(['2026-03-01', '2026-03-31'])
+    const saved = await savePayroll(['2026-03-01', '2026-03-31'])
+    expect(saved.status).toBe(201)
+    const refused = await payPayroll(saved.payload.data.run.id, '2026-03-31')
     expect(refused.status).toBe(400)
     expect(refused.payload.error).toMatch(/Production Unit/)
-    expect((await runPayroll(['2026-03-01', '2026-03-31'], { [SYSTEM_DIMENSION_CODES.UNIT]: unitCode })).status).toBe(201)
+    expect((await payPayroll(saved.payload.data.run.id, '2026-03-31', { [SYSTEM_DIMENSION_CODES.UNIT]: unitCode })).status).toBe(200)
   })
 
   it('Production Unit Required on Cash (which payroll credits) is also asked for', async () => {
     await clearRules()
     await setRule(ACCOUNT_CODES.CASH)
     expect(await previewMissing()).toEqual([SYSTEM_DIMENSION_CODES.UNIT])
-    expect((await runPayroll(['2026-04-01', '2026-04-30'])).status).toBe(400)
-    expect((await runPayroll(['2026-04-01', '2026-04-30'], { [SYSTEM_DIMENSION_CODES.UNIT]: unitCode })).status).toBe(201)
+    const saved = await savePayroll(['2026-04-01', '2026-04-30'])
+    expect(saved.status).toBe(201)
+    expect((await payPayroll(saved.payload.data.run.id, '2026-04-30')).status).toBe(400)
+    expect((await payPayroll(saved.payload.data.run.id, '2026-04-30', { [SYSTEM_DIMENSION_CODES.UNIT]: unitCode })).status).toBe(200)
   })
 })

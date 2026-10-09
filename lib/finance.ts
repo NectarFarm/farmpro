@@ -70,6 +70,13 @@ export const ACCOUNT_CODES = {
   // A document with no tax code does not post to either of them.
   VAT_RECEIVABLE: '1300',
   VAT_PAYABLE: '2300',
+  // Statutory withholdings (issue #420). They stay at zero until a paid run
+  // has a configured scheme. Employee advances is the credit for a payslip
+  // advance or loan repayment, so the wage entry still balances.
+  EMPLOYEE_ADVANCES: '1250',
+  PAYE_PAYABLE: '2201',
+  NSSF_PAYABLE: '2202',
+  SHIF_PAYABLE: '2203',
 } as const
 
 // The standard farm chart of accounts this issue seeds — see
@@ -89,6 +96,10 @@ const STANDARD_ACCOUNTS: { code: string; name: string; class: string; normalBala
   { code: ACCOUNT_CODES.GENERAL_OPERATING, name: 'General operating expense', class: 'EXPENSE', normalBalance: 'DEBIT' },
   { code: ACCOUNT_CODES.VAT_RECEIVABLE, name: 'VAT receivable', class: 'ASSET', normalBalance: 'DEBIT' },
   { code: ACCOUNT_CODES.VAT_PAYABLE, name: 'VAT payable', class: 'LIABILITY', normalBalance: 'CREDIT' },
+  { code: ACCOUNT_CODES.EMPLOYEE_ADVANCES, name: 'Employee advances', class: 'ASSET', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.PAYE_PAYABLE, name: 'PAYE payable', class: 'LIABILITY', normalBalance: 'CREDIT' },
+  { code: ACCOUNT_CODES.NSSF_PAYABLE, name: 'NSSF payable', class: 'LIABILITY', normalBalance: 'CREDIT' },
+  { code: ACCOUNT_CODES.SHIF_PAYABLE, name: 'SHIF payable', class: 'LIABILITY', normalBalance: 'CREDIT' },
 ]
 
 // Idempotent: ON CONFLICT DO NOTHING on the unique `code` index, so this is
@@ -451,12 +462,28 @@ export async function postExpensePaymentJournal(
 // postSaleJournal/postPurchaseJournal above.
 export async function postPayrollJournal(
   tx: Tx,
-  run: { id: string; tenantId: string; totalAmountCents: number; periodStart: Date; periodEnd: Date; farmId?: string | null },
+  run: {
+    id: string
+    tenantId: string
+    totalAmountCents: number
+    periodStart: Date
+    periodEnd: Date
+    farmId?: string | null
+    netCents?: number | null
+    payeCents?: number
+    nssfCents?: number
+    shifCents?: number
+    advanceCents?: number
+  },
   opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
   const expenseAccountId = await accountIdByCode(tx, ACCOUNT_CODES.PAYROLL_EXPENSE)
   const cashAccountId = await accountIdByCode(tx, ACCOUNT_CODES.CASH)
+  const payeAccountId = await accountIdByCode(tx, ACCOUNT_CODES.PAYE_PAYABLE)
+  const nssfAccountId = await accountIdByCode(tx, ACCOUNT_CODES.NSSF_PAYABLE)
+  const shifAccountId = await accountIdByCode(tx, ACCOUNT_CODES.SHIF_PAYABLE)
+  const advanceAccountId = await accountIdByCode(tx, ACCOUNT_CODES.EMPLOYEE_ADVANCES)
 
   // "The employee master carries its unit and farm, so postPayrollJournal
   // picks them up without anyone re-keying" (owner instruction) — true for
@@ -480,17 +507,35 @@ export async function postPayrollJournal(
       sourceType: 'payroll_run',
       sourceId: run.id,
       farmId,
+      // The pay period, not the day someone recorded the payment. Moving
+      // this onto the pay date would put the wages in a different month.
+      entryDate: run.periodEnd,
       memo: `Payroll run ${run.periodStart.toISOString().slice(0, 10)} to ${run.periodEnd.toISOString().slice(0, 10)}`,
     })
     .returning()
 
-  // Zero-amount entries would balance trivially but carry no information —
-  // the route this is called from already refuses to create a run with no
-  // eligible (rate > 0) employees, so `totalAmountCents` is always > 0 here.
-  const lines = await tx.insert(journalLines).values([
-    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: run.totalAmountCents, creditCents: 0 },
-    { id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debitCents: 0, creditCents: run.totalAmountCents },
-  ]).returning()
+  // With no statutory split, cash equals the expense debit — the entry this
+  // function posted before deductions existed. A split must add back to the
+  // same debit or the books would not balance.
+  const net = run.netCents ?? run.totalAmountCents
+  const paye = run.payeCents ?? 0
+  const nssf = run.nssfCents ?? 0
+  const shif = run.shifCents ?? 0
+  const advance = run.advanceCents ?? 0
+  if (net + paye + nssf + shif + advance !== run.totalAmountCents) {
+    throw new Error('Payroll journal does not balance')
+  }
+  const drafted: { accountId: string; debitCents: number; creditCents: number }[] = [
+    { accountId: expenseAccountId, debitCents: run.totalAmountCents, creditCents: 0 },
+  ]
+  if (net > 0) drafted.push({ accountId: cashAccountId, debitCents: 0, creditCents: net })
+  if (paye > 0) drafted.push({ accountId: payeAccountId, debitCents: 0, creditCents: paye })
+  if (nssf > 0) drafted.push({ accountId: nssfAccountId, debitCents: 0, creditCents: nssf })
+  if (shif > 0) drafted.push({ accountId: shifAccountId, debitCents: 0, creditCents: shif })
+  if (advance > 0) drafted.push({ accountId: advanceAccountId, debitCents: 0, creditCents: advance })
+  const lines = await tx.insert(journalLines).values(
+    drafted.map((line) => ({ id: randomUUID(), entryId: entry.id, ...line })),
+  ).returning()
 
   await captureDimensions(tx, {
     tenantId: run.tenantId, docType: 'payroll_run', docId: run.id, sourceMaster, explicit: opts.dimensions,

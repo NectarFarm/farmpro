@@ -400,6 +400,20 @@
       "when": 1790800000000,
       "tag": "0056_posting_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0057_kenyan_payroll",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1791000000000,
+      "tag": "0058_statutory_rate_base",
+      "breakpoints": true
     }
   ]
 }

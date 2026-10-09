@@ -78,7 +78,7 @@ const ROLES: { who: string; signIn: string; does: string }[] = [
 
 const NOT_YET: { title: string; body: string }[] = [
   { title: 'No VAT handling', body: 'Sales and purchases are recorded at the amount you enter. IFMS does not work out, split out or report VAT.' },
-  { title: 'Payroll is gross pay only', body: 'A payroll run produces payslips from the pay you set. It does not calculate PAYE, NSSF, health or housing levy, or any other statutory deduction. Do those elsewhere and keep the figures for your records.' },
+  { title: 'Statutory pay needs a rate', body: 'PAYE, NSSF and SHIF appear on a payslip only when a platform admin has entered a rate that is effective on the period end. Otherwise the payslip says that scheme is not configured. Housing levy is not calculated.' },
   { title: 'A purchase and an expense are the same entry', body: 'Buying feed and paying a repair bill both go in as a purchase. There is no separate expense type with its own rules yet.' },
   { title: 'No offline recording', body: 'Recording needs a connection. There is no queue that saves entries on the phone and sends them later, so a house with no signal cannot record until you are back in range.' },
   { title: 'No SMS', body: 'Alerts and approval requests arrive inside the app (and some by email). Nothing is sent by text message, and quiet hours and per-alert switches do not exist yet.' },
