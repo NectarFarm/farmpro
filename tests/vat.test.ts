@@ -3,7 +3,7 @@
 // column existed. Re-applying the migration does not move a seeded period.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq, inArray, sql } from 'drizzle-orm'
 
@@ -214,8 +214,39 @@ describe('VAT arithmetic', () => {
 describe('VAT screens', () => {
   const finance = readFileSync(join(process.cwd(), 'components/farm/finance.tsx'), 'utf8')
   const expense = readFileSync(join(process.cwd(), 'components/farm/expense-sheet.tsx'), 'utf8')
+  const inventory = readFileSync(join(process.cwd(), 'components/farm/inventory.tsx'), 'utf8')
   const fields = readFileSync(join(process.cwd(), 'components/farm/tax-fields.tsx'), 'utf8')
   const panel = readFileSync(join(process.cwd(), 'components/farm/tax-rates-panel.tsx'), 'utf8')
+
+  it('every screen that POSTs a purchase, sale or expense sends a tax code', () => {
+    // Walk every component; a new Record sheet that posts without the tax
+    // fields fails here. The CSV opening-stock import is the one documented
+    // exception: it loads stock on hand, it is not a tax invoice.
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(e.name)) files.push(full)
+      }
+    }
+    walk(join(process.cwd(), 'components'))
+    const posts: string[] = []
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8')
+      const re = /\.post(?:<[^(]*>)?\(\s*'\/api\/(purchases|data\/sales|expenses)'\s*,\s*\{/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(src))) {
+        const body = src.slice(m.index, src.indexOf('\n    });', m.index))
+        if (body.includes("supplier: 'CSV Import'")) continue
+        posts.push(f)
+        expect(body, `${f} posts to /api/${m[1]} without taxCode`).toContain('taxCode')
+        expect(src, `${f} has no <TaxFields>`).toContain('<TaxFields')
+      }
+    }
+    // finance (sale + purchase), inventory (purchase), expense sheet.
+    expect(posts.length).toBeGreaterThanOrEqual(4)
+  })
 
   it('puts the tax block on sale, purchase, and expense, and not on payroll', () => {
     const payrollAt = finance.indexOf('function RunPayrollSheet')
@@ -224,6 +255,7 @@ describe('VAT screens', () => {
     expect(beforePayroll.match(/<TaxFields/g)).toHaveLength(2)
     expect(finance.slice(payrollAt)).not.toContain('<TaxFields')
     expect(expense).toContain('<TaxFields')
+    expect(inventory).toContain('<TaxFields')
     expect(fields).not.toMatch(/<select[\s>]/)
     expect(fields).not.toContain('type="date"')
     expect(panel).not.toMatch(/<select[\s>]/)

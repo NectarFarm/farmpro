@@ -29,6 +29,8 @@ import { Sheet, SheetTitle } from '@/components/ui-kit/sheet';
 import { Dossier, Inspector, Kv } from '@/components/ui-kit/inspector';
 import { Field } from '@/components/ui-kit/field';
 import { Select } from '@/components/ui-kit/select';
+import { previewTax, taxBlockMessage } from '@/lib/tax';
+import { TaxFields, useTaxCatalogue } from './tax-fields';
 
 // ── Inventory screen, redesigned onto the reference (ui/governance-
 // reference-redesign) but wired to the exact same backend as before — see
@@ -198,6 +200,9 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   const [receivedDate, setReceivedDate] = useState('');
   const [transactionDate, setTransactionDate] = useState('');
   const [postingDate, setPostingDate] = useState('');
+  const [purchaseTaxCode, setPurchaseTaxCode] = useState('');
+  const [purchaseTaxInclusive, setPurchaseTaxInclusive] = useState(false);
+  const { catalogue: purchaseTaxCatalogue, error: purchaseTaxCatalogueError } = useTaxCatalogue(tenantId);
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
@@ -232,8 +237,20 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
   const qtyNum = Number(quantity);
   const unitCostCentsLive = parseMoneyToCents(unitCost);
   const totalCentsLive = Number.isFinite(qtyNum) && qtyNum > 0 && unitCostCentsLive !== null ? qtyNum * unitCostCentsLive : null;
+  // Same posting-day resolution as the Finance sheet's purchase form, so both
+  // entry points pick the VAT rate in force on the same day.
+  const purchaseTaxDay = postingDate || receivedDate || todayIso;
+  const purchaseTaxPreview = previewTax({
+    code: purchaseTaxCode,
+    baseCents: totalCentsLive,
+    inclusive: purchaseTaxInclusive,
+    rates: purchaseTaxCatalogue?.rates ?? [],
+    day: purchaseTaxDay,
+  });
+  const purchaseTaxBlocks = taxBlockMessage(purchaseTaxPreview);
+  const purchaseBillCents = purchaseTaxPreview.status === 'ok' ? purchaseTaxPreview.grossCents : totalCentsLive;
   const amountPaidCentsLive = amountPaid ? parseMoneyToCents(amountPaid) : 0;
-  const amountDueCents = totalCentsLive !== null ? Math.max(0, totalCentsLive - (amountPaidCentsLive ?? 0)) : null;
+  const amountDueCents = purchaseBillCents !== null ? Math.max(0, purchaseBillCents - (amountPaidCentsLive ?? 0)) : null;
 
   // Credit means unpaid (item 2): choosing it locks "Paid now" at 0 and
   // reveals the due date.
@@ -298,9 +315,10 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
     // Paying more than the bill left the purchase row claiming it was PAID
     // while the journal only credited Cash the total — the difference simply
     // vanished from the ledger. Refused on both sides now.
-    else if (amountPaidCents !== null && unitCostCents !== null && amountPaidCents > qty * unitCostCents) {
+    else if (!purchaseTaxBlocks && amountPaidCents !== null && purchaseBillCents !== null && amountPaidCents > purchaseBillCents) {
       errs.amountPaid = 'Paid now is more than the purchase total';
     }
+    if (purchaseTaxBlocks) errs.tax = purchaseTaxBlocks;
     Object.assign(errs, missingDimensionErrors(requiredDims, dimPicks));
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -312,7 +330,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
     const totalCents = qty * (unitCostCents as number);
     setSaving(true);
     setError('');
-    const res = await apiClient.post<{ id: string; lot: { lotNo: string } }>('/api/purchases', {
+    const res = await apiClient.post<{ id: string; lot: { lotNo: string }; purchase?: { id?: string; totalCostCents?: number } }>('/api/purchases', {
       tenantId,
       supplier: supplier.trim(),
       supplierId: supplierId || undefined,
@@ -322,6 +340,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
       lowStockThreshold: lowStockThreshold ? Math.trunc(Number(lowStockThreshold)) : undefined,
       quantity: qty,
       unitCostCents,
+      ...(purchaseTaxCode ? { taxCode: purchaseTaxCode, taxInclusive: purchaseTaxCode === 'VATABLE' ? purchaseTaxInclusive : false } : {}),
       paymentMethod: paymentMethod.trim() || undefined,
       paymentReference: reference.trim() || undefined,
       amountPaidCents: amountPaidCents ?? undefined,
@@ -343,7 +362,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
       setReceipt({
         id: (res.data as { purchase?: { id?: string } }).purchase?.id,
         totalLabel: 'Total',
-        totalCents,
+        totalCents: typeof res.data.purchase?.totalCostCents === 'number' ? res.data.purchase.totalCostCents : (purchaseBillCents ?? totalCents),
         stockEffect: `${qty} ${unit.trim()} of ${itemName.trim()} out of ${res.data.lot?.lotNo ?? 'the new lot'}`,
       });
     } else {
@@ -448,6 +467,17 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
               <span className="text-xs font-semibold text-muted">Total</span>
               <span className="font-display text-lg font-medium text-primary">{totalCentsLive !== null ? `KSh ${centsToMajor(totalCentsLive).toLocaleString()}` : '—'}</span>
             </div>
+            <TaxFields
+              catalogue={purchaseTaxCatalogue}
+              catalogueError={purchaseTaxCatalogueError}
+              taxCode={purchaseTaxCode}
+              onTaxCode={setPurchaseTaxCode}
+              inclusive={purchaseTaxInclusive}
+              onInclusive={setPurchaseTaxInclusive}
+              baseCents={totalCentsLive}
+              postingDay={purchaseTaxDay}
+            />
+            {fieldErrors.tax && <p className="text-xs text-danger">{fieldErrors.tax}</p>}
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Lot No.">
@@ -527,7 +557,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
         </div>
         <div className="shrink-0 border-t border-border bg-surface px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error && <SaveError message={error} onSetupDimensions={() => { onClose(); navigate('dimensions'); }} />}
-          <Button className="w-full justify-center" onClick={save} disabled={saving}>
+          <Button className="w-full justify-center" onClick={save} disabled={saving || !!purchaseTaxBlocks}>
             {saving ? 'Saving…' : 'Record Purchase'}
           </Button>
         </div>
