@@ -31,6 +31,7 @@ import {
   type LucideIcon,
 } from './icons';
 import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, formatDate, formatDateTime, formatIsoDay, setActiveRegional, type DateFormat } from '@/lib/datetime';
+import { centsToMajor, formatMoney, parseMoneyToCents } from '@/lib/money';
 
 /* ── Theme Context (global, used by globals.css overrides) ── */
 export type ThemeMode = 'dark-farm' | 'high-contrast' | 'light-farm' | 'sun-mode';
@@ -198,6 +199,7 @@ interface ApiSettings {
   timezone: string;
   dateFormat: DateFormat;
   sessionTimeoutMinutes: number | null;
+  varianceApprovalThresholdCents: number | null;
 }
 
 const CURRENCY_OPTIONS = ['KSh', 'UGX', 'TZS', 'USD', 'EUR', 'ZAR', 'NGN'];
@@ -350,6 +352,9 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   const { theme, setTheme, fontSize, setFontSize } = useTheme();
   const [settings, setSettings] = useState<ApiSettings | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  // null follows the saved approval line. A string is what the owner is
+  // typing, and it is not sent until they leave the field.
+  const [thresholdDraft, setThresholdDraft] = useState<string | null>(null);
 
   const loadSettings = useCallback(() => {
     apiClient.get<ApiSettings>(`/api/settings?tenantId=${tenantId}`).then((res) => {
@@ -371,6 +376,33 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
   const timezone = settings?.timezone ?? 'Africa/Nairobi';
   const dateFormat = settings?.dateFormat ?? 'DD/MM/YYYY';
   const sessionTimeoutMinutes = settings?.sessionTimeoutMinutes ?? null;
+  const varianceApprovalThresholdCents = settings?.varianceApprovalThresholdCents ?? null;
+  const thresholdShown = thresholdDraft !== null
+    ? thresholdDraft
+    : varianceApprovalThresholdCents === null
+      ? ''
+      : String(centsToMajor(varianceApprovalThresholdCents));
+
+  function commitThreshold() {
+    if (thresholdDraft === null || !settings) return;
+    const trimmed = thresholdDraft.trim();
+    if (trimmed === '') {
+      setThresholdDraft(null);
+      updateSetting('varianceApprovalThresholdCents', null);
+      return;
+    }
+    const cents = parseMoneyToCents(trimmed);
+    if (cents === null) {
+      showToast('Enter an amount, or leave the line blank.', 'error');
+      return;
+    }
+    if (cents < 0) {
+      showToast('The approval line cannot be negative.', 'error');
+      return;
+    }
+    setThresholdDraft(null);
+    updateSetting('varianceApprovalThresholdCents', cents);
+  }
 
   // Toggles are optimistic (flip immediately), then persisted per-tenant via
   // PATCH /api/settings — this is a tenant-wide record (issue #255), so a
@@ -489,6 +521,25 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                   {DATE_FORMAT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </Select>
               </Field>
+            </div>
+            <div className="mt-3">
+              <Field label="Stock-count approval line">
+                <Input
+                  inputMode="decimal"
+                  placeholder="No threshold"
+                  className="min-h-11 h-11"
+                  value={thresholdShown}
+                  disabled={!!ownerOnlyNote || !settings}
+                  title={ownerOnlyNote}
+                  onChange={(e) => setThresholdDraft(e.target.value)}
+                  onBlur={commitThreshold}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                />
+              </Field>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted">Leave this blank and a stock adjustment saves immediately, whatever it is worth. Set an amount and a larger cost impact waits for approval.</p>
+              {thresholdDraft === null && varianceApprovalThresholdCents !== null && (
+                <p className="mt-1 text-xs leading-relaxed text-muted">A cost impact above {formatMoney(varianceApprovalThresholdCents, currencySymbol)} waits for approval. A smaller one, or one equal to it, saves immediately.</p>
+              )}
             </div>
             {ownerOnlyNote && <p className="mt-3 text-xs text-subtle">{ownerOnlyNote}.</p>}
             <button

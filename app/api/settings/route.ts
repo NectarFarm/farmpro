@@ -73,6 +73,9 @@ function defaultsFor(tenantId: string) {
     // settings row must not silently lose the caveats off its reports.
     reportNotesEnabled: true,
     sessionTimeoutMinutes: null as number | null,
+    // No stock-count approval line until someone sets one. Null is the
+    // documented default, including for a tenant that has no settings row.
+    varianceApprovalThresholdCents: null as number | null,
     updatedAt: null as Date | null,
   }
 }
@@ -201,6 +204,19 @@ export async function PATCH(req: Request) {
       fields.sessionTimeoutMinutes = `sessionTimeoutMinutes must be an integer between ${MIN_SESSION_TIMEOUT_MINUTES} and ${MAX_SESSION_TIMEOUT_MINUTES}, or null`
     } else {
       patch.sessionTimeoutMinutes = b.sessionTimeoutMinutes
+    }
+  }
+  if (b.varianceApprovalThresholdCents !== undefined) {
+    if (b.varianceApprovalThresholdCents === null) {
+      patch.varianceApprovalThresholdCents = null
+    } else if (
+      typeof b.varianceApprovalThresholdCents !== 'number' ||
+      !Number.isSafeInteger(b.varianceApprovalThresholdCents) ||
+      b.varianceApprovalThresholdCents < 0
+    ) {
+      fields.varianceApprovalThresholdCents = 'varianceApprovalThresholdCents must be a non-negative integer number of cents, or null'
+    } else {
+      patch.varianceApprovalThresholdCents = b.varianceApprovalThresholdCents
     }
   }
 
