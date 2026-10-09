@@ -26,6 +26,9 @@ export const CAPABILITIES = [
   // payroll rate tables). A staff row that listed the previous set does not
   // gain this until it is granted — fail closed. A super_admin with no
   // platform_staff row still has every capability.
+  // ADDING A CAPABILITY HERE REQUIRES A MIGRATION that appends it to the rows
+  // holding every earlier one (see drizzle/0052_staff_catalogue_manage.sql),
+  // or the "last full admin" guard stops counting them.
   'catalogue.manage',
 ] as const
 
