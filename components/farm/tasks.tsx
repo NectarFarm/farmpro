@@ -1,4 +1,5 @@
 'use client';
+import { DateField } from '@/components/ui-kit';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import {
@@ -724,13 +725,13 @@ function AddTaskSheet({ employees, farms, activeFarmId, approvers, initial, onCl
           </Field>
           {recurrence !== 'none' && (
             <Field label="Stop repeating after (optional)">
-              <Input type="date" value={recurrenceUntil} onChange={e => setRecurrenceUntil(e.target.value)} />
+              <DateField value={recurrenceUntil} onChange={setRecurrenceUntil} />
             </Field>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Due date">
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              <DateField value={dueDate} onChange={setDueDate} />
             </Field>
             <Field label="Due time">
               <Input type="time" value={dueTime} onChange={e => setDueTime(e.target.value)} />

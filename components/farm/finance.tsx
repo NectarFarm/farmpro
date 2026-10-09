@@ -1,4 +1,6 @@
 'use client';
+import { fmtFarmDate } from '@/lib/datetime';
+import { DateField } from '@/components/ui-kit';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
@@ -232,7 +234,7 @@ interface PayrollPreview {
 }
 
 function fmtDate(d?: string | null): string {
-  return d ? d.slice(0, 10) : '—';
+  return fmtFarmDate(d);
 }
 
 const catChipClass = (cat: string) =>
@@ -535,9 +537,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
               {/* Capped at today: a future-dated sale drops out of every P&L
                   period while staying in the trial balance, and the two can then
                   never be reconciled. */}
-              <input className="farm-input" type="date" max={todayIso} value={soldAt} onChange={e => setSoldAt(e.target.value)}
-                style={fieldErrorStyle(!!fieldErrors.soldAt)}
-                aria-invalid={!!fieldErrors.soldAt} aria-describedby={fieldErrors.soldAt ? 'sale-solddate-error' : undefined} />
+              <DateField max={todayIso} value={soldAt} onChange={setSoldAt} invalid={!!fieldErrors.soldAt} aria-describedby={fieldErrors.soldAt ? 'sale-solddate-error' : undefined} />
               <FieldError id="sale-solddate-error" message={fieldErrors.soldAt} />
             </div>
           </div>
@@ -552,9 +552,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
               THIS — the form says so rather than hiding a silent default. */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Effective date (optional)</label>
-            <input className="farm-input" type="date" max={todayIso} value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.effectiveDate)}
-              aria-invalid={!!fieldErrors.effectiveDate} aria-describedby={fieldErrors.effectiveDate ? 'sale-effectivedate-error' : undefined} />
+            <DateField max={todayIso} value={effectiveDate} onChange={setEffectiveDate} invalid={!!fieldErrors.effectiveDate} aria-describedby={fieldErrors.effectiveDate ? 'sale-effectivedate-error' : undefined} />
             <FieldError id="sale-effectivedate-error" message={fieldErrors.effectiveDate} />
             <p className="mt-1 text-[11px] leading-relaxed text-muted">When the stock or service actually took effect, if different from Sale date. Defaults to Sale date.</p>
           </div>
@@ -564,9 +562,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
               be posted to the month it belongs to. */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Posting date (optional)</label>
-            <input className="farm-input" type="date" max={todayIso} value={salePostingDate} onChange={e => setSalePostingDate(e.target.value)}
-              style={fieldErrorStyle(!!fieldErrors.salePostingDate)}
-              aria-invalid={!!fieldErrors.salePostingDate} aria-describedby={fieldErrors.salePostingDate ? 'sale-postingdate-error' : undefined} />
+            <DateField max={todayIso} value={salePostingDate} onChange={setSalePostingDate} invalid={!!fieldErrors.salePostingDate} aria-describedby={fieldErrors.salePostingDate ? 'sale-postingdate-error' : undefined} />
             <FieldError id="sale-postingdate-error" message={fieldErrors.salePostingDate} />
             <p className="mt-1 text-[11px] leading-relaxed text-muted">Which month this counts in on reports and the trial balance. Defaults to the effective date.</p>
           </div>
@@ -595,7 +591,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
                 <span className="font-medium text-fg">{totalCents !== null ? formatMoney(totalCents) : '—'}</span>
               </div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due date</label>
-              <input className="farm-input" type="date" min={todayIso} value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              <DateField min={todayIso} value={dueDate} onChange={setDueDate} />
             </div>
           )}
           <div style={{ marginBottom: 12 }}>
@@ -929,7 +925,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
           {(paymentMethod === 'Credit' || (amountDueCents ?? 0) > 0) && (
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due date</label>
-              <input className="farm-input" type="date" min={todayIso} value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              <DateField min={todayIso} value={dueDate} onChange={setDueDate} />
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -939,7 +935,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
             </div>
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Received date</label>
-              <input className="farm-input" type="date" max={todayIso} value={receivedDate} onChange={e => setReceivedDate(e.target.value)} />
+              <DateField max={todayIso} value={receivedDate} onChange={setReceivedDate} />
             </div>
           </div>
           {/* item 18: when the purchase transaction itself happened (placing
@@ -948,7 +944,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
               date, and so does the ledger posting date. */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Transaction date (optional)</label>
-            <input className="farm-input" type="date" max={todayIso} value={transactionDate} onChange={e => setTransactionDate(e.target.value)} />
+            <DateField max={todayIso} value={transactionDate} onChange={setTransactionDate} />
             <p className="mt-1 text-[11px] leading-relaxed text-muted">When the purchase itself happened, if different from Received date. Defaults to Received date.</p>
           </div>
           {/* The period this counts in. It defaults to the transaction date,
@@ -959,7 +955,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
               there was no way to say it (or to check that reports honour it). */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Posting date (optional)</label>
-            <input className="farm-input" type="date" max={todayIso} value={postingDate} onChange={e => setPostingDate(e.target.value)} />
+            <DateField max={todayIso} value={postingDate} onChange={setPostingDate} />
             <p className="mt-1 text-[11px] leading-relaxed text-muted">Which month this counts in on reports and the trial balance. Defaults to the transaction date.</p>
           </div>
           <div style={{ marginBottom: 12 }}>
@@ -1098,7 +1094,7 @@ function SaleDetailSheet({ tenantId, sale, onClose, onChanged }: {
             </div>
             <div>
               <label style={detailLabelStyle}>Due date</label>
-              <input type="date" className="farm-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <DateField value={dueDate} onChange={setDueDate} />
             </div>
             <div>
               <label style={detailLabelStyle}>Notes</label>
@@ -1238,7 +1234,7 @@ function PurchaseDetailSheet({ tenantId, purchase, itemLabel, onClose, onChanged
             </div>
             <div>
               <label style={detailLabelStyle}>Due date</label>
-              <input type="date" className="farm-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <DateField value={dueDate} onChange={setDueDate} />
             </div>
             <div>
               <label style={detailLabelStyle}>Notes</label>
@@ -1608,11 +1604,11 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               <div>
                 <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period start *</label>
-                <input className="farm-input" type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} />
+                <DateField value={periodStart} onChange={setPeriodStart} />
               </div>
               <div>
                 <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period end *</label>
-                <input className="farm-input" type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} />
+                <DateField value={periodEnd} onChange={setPeriodEnd} />
               </div>
             </div>
             <div style={{ marginBottom: 12 }}>

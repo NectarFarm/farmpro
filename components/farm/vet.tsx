@@ -1,4 +1,5 @@
 'use client';
+import { fmtFarmDate } from '@/lib/datetime';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { useToast } from './ui-shared';
@@ -71,10 +72,7 @@ interface ApiRecord {
 const CAUSES = MORTALITY_CAUSES;
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' });
+  return fmtFarmDate(iso);
 }
 
 export function VetHerdScreen() {

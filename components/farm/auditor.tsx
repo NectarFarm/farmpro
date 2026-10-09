@@ -1,4 +1,5 @@
 'use client';
+import { DateField } from '@/components/ui-kit';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
@@ -114,11 +115,11 @@ export function AuditorReportsScreen() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>From</label>
-              <input className="farm-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
+              <DateField value={dateFrom} onChange={setDateFrom} />
             </div>
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>To</label>
-              <input className="farm-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ fontSize: 'var(--fs-base)' }} />
+              <DateField value={dateTo} onChange={setDateTo} />
             </div>
           </div>
         </div>

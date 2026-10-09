@@ -1,4 +1,6 @@
 'use client';
+import { fmtFarmDate } from '@/lib/datetime';
+import { DateField } from '@/components/ui-kit';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
@@ -110,7 +112,7 @@ function CategoryIcon({ category }: { category: string }) {
 
 function fmtDate(d?: string | null): string | undefined {
   if (!d) return undefined;
-  return d.slice(0, 10);
+  return fmtFarmDate(d);
 }
 
 function avgUnitCostCents(item: ApiInventoryItem): number {
@@ -451,7 +453,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
                 <Input placeholder="auto if blank" value={lotNo} onChange={e => setLotNo(e.target.value)} />
               </Field>
               <Field label="Expiry date">
-                <Input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
+                <DateField value={expiryDate} onChange={setExpiryDate} />
               </Field>
             </div>
 
@@ -474,7 +476,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
             {/* Credit means unpaid (item 2): a due date once there's a balance to chase. */}
             {(paymentMethod === 'Credit' || (amountDueCents ?? 0) > 0) && (
               <Field label="Due date">
-                <Input type="date" min={todayIso} value={dueDate} onChange={e => setDueDate(e.target.value)} />
+                <DateField min={todayIso} value={dueDate} onChange={setDueDate} />
               </Field>
             )}
 
@@ -483,7 +485,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
                 <Input placeholder="e.g. INV-00231" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} />
               </Field>
               <Field label="Received date">
-                <Input type="date" max={todayIso} value={receivedDate} onChange={e => setReceivedDate(e.target.value)} />
+                <DateField max={todayIso} value={receivedDate} onChange={setReceivedDate} />
               </Field>
             </div>
 
@@ -491,13 +493,13 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, prefill, 
                 different from Received date. Defaults to Received date, and
                 so does the ledger posting date. */}
             <Field label="Transaction date (optional)">
-              <Input type="date" max={todayIso} value={transactionDate} onChange={e => setTransactionDate(e.target.value)} />
+              <DateField max={todayIso} value={transactionDate} onChange={setTransactionDate} />
               <p className="mt-1 text-[11px] leading-relaxed text-muted">Defaults to Received date — and the ledger posting date defaults to this too.</p>
             </Field>
             {/* Which period it counts in; defaults to the transaction date and
                 through it to Received date, so blank behaves as before. */}
             <Field label="Posting date (optional)">
-              <input className="farm-input" type="date" max={todayIso} value={postingDate} onChange={e => setPostingDate(e.target.value)} />
+              <DateField max={todayIso} value={postingDate} onChange={setPostingDate} />
               <p className="mt-1 text-[11px] leading-relaxed text-muted">Which month this counts in on reports. Defaults to the transaction date.</p>
             </Field>
 
