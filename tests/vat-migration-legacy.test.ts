@@ -79,8 +79,16 @@ run('pre-VAT rows across the VAT migration', () => {
       }
       const before = await figures()
 
-      await scratch.unsafe(readFileSync(join(process.cwd(), 'drizzle/0054_vat.sql'), 'utf8').split('--> statement-breakpoint').join('\n'))
-      expect(await figures()).toEqual(before)
+      // 0054 is the migration under test; every later one is applied after it
+      // so the app's current schema can read the scratch database. None of
+      // them may move a figure either.
+      const later = readdirSync(join(process.cwd(), 'drizzle'))
+        .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f >= '0054_')
+        .sort()
+      for (const file of later) {
+        await scratch.unsafe(readFileSync(join(process.cwd(), 'drizzle', file), 'utf8').split('--> statement-breakpoint').join('\n'))
+        expect(await figures()).toEqual(before)
+      }
 
       // The app's own reports, pointed at the migrated scratch database.
       process.env.DATABASE_URL = scratchUrl
