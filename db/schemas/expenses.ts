@@ -55,6 +55,8 @@ export const expenses = pgTable('expenses', {
   grossCents: bigint('gross_cents', { mode: 'number' }),
   taxCents: bigint('tax_cents', { mode: 'number' }),
   netCents: bigint('net_cents', { mode: 'number' }),
+  // Issue #424. Null means the expense was posted when it was recorded.
+  approvalStatus: text('approval_status'),
 }, (t) => [
   index('idx_expenses_tenant').on(t.tenantId),
   index('idx_expenses_tenant_posting').on(t.tenantId, t.postingDate),

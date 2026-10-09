@@ -14,6 +14,7 @@ import { parseInventoryAdjustmentDetails } from '@/lib/inventory-adjustment'
 import { spawnNextOccurrence } from '@/lib/tasks'
 import { applyCount, applyMovement } from '@/lib/batch-ledger'
 import { createAndEmailNotification } from '@/lib/notification-email'
+import { applyMoneyDecision, MoneyApprovalError } from '@/lib/money-approval-apply'
 
 export type ApprovalDecision = 'approved' | 'rejected'
 
@@ -278,6 +279,20 @@ export async function decideApproval(
           approvalId: approval.id,
         },
       })
+    }
+
+    if (approval.type === 'money_posting') {
+      try {
+        await applyMoneyDecision(tx, {
+          tenantId,
+          entityId: approval.entityId,
+          details: approval.details,
+          decision,
+        })
+      } catch (err) {
+        if (err instanceof MoneyApprovalError) throw new ApprovalError(err.message, err.status)
+        throw err
+      }
     }
 
     await tx.insert(auditLog).values({

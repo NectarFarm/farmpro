@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, sql, desc } from 'drizzle-orm'
 import { db } from '@/db'
 import { customers, sales } from '@/db/schemas'
+import { inTheBooks } from '@/lib/in-the-books'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, MODULES } from '@/lib/permissions'
 
@@ -46,7 +47,7 @@ export async function GET(req: Request) {
       balanceCents: sql<string>`coalesce(sum(case when ${sales.status} = 'pending' then ${sales.amountCents} else 0 end), 0)`,
     })
     .from(customers)
-    .leftJoin(sales, and(eq(sales.customerId, customers.id), eq(sales.tenantId, tenantId)))
+    .leftJoin(sales, and(eq(sales.customerId, customers.id), eq(sales.tenantId, tenantId), inTheBooks(sales.approvalStatus)))
     .where(and(...conditions))
     .groupBy(customers.id)
     .orderBy(desc(customers.createdAt))

@@ -7,8 +7,10 @@ import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { isInvalid, requireNonNegativeCount } from '@/lib/validate-input'
 import { isImageDataUrl, dataUrlByteSize, MAX_PHOTO_BYTES } from '@/lib/record-photos'
-import { ADJUSTMENT_TYPE_IDS, adjustmentIsHeld, type InventoryAdjustmentProposal } from '@/lib/inventory-adjustment'
+import { ADJUSTMENT_TYPE_IDS, type InventoryAdjustmentProposal } from '@/lib/inventory-adjustment'
 import { notifyApprovalRaised } from '@/lib/governance'
+import { loadPostingPolicies } from '@/lib/posting-policies'
+import { varianceDecision } from '@/lib/posting-policy'
 
 // ── PATCH /api/inventory/lots/[id] (issue #235 task 5) ──────────────────────
 // Reason-required quantity adjustment. Every adjustment writes a real
@@ -125,7 +127,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     .where(eq(tenantSettings.tenantId, tenantId))
     .limit(1)
   const thresholdCents = settings?.threshold ?? null
-  const held = adjustmentIsHeld(costImpactCents, thresholdCents)
+  const policies = await loadPostingPolicies(tenantId)
+  const decision = varianceDecision(costImpactCents, policies, thresholdCents)
+  if (decision.outcome === 'block') return badRequest(decision.message)
+  const held = decision.outcome === 'pending'
 
   if (held) {
     if (!countedBy) return badRequest('Name the person who counted.')

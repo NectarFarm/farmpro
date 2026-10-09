@@ -393,6 +393,13 @@
       "when": 1790700000000,
       "tag": "0055_landed_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1790800000000,
+      "tag": "0056_posting_policies",
+      "breakpoints": true
     }
   ]
 }

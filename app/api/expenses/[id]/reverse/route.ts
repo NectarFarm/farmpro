@@ -40,6 +40,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const existing = rows[0]
   if (!existing) return notFound('Expense not found for this tenant')
   if (existing.reversedAt) return badRequest('This expense has already been reversed')
+  if (existing.approvalStatus === 'pending' || existing.approvalStatus === 'rejected') {
+    return badRequest('This expense is not in the books.')
+  }
 
   if (!canModifyOwnRow(session.role, session.id, existing.recordedBy)) {
     return forbidden('You may only reverse expenses you recorded yourself')

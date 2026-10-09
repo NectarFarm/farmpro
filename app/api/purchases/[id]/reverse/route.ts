@@ -45,6 +45,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const existing = rows[0]
   if (!existing) return notFound('Purchase not found for this tenant')
   if (existing.reversedAt) return badRequest('This purchase has already been reversed')
+  if (existing.approvalStatus === 'pending' || existing.approvalStatus === 'rejected') {
+    return badRequest('This purchase is not in the books.')
+  }
 
   if (!canModifyOwnRow(session.role, session.id, existing.recordedBy)) {
     return forbidden('You may only reverse purchases you recorded yourself')
