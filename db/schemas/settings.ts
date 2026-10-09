@@ -20,7 +20,7 @@
 // them), edited from Settings proper (components/farm/settings.tsx) rather
 // than the UI Customise branding tab. timezone/dateFormat/
 // sessionTimeoutMinutes are new for the same task — see the fields below.
-import { pgTable, text, timestamp, boolean, integer, jsonb } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, integer, bigint, jsonb } from 'drizzle-orm/pg-core'
 
 // One entry per module id (dashboard/crops/tasks/inventory/finance/people/
 // governance/reports/weather/ai-chat — DEFAULT_MODULES in ui-customise.tsx).
@@ -94,6 +94,14 @@ export const tenantSettings = pgTable('tenant_settings', {
   // nullable rather than defaulting to a number so "never configured" stays
   // distinguishable from "deliberately set to the same value".
   sessionTimeoutMinutes: integer('session_timeout_minutes'),
+
+  // Stock-count approval line (issue #418), in cents. Null means the farm
+  // has not set one: a quantity adjustment saves immediately, exactly as it
+  // did before this column existed. A number means an absolute cost impact
+  // strictly above that amount waits for approval. There is no default
+  // amount — a blank is null, not zero. Zero is a real choice (any non-zero
+  // impact waits) and has to be saved on purpose.
+  varianceApprovalThresholdCents: bigint('variance_approval_threshold_cents', { mode: 'number' }),
 
   updatedAt: timestamp('updated_at').defaultNow(),
 })

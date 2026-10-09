@@ -182,6 +182,7 @@ run('settings backend: password change + per-tenant settings store (issue #255)'
       expect(payload.data.timezone).toBe('Africa/Nairobi')
       expect(payload.data.dateFormat).toBe('DD/MM/YYYY')
       expect(payload.data.sessionTimeoutMinutes).toBeNull()
+      expect(payload.data.varianceApprovalThresholdCents).toBeNull()
     })
 
     it('rejects an unauthenticated GET (401)', async () => {
