@@ -1,4 +1,5 @@
 'use client';
+import { DateField } from '@/components/ui-kit';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNav, TopNav, NAV } from './navigation';
 import { ENTERPRISE_REGISTRY } from './data';
@@ -1228,11 +1229,11 @@ function EditBatchSheet({ batch, tenantId, onClose, onSaved }: {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Harvest date</label>
-            <input className="farm-input" type="date" value={harvestDate} onChange={(e) => setHarvestDate(e.target.value)} />
+            <DateField value={harvestDate} onChange={setHarvestDate} />
           </div>
           <div>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>End date</label>
-            <input className="farm-input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <DateField value={endDate} onChange={setEndDate} />
           </div>
         </div>
 
@@ -2171,11 +2172,11 @@ export function CropScheduleScreen() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               <div>
                 <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Start Date</label>
-                <input className="farm-input" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                <DateField value={startDate} onChange={setStartDate} />
               </div>
               <div>
                 <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>{isCrop ? 'Harvest Date' : 'Expected End'}</label>
-                <input className="farm-input" type="date" value={endOrHarvestDate} onChange={e => setEndOrHarvestDate(e.target.value)} />
+                <DateField value={endOrHarvestDate} onChange={setEndOrHarvestDate} />
               </div>
             </div>
             <div style={{ marginBottom: 12 }}>

@@ -1,4 +1,5 @@
 'use client';
+import { DateField } from '@/components/ui-kit';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNav, TopNav } from './navigation';
 import { apiClient } from '@/lib/request';
@@ -595,7 +596,7 @@ function RecordSaleSheet({ tenantId, batches, onCreated, onViewList, onClose }: 
                 <span className="font-medium text-fg">{totalCents !== null ? formatMoney(totalCents) : '—'}</span>
               </div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due date</label>
-              <input className="farm-input" type="date" min={todayIso} value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              <DateField min={todayIso} value={dueDate} onChange={setDueDate} />
             </div>
           )}
           <div style={{ marginBottom: 12 }}>
@@ -929,7 +930,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
           {(paymentMethod === 'Credit' || (amountDueCents ?? 0) > 0) && (
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Due date</label>
-              <input className="farm-input" type="date" min={todayIso} value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              <DateField min={todayIso} value={dueDate} onChange={setDueDate} />
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -939,7 +940,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
             </div>
             <div>
               <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Received date</label>
-              <input className="farm-input" type="date" max={todayIso} value={receivedDate} onChange={e => setReceivedDate(e.target.value)} />
+              <DateField max={todayIso} value={receivedDate} onChange={setReceivedDate} />
             </div>
           </div>
           {/* item 18: when the purchase transaction itself happened (placing
@@ -948,7 +949,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
               date, and so does the ledger posting date. */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Transaction date (optional)</label>
-            <input className="farm-input" type="date" max={todayIso} value={transactionDate} onChange={e => setTransactionDate(e.target.value)} />
+            <DateField max={todayIso} value={transactionDate} onChange={setTransactionDate} />
             <p className="mt-1 text-[11px] leading-relaxed text-muted">When the purchase itself happened, if different from Received date. Defaults to Received date.</p>
           </div>
           {/* The period this counts in. It defaults to the transaction date,
@@ -959,7 +960,7 @@ function RecordPurchaseSheet({ tenantId, itemNames, categories, units, farms, ac
               there was no way to say it (or to check that reports honour it). */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Posting date (optional)</label>
-            <input className="farm-input" type="date" max={todayIso} value={postingDate} onChange={e => setPostingDate(e.target.value)} />
+            <DateField max={todayIso} value={postingDate} onChange={setPostingDate} />
             <p className="mt-1 text-[11px] leading-relaxed text-muted">Which month this counts in on reports and the trial balance. Defaults to the transaction date.</p>
           </div>
           <div style={{ marginBottom: 12 }}>
@@ -1098,7 +1099,7 @@ function SaleDetailSheet({ tenantId, sale, onClose, onChanged }: {
             </div>
             <div>
               <label style={detailLabelStyle}>Due date</label>
-              <input type="date" className="farm-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <DateField value={dueDate} onChange={setDueDate} />
             </div>
             <div>
               <label style={detailLabelStyle}>Notes</label>
@@ -1238,7 +1239,7 @@ function PurchaseDetailSheet({ tenantId, purchase, itemLabel, onClose, onChanged
             </div>
             <div>
               <label style={detailLabelStyle}>Due date</label>
-              <input type="date" className="farm-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <DateField value={dueDate} onChange={setDueDate} />
             </div>
             <div>
               <label style={detailLabelStyle}>Notes</label>
@@ -1608,11 +1609,11 @@ function RunPayrollSheet({ tenantId, onCreated, onClose }: {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               <div>
                 <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period start *</label>
-                <input className="farm-input" type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} />
+                <DateField value={periodStart} onChange={setPeriodStart} />
               </div>
               <div>
                 <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>Period end *</label>
-                <input className="farm-input" type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} />
+                <DateField value={periodEnd} onChange={setPeriodEnd} />
               </div>
             </div>
             <div style={{ marginBottom: 12 }}>

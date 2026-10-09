@@ -121,3 +121,41 @@ export function formatDateTime(
   const min = parts.find((p) => p.type === 'minute')?.value ?? '00'
   return `${formatDate(d, opts)} ${pad2(Number(hh))}:${min}`
 }
+
+// ── Calendar days (no instant, no timezone) ─────────────────────────────────
+// A plain "YYYY-MM-DD" is a calendar day, not a moment. Pushing it through
+// formatDate (which treats it as UTC midnight and re-zones it) could shift it
+// a day west of UTC, so day-only values are reordered as text instead.
+// A UTC-midnight instant ("2026-08-22T00:00:00.000Z", how date columns come
+// back from the API) is the same calendar day. Anything else is a real
+// instant and goes through formatDate.
+const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.0+)?Z?)?$/
+
+export function formatIsoDay(
+  iso: string | null | undefined,
+  dateFormat: DateFormat = DEFAULT_DATE_FORMAT,
+  timezone: string = DEFAULT_TIMEZONE,
+): string {
+  if (!iso) return '—'
+  const m = ISO_DAY.exec(iso)
+  if (m) {
+    const [, y, mo, d] = m
+    if (dateFormat === 'MM/DD/YYYY') return `${mo}/${d}/${y}`
+    if (dateFormat === 'YYYY-MM-DD') return `${y}-${mo}-${d}`
+    return `${d}/${mo}/${y}`
+  }
+  return formatDate(iso, { timezone, dateFormat })
+}
+
+// Parses what a person typed in the farm's format back to ISO "YYYY-MM-DD".
+// Returns null for anything that is not a real calendar day (31/02/2026).
+export function parseDateInput(text: string, dateFormat: DateFormat = DEFAULT_DATE_FORMAT): string | null {
+  const m = /^(\d{1,4})[/\-.](\d{1,2})[/\-.](\d{1,4})$/.exec(text.trim())
+  if (!m) return null
+  const a = Number(m[1]), b = Number(m[2]), c = Number(m[3])
+  const [y, mo, d] = dateFormat === 'YYYY-MM-DD' ? [a, b, c] : dateFormat === 'MM/DD/YYYY' ? [c, a, b] : [c, b, a]
+  if (y < 1000 || y > 9999) return null
+  const dt = new Date(Date.UTC(y, mo - 1, d))
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null
+  return `${y}-${pad2(mo)}-${pad2(d)}`
+}

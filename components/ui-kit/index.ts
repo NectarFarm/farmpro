@@ -5,6 +5,7 @@ export * from './avatar';
 export * from './badge';
 export * from './button';
 export * from './continue';
+export * from './date-field';
 export * from './dialog';
 export * from './dropdown-menu';
 export * from './empty-state';

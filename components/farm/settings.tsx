@@ -30,7 +30,7 @@ import {
   Moon, Contrast, Sun, Sunrise, Lightbulb, Info, HelpCircle, CreditCard, ClipboardList, Layers,
   type LucideIcon,
 } from './icons';
-import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, type DateFormat } from '@/lib/datetime';
+import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, formatDate, formatDateTime, formatIsoDay, type DateFormat } from '@/lib/datetime';
 
 /* ── Theme Context (global, used by globals.css overrides) ── */
 export type ThemeMode = 'dark-farm' | 'high-contrast' | 'light-farm' | 'sun-mode';
@@ -939,4 +939,17 @@ export function SecuritySettingsScreen() {
       </div>
     </div>
   );
+}
+
+/** Formatters bound to the farm's Regional settings. Day-only values
+ *  (YYYY-MM-DD or UTC-midnight) are reordered as text; instants are zoned. */
+export function useDateFormatter() {
+  const { timezone, dateFormat } = useRegional();
+  return {
+    date: (iso: string | Date | null | undefined) =>
+      iso instanceof Date ? formatDate(iso, { timezone, dateFormat }) : formatIsoDay(iso, dateFormat, timezone),
+    dateTime: (iso: string | Date | null | undefined) => (iso ? formatDateTime(iso, { timezone, dateFormat }) : '—'),
+    dateFormat,
+    timezone,
+  };
 }
