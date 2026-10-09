@@ -18,8 +18,8 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div className="min-w-0">
+    <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+      <div className="min-w-0 flex-1 basis-60">
         {kicker ? (
           <p className="text-xs font-medium tracking-widest text-muted uppercase">{kicker}</p>
         ) : null}
@@ -28,7 +28,13 @@ export function PageHeader({
         </h1>
         {lede ? <div className="mt-2 max-w-xl text-sm leading-relaxed text-muted">{lede}</div> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {/* The action must never be pushed off-screen by the title. At the
+          app's larger text sizes (Settings -> Appearance) a long title plus
+          "Record purchase" exceeded the row, and the button was clipped at
+          the viewport edge — it only reappeared when the font was turned
+          down. It now wraps onto its own full-width line instead of being
+          squeezed, and never shrinks below its own content. */}
+      {actions ? <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">{actions}</div> : null}
     </header>
   );
 }

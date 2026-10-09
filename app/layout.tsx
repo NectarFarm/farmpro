@@ -36,6 +36,16 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  // Android's on-screen keyboard overlays the page by default
+  // (interactive-widget: resizes-visual), so the layout viewport — and every
+  // dvh unit with it — keeps reporting the full screen height while the
+  // bottom of the page sits behind the keyboard. That is what hid the
+  // Record sale / Record purchase buttons: the sheets cap at 92dvh and pin
+  // their submit to the bottom, which the keyboard then covered the moment a
+  // field took focus. Resizing the content instead shrinks the layout
+  // viewport when the keyboard opens, so dvh follows it and the submit stays
+  // above the keys.
+  interactiveWidget: 'resizes-content',
   // Reference palette's primary green (app/global.css's --primary-green) —
   // colours the browser/PWA chrome (Android task switcher, status bar) to
   // match the app instead of the OS default white/black.
