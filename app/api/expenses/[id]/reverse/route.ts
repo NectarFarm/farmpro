@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { expenses, auditLog } from '@/db/schemas'
+import { expenses, auditLog, journalEntries } from '@/db/schemas'
 import { and, eq } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canEdit, canModifyOwnRow, MODULES } from '@/lib/permissions'
@@ -51,6 +51,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const { contraEntry } = await reverseJournalEntry(tx, {
         tenantId, sourceType: 'expense', sourceId: id, memo: `Reversal of expense to ${existing.payee}`,
       })
+      // Settlements recorded against this expense (Dr Accounts Payable / Cr
+      // Cash) are cancelled with it. Reversing only the original would leave
+      // a payment standing against an expense that no longer exists.
+      const payments = await tx.select({ id: journalEntries.id }).from(journalEntries).where(and(
+        eq(journalEntries.tenantId, tenantId),
+        eq(journalEntries.sourceType, 'expense_payment'),
+        eq(journalEntries.sourceId, id),
+      ))
+      for (const payment of payments) {
+        await reverseJournalEntry(tx, {
+          tenantId, sourceType: 'expense_payment', sourceId: id, entryId: payment.id,
+          memo: `Reversal of a payment on the expense to ${existing.payee}`,
+        })
+      }
       const reversedAt = new Date()
       const [row] = await tx.update(expenses).set({ reversedAt }).where(eq(expenses.id, id)).returning()
       await tx.insert(auditLog).values({

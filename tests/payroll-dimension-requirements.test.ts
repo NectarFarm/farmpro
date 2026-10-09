@@ -7,7 +7,7 @@
 // Accounts Receivable), and the dimension when it is Required on 5002 or Cash.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { and, eq, inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 
 vi.mock('server-only', () => ({}))
 let mockCookie: string | undefined
