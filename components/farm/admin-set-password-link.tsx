@@ -46,7 +46,7 @@ export function SignInWaitBadge({ wait }: { wait: SignInWait | null | undefined 
   );
 }
 
-export function AdminSetPasswordLinkModal({ email, url, expiresAt, onClose }: { email: string; url: string; expiresAt?: string; onClose: () => void }) {
+export function AdminSetPasswordLinkModal({ email, url, expiresAt, emailed, onClose }: { email: string; url: string; expiresAt?: string; emailed?: boolean; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: 20 }} onClick={onClose}>
@@ -56,7 +56,10 @@ export function AdminSetPasswordLinkModal({ email, url, expiresAt, onClose }: { 
           <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>New set-password link</div>
         </div>
         <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
-          Send this one-time link to <strong>{email}</strong> through a channel you trust. They use it to choose their own password. Any earlier link no longer works.
+          {emailed
+            ? <>Emailed to <strong>{email}</strong>. They use it to choose their own password. You can also copy the link below.</>
+            : <>Email is not configured — copy this link and send it to <strong>{email}</strong> yourself, through a channel you trust. They use it to choose their own password.</>}
+          {' '}Any earlier link no longer works.
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
           <code style={{ fontFamily: 'monospace', fontSize: 'var(--fs-xs)', flex: 1, wordBreak: 'break-all', color: 'var(--text-primary)' }}>{url}</code>
@@ -87,15 +90,15 @@ export function ReissueLinkButton({ userId, email, label = 'Re-issue sign-in lin
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [link, setLink] = useState<{ url: string; expiresAt?: string } | null>(null);
+  const [link, setLink] = useState<{ url: string; expiresAt?: string; emailed?: boolean } | null>(null);
 
   async function issue() {
     setBusy(true);
     setError('');
-    const res = await apiClient.post<{ setPasswordUrl: string; expiresAt?: string }>(`/api/admin/users/${userId}/set-password-link`, {});
+    const res = await apiClient.post<{ setPasswordUrl: string; expiresAt?: string; emailed?: boolean }>(`/api/admin/users/${userId}/set-password-link`, {});
     setBusy(false);
     if (!res.success) { setError(res.error || 'Could not issue a link.'); return; }
-    setLink({ url: res.data.setPasswordUrl, expiresAt: res.data.expiresAt });
+    setLink({ url: res.data.setPasswordUrl, expiresAt: res.data.expiresAt, emailed: res.data.emailed });
     onIssued?.();
   }
 
@@ -109,7 +112,7 @@ export function ReissueLinkButton({ userId, email, label = 'Re-issue sign-in lin
         <Key size={13} /> {busy ? 'Issuing…' : label}
       </button>
       {error && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginTop: 6 }}>{error}</div>}
-      {link && <AdminSetPasswordLinkModal email={email} url={link.url} expiresAt={link.expiresAt} onClose={() => setLink(null)} />}
+      {link && <AdminSetPasswordLinkModal email={email} url={link.url} expiresAt={link.expiresAt} emailed={link.emailed} onClose={() => setLink(null)} />}
     </>
   );
 }

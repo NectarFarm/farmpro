@@ -10,7 +10,7 @@
 // password and sign in" — the happy path goes through the same set-password
 // token consume flow an approved onboarding applicant uses, then through
 // POST /api/auth/login.
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { eq, inArray } from 'drizzle-orm'
 
@@ -155,6 +155,56 @@ run('owner-issued email sign-ins (POST /api/employees/[id]/email-login)', () => 
 
     const fresh = await readJson(await setPasswordPOST(jsonRequest('http://localhost', 'POST', { password: 'another-password-1' }), { params: Promise.resolve({ token: newToken }) }))
     expect(fresh.status).toBe(200)
+  })
+
+  // The re-issued link is emailed through the real sender, stubbed at fetch.
+  describe('emailing the re-issued link', () => {
+    const originalKey = process.env.BREVO_API_KEY
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      if (originalKey === undefined) delete process.env.BREVO_API_KEY
+      else process.env.BREVO_API_KEY = originalKey
+    })
+    const reissue = async () => {
+      mockCookie = ownerSession
+      const res = await readJson(await emailLoginPATCH(jsonRequest('http://localhost', 'PATCH', {}), { params: Promise.resolve({ id: managerEmployeeId }) }))
+      mockCookie = undefined
+      return res
+    }
+
+    it('emails the link to the account address and reports emailed: true', async () => {
+      process.env.BREVO_API_KEY = 'test-key'
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messageId: 'm1' }) })
+      vi.stubGlobal('fetch', fetchMock)
+      const { status, payload } = await reissue()
+      expect(status).toBe(200)
+      expect(payload.data.emailed).toBe(true)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
+      expect(sent.to).toEqual([{ email: managerEmail }])
+      expect(sent.textContent).toContain(payload.data.setPasswordUrl)
+      expect(sent.textContent).toContain('previous link no longer works')
+    })
+
+    it('a failing send still returns 200 with the URL and emailed: false', async () => {
+      process.env.BREVO_API_KEY = 'test-key'
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({ message: 'boom' }) }))
+      const { status, payload } = await reissue()
+      expect(status).toBe(200)
+      expect(payload.data.emailed).toBe(false)
+      expect(payload.data.setPasswordUrl).toContain('/set-password/')
+    })
+
+    it('with no BREVO_API_KEY the link is still returned and emailed is false', async () => {
+      delete process.env.BREVO_API_KEY
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      const { status, payload } = await reissue()
+      expect(status).toBe(200)
+      expect(payload.data.emailed).toBe(false)
+      expect(payload.data.setPasswordUrl).toContain('/set-password/')
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
   })
 
   it('refuses to re-issue for an employee who has no login yet', async () => {

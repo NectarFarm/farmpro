@@ -9,7 +9,7 @@ import { isUniqueViolation } from '@/lib/db-errors'
 import { isValidEmail, normalizeEmail } from '@/lib/validation'
 import { writeAuditLog } from '@/lib/audit'
 import { issueSetPasswordToken } from '@/lib/set-password'
-import { resolveAppBaseUrl } from '@/lib/email'
+import { resolveAppBaseUrl, sendSetPasswordLinkEmail } from '@/lib/email'
 
 // ── Manager/vet/auditor sign-in accounts, issued by the owner ───────────────
 // The gap this closes: POST /api/employees/[id]/login (sibling route) can
@@ -181,7 +181,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   const [user] = await db
-    .select({ id: users.id, email: users.email })
+    .select({ id: users.id, email: users.email, name: users.name })
     .from(users)
     .where(and(eq(users.id, employee.userId), eq(users.tenantId, tenantId)))
     .limit(1)
@@ -199,6 +199,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { token, expiresAt } = await issueSetPasswordToken(user.id)
   const setPasswordUrl = `${resolveAppBaseUrl(req)}/set-password/${token}`
 
-  return ok({ userId: user.id, email: user.email, setPasswordUrl, expiresAt })
+  // A failed or skipped send (no BREVO_API_KEY) never fails the request or
+  // loses the link: the URL is still returned and `emailed` says what happened.
+  let emailed = false
+  try {
+    const result = await sendSetPasswordLinkEmail({ to: user.email, name: user.name, setPasswordUrl })
+    emailed = result.ok && !result.skipped
+    if (!result.ok) console.error('[email-login] re-issued link email failed', { userId: user.id, error: result.error })
+  } catch (err) {
+    console.error('[email-login] re-issued link email threw', { userId: user.id, err: err instanceof Error ? err.message : String(err) })
+  }
+
+  return ok({ userId: user.id, email: user.email, setPasswordUrl, expiresAt, emailed })
 }
 

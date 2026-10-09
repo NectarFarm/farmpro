@@ -561,7 +561,7 @@ interface WorkerLoginState {
 // retrieved again, copy it now" convention as admin-users.tsx's
 // TempPasswordModal, for the same reason: this codebase sends no real email,
 // so the link itself is the only way the owner can hand it to the manager.
-function SetPasswordLinkModal({ email, url, onClose }: { email: string; url: string; onClose: () => void }) {
+function SetPasswordLinkModal({ email, url, emailed, onClose }: { email: string; url: string; emailed?: boolean; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: 20 }} onClick={onClose}>
@@ -571,7 +571,11 @@ function SetPasswordLinkModal({ email, url, onClose }: { email: string; url: str
           <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 700 }}>Login created</div>
         </div>
         <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
-          Send this one-time link to <strong>{email}</strong> — through a channel you trust, out of band. They use it to set their own password.
+          {emailed === true
+            ? <>Emailed to <strong>{email}</strong>. They use it to set their own password. You can also copy the link below.</>
+            : emailed === false
+              ? <>Email is not configured — copy this link and send it to <strong>{email}</strong> yourself, through a channel you trust. They use it to set their own password.</>
+              : <>Send this one-time link to <strong>{email}</strong> — through a channel you trust, out of band. They use it to set their own password.</>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
           <code style={{ fontFamily: 'monospace', fontSize: 'var(--fs-xs)', flex: 1, wordBreak: 'break-all', color: 'var(--text-primary)' }}>{url}</code>
@@ -612,7 +616,7 @@ function WorkerLoginCard({ employee, tenantId, onLinked }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirmRevoke, setConfirmRevoke] = useState(false);
-  const [setPasswordLink, setSetPasswordLink] = useState<{ email: string; url: string } | null>(null);
+  const [setPasswordLink, setSetPasswordLink] = useState<{ email: string; url: string; emailed?: boolean } | null>(null);
 
   const canManage = role === 'owner' || role === 'manager';
   // Only an owner may issue a login for a role above worker — see the API
@@ -653,10 +657,10 @@ function WorkerLoginCard({ employee, tenantId, onLinked }: {
     async function reissueLink() {
       setError('');
       setBusy(true);
-      const res = await apiClient.patch<{ email: string; setPasswordUrl: string }>(`/api/employees/${employee.id}/email-login`, { tenantId });
+      const res = await apiClient.patch<{ email: string; setPasswordUrl: string; emailed?: boolean }>(`/api/employees/${employee.id}/email-login`, { tenantId });
       setBusy(false);
       if (!res.success) { setError(res.error || 'Could not generate a new link.'); return; }
-      setSetPasswordLink({ email: res.data.email, url: res.data.setPasswordUrl });
+      setSetPasswordLink({ email: res.data.email, url: res.data.setPasswordUrl, emailed: res.data.emailed });
     }
 
     return (
@@ -699,7 +703,7 @@ function WorkerLoginCard({ employee, tenantId, onLinked }: {
           </>
         )}
         {setPasswordLink && (
-          <SetPasswordLinkModal email={setPasswordLink.email} url={setPasswordLink.url} onClose={() => setSetPasswordLink(null)} />
+          <SetPasswordLinkModal email={setPasswordLink.email} url={setPasswordLink.url} emailed={setPasswordLink.emailed} onClose={() => setSetPasswordLink(null)} />
         )}
       </div>
     );

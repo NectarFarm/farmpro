@@ -24,6 +24,7 @@
 //     template engine — three call sites don't need one.
 import 'server-only'
 import { renderGuideHtml, renderGuideText } from './onboarding-guide'
+import { SET_PASSWORD_TOKEN_TTL_MS } from './set-password'
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
@@ -51,6 +52,7 @@ export type EmailTemplate =
   | 'onboarding-approved'
   | 'onboarding-rejected'
   | 'onboarding-guide'
+  | 'set-password-link'
   | 'notification'
   | 'farm-deleted'
 
@@ -292,6 +294,33 @@ export async function sendOnboardingApprovedEmail(opts: {
     extra: { heading: 'Once you are in, do these in order', html: renderGuideHtml(), text: renderGuideText() },
   })
   return sendEmail({ to: opts.to, template: 'onboarding-approved', message })
+}
+
+// A set-password link that was RE-issued because the earlier one expired or
+// was lost. Same shape as the approval email's link, but it says plainly that
+// the previous link is dead and that nothing about the password changed.
+// Only ever sent to the address of the account the link is for, and only after
+// someone with authority asked for a new link. The URL is the credential: it
+// is placed in the message and never logged.
+export async function sendSetPasswordLinkEmail(opts: {
+  to: string
+  name: string
+  setPasswordUrl: string
+}): Promise<EmailResult> {
+  const hours = Math.round(SET_PASSWORD_TOKEN_TTL_MS / 3_600_000)
+  const paragraphs = [
+    `Hi ${opts.name},`,
+    'Here is a new link to set your password and sign in to IFMS. Your previous link no longer works.',
+    `The link works once, and it expires in ${hours} hours. Your password has not been changed — nothing happens to your account until you use this link.`,
+    'If you did not expect this, you can ignore this message.',
+  ]
+  const message = composeMessage({
+    subject: 'Your new IFMS link to set your password',
+    paragraphs,
+    cta: { label: 'Set your password', url: opts.setPasswordUrl },
+    tone: 'ok',
+  })
+  return sendEmail({ to: opts.to, template: 'set-password-link', message })
 }
 
 // Re-sends the getting-started guide on its own, with NO set-password link —
