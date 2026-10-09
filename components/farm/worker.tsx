@@ -77,9 +77,25 @@ interface ApiPayslip {
   id: string;
   runId: string;
   amountCents: number;
+  grossCents?: number | null;
+  deductionCents?: number | null;
+  netCents?: number | null;
+  employerCostCents?: number | null;
   periodStart: string;
   periodEnd: string;
   createdAt: string | null;
+}
+
+function slipAmount(slip: ApiPayslip): number {
+  return slip.netCents != null ? slip.netCents : slip.amountCents;
+}
+
+function slipCaption(slip: ApiPayslip): string {
+  if (slip.deductionCents != null && slip.deductionCents > 0 && slip.netCents != null) {
+    return `Net pay · deductions ${formatMoney(slip.deductionCents)}`;
+  }
+  if (slip.netCents != null) return 'Net pay';
+  return 'Gross pay — deductions were not stored on this payslip.';
 }
 
 const RECORD_TYPE_LABEL: Record<string, { label: string; icon: LucideIcon }> = {
@@ -2307,7 +2323,7 @@ export function WorkerPayScreen() {
     });
   }, []);
 
-  const total = payslips?.reduce((sum, p) => sum + p.amountCents, 0) ?? 0;
+  const total = payslips?.reduce((sum, p) => sum + slipAmount(p), 0) ?? 0;
 
   return (
     <div className="screen-content px-screen pt-4 pb-8">
@@ -2331,7 +2347,7 @@ export function WorkerPayScreen() {
         <EmptyState
           icon={<DollarSign size={22} aria-hidden="true" />}
           title="No payslips yet"
-          body="You haven't been paid in a payroll run yet. Payslips appear here as soon as your owner runs payroll for a period that includes you."
+          body="Payslips appear here when a run that includes you is paid."
         />
       )}
 
@@ -2345,14 +2361,15 @@ export function WorkerPayScreen() {
           <div className="mb-6 overflow-hidden rounded-xl bg-surface shadow-(--shadow-border)">
             {payslips.map((p, i, arr) => (
               <div key={p.id} className={cn('flex items-center justify-between gap-3 px-4 py-3.5', i < arr.length - 1 && 'border-b border-border')}>
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <Calendar size={16} className="shrink-0 text-subtle" aria-hidden="true" />
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-semibold text-fg">{periodLabel(p.periodStart, p.periodEnd)}</p>
-                    <p className="text-[11px] text-muted">Gross pay — no deductions applied</p>
+                    <p className="text-[11px] text-muted">{slipCaption(p)}</p>
+                    <a className="inline-flex min-h-11 items-center text-xs font-semibold underline" href={`/api/payroll/payslips/${p.id}/pdf`}>Download payslip</a>
                   </div>
                 </div>
-                <span className="font-display text-lg font-medium text-primary">{formatMoney(p.amountCents)}</span>
+                <span className="font-display text-lg font-medium text-primary">{formatMoney(slipAmount(p))}</span>
               </div>
             ))}
           </div>

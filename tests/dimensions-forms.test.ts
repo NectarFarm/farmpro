@@ -43,6 +43,7 @@ vi.mock('next/headers', () => ({
 import { POST as salesPOST } from '@/app/api/data/sales/route'
 import { POST as purchasesPOST } from '@/app/api/purchases/route'
 import { POST as payrollRunsPOST } from '@/app/api/payroll/runs/route'
+import { POST as payrollPayPOST } from '@/app/api/payroll/runs/[id]/pay/route'
 import { GET as unitsGET } from '@/app/api/units/route'
 import { GET as batchesGET } from '@/app/api/batches/route'
 import { db } from '@/db'
@@ -301,21 +302,25 @@ run('forms supply required dimensions (P0 fix)', () => {
     })
     afterAll(async () => { await cleanupTenant(tenantId) })
 
-    it('dryRun reports the shared farm when every eligible employee is on the same one', async () => {
+    async function pay(runId: string, periodEnd: string, dimensions?: Record<string, string>) {
+      return readJson(await payrollPayPOST(jsonRequest('http://x/api/payroll/runs/pay', 'POST', {
+        tenantId, confirmation: 'PAY', payDate: periodEnd, paymentMethod: 'Cash', paymentReference: `pay-${runId.slice(0, 8)}`,
+        ...(dimensions ? { dimensions } : {}),
+      }), { params: Promise.resolve({ id: runId }) }))
+    }
+
+    it('dryRun reports the shared farm when every included employee is on the same one', async () => {
       mockCookie = cookie
       const res = await readJson(await payrollRunsPOST(jsonRequest('http://x/api/payroll/runs', 'POST', {
         tenantId, periodStart: '2026-01-01', periodEnd: '2026-01-31', dryRun: true,
+        employees: [{ employeeId: empSharedAId }, { employeeId: empSharedBId }, { employeeId: empOtherId }],
       })))
       mockCookie = undefined
-      // This period's eligible set is all three employees (two farms) unless
-      // scoped — assert against the actual eligible set the route computed.
       expect(res.status).toBe(200)
-      expect(res.payload.data.farmId).toBe(null) // Shared + Other together: no single shared farm.
+      expect(res.payload.data.farmId).toBe(null)
     })
 
-    it('a run posts automatically once Farm is required and every eligible employee actually shares one', async () => {
-      // Isolate to the two shared-farm employees only, by disabling the
-      // other-farm employee for this period's run.
+    it('a run posts once Farm is required and every included employee shares one', async () => {
       await db.update(employees).set({ status: 'INACTIVE' }).where(eq(employees.id, empOtherId))
 
       const idByCode = await ensureSystemDimensions(tenantId)
@@ -328,14 +333,18 @@ run('forms supply required dimensions (P0 fix)', () => {
       mockCookie = cookie
       const preview = await readJson(await payrollRunsPOST(jsonRequest('http://x/api/payroll/runs', 'POST', {
         tenantId, periodStart: '2026-02-01', periodEnd: '2026-02-28', dryRun: true,
+        employees: [{ employeeId: empSharedAId }, { employeeId: empSharedBId }],
       })))
       expect(preview.payload.data.farmId).toBe(sharedFarmId)
 
       const res = await readJson(await payrollRunsPOST(jsonRequest('http://x/api/payroll/runs', 'POST', {
         tenantId, periodStart: '2026-02-01', periodEnd: '2026-02-28',
+        employees: [{ employeeId: empSharedAId }, { employeeId: empSharedBId }],
       })))
-      mockCookie = undefined
       expect(res.status).toBe(201)
+      const paid = await pay(res.payload.data.run.id, '2026-02-28')
+      mockCookie = undefined
+      expect(paid.status).toBe(200)
 
       const [entry] = await db.select().from(journalEntries).where(eq(journalEntries.sourceId, res.payload.data.run.id))
       const lines = await db.select().from(journalLines).where(eq(journalLines.entryId, entry.id))
@@ -347,7 +356,7 @@ run('forms supply required dimensions (P0 fix)', () => {
       await db.update(employees).set({ status: 'ACTIVE' }).where(eq(employees.id, empOtherId))
     })
 
-    it('a run spanning two farms is refused when Farm is required, then succeeds once supplied explicitly', async () => {
+    it('paying a run that spans two farms is refused when Farm is required, then succeeds once supplied', async () => {
       const idByCode = await ensureSystemDimensions(tenantId)
       const farmDimId = idByCode.get(SYSTEM_DIMENSION_CODES.FARM)!
       await db.insert(defaultDimensions).values({
@@ -356,20 +365,20 @@ run('forms supply required dimensions (P0 fix)', () => {
       })
 
       mockCookie = cookie
-      const refused = await readJson(await payrollRunsPOST(jsonRequest('http://x/api/payroll/runs', 'POST', {
+      const saved = await readJson(await payrollRunsPOST(jsonRequest('http://x/api/payroll/runs', 'POST', {
         tenantId, periodStart: '2026-03-01', periodEnd: '2026-03-31',
+        employees: [{ employeeId: empSharedAId }, { employeeId: empSharedBId }, { employeeId: empOtherId }],
       })))
+      expect(saved.status).toBe(201)
+      const refused = await pay(saved.payload.data.run.id, '2026-03-31')
       expect(refused.status).toBe(400)
       expect(refused.payload.error).toMatch(/requires a value for/i)
       expect(refused.payload.error).toMatch(/Farm/)
 
       const [sharedFarmValue] = await db.select().from(dimensionValues).where(eq(dimensionValues.sourceId, sharedFarmId))
-      const res = await readJson(await payrollRunsPOST(jsonRequest('http://x/api/payroll/runs', 'POST', {
-        tenantId, periodStart: '2026-03-01', periodEnd: '2026-03-31',
-        dimensions: { [SYSTEM_DIMENSION_CODES.FARM]: sharedFarmValue.code },
-      })))
+      const res = await pay(saved.payload.data.run.id, '2026-03-31', { [SYSTEM_DIMENSION_CODES.FARM]: sharedFarmValue.code })
       mockCookie = undefined
-      expect(res.status).toBe(201)
+      expect(res.status).toBe(200)
 
       await db.delete(defaultDimensions).where(and(eq(defaultDimensions.tenantId, tenantId), eq(defaultDimensions.masterId, payrollExpenseAccountId)))
     })

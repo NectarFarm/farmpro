@@ -20,7 +20,7 @@
 // `columnFormats` tells the renderer which columns are money/weight so the
 // screen, the CSV and the PDF cannot disagree about a number.
 import 'server-only'
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql, sum } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, or, sql, sum } from 'drizzle-orm'
 import { inTheBooks } from '@/lib/in-the-books'
 import { db } from '@/db'
 import {
@@ -273,20 +273,23 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
     .where(and(...expenseConditions))
     .orderBy(asc(expenses.postingDate))
 
-  // ── Payroll is an expense, and it was missing from this figure ──────────
-  // POST /api/payroll/runs posts a real journal entry (Dr Payroll Expense,
-  // Cr Cash — lib/finance.ts#postPayrollJournal), so payroll has always been
-  // in `glTotalExpense` above, which reads the trial balance. But
-  // `periodExpense` was built from the `purchases` table alone, so the P&L
-  // for a month showed wages in the cumulative GL position and NOT in that
-  // month's expenses or net income. Running payroll appeared to cost nothing.
+  // ── Payroll is an expense once it is paid ───────────────────────────────
+  // Paying a run posts the journal (Dr Payroll Expense, and credits for net
+  // pay and any statutory or advance lines). Approving a run does not. The
+  // journal date is the period end, which is the same window this sum uses.
   //
   // Payroll runs carry no farmId (db/schemas/payroll.ts — an employee is not
   // scoped to a farm), so under a farm filter they are DELIBERATELY excluded
   // rather than attributed to whichever farm happens to be selected. The note
   // added at the bottom of this report says so, because a farm-scoped P&L
   // silently omitting wages would be its own lie.
-  const payrollConditions = [eq(payrollRuns.tenantId, tenantId)]
+  // Approved-but-unpaid runs have no journal. Null status is a run from
+  // before this column existed; the migration marks those paid, and a null
+  // that the backfill has not touched stays in the same population.
+  const payrollConditions = [
+    eq(payrollRuns.tenantId, tenantId),
+    or(isNull(payrollRuns.status), eq(payrollRuns.status, 'paid'))!,
+  ]
   if (from) payrollConditions.push(gte(payrollRuns.periodEnd, from))
   if (to) payrollConditions.push(lte(payrollRuns.periodStart, to))
   const periodPayroll = farmId
@@ -326,10 +329,8 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       type: 'Payroll',
       description: `${r.employeeCount} employee${r.employeeCount === 1 ? '' : 's'}${r.memo ? ` — ${r.memo}` : ''}`,
       batch: '',
-      // v1 payroll is cash-basis and paid in full at run time (there is no
-      // accrued-wages liability account), so a run is always 'paid'.
       amount: centsToMajor(r.totalAmountCents),
-      status: 'paid',
+      status: r.status ?? 'paid',
     })),
   ].sort((a, b) => a.date.getTime() - b.date.getTime())
 
@@ -401,7 +402,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
     // as the treatment report's withdrawal-period line — a caveat about data
     // quality is the farmer's to hide; one that changes what the total MEANS
     // is not.
-    basis: `Compiled from recorded sales, purchases and payroll for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists. Payroll is EXCLUDED from this farm-scoped view — a payroll run covers the whole business and carries no farm, so attributing wages to one farm would be a guess. Run across all farms to include them. Operating expenses recorded against this farm are included.` : ', across all farms. Operating expenses are included where they were recorded.'} Amounts are net of VAT where the document has a tax code. A document with no tax code is unchanged. A document waiting for approval, or one that was rejected, is not included. A document with no approval status is unchanged.`,
+    basis: `Compiled from recorded sales, purchases and payroll for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists. Payroll is EXCLUDED from this farm-scoped view — a payroll run covers the whole business and carries no farm, so attributing wages to one farm would be a guess. Run across all farms to include them. Operating expenses recorded against this farm are included.` : ', across all farms. Operating expenses are included where they were recorded.'} Amounts are net of VAT where the document has a tax code. A document with no tax code is unchanged. A document waiting for approval, or one that was rejected, is not included. A document with no approval status is unchanged. A payroll run that is approved and not yet paid is not included. A run with no status is unchanged.`,
     totals: [null, null, 'Period net', null, periodNetIncome, null],
     columnAlign: ['left', 'left', 'left', 'left', 'right', 'left'],
     columnFormats: ['text', 'text', 'text', 'text', 'money', 'text'],

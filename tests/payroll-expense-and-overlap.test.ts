@@ -72,31 +72,26 @@ describe('lib/reports.ts — payroll counts as an expense', () => {
   })
 })
 
-describe('POST /api/payroll/runs — no double pay', () => {
-  const source = read('app/api/payroll/runs/route.ts')
+describe('POST /api/payroll/runs — no double pay for the same person', () => {
+  const route = read('app/api/payroll/runs/route.ts')
+  const prepare = read('lib/payroll-prepare.ts')
 
-  it('refuses a period overlapping a run that already exists', () => {
-    // Half-open overlap: two ranges overlap when each starts before the other
-    // ends.
-    expect(source).toMatch(/lt\(payrollRuns\.periodStart, periodEnd\)/)
-    expect(source).toMatch(/gt\(payrollRuns\.periodEnd, periodStart\)/)
+  it('requires the list of people, and does not post a journal when the run is approved', () => {
+    expect(prepare).toMatch(/Say who is being paid/)
+    expect(route).toMatch(/preparePayroll/)
+    expect(route).not.toMatch(/postPayrollJournal/)
   })
 
-  it('checks for the clash BEFORE selecting who to pay', () => {
-    const overlapAt = source.indexOf('const overlapping =')
-    const eligibleAt = source.indexOf('const eligible =')
-    expect(overlapAt).toBeGreaterThan(-1)
-    expect(overlapAt).toBeLessThan(eligibleAt)
+  it('refuses the same employee on an overlapping period, and allows the check to name them', () => {
+    expect(prepare).toMatch(/payslips\.employeeId/)
+    expect(prepare).toMatch(/lt\(payrollRuns\.periodStart, input\.periodEnd\)/)
+    expect(prepare).toMatch(/gt\(payrollRuns\.periodEnd, input\.periodStart\)/)
+    expect(prepare).toMatch(/would be paid twice/)
+    expect(route).toMatch(/would be paid twice/)
+    expect(route).toMatch(/periodStart: 'Overlaps a payroll run that already exists'/)
   })
 
-  it('names the clashing period so the message is actionable', () => {
-    expect(source).toMatch(/would be paid twice/)
-    expect(source).toMatch(/periodStart: 'Overlaps a payroll run that already exists'/)
-  })
-
-  it('keeps the exact-duplicate index guard as well', () => {
-    // The overlap check is a request-time rule; the unique index is what
-    // survives a race between two simultaneous requests.
-    expect(source).toMatch(/isUniqueViolation\(err\)/)
+  it('still turns a database unique violation into a 400', () => {
+    expect(route).toMatch(/isUniqueViolation\(err\)/)
   })
 })

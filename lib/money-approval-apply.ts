@@ -5,11 +5,12 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
-import { expenses, purchaseCharges, purchases, sales } from '@/db/schemas'
+import { expenses, payrollRuns, purchaseCharges, purchases, sales } from '@/db/schemas'
 import { applyMovement, BatchLedgerError } from '@/lib/batch-ledger'
 import { DimensionRequirementError, DimensionValidationError } from '@/lib/dimensions'
 import { postExpenseJournal, postPurchaseJournal, postSaleJournal, UnbalancedTaxError } from '@/lib/finance'
 import { insertPurchaseLots } from '@/lib/inventory'
+import { postStoredPayroll } from '@/lib/payroll-post'
 import { parseMoneyDetails } from '@/lib/posting-policy'
 
 type Tx = PgTransaction<any, any, any>
@@ -115,6 +116,49 @@ export async function applyMoneyDecision(tx: Tx, input: {
         })
       }
     } catch (err) {
+      asApprovalError(err)
+    }
+    return
+  }
+
+  if (parsed.docType === 'payroll') {
+    if (!parsed.payDate || !parsed.paymentMethod || !parsed.paymentReference) {
+      throw new MoneyApprovalError('The proposal could not be read.', 400)
+    }
+    const paid = input.decision === 'approved'
+    const [run] = await tx.update(payrollRuns).set({
+      approvalStatus: paid ? 'approved' : 'rejected',
+      ...(paid ? {
+        status: 'paid',
+        payDate: new Date(parsed.payDate),
+        paymentMethod: parsed.paymentMethod,
+        paymentReference: parsed.paymentReference,
+      } : {}),
+    }).where(and(
+      eq(payrollRuns.id, input.entityId),
+      eq(payrollRuns.tenantId, input.tenantId),
+      eq(payrollRuns.approvalStatus, 'pending'),
+      eq(payrollRuns.status, 'approved'),
+    )).returning()
+    if (!run) throw new MoneyApprovalError('This payroll payment is not waiting for approval.', 409)
+    if (!paid) return
+    let dimensions: Record<string, string> | undefined
+    if (run.dimensionOverrides) {
+      try {
+        const stored = JSON.parse(run.dimensionOverrides) as unknown
+        if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+          dimensions = stored as Record<string, string>
+        }
+      } catch {
+        dimensions = undefined
+      }
+    }
+    try {
+      await postStoredPayroll(tx, run, dimensions)
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Payroll journal does not balance') {
+        throw new MoneyApprovalError(err.message, 400)
+      }
       asApprovalError(err)
     }
     return

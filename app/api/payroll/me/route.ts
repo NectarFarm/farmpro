@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { employees, payrollRuns, payslips } from '@/db/schemas'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull, or } from 'drizzle-orm'
 import { requireTenantSession } from '@/lib/api-auth'
 
 // ── GET /api/payroll/me (payroll-and-gps task) ──────────────────────────────
@@ -40,6 +40,10 @@ export async function GET() {
     .select({
       id: payslips.id,
       amountCents: payslips.amountCents,
+      grossCents: payslips.grossCents,
+      deductionCents: payslips.deductionCents,
+      netCents: payslips.netCents,
+      employerCostCents: payslips.employerCostCents,
       createdAt: payslips.createdAt,
       runId: payslips.runId,
       periodStart: payrollRuns.periodStart,
@@ -47,7 +51,11 @@ export async function GET() {
     })
     .from(payslips)
     .innerJoin(payrollRuns, eq(payslips.runId, payrollRuns.id))
-    .where(and(eq(payslips.employeeId, employeeId), eq(payslips.tenantId, tenantId)))
+    .where(and(
+      eq(payslips.employeeId, employeeId),
+      eq(payslips.tenantId, tenantId),
+      or(isNull(payrollRuns.status), eq(payrollRuns.status, 'paid'))!,
+    ))
     .orderBy(desc(payrollRuns.periodStart))
 
   return ok(rows)

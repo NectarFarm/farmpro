@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
-import { payrollRuns, payslips } from '@/db/schemas'
-import { and, asc, eq } from 'drizzle-orm'
+import { payrollRuns, payslipLines, payslips } from '@/db/schemas'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
 import { canView, MODULES } from '@/lib/permissions'
 
@@ -36,6 +36,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     .from(payslips)
     .where(and(eq(payslips.runId, id), eq(payslips.tenantId, tenantId)))
     .orderBy(asc(payslips.employeeName))
+  const slipIds = slips.map((slip) => slip.id)
+  const lines = slipIds.length === 0
+    ? []
+    : await db.select().from(payslipLines).where(inArray(payslipLines.payslipId, slipIds))
 
-  return ok({ run, payslips: slips })
+  return ok({
+    run,
+    payslips: slips.map((slip) => ({
+      ...slip,
+      lines: lines.filter((line) => line.payslipId === slip.id),
+    })),
+  })
 }
