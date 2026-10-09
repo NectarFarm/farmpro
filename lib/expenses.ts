@@ -6,6 +6,7 @@ import { db } from '@/db'
 import { expenseCategories, expenses, auditLog } from '@/db/schemas'
 import { and, eq } from 'drizzle-orm'
 import { ACCOUNT_CODES, ensureAccountsSeeded, postExpenseJournal, postExpensePaymentJournal } from '@/lib/finance'
+import { insertMoneyApproval } from '@/lib/raise-money-approval'
 
 export const SEEDED_EXPENSE_CATEGORIES = [
   { id: 'expcat-transport', code: 'transport', name: 'Transport and delivery', accountCode: ACCOUNT_CODES.TRANSPORT },
@@ -49,6 +50,8 @@ export async function recordExpense(input: {
   grossCents?: number | null
   taxCents?: number | null
   netCents?: number | null
+  // Issue #424. A hold stores the expense and does not post a journal.
+  hold?: boolean
 }) {
   return db.transaction(async (tx) => {
     const [expense] = await tx
@@ -75,8 +78,40 @@ export async function recordExpense(input: {
         grossCents: input.grossCents ?? null,
         taxCents: input.taxCents ?? null,
         netCents: input.netCents ?? null,
+        approvalStatus: input.hold ? 'pending' : null,
       })
       .returning()
+
+    if (input.hold) {
+      await insertMoneyApproval(tx, {
+        tenantId: input.tenantId,
+        requestedBy: input.recordedBy,
+        title: `Expense ${expense.payee} waiting for approval`,
+        details: {
+          docType: 'expense',
+          documentId: expense.id,
+          amountCents: expense.amountCents,
+          accountCode: input.accountCode,
+          dimensions: input.dimensions ?? null,
+        },
+      })
+      await tx.insert(auditLog).values({
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        actor: input.recordedBy,
+        action: 'expense.pending',
+        entity: 'expense',
+        entityId: expense.id,
+        meta: {
+          payee: expense.payee,
+          categoryId: expense.categoryId,
+          accountCode: input.accountCode,
+          amountCents: expense.amountCents,
+          farmId: expense.farmId,
+        },
+      })
+      return { expense, entry: null }
+    }
 
     const entry = await postExpenseJournal(tx, {
       id: expense.id,
@@ -139,6 +174,9 @@ export async function recordExpensePayment(input: {
       .for('update')
     if (!expense) throw new ExpensePaymentError('Expense not found for this tenant')
     if (expense.reversedAt) throw new ExpensePaymentError('This expense has been reversed — there is nothing left to pay')
+    if (expense.approvalStatus === 'pending' || expense.approvalStatus === 'rejected') {
+      throw new ExpensePaymentError('This expense is not in the books.')
+    }
     const owed = expense.amountCents - expense.amountPaidCents
     if (owed <= 0) throw new ExpensePaymentError('This expense is already paid in full')
     if (input.amountCents > owed) throw new ExpensePaymentError('That is more than is still owed on this expense')

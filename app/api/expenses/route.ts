@@ -13,6 +13,9 @@ import { PAYMENT_METHODS, referenceLabel } from '@/lib/payment-method'
 import { postingDayFrom } from '@/lib/tax'
 import { resolveDocumentTax } from '@/lib/tax-catalogue'
 import { UnbalancedTaxError } from '@/lib/finance'
+import { expenseLegs, judgeMoney } from '@/lib/posting-policy'
+import { loadPostingPolicies } from '@/lib/posting-policies'
+import { notifyMoneyPostings } from '@/lib/notify-money-posting'
 
 // ── GET/POST /api/expenses (issue #416) ─────────────────────────────────────
 // Money out that is not stock. POST writes an expense row and a journal
@@ -184,6 +187,19 @@ export async function POST(req: Request) {
     return badRequest('Amount paid is more than the expense — check the figures')
   }
 
+  const decision = judgeMoney(await loadPostingPolicies(tenantId), {
+    amountCents: tax.settledCents,
+    farmId: farmFilter,
+    legs: expenseLegs({
+      totalCents: tax.settledCents,
+      paidCents: amountPaidCents,
+      netCents: tax.columns.netCents,
+      taxCents: tax.columns.taxCents,
+      expenseAccount: category.accountCode,
+    }),
+  })
+  if (decision.outcome === 'block') return badRequest(decision.message)
+
   try {
     const result = await recordExpense({
       tenantId,
@@ -204,7 +220,9 @@ export async function POST(req: Request) {
       recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
       ...tax.columns,
+      hold: decision.outcome === 'pending',
     })
+    if (result.expense.approvalStatus === 'pending') await notifyMoneyPostings(tenantId, [result.expense.id])
     return created(result)
   } catch (err) {
     if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError || err instanceof UnbalancedTaxError) {

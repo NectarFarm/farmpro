@@ -9,6 +9,7 @@ import { db } from '@/db'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
 import { inventoryItems, inventoryLots, purchases, purchaseCharges, auditLog } from '@/db/schemas'
 import { postPurchaseJournal } from '@/lib/finance'
+import { insertMoneyApproval } from '@/lib/raise-money-approval'
 
 type Tx = PgTransaction<any, any, any>
 
@@ -130,7 +131,8 @@ export type RecordPurchaseResult =
   | { problem: string }
   | {
       item: typeof inventoryItems.$inferSelect
-      lot: typeof inventoryLots.$inferSelect
+      // Null while the purchase waits for approval: no stock exists until then.
+      lot: typeof inventoryLots.$inferSelect | null
       // One per requested lot; more when a value that does not divide by the
       // quantity has to be carried at two unit costs (see splitLotCost).
       lots: (typeof inventoryLots.$inferSelect)[]
@@ -225,6 +227,9 @@ export async function recordPurchase(input: {
   // Omitted means one lot for the whole quantity, as before. When present,
   // the quantities must add up to `quantity`. Value is carried as for one lot.
   lots?: { quantity: number; expiryDate?: Date | null; lotNo?: string | null }[]
+  // Issue #424. A hold stores the purchase and does not create lots or a
+  // journal. Stock quantity stays where it was until the approval is decided.
+  hold?: boolean
 }): Promise<RecordPurchaseResult> {
   return db.transaction((tx) => writePurchase(tx, input))
 }
@@ -261,6 +266,58 @@ export async function recordPurchaseReceipt(input: {
     }
     return { receiptGroupId: input.receiptGroupId, charges, purchases: purchasesRecorded }
   })
+}
+
+/**
+ * Write the lots of a purchase so that qty x unit cost over every row is
+ * exactly `valueCents` (see splitLotCost). The units are dealt to the
+ * requested lots in order; a lot that straddles the one-cent step becomes two
+ * rows. Shared by a purchase posted now and one posted on approval, so a held
+ * purchase carries stock at the same value an immediate one would.
+ */
+export async function insertPurchaseLots(tx: Tx, input: {
+  tenantId: string
+  itemId: string
+  farmId: string | null
+  receivedDate: Date
+  specs: { quantity: number; expiryDate?: Date | null; lotNo?: string | null }[]
+  valueCents: number
+}) {
+  const quantity = input.specs.reduce((sum, spec) => sum + spec.quantity, 0)
+  const tiers = splitLotCost(input.valueCents, quantity).map((tier) => ({ ...tier }))
+  const lots: (typeof inventoryLots.$inferSelect)[] = []
+  let tierIdx = 0
+  for (const spec of input.specs) {
+    const baseLotNo = spec.lotNo || `LOT-${input.receivedDate.toISOString().slice(0, 10)}-${randomUUID().slice(0, 8).toUpperCase()}`
+    let need = spec.quantity
+    let part = 0
+    while (need > 0) {
+      const tier = tiers[tierIdx]
+      const take = Math.min(need, tier.qty)
+      if (take > 0) {
+        const [row] = await tx
+          .insert(inventoryLots)
+          .values({
+            id: randomUUID(),
+            tenantId: input.tenantId,
+            itemId: input.itemId,
+            lotNo: part === 0 ? baseLotNo : `${baseLotNo}-${String.fromCharCode(65 + part)}`,
+            qtyOnHand: take,
+            unitCostCents: tier.unitCostCents,
+            expiryDate: spec.expiryDate ?? null,
+            receivedDate: input.receivedDate,
+            farmId: input.farmId,
+          })
+          .returning()
+        lots.push(row)
+        part++
+      }
+      tier.qty -= take
+      need -= take
+      if (tier.qty === 0) tierIdx++
+    }
+  }
+  return lots
 }
 
 async function writePurchase(tx: Tx, input: Parameters<typeof recordPurchase>[0]): Promise<RecordPurchaseResult> {
@@ -318,43 +375,69 @@ async function writePurchase(tx: Tx, input: Parameters<typeof recordPurchase>[0]
       return { problem: 'Lot quantities must add up to the line quantity.' }
     }
 
-    // The stock value is carried exactly (splitLotCost): the units are dealt to
-    // the requested lots in order, so a lot that straddles the one-cent step
-    // becomes two rows and qty x unit cost over every row is the value.
-    const tiers = splitLotCost(input.lotValueCents ?? input.quantity * input.unitCostCents, input.quantity)
-      .map((tier) => ({ ...tier }))
-    const lots: (typeof inventoryLots.$inferSelect)[] = []
-    let tierIdx = 0
-    for (const spec of lotSpecs) {
-      const baseLotNo = spec.lotNo || `LOT-${receivedDate.toISOString().slice(0, 10)}-${randomUUID().slice(0, 8).toUpperCase()}`
-      let need = spec.quantity
-      let part = 0
-      while (need > 0) {
-        const tier = tiers[tierIdx]
-        const take = Math.min(need, tier.qty)
-        if (take > 0) {
-          const [row] = await tx
-            .insert(inventoryLots)
-            .values({
-              id: randomUUID(),
-              tenantId: input.tenantId,
-              itemId: item.id,
-              lotNo: part === 0 ? baseLotNo : `${baseLotNo}-${String.fromCharCode(65 + part)}`,
-              qtyOnHand: take,
-              unitCostCents: tier.unitCostCents,
-              expiryDate: spec.expiryDate ?? null,
-              receivedDate,
-              farmId: input.farmId ?? null,
-            })
-            .returning()
-          lots.push(row)
-          part++
-        }
-        tier.qty -= take
-        need -= take
-        if (tier.qty === 0) tierIdx++
-      }
+    if (input.hold) {
+      if (!input.recordedBy) return { problem: 'A document waiting for approval needs the person who recorded it.' }
+      const [purchase] = await tx
+        .insert(purchases)
+        .values({
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          supplier: input.supplier,
+          itemId: item.id,
+          quantity: input.quantity,
+          unitCostCents: input.unitCostCents,
+          totalCostCents,
+          paymentMethod: input.paymentMethod ?? '',
+          amountPaidCents: input.amountPaidCents ?? 0,
+          createdAt: receivedDate,
+          farmId: input.farmId ?? null,
+          paymentReference: input.paymentReference ?? null,
+          dueDate: input.dueDate ?? null,
+          invoiceNumber: input.invoiceNumber ?? null,
+          receivedDate,
+          notes: input.notes ?? null,
+          photoUrl: input.photoUrl ?? null,
+          transactionDate,
+          postingDate,
+          supplierId: input.supplierId ?? null,
+          recordedBy: input.recordedBy,
+          taxCode: input.taxCode ?? null,
+          taxInclusive: input.taxInclusive ?? null,
+          grossCents: input.grossCents ?? null,
+          taxCents: input.taxCents ?? null,
+          netCents: input.netCents ?? null,
+          receiptGroupId: input.receiptGroupId ?? null,
+          rawUnitCostCents: input.rawUnitCostCents ?? null,
+          approvalStatus: 'pending',
+        })
+        .returning()
+      await insertMoneyApproval(tx, {
+        tenantId: input.tenantId,
+        requestedBy: input.recordedBy,
+        title: `Purchase ${input.itemName} waiting for approval`,
+        details: {
+          docType: 'purchase',
+          documentId: purchase.id,
+          amountCents: totalCostCents,
+          dimensions: input.dimensions ?? null,
+          lots: lotSpecs.map((spec) => ({
+            quantity: spec.quantity,
+            expiryDate: spec.expiryDate ? spec.expiryDate.toISOString() : null,
+            lotNo: spec.lotNo ?? null,
+          })),
+        },
+      })
+      return { item, lot: null, lots: [], purchase }
     }
+
+    const lots = await insertPurchaseLots(tx, {
+      tenantId: input.tenantId,
+      itemId: item.id,
+      farmId: input.farmId ?? null,
+      receivedDate,
+      specs: lotSpecs,
+      valueCents: input.lotValueCents ?? input.quantity * input.unitCostCents,
+    })
     const lot = lots[0]
 
     const [purchase] = await tx

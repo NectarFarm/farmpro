@@ -32,6 +32,7 @@ import {
 } from './icons';
 import { DATE_FORMATS, DEFAULT_DATE_FORMAT, DEFAULT_TIMEZONE, formatDate, formatDateTime, formatIsoDay, setActiveRegional, type DateFormat } from '@/lib/datetime';
 import { centsToMajor, formatMoney, parseMoneyToCents } from '@/lib/money';
+import { PostingPoliciesPanel } from './posting-policies-panel';
 
 /* ── Theme Context (global, used by globals.css overrides) ── */
 export type ThemeMode = 'dark-farm' | 'high-contrast' | 'light-farm' | 'sun-mode';
@@ -537,6 +538,7 @@ export function SettingsScreen({ onLogout }: { onLogout?: () => void }) {
                 />
               </Field>
               <p className="mt-1.5 text-xs leading-relaxed text-muted">Leave this blank and a stock adjustment saves immediately, whatever it is worth. Set an amount and a larger cost impact waits for approval.</p>
+              <PostingPoliciesPanel tenantId={tenantId} farms={farms} canEdit={isOwnerish} />
               {thresholdDraft === null && varianceApprovalThresholdCents !== null && (
                 <p className="mt-1 text-xs leading-relaxed text-muted">A cost impact above {formatMoney(varianceApprovalThresholdCents, currencySymbol)} waits for approval. A smaller one, or one equal to it, saves immediately.</p>
               )}

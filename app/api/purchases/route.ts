@@ -17,6 +17,9 @@ import { isImageDataUrl, dataUrlByteSize, MAX_PHOTO_BYTES } from '@/lib/record-p
 import { postingDayFrom } from '@/lib/tax'
 import { resolveDocumentTax } from '@/lib/tax-catalogue'
 import { UnbalancedTaxError } from '@/lib/finance'
+import { combineLegs, judgeMoney, purchaseLegs } from '@/lib/posting-policy'
+import { loadPostingPolicies } from '@/lib/posting-policies'
+import { notifyMoneyPostings } from '@/lib/notify-money-posting'
 
 // ── GET/POST /api/purchases (issue #235 task 2) ─────────────────────────────
 // Fresh build: no `purchases` table existed on this branch before this issue.
@@ -252,6 +255,18 @@ export async function POST(req: Request) {
     return badRequest('Amount paid is more than the purchase total — check the figures')
   }
 
+  const decision = judgeMoney(await loadPostingPolicies(tenantId), {
+    amountCents: totalCostCents,
+    farmId: farmFilter ?? null,
+    legs: purchaseLegs({
+      totalCents: totalCostCents,
+      paidCents: amountPaidCents ?? 0,
+      netCents: tax.columns.netCents,
+      taxCents: tax.columns.taxCents,
+    }),
+  })
+  if (decision.outcome === 'block') return badRequest(decision.message)
+
   let result
   try {
     result = await recordPurchase({
@@ -288,6 +303,7 @@ export async function POST(req: Request) {
       recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
       ...tax.columns,
+      hold: decision.outcome === 'pending',
     })
   } catch (err) {
     // dimensions-on-gl task: a required dimension missing on an account this
@@ -301,6 +317,7 @@ export async function POST(req: Request) {
   }
 
   if ('problem' in result) return badRequest(result.problem)
+  if (result.purchase.approvalStatus === 'pending') await notifyMoneyPostings(tenantId, [result.purchase.id])
   return created(result)
 }
 
@@ -489,6 +506,17 @@ async function postPurchaseReceipt(b: Record<string, unknown>, tenantId: string,
     return badRequest('Amount paid is more than the purchase total — check the figures')
   }
   const paid = allocatePayment(amountPaidCents, settled)
+  const decision = judgeMoney(await loadPostingPolicies(tenantId), {
+    amountCents: settledTotal,
+    farmId: farmFilter ?? null,
+    legs: combineLegs(settled.map((total, i) => purchaseLegs({
+      totalCents: total,
+      paidCents: paid[i],
+      netCents: taxColumns[i].netCents ?? null,
+      taxCents: taxColumns[i].taxCents ?? null,
+    }))),
+  })
+  if (decision.outcome === 'block') return badRequest(decision.message)
 
   try {
     const result = await recordPurchaseReceipt({
@@ -532,9 +560,12 @@ async function postPurchaseReceipt(b: Record<string, unknown>, tenantId: string,
           recordedBy,
           dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
           ...taxColumns[i],
+          hold: decision.outcome === 'pending',
         }
       }),
     })
+    const heldIds = result.purchases.filter((row) => row.purchase.approvalStatus === 'pending').map((row) => row.purchase.id)
+    await notifyMoneyPostings(tenantId, heldIds)
     return created(result)
   } catch (err) {
     if (
