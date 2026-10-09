@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/db'
 import { batches, products, customers } from '@/db/schemas'
-import { listSales, recordSale } from '@/lib/finance'
+import { listSales, recordSale, UnbalancedTaxError } from '@/lib/finance'
+import { postingDayFrom } from '@/lib/tax'
+import { resolveDocumentTax } from '@/lib/tax-catalogue'
 import { and, eq } from 'drizzle-orm'
 import { batchIdsForFarm, farmNotFoundResponse, resolveFarmFilter } from '@/lib/farm-scope'
 import { requireTenantSession, forbidden } from '@/lib/api-auth'
@@ -187,6 +189,22 @@ export async function POST(req: Request) {
     postingDate = parsed
   }
 
+  const postingDay = postingDayFrom(
+    [
+      typeof b.postingDate === 'string' ? b.postingDate : null,
+      typeof b.effectiveDate === 'string' ? b.effectiveDate : null,
+      typeof b.soldAt === 'string' ? b.soldAt : null,
+    ],
+    postingDate ?? effectiveDate ?? soldAt ?? new Date(),
+  )
+  const tax = await resolveDocumentTax({
+    taxCode: b.taxCode,
+    taxInclusive: b.taxInclusive,
+    baseCents: amountCents,
+    postingDay,
+  })
+  if ('refused' in tax) return badRequest(tax.refused)
+
   try {
     const sale = await recordSale({
       tenantId,
@@ -196,7 +214,7 @@ export async function POST(req: Request) {
       qty,
       stockEffect: product?.stockEffect ?? null,
       actor: session.email,
-      amountCents,
+      amountCents: tax.settledCents,
       method,
       status,
       soldAt,
@@ -209,6 +227,7 @@ export async function POST(req: Request) {
       customerId,
       recordedBy: session.id,
       dimensions: isPlainDimensionMap(b.dimensions) ? b.dimensions : undefined,
+      ...tax.columns,
     })
     return created(sale)
   } catch (err) {
@@ -223,7 +242,7 @@ export async function POST(req: Request) {
     // sale posts to refuses the whole write (transaction rolled back) rather
     // than posting an unanalysed line — see lib/dimensions.ts's
     // attachLineDimensions.
-    if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError) {
+    if (err instanceof DimensionRequirementError || err instanceof DimensionValidationError || err instanceof UnbalancedTaxError) {
       return badRequest(err.message)
     }
     throw err

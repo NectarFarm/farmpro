@@ -23,7 +23,7 @@ import 'server-only'
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sum } from 'drizzle-orm'
 import { db } from '@/db'
 import {
-  batches, sales, purchases, expenses, expenseCategories, records, products, employees, tenantSettings, farms,
+  batches, sales, purchases, expenses, expenseCategories, taxCodes, records, products, employees, tenantSettings, farms,
   payrollRuns, journalEntries, journalLines, journalLineDimensions, accounts,
 } from '@/db/schemas'
 import { computeTrialBalance } from '@/lib/finance'
@@ -156,6 +156,13 @@ export async function withReportCache(
 }
 
 const DATE_FORMAT_SET = new Set(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'])
+
+// Null tax is "no code was recorded", which subtracts nothing. A stored 0
+// (zero-rated, exempt, outside scope) also subtracts nothing. The row stays
+// in the same period either way.
+function netOfTax(gross: number, taxCents: number | null | undefined): number {
+  return gross - (taxCents ?? 0)
+}
 
 function fmtInt(n: number): string {
   return Math.round(n).toLocaleString('en-US')
@@ -300,7 +307,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       type: 'Sale',
       description: s.item,
       batch: s.batchId ? codeById.get(s.batchId) ?? s.batchId : '',
-      amount: centsToMajor(s.amountCents),
+      amount: centsToMajor(netOfTax(s.amountCents, s.taxCents)),
       status: s.status,
     })),
     ...periodPurchases.map((p): Row => ({
@@ -308,7 +315,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       type: 'Purchase',
       description: p.supplier,
       batch: '',
-      amount: centsToMajor(p.totalCostCents),
+      amount: centsToMajor(netOfTax(p.totalCostCents, p.taxCents)),
       status: p.amountPaidCents >= p.totalCostCents ? 'paid' : p.amountPaidCents > 0 ? 'partial' : 'pending',
     })),
     ...periodOperating.map((row): Row => ({
@@ -316,7 +323,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
       type: 'Expense',
       description: `${row.expense.payee} · ${row.categoryName}`,
       batch: '',
-      amount: centsToMajor(row.expense.amountCents),
+      amount: centsToMajor(netOfTax(row.expense.amountCents, row.expense.taxCents)),
       status: row.expense.amountPaidCents >= row.expense.amountCents ? 'paid' : row.expense.amountPaidCents > 0 ? 'partial' : 'pending',
     })),
     ...periodPayroll.map((r): Row => ({
@@ -331,10 +338,10 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
     })),
   ].sort((a, b) => a.date.getTime() - b.date.getTime())
 
-  const periodRevenue = centsToMajor(periodSales.reduce((s, r) => s + r.amountCents, 0))
-  const periodPurchaseExpense = centsToMajor(periodPurchases.reduce((s, r) => s + r.totalCostCents, 0))
+  const periodRevenue = centsToMajor(periodSales.reduce((s, r) => s + netOfTax(r.amountCents, r.taxCents), 0))
+  const periodPurchaseExpense = centsToMajor(periodPurchases.reduce((s, r) => s + netOfTax(r.totalCostCents, r.taxCents), 0))
   const periodPayrollExpense = centsToMajor(periodPayroll.reduce((s, r) => s + r.totalAmountCents, 0))
-  const periodOperatingExpense = centsToMajor(periodOperating.reduce((s, r) => s + r.expense.amountCents, 0))
+  const periodOperatingExpense = centsToMajor(periodOperating.reduce((s, r) => s + netOfTax(r.expense.amountCents, r.expense.taxCents), 0))
   const periodExpense = periodPurchaseExpense + periodPayrollExpense + periodOperatingExpense
 
   const periodNetIncome = periodRevenue - periodExpense
@@ -399,7 +406,7 @@ export async function computePlReport(tenantId: string, from: Date | null, to: D
     // as the treatment report's withdrawal-period line — a caveat about data
     // quality is the farmer's to hide; one that changes what the total MEANS
     // is not.
-    basis: `Compiled from recorded sales, purchases and payroll for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists. Payroll is EXCLUDED from this farm-scoped view — a payroll run covers the whole business and carries no farm, so attributing wages to one farm would be a guess. Run across all farms to include them. Operating expenses recorded against this farm are included.` : ', across all farms. Operating expenses are included where they were recorded.'}`,
+    basis: `Compiled from recorded sales, purchases and payroll for the period above${farmId ? `, scoped to the selected farm (${farmLabel ?? farmId}) where a farm relationship exists. Payroll is EXCLUDED from this farm-scoped view — a payroll run covers the whole business and carries no farm, so attributing wages to one farm would be a guess. Run across all farms to include them. Operating expenses recorded against this farm are included.` : ', across all farms. Operating expenses are included where they were recorded.'} Amounts are net of VAT where the document has a tax code. A document with no tax code is unchanged.`,
     totals: [null, null, 'Period net', null, periodNetIncome, null],
     columnAlign: ['left', 'left', 'left', 'left', 'right', 'left'],
     columnFormats: ['text', 'text', 'text', 'text', 'money', 'text'],
@@ -1083,5 +1090,142 @@ export async function computeDimensionPlReport(
     totals: [null, 'TOTAL', totalRevenue, totalExpense, totalNet],
     columnAlign: ['left', 'left', 'right', 'right', 'right'],
     columnFormats: ['text', 'text', 'money', 'money', 'money'],
+  }
+}
+
+// ── VAT summary (issue #419) ────────────────────────────────────────────────
+// Output VAT from sales, input VAT from purchases and expenses, for a
+// bookkeeper to reconcile a period. Not a return and not a filing. Rows
+// with no tax code are listed and are not treated as zero-rated: their tax
+// and net cells stay blank, and they are left out of the headline totals.
+export async function computeVatReport(tenantId: string, from: Date | null, to: Date | null, farmId?: string): Promise<ReportPayload> {
+  const pres = await presentationSettings(tenantId)
+  const farmBatchIds = farmId ? await batchIdsForFarm(tenantId, farmId) : null
+  const codeNames = new Map((await db.select().from(taxCodes)).map((row) => [row.code, row.name]))
+
+  const saleConditions = [eq(sales.tenantId, tenantId), isNull(sales.reversedAt)]
+  if (from) saleConditions.push(gte(sales.postingDate, from))
+  if (to) saleConditions.push(lte(sales.postingDate, to))
+  if (farmBatchIds !== null) saleConditions.push(inArray(sales.batchId, farmBatchIds.length ? farmBatchIds : ['__none__']))
+  const periodSales = await db.select().from(sales).where(and(...saleConditions))
+
+  const purchaseConditions = [eq(purchases.tenantId, tenantId), isNull(purchases.reversedAt)]
+  if (from) purchaseConditions.push(gte(purchases.postingDate, from))
+  if (to) purchaseConditions.push(lte(purchases.postingDate, to))
+  if (farmId) purchaseConditions.push(eq(purchases.farmId, farmId))
+  const periodPurchases = await db.select().from(purchases).where(and(...purchaseConditions))
+
+  const expenseConditions = [eq(expenses.tenantId, tenantId), isNull(expenses.reversedAt)]
+  if (from) expenseConditions.push(gte(expenses.postingDate, from))
+  if (to) expenseConditions.push(lte(expenses.postingDate, to))
+  if (farmId) expenseConditions.push(eq(expenses.farmId, farmId))
+  const periodExpenses = await db.select().from(expenses).where(and(...expenseConditions))
+
+  type Bucket = {
+    side: string
+    code: string | null
+    documents: number
+    grossCents: number
+    taxCents: number | null
+    netCents: number | null
+  }
+  const buckets = new Map<string, Bucket>()
+
+  function add(side: string, code: string | null, gross: number, tax: number | null, net: number | null) {
+    const coded = code != null && tax != null && net != null
+    const key = `${side}|${coded ? code : ''}`
+    const existing = buckets.get(key)
+    if (!existing) {
+      buckets.set(key, {
+        side,
+        code: coded ? code : null,
+        documents: 1,
+        grossCents: gross,
+        taxCents: coded ? tax : null,
+        netCents: coded ? net : null,
+      })
+      return
+    }
+    existing.documents += 1
+    existing.grossCents += gross
+    if (coded && existing.taxCents != null && existing.netCents != null) {
+      existing.taxCents += tax as number
+      existing.netCents += net as number
+    }
+  }
+
+  for (const row of periodSales) add('Sales', row.taxCode, row.grossCents ?? row.amountCents, row.taxCode ? row.taxCents : null, row.taxCode ? row.netCents : null)
+  for (const row of periodPurchases) add('Purchases', row.taxCode, row.grossCents ?? row.totalCostCents, row.taxCode ? row.taxCents : null, row.taxCode ? row.netCents : null)
+  for (const row of periodExpenses) add('Expenses', row.taxCode, row.grossCents ?? row.amountCents, row.taxCode ? row.taxCents : null, row.taxCode ? row.netCents : null)
+
+  const sideOrder = ['Sales', 'Purchases', 'Expenses']
+  const ordered = [...buckets.values()].sort((a, b) => {
+    const side = sideOrder.indexOf(a.side) - sideOrder.indexOf(b.side)
+    if (side !== 0) return side
+    if (a.code == null) return 1
+    if (b.code == null) return -1
+    return a.code.localeCompare(b.code)
+  })
+
+  const coded = ordered.filter((row) => row.code != null && row.taxCents != null && row.netCents != null)
+  const outputTaxCents = coded.filter((row) => row.side === 'Sales').reduce((sum, row) => sum + (row.taxCents ?? 0), 0)
+  const inputTaxCents = coded.filter((row) => row.side !== 'Sales').reduce((sum, row) => sum + (row.taxCents ?? 0), 0)
+  const netTaxCents = outputTaxCents - inputTaxCents
+  const noCoded = coded.length === 0
+
+  const rows: ReportRow[] = ordered.map((row) => [
+    row.side,
+    row.code ? (codeNames.get(row.code) ?? row.code) : 'No tax code recorded',
+    row.documents,
+    centsToMajor(row.grossCents),
+    row.taxCents == null ? null : centsToMajor(row.taxCents),
+    row.netCents == null ? null : centsToMajor(row.netCents),
+  ])
+
+  const codedGross = coded.reduce((sum, row) => sum + row.grossCents, 0)
+  const codedTax = coded.reduce((sum, row) => sum + (row.taxCents ?? 0), 0)
+  const codedNet = coded.reduce((sum, row) => sum + (row.netCents ?? 0), 0)
+  const codedDocs = coded.reduce((sum, row) => sum + row.documents, 0)
+
+  return {
+    title: 'VAT summary',
+    meta: {
+      tenantId,
+      from: isoDate(from),
+      to: isoDate(to),
+      generatedAt: new Date().toISOString(),
+      farmId: farmId ?? 'ALL',
+      periodLabel: humanPeriodLabel(from, to, pres),
+      outputTaxCents,
+      inputTaxCents,
+      netTaxCents,
+    },
+    columns: ['Side', 'Tax code', 'Documents', 'Gross', 'Tax', 'Net'],
+    rows,
+    headline: [
+      {
+        label: 'Output VAT',
+        value: fmtMajor(centsToMajor(outputTaxCents), pres.currencySymbol),
+        caption: noCoded ? 'No document in this period has a tax code.' : 'Tax on coded sales',
+      },
+      {
+        label: 'Input VAT',
+        value: fmtMajor(centsToMajor(inputTaxCents), pres.currencySymbol),
+        caption: noCoded ? 'No document in this period has a tax code.' : 'Tax on coded purchases and expenses',
+      },
+      {
+        label: 'Net VAT',
+        value: fmtMajor(centsToMajor(netTaxCents), pres.currencySymbol),
+        caption: 'Output minus input. This is not a refund and not a return.',
+      },
+    ],
+    notes: notesFor(pres, [
+      'Rows marked "No tax code recorded" were saved without a tax code. They are not zero-rated, and their tax is not included in the totals above.',
+      'A negative net is output VAT smaller than input VAT. It is not a refund.',
+    ]),
+    totals: noCoded ? undefined : ['Coded documents', null, codedDocs, centsToMajor(codedGross), centsToMajor(codedTax), centsToMajor(codedNet)],
+    columnAlign: ['left', 'left', 'right', 'right', 'right', 'right'],
+    columnFormats: ['text', 'text', 'number', 'money', 'money', 'money'],
+    basis: `Compiled from sales, purchases and expenses posted in the period above${farmId ? ', scoped to the selected farm' : ', across all farms'}. Gross, tax and net are the figures stored on each document.`,
   }
 }

@@ -20,7 +20,7 @@
 // merged stock-list endpoint (GET /api/inventory/items) re-flattens
 // items+lots server-side for the UI's table shape — see that route for the
 // join and the `status` computation.
-import { pgTable, text, timestamp, integer, bigint, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, boolean, index } from 'drizzle-orm/pg-core'
 
 // A tenant's catalog of inventory items (feed, vaccines, medicine, seed,
 // etc — `category` is free text, matching the UI's cat filter chips, not an
@@ -175,6 +175,13 @@ export const purchases = pgTable('purchases', {
   // earliest-created farm by the migration.
   farmId: text('farm_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  // Issue #419. Same five nullable columns as sales. total_cost_cents stays
+  // the settled amount. The lot's unit cost stays the typed unit cost.
+  taxCode: text('tax_code'),
+  taxInclusive: boolean('tax_inclusive'),
+  grossCents: bigint('gross_cents', { mode: 'number' }),
+  taxCents: bigint('tax_cents', { mode: 'number' }),
+  netCents: bigint('net_cents', { mode: 'number' }),
 }, (t) => [
   index('idx_purchases_tenant').on(t.tenantId),
   index('idx_purchases_tenant_item').on(t.tenantId, t.itemId),

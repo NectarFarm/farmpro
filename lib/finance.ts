@@ -27,6 +27,25 @@ export { DimensionValidationError, DimensionRequirementError }
 // recordPurchase), matching how that function already threads its own `tx`.
 type Tx = PgTransaction<any, any, any>
 
+// A document whose tax columns do not add back to the settled amount must
+// not be posted. Null columns are "no tax code" and are not checked here.
+export class UnbalancedTaxError extends Error {
+  constructor() {
+    super('Tax does not add up to the settled amount')
+    this.name = 'UnbalancedTaxError'
+  }
+}
+
+type TaxFacts = { taxCents?: number | null; netCents?: number | null }
+
+function taxOnGross(gross: number, facts: TaxFacts): { netCents: number; taxCents: number } | null {
+  if (typeof facts.taxCents !== 'number' || typeof facts.netCents !== 'number') return null
+  if (facts.netCents + facts.taxCents !== gross || facts.taxCents < 0 || facts.netCents < 0) {
+    throw new UnbalancedTaxError()
+  }
+  return { netCents: facts.netCents, taxCents: facts.taxCents }
+}
+
 export const ACCOUNT_CODES = {
   CASH: '1001',
   ACCOUNTS_RECEIVABLE: '1002',
@@ -46,6 +65,10 @@ export const ACCOUNT_CODES = {
   VETERINARY: '5012',
   AIRTIME: '5013',
   GENERAL_OPERATING: '5019',
+  // VAT (issue #419). Asset and liability, so they never enter a P&L total.
+  // A document with no tax code does not post to either of them.
+  VAT_RECEIVABLE: '1300',
+  VAT_PAYABLE: '2300',
 } as const
 
 // The standard farm chart of accounts this issue seeds — see
@@ -63,6 +86,8 @@ const STANDARD_ACCOUNTS: { code: string; name: string; class: string; normalBala
   { code: ACCOUNT_CODES.VETERINARY, name: 'Veterinary and animal health', class: 'EXPENSE', normalBalance: 'DEBIT' },
   { code: ACCOUNT_CODES.AIRTIME, name: 'Airtime and communication', class: 'EXPENSE', normalBalance: 'DEBIT' },
   { code: ACCOUNT_CODES.GENERAL_OPERATING, name: 'General operating expense', class: 'EXPENSE', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.VAT_RECEIVABLE, name: 'VAT receivable', class: 'ASSET', normalBalance: 'DEBIT' },
+  { code: ACCOUNT_CODES.VAT_PAYABLE, name: 'VAT payable', class: 'LIABILITY', normalBalance: 'CREDIT' },
 ]
 
 // Idempotent: ON CONFLICT DO NOTHING on the unique `code` index, so this is
@@ -141,12 +166,25 @@ async function captureDimensions(
 // entirely rather than moving it to the other side.)
 export async function postSaleJournal(
   tx: Tx,
-  sale: { id: string; tenantId: string; amountCents: number; status: string; batchId?: string | null; postingDate?: Date | null },
+  sale: {
+    id: string
+    tenantId: string
+    amountCents: number
+    status: string
+    batchId?: string | null
+    postingDate?: Date | null
+    taxCents?: number | null
+    netCents?: number | null
+  },
   opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
   const debitAccountId = await accountIdByCode(tx, sale.status === 'pending' ? ACCOUNT_CODES.ACCOUNTS_RECEIVABLE : ACCOUNT_CODES.CASH)
   const revenueAccountId = await accountIdByCode(tx, ACCOUNT_CODES.SALES_REVENUE)
+  // Null tax columns: both lines carry amountCents, exactly as before VAT
+  // existed. A code with tax of 0 (zero-rated, exempt, outside scope, or a
+  // 0% rate) also omits the VAT line, so the entry has the same shape.
+  const split = taxOnGross(sale.amountCents, sale)
 
   // A sale against a batch already knows its batch, hence its unit, hence
   // its farm (dimensions-on-gl task) — derived here rather than asking
@@ -176,10 +214,16 @@ export async function postSaleJournal(
     })
     .returning()
 
-  const lines = await tx.insert(journalLines).values([
+  const revenueCents = split ? split.netCents : sale.amountCents
+  const lineValues: (typeof journalLines.$inferInsert)[] = [
     { id: randomUUID(), entryId: entry.id, accountId: debitAccountId, debitCents: sale.amountCents, creditCents: 0 },
-    { id: randomUUID(), entryId: entry.id, accountId: revenueAccountId, debitCents: 0, creditCents: sale.amountCents },
-  ]).returning()
+    { id: randomUUID(), entryId: entry.id, accountId: revenueAccountId, debitCents: 0, creditCents: revenueCents },
+  ]
+  if (split && split.taxCents > 0) {
+    const vatAccountId = await accountIdByCode(tx, ACCOUNT_CODES.VAT_PAYABLE)
+    lineValues.push({ id: randomUUID(), entryId: entry.id, accountId: vatAccountId, debitCents: 0, creditCents: split.taxCents })
+  }
+  const lines = await tx.insert(journalLines).values(lineValues).returning()
 
   await captureDimensions(tx, {
     tenantId: sale.tenantId, docType: 'sale', docId: sale.id, sourceMaster, explicit: opts.dimensions,
@@ -210,12 +254,25 @@ export async function postSaleJournal(
 // still balances by construction.
 export async function postPurchaseJournal(
   tx: Tx,
-  purchase: { id: string; tenantId: string; totalCostCents: number; amountPaidCents: number; farmId?: string | null; postingDate?: Date | null },
+  purchase: {
+    id: string
+    tenantId: string
+    totalCostCents: number
+    amountPaidCents: number
+    farmId?: string | null
+    postingDate?: Date | null
+    taxCents?: number | null
+    netCents?: number | null
+  },
   opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
   const expenseAccountId = await accountIdByCode(tx, ACCOUNT_CODES.PURCHASES_EXPENSE)
-  const total = Math.max(0, purchase.totalCostCents)
+  // Tax columns present: the settled total is already the gross and is not
+  // clamped, because clamping would make net + tax miss it. Null columns
+  // keep the clamp this function has always applied.
+  const split = taxOnGross(purchase.totalCostCents, purchase)
+  const total = split ? purchase.totalCostCents : Math.max(0, purchase.totalCostCents)
   const paid = Math.min(Math.max(0, purchase.amountPaidCents), total)
   const owed = total - paid
 
@@ -239,9 +296,14 @@ export async function postPurchaseJournal(
     })
     .returning()
 
+  const expenseCents = split ? split.netCents : total
   const lines: (typeof journalLines.$inferInsert)[] = [
-    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: total, creditCents: 0 },
+    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: expenseCents, creditCents: 0 },
   ]
+  if (split && split.taxCents > 0) {
+    const vatAccountId = await accountIdByCode(tx, ACCOUNT_CODES.VAT_RECEIVABLE)
+    lines.push({ id: randomUUID(), entryId: entry.id, accountId: vatAccountId, debitCents: split.taxCents, creditCents: 0 })
+  }
   if (paid > 0) {
     const cashAccountId = await accountIdByCode(tx, ACCOUNT_CODES.CASH)
     lines.push({ id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debitCents: 0, creditCents: paid })
@@ -276,12 +338,15 @@ export async function postExpenseJournal(
     farmId?: string | null
     postingDate?: Date | null
     payee?: string
+    taxCents?: number | null
+    netCents?: number | null
   },
   opts: { dimensions?: Record<string, string> } = {},
 ) {
   await ensureAccountsSeeded(tx)
   const expenseAccountId = await accountIdByCode(tx, expense.accountCode)
-  const total = Math.max(0, expense.amountCents)
+  const split = taxOnGross(expense.amountCents, expense)
+  const total = split ? expense.amountCents : Math.max(0, expense.amountCents)
   const paid = Math.min(Math.max(0, expense.amountPaidCents), total)
   const owed = total - paid
 
@@ -303,9 +368,14 @@ export async function postExpenseJournal(
     })
     .returning()
 
+  const expenseCents = split ? split.netCents : total
   const lines: (typeof journalLines.$inferInsert)[] = [
-    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: total, creditCents: 0 },
+    { id: randomUUID(), entryId: entry.id, accountId: expenseAccountId, debitCents: expenseCents, creditCents: 0 },
   ]
+  if (split && split.taxCents > 0) {
+    const vatAccountId = await accountIdByCode(tx, ACCOUNT_CODES.VAT_RECEIVABLE)
+    lines.push({ id: randomUUID(), entryId: entry.id, accountId: vatAccountId, debitCents: split.taxCents, creditCents: 0 })
+  }
   if (paid > 0) {
     const cashAccountId = await accountIdByCode(tx, ACCOUNT_CODES.CASH)
     lines.push({ id: randomUUID(), entryId: entry.id, accountId: cashAccountId, debitCents: 0, creditCents: paid })
@@ -581,6 +651,13 @@ export async function recordSale(input: {
   // Optional: most sales carry nothing here and rely entirely on the
   // batch-derived system dimensions.
   dimensions?: Record<string, string>
+  // Issue #419. Omitted means no tax code: the columns stay null and
+  // amountCents is posted in full, as every sale before this was.
+  taxCode?: string | null
+  taxInclusive?: boolean | null
+  grossCents?: number | null
+  taxCents?: number | null
+  netCents?: number | null
 }) {
   return db.transaction(async (tx) => {
     const soldAt = input.soldAt ?? new Date()
@@ -607,6 +684,11 @@ export async function recordSale(input: {
         effectiveDate,
         postingDate,
         recordedBy: input.recordedBy ?? null,
+        taxCode: input.taxCode ?? null,
+        taxInclusive: input.taxInclusive ?? null,
+        grossCents: input.grossCents ?? null,
+        taxCents: input.taxCents ?? null,
+        netCents: input.netCents ?? null,
       })
       .returning()
 
