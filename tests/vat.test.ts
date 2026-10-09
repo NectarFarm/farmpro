@@ -24,7 +24,7 @@ import { GET as taxCodesGET } from '@/app/api/tax-codes/route'
 import { GET as adminRatesGET, POST as adminRatesPOST } from '@/app/api/admin/tax-rates/route'
 import { POST as saleReversePOST } from '@/app/api/data/sales/[id]/reverse/route'
 import { POST as expenseReversePOST } from '@/app/api/expenses/[id]/reverse/route'
-import { PATCH as adminRatePATCH } from '@/app/api/admin/tax-rates/[id]/route'
+import { PATCH as adminRatePATCH, DELETE as adminRateDELETE } from '@/app/api/admin/tax-rates/[id]/route'
 import { splitLotCost } from '@/lib/inventory'
 import { db } from '@/db'
 import {
@@ -618,6 +618,41 @@ run('VAT on sales, purchases and expenses (issue #419)', () => {
     expect(retired.status).toBe(200)
     expect(retired.payload.data.rateBps).toBe(1600)
     expect(retired.payload.data.effectiveTo).toBe('2026-06-20')
+  })
+
+  it('serialises concurrent rate inserts and lets an admin correct or remove a mistake', async () => {
+    mockCookie = adminToken
+    const body = (percent: string) => postRequest('http://localhost/api/admin/tax-rates', {
+      taxCode: 'VATABLE', percent, effectiveFrom: '2030-01-01', effectiveTo: '2030-12-31',
+    })
+    const results = await Promise.all([adminRatesPOST(body('14')), adminRatesPOST(body('12')), adminRatesPOST(body('10'))])
+    const parsed = await Promise.all(results.map(readJson))
+    expect(parsed.map((r) => r.status).sort()).toEqual([201, 400, 400])
+    const winner = parsed.find((r) => r.status === 201)!.payload.data
+    rateIds.push(winner.id)
+    const rows = await db.select().from(taxRates).where(eq(taxRates.effectiveFrom, '2030-01-01'))
+    expect(rows).toHaveLength(1)
+
+    // An end date that is already set can be corrected.
+    const shortened = await readJson(await adminRatePATCH(patchRequest(`http://localhost/api/admin/tax-rates/${winner.id}`, {
+      effectiveTo: '2030-06-30',
+    }), { params: Promise.resolve({ id: winner.id }) }))
+    expect(shortened.status).toBe(200)
+    expect(shortened.payload.data.effectiveTo).toBe('2030-06-30')
+
+    // A rate nothing was posted against can be removed...
+    const del = (id: string) => adminRateDELETE(new Request(`http://localhost/api/admin/tax-rates/${id}`, { method: 'DELETE' }), { params: Promise.resolve({ id }) })
+    const removed = await readJson(await del(winner.id))
+    expect(removed.status).toBe(200)
+    expect(await db.select().from(taxRates).where(eq(taxRates.id, winner.id))).toHaveLength(0)
+    expect((await readJson(await del(winner.id))).status).toBe(404)
+
+    // ...and one with documents inside its window cannot.
+    const used = await readJson(await del(rateIds[0]))
+    expect(used.status).toBe(400)
+    expect(used.payload.error).toContain('cannot be removed')
+    mockCookie = ownerToken
+    expect((await readJson(await del(rateIds[0]))).status).toBe(403)
   })
 
   it('refuses an inactive code and hides it from the sheet catalogue', async () => {
