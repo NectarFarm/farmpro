@@ -8,6 +8,7 @@ import {
 import { ENTERPRISE_REGISTRY, type OnboardRequest } from './data';
 import { GpsMapBlock, useReverseGeocode } from './auth';
 import { apiClient } from '@/lib/request';
+import { ReissueLinkButton, SignInWaitBadge, type SignInWait } from './admin-set-password-link';
 import { detectGpsLocation } from '@/lib/geolocation';
 
 // ── Real backend wiring (issues #251/#252) ──────────────────────────────────
@@ -46,6 +47,30 @@ interface ApiOnboardRequest {
   ownerTempPassword?: string;
 }
 
+// The approved applicant's owner account: has it ever been signed in? The
+// set-password link is minted once, at approval, and expires — an applicant
+// who opens it late is otherwise locked out. Looked up through the admin
+// users list (which carries the waiting state) rather than a second endpoint.
+function OwnerSignInPanel({ tenantId }: { tenantId: string }) {
+  const [owner, setOwner] = useState<{ id: string; email: string; signIn: SignInWait | null } | null | undefined>(undefined);
+  const load = useCallback(async () => {
+    const res = await apiClient.get<{ id: string; email: string; signIn: SignInWait | null }[]>(`/api/admin/users?tenantId=${encodeURIComponent(tenantId)}&role=owner&limit=1`);
+    setOwner(res.success ? res.data[0] ?? null : null);
+  }, [tenantId]);
+  useEffect(() => { void load(); }, [load]);
+  if (!owner || !owner.signIn) return null;
+  return (
+    <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
+      <div className="section-eyebrow" style={{ marginBottom: 8 }}>Owner sign-in</div>
+      <div style={{ marginBottom: 10 }}><SignInWaitBadge wait={owner.signIn} /></div>
+      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.5 }}>
+        {owner.email} has not set a password yet. If the approval link expired, issue a new one and send it to them.
+      </div>
+      <ReissueLinkButton userId={owner.id} email={owner.email} style={{ width: '100%' }} onIssued={() => void load()} />
+    </div>
+  );
+}
+
 function formatRequestedAt(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -58,6 +83,7 @@ function formatRequestedAt(iso: string): string {
 type AdminOnboardRequest = OnboardRequest & {
   consentAt?: string | null;
   consentVersion?: string | null;
+  tenantId?: string | null;
 };
 
 function toOnboardRequest(row: ApiOnboardRequest): AdminOnboardRequest {
@@ -485,6 +511,7 @@ function RequestDetail({
            already provisioned). No set-password link is offered here — see
            lib/email.ts's sendOnboardingGuideEmail for why re-sending that
            specific link would be wrong. */}
+        {req.status === 'approved' && req.tenantId && <OwnerSignInPanel tenantId={req.tenantId} />}
         {req.status === 'approved' && (
           <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
             <div className="section-eyebrow" style={{ marginBottom: 8 }}>Getting-started guide</div>

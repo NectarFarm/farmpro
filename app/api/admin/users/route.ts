@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { users } from '@/db/schemas'
 import { requirePlatformCapability } from '@/lib/api-auth'
 import { SAFE_USER_COLUMNS } from '@/lib/admin-users'
+import { setPasswordWaitFor } from '@/lib/set-password'
 
 // ── GET /api/admin/users (admin user-management feature) ───────────────────
 // super_admin only. Lists every user across every tenant — the "full user
@@ -60,5 +61,10 @@ export async function GET(req: Request) {
     .limit(limit)
     .offset(offset)
 
-  return NextResponse.json({ success: true, data: rows }, { status: 200 })
+  // "Approved but never signed in": one joined lookup for the page (not a query
+  // per row). Absent = not waiting; see lib/set-password.ts.
+  const waits = await setPasswordWaitFor(rows.map((r) => r.id))
+  const data = rows.map((r) => ({ ...r, signIn: waits.get(r.id) ?? null }))
+
+  return NextResponse.json({ success: true, data }, { status: 200 })
 }

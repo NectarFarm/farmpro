@@ -20,6 +20,7 @@ import {
   CAPABILITIES, CAPABILITY_LABEL, CAPABILITY_DESCRIPTION, CAPABILITY_PRESETS, type Capability,
 } from '@/components/admin/capabilities';
 import { Select } from '@/components/ui-kit/select';
+import { ReissueLinkButton, SignInWaitBadge, type SignInWait } from './admin-set-password-link';
 
 /* ── Types ── */
 interface StaffMember {
@@ -44,6 +45,8 @@ interface AdminUser {
   role: string;
   status: string;
   createdAt: string | null;
+  // Set only by the list endpoint: an unredeemed set-password link, if any.
+  signIn?: SignInWait | null;
 }
 
 interface PendingReset {
@@ -454,6 +457,7 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
           <span>Created: {formatDateTime(user.createdAt)}</span>
           <span style={{ marginLeft: 4, fontWeight: 700, color: 'var(--text-dim)' }}>{user.tenantId ?? 'platform'}</span>
         </div>
+        {user.signIn && <div style={{ marginBottom: 14 }}><SignInWaitBadge wait={user.signIn} /></div>}
 
         {/* Actions */}
         <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
@@ -467,6 +471,15 @@ function UserDetail({ user, onClose, onUpdated }: { user: AdminUser; onClose: ()
             >
               <Key size={13} /> {resetting ? 'Resetting…' : 'Reset Password'}
             </button>
+            {user.signIn && (
+              <ReissueLinkButton
+                userId={user.id}
+                email={user.email}
+                label="New sign-in link"
+                style={{ flex: 1 }}
+                onIssued={() => onUpdated({ ...user, signIn: { ...user.signIn!, state: 'waiting' } })}
+              />
+            )}
             <button
               onClick={() => setShowImpersonate(true)}
               disabled={user.role === 'super_admin'}
@@ -930,6 +943,7 @@ export function AdminUsersScreen() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                       <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-dim)' }}>{u.tenantId ?? 'platform'}</span>
+                      <SignInWaitBadge wait={u.signIn} />
                       <ChevronRight size={14} color="var(--text-muted)" />
                     </div>
                   </button>
