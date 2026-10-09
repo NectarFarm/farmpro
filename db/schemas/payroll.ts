@@ -25,7 +25,7 @@
 // employer cost are stored beside it when a run is approved. Statutory
 // amounts live on payslip_lines, snapshotted from statutory_rates. No rate
 // is seeded. A scheme with no row on the period end contributes no line.
-import { pgTable, text, timestamp, integer, bigint, real, date, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, bigint, boolean, real, date, index } from 'drizzle-orm/pg-core'
 import { employees } from './people'
 
 // A single payroll run: one tenant, one period, triggered once. `periodStart`/
@@ -122,7 +122,13 @@ export const statutoryRates = pgTable('statutory_rates', {
   code: text('code').notNull(),
   payer: text('payer').notNull(),
   kind: text('kind').notNull(),
-  rateBps: integer('rate_bps').notNull(),
+  // Basis points; only a percent row has one.
+  rateBps: integer('rate_bps'),
+  // A fixed row's amount, in cents. Not stored in rate_bps.
+  amountCents: bigint('amount_cents', { mode: 'number' }),
+  // Whether the employee amount this row produces comes off the pay PAYE is
+  // charged on. Per row, so a change in the law is a new dated row.
+  reducesPayeBase: boolean('reduces_paye_base').notNull().default(false),
   brackets: text('brackets'),
   ceilingCents: bigint('ceiling_cents', { mode: 'number' }),
   floorCents: bigint('floor_cents', { mode: 'number' }),

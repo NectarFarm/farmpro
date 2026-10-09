@@ -10,10 +10,27 @@ export type StatutoryPayer = (typeof STATUTORY_PAYERS)[number]
 export const STATUTORY_KINDS = ['percent', 'bracket', 'fixed'] as const
 export type StatutoryKind = (typeof STATUTORY_KINDS)[number]
 
+// 'taxable' is informational: the pay PAYE was charged on. It is not an
+// earning or a deduction and no total or journal reads it.
 export const LINE_KINDS = [
-  'earning', 'allowance', 'bonus', 'advance', 'loan_repayment',
+  'earning', 'allowance', 'bonus', 'advance', 'loan_repayment', 'taxable',
   'paye', 'nssf', 'shif', 'employer_paye', 'employer_nssf', 'employer_shif',
 ] as const
+
+/**
+ * Which schemes reduce the pay PAYE is charged on, as the admin form's
+ * starting value for a new rate row. The row stores its own answer
+ * (reducesPayeBase), so a change in the law is a new dated row, not a code
+ * change. NSSF and SHIF are deductible from taxable pay in Kenya today. The
+ * housing levy is deductible too; it is listed so that when it is modelled as
+ * a scheme it starts from the right answer. PAYE does not reduce itself.
+ */
+export const PAYE_RELIEF_DEFAULTS: Record<string, boolean> = {
+  PAYE: false,
+  NSSF: true,
+  SHIF: true,
+  AHL: true,
+}
 export type LineKind = (typeof LINE_KINDS)[number]
 
 export function statutoryGap(code: StatutoryCode): string {
@@ -29,7 +46,12 @@ export interface StatutoryRate {
   code: StatutoryCode
   payer: StatutoryPayer
   kind: StatutoryKind
-  rateBps: number
+  // Basis points; a percent row. Null otherwise.
+  rateBps: number | null
+  // Cents; a fixed row. Null otherwise.
+  amountCents: number | null
+  // The employee amount this row produces comes off the pay PAYE is charged on.
+  reducesPayeBase: boolean
   brackets: BracketBand[] | null
   ceilingCents: number | null
   floorCents: number | null
@@ -143,8 +165,8 @@ function clamp(amount: number, floor: number | null, ceiling: number | null): nu
   return next
 }
 
-function percentOf(gross: number, rateBps: number): number {
-  return Number(halfUp(BigInt(gross) * BigInt(rateBps), BigInt(10000)))
+function percentOf(gross: number, rateBps: number | null): number {
+  return Number(halfUp(BigInt(gross) * BigInt(rateBps ?? 0), BigInt(10000)))
 }
 
 /**
@@ -169,14 +191,14 @@ function sideAmount(
   if (calculating.length === 1 && fixed.length === 1 && code !== 'PAYE') {
     return { refused: `More than one ${code} calculation is configured for this date.` }
   }
-  if (calculating.length === 0 && fixed.length === 1) return fixed[0].rateBps
+  if (calculating.length === 0 && fixed.length === 1) return fixed[0].amountCents ?? 0
   if (calculating.length === 0) return null
   const row = calculating[0]
   const raw = row.kind === 'percent'
     ? percentOf(gross, row.rateBps)
     : bracketTax(gross, row.brackets ?? [])
   const clamped = clamp(raw, row.floorCents, row.ceilingCents)
-  if (code === 'PAYE' && fixed.length === 1) return Math.max(0, clamped - fixed[0].rateBps)
+  if (code === 'PAYE' && fixed.length === 1) return Math.max(0, clamped - (fixed[0].amountCents ?? 0))
   return clamped
 }
 
@@ -229,24 +251,41 @@ export function computePayroll(people: PersonInput[], asOf: string, rates: Statu
     const gross = earning + extras
     if (gross <= 0) return { refused: 'There is no pay for this person.' }
 
+    // PAYE is charged on pay after the employee contributions that Kenyan law
+    // allows off it, not on gross. So NSSF and SHIF come first, and each
+    // scheme's rate row says whether its employee amount reduces the base.
     let statutoryEmployee = 0
     let employer = 0
-    for (const code of STATUTORY_CODES) {
+    let payeRelief = 0
+    const sides = (code: StatutoryCode, base: number): { employee: number; employer: number; reduces: boolean } | { refused: string } => {
       const employeeRows = rates.filter((rate) => rate.code === code && rate.payer === 'employee' && covers(rate, asOf))
       const employerRows = rates.filter((rate) => rate.code === code && rate.payer === 'employer' && covers(rate, asOf))
-      const employeeAmount = sideAmount(code, employeeRows, gross)
+      const employeeAmount = sideAmount(code, employeeRows, base)
       if (employeeAmount && typeof employeeAmount === 'object') return employeeAmount
-      const employerAmount = sideAmount(code, employerRows, gross)
+      const employerAmount = sideAmount(code, employerRows, base)
       if (employerAmount && typeof employerAmount === 'object') return employerAmount
-      if (typeof employeeAmount === 'number' && employeeAmount > 0) {
-        lines.push({ kind: EMPLOYEE_LINE[code], label: SCHEME_LABEL[code], amountCents: -employeeAmount })
-        statutoryEmployee += employeeAmount
-      }
-      if (typeof employerAmount === 'number' && employerAmount > 0) {
-        lines.push({ kind: EMPLOYER_LINE[code], label: `Employer ${SCHEME_LABEL[code]}`, amountCents: employerAmount })
-        employer += employerAmount
-      }
+      const employee = typeof employeeAmount === 'number' ? employeeAmount : 0
+      const employerPart = typeof employerAmount === 'number' ? employerAmount : 0
+      if (employee > 0) lines.push({ kind: EMPLOYEE_LINE[code], label: SCHEME_LABEL[code], amountCents: -employee })
+      if (employerPart > 0) lines.push({ kind: EMPLOYER_LINE[code], label: `Employer ${SCHEME_LABEL[code]}`, amountCents: employerPart })
+      return { employee, employer: employerPart, reduces: employeeRows.some((row) => row.reducesPayeBase) }
     }
+    for (const code of STATUTORY_CODES) {
+      if (code === 'PAYE') continue
+      const result = sides(code, gross)
+      if ('refused' in result) return result
+      statutoryEmployee += result.employee
+      employer += result.employer
+      if (result.reduces) payeRelief += result.employee
+    }
+    const taxable = Math.max(0, gross - payeRelief)
+    if (rates.some((rate) => rate.code === 'PAYE' && covers(rate, asOf))) {
+      lines.push({ kind: 'taxable', label: 'Taxable pay', amountCents: taxable })
+    }
+    const paye = sides('PAYE', taxable)
+    if ('refused' in paye) return paye
+    statutoryEmployee += paye.employee
+    employer += paye.employer
 
     const deduction = statutoryEmployee + advances
     const net = gross - deduction

@@ -4,7 +4,7 @@ import { asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { statutoryRates } from '@/db/schemas'
 import { requirePlatformCapability } from '@/lib/api-auth'
-import { isStatutoryCode, sameRateSlot, STATUTORY_KINDS, STATUTORY_PAYERS, type BracketBand } from '@/lib/payroll-calc'
+import { isStatutoryCode, PAYE_RELIEF_DEFAULTS, sameRateSlot, STATUTORY_KINDS, STATUTORY_PAYERS, type BracketBand } from '@/lib/payroll-calc'
 import { rateWindowsOverlap } from '@/lib/tax'
 
 // GET/POST /api/admin/statutory-rates
@@ -74,7 +74,8 @@ export async function POST(req: Request) {
   const kind = typeof b.kind === 'string' ? b.kind : ''
   if (!(STATUTORY_KINDS as readonly string[]).includes(kind)) return badRequest('kind must be percent, bracket or fixed.')
 
-  let rateBps = 0
+  let rateBps: number | null = null
+  let amountCents: number | null = null
   let brackets: BracketBand[] | null = null
   if (kind === 'percent') {
     if (typeof b.rateBps !== 'number' || !Number.isInteger(b.rateBps) || b.rateBps < 0 || b.rateBps > 10000) {
@@ -85,11 +86,23 @@ export async function POST(req: Request) {
     if (typeof b.amountCents !== 'number' || !Number.isInteger(b.amountCents) || b.amountCents < 0) {
       return badRequest('A fixed amount must be a whole number of cents, zero or more.')
     }
-    rateBps = b.amountCents
+    amountCents = b.amountCents
   } else {
     const parsed = readBrackets(b.brackets)
     if (!Array.isArray(parsed)) return badRequest(parsed.problem)
     brackets = parsed
+  }
+
+  // Whether this row's employee amount comes off the pay PAYE is charged on.
+  // Defaults to what Kenyan law allows for the scheme; only an employee-side
+  // contribution can reduce it, and PAYE never reduces itself.
+  let reducesPayeBase = payer === 'employee' && code !== 'PAYE' && (PAYE_RELIEF_DEFAULTS[code] ?? false)
+  if (b.reducesPayeBase !== undefined) {
+    if (typeof b.reducesPayeBase !== 'boolean') return badRequest('reducesPayeBase must be true or false.')
+    if (b.reducesPayeBase && (payer !== 'employee' || code === 'PAYE')) {
+      return badRequest('Only an employee NSSF or SHIF amount can reduce the pay PAYE is charged on.')
+    }
+    reducesPayeBase = b.reducesPayeBase
   }
 
   const ceilingCents = b.ceilingCents == null || b.ceilingCents === ''
@@ -128,6 +141,8 @@ export async function POST(req: Request) {
       payer,
       kind,
       rateBps,
+      amountCents,
+      reducesPayeBase,
       brackets: brackets ? JSON.stringify(brackets) : null,
       ceilingCents,
       floorCents,

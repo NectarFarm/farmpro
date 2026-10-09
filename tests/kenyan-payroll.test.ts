@@ -28,7 +28,7 @@ import {
 import { createSession, hashSecret } from '@/lib/auth'
 import { computePlReport } from '@/lib/reports'
 import { ACCOUNT_CODES, computeTrialBalance, ensureAccountsSeeded } from '@/lib/finance'
-import { computePayroll, type PersonInput, type StatutoryRate } from '@/lib/payroll-calc'
+import { computePayroll, journalSplits, type PersonInput, type StatutoryRate } from '@/lib/payroll-calc'
 
 const hasDb = !!process.env.DATABASE_URL
 const dbRun = hasDb ? describe : describe.skip
@@ -54,7 +54,9 @@ const person = (over: Partial<PersonInput> = {}): PersonInput => ({
 })
 
 const rate = (over: Partial<StatutoryRate> & Pick<StatutoryRate, 'code' | 'payer' | 'kind' | 'effectiveFrom'>): StatutoryRate => ({
-  rateBps: 0,
+  rateBps: null,
+  amountCents: null,
+  reducesPayeBase: false,
   brackets: null,
   ceilingCents: null,
   floorCents: null,
@@ -86,10 +88,54 @@ describe('payroll arithmetic', () => {
     ])
   })
 
+  it('charges PAYE on pay after the reducing deductions, not on gross (worked example)', () => {
+    // Test inputs, not a statement of the law: NSSF 6%, SHIF 2.75%, PAYE a flat 10%.
+    const rates: StatutoryRate[] = [
+      rate({ code: 'NSSF', payer: 'employee', kind: 'percent', effectiveFrom: '2026-01-01', rateBps: 600, reducesPayeBase: true }),
+      rate({ code: 'SHIF', payer: 'employee', kind: 'percent', effectiveFrom: '2026-01-01', rateBps: 275, reducesPayeBase: true }),
+      rate({ code: 'PAYE', payer: 'employee', kind: 'percent', effectiveFrom: '2026-01-01', rateBps: 1000 }),
+    ]
+    const figures = computePayroll([person({ monthlySalaryCents: 1_000_000 })], '2026-06-30', rates)
+    expect('refused' in figures).toBe(false)
+    if ('refused' in figures) return
+    const lines = figures.people[0].lines
+    const amount = (kind: string) => lines.find((line) => line.kind === kind)?.amountCents
+    expect(amount('earning')).toBe(1_000_000) // gross
+    expect(amount('nssf')).toBe(-60_000) // 6% of gross
+    expect(amount('shif')).toBe(-27_500) // 2.75% of gross
+    expect(amount('taxable')).toBe(912_500) // 1,000,000 - 60,000 - 27,500
+    expect(amount('paye')).toBe(-91_250) // 10% of 912,500
+    expect(amount('paye')).not.toBe(-100_000) // 10% of gross is the wrong answer
+    expect(figures.people[0].deductionCents).toBe(60_000 + 27_500 + 91_250)
+    expect(figures.netCents).toBe(821_250) // 1,000,000 - 178,750
+    // The taxable line is shown, but is not an earning or a deduction in the journal.
+    const splits = journalSplits(lines)
+    expect(splits.expenseCents).toBe(1_000_000)
+    expect(splits.netCents + splits.payeCents + splits.nssfCents + splits.shifCents + splits.advanceCents).toBe(splits.expenseCents)
+    expect(splits.payeCents).toBe(91_250)
+  })
+
+  it('leaves a deduction in the PAYE base when its rate row does not reduce it, and floors taxable pay at zero', () => {
+    const base = (reduces: boolean, nssfBps: number): StatutoryRate[] => [
+      rate({ code: 'NSSF', payer: 'employee', kind: 'percent', effectiveFrom: '2026-01-01', rateBps: nssfBps, reducesPayeBase: reduces }),
+      rate({ code: 'PAYE', payer: 'employee', kind: 'percent', effectiveFrom: '2026-01-01', rateBps: 1000 }),
+    ]
+    const kept = computePayroll([person()], '2026-06-30', base(false, 600))
+    const cut = computePayroll([person()], '2026-06-30', base(true, 600))
+    const all = computePayroll([person()], '2026-06-30', base(true, 10000))
+    if ('refused' in kept || 'refused' in cut || 'refused' in all) throw new Error('refused')
+    expect(kept.people[0].lines.find((line) => line.kind === 'taxable')?.amountCents).toBe(1_000_000)
+    expect(kept.people[0].lines.find((line) => line.kind === 'paye')?.amountCents).toBe(-100_000)
+    expect(cut.people[0].lines.find((line) => line.kind === 'taxable')?.amountCents).toBe(940_000)
+    expect(cut.people[0].lines.find((line) => line.kind === 'paye')?.amountCents).toBe(-94_000)
+    expect(all.people[0].lines.find((line) => line.kind === 'taxable')?.amountCents).toBe(0)
+    expect(all.people[0].lines.some((line) => line.kind === 'paye')).toBe(false)
+  })
+
   it('uses the rate effective on the date it is given, including last year', () => {
     const rates: StatutoryRate[] = [
       rate({ code: 'PAYE', payer: 'employee', kind: 'bracket', effectiveFrom: '2025-01-01', effectiveTo: '2025-12-31', brackets: [{ upToCents: null, rateBps: 1000 }] }),
-      rate({ code: 'PAYE', payer: 'employee', kind: 'fixed', effectiveFrom: '2025-01-01', effectiveTo: '2025-12-31', rateBps: 5_000 }),
+      rate({ code: 'PAYE', payer: 'employee', kind: 'fixed', effectiveFrom: '2025-01-01', effectiveTo: '2025-12-31', amountCents: 5_000 }),
       rate({ code: 'PAYE', payer: 'employee', kind: 'percent', effectiveFrom: '2026-07-01', effectiveTo: '2026-07-31', rateBps: 2000 }),
       rate({ code: 'NSSF', payer: 'employer', kind: 'percent', effectiveFrom: '2025-01-01', effectiveTo: '2025-12-31', rateBps: 600 }),
     ]

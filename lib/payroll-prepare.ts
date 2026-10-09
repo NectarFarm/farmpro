@@ -56,6 +56,8 @@ export async function loadStatutoryRates(): Promise<StatutoryRate[] | { refused:
       payer: row.payer,
       kind: row.kind,
       rateBps: row.rateBps,
+      amountCents: row.amountCents,
+      reducesPayeBase: row.reducesPayeBase,
       brackets,
       ceilingCents: row.ceilingCents,
       floorCents: row.floorCents,

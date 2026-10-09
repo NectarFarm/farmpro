@@ -1,7 +1,8 @@
 'use client';
 // Platform admin: PAYE, NSSF and SHIF rates (issue #420). No rate is seeded.
-// A fixed amount is stored in the rate_bps column as cents. The percent on
-// an existing row is not editable.
+// A fixed amount has its own amount_cents column. The percent on an existing
+// row is not editable. Each employee NSSF or SHIF row says whether it reduces
+// the pay PAYE is charged on, and the row shows it.
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '@/lib/request';
 import { parseMoneyToCents, formatMoney } from '@/lib/money';
@@ -11,13 +12,16 @@ import { Field } from '@/components/ui-kit/field';
 import { Input } from '@/components/ui-kit/input';
 import { DateField } from '@/components/ui-kit/date-field';
 import { Select } from '@/components/ui-kit/select';
+import { PAYE_RELIEF_DEFAULTS } from '@/lib/payroll-calc';
 
 interface StatutoryRateRow {
   id: string;
   code: string;
   payer: string;
   kind: string;
-  rateBps: number;
+  rateBps: number | null;
+  amountCents: number | null;
+  reducesPayeBase: boolean;
   brackets: string | null;
   ceilingCents: number | null;
   floorCents: number | null;
@@ -43,9 +47,10 @@ function percentToBps(raw: string): number | null {
 }
 
 function describe(row: StatutoryRateRow): string {
-  if (row.kind === 'percent') return `${(row.rateBps / 100).toFixed(2)}%`;
-  if (row.kind === 'fixed') return `${formatMoney(row.rateBps)} fixed`;
-  return 'Brackets';
+  const base = row.reducesPayeBase ? ' · reduces the pay PAYE is charged on' : '';
+  if (row.kind === 'percent') return `${((row.rateBps ?? 0) / 100).toFixed(2)}%${base}`;
+  if (row.kind === 'fixed') return `${formatMoney(row.amountCents ?? 0)} fixed${base}`;
+  return `Brackets${base}`;
 }
 
 export function StatutoryRatesPanel() {
@@ -56,6 +61,7 @@ export function StatutoryRatesPanel() {
   const [payer, setPayer] = useState('');
   const [kind, setKind] = useState('');
   const [percent, setPercent] = useState('');
+  const [reducesBase, setReducesBase] = useState(false);
   const [amount, setAmount] = useState('');
   const [ceiling, setCeiling] = useState('');
   const [floor, setFloor] = useState('');
@@ -86,6 +92,7 @@ export function StatutoryRatesPanel() {
     if (!code || !payer || !kind) { setFormError('Choose the scheme, who pays, and the kind of rate.'); return; }
     if (!effectiveFrom) { setFormError('Enter the first day this rate applies.'); return; }
     const body: Record<string, unknown> = { code, payer, kind, effectiveFrom, effectiveTo: effectiveTo || undefined };
+    if (payer === 'employee' && code !== 'PAYE') body.reducesPayeBase = reducesBase;
     if (kind === 'percent') {
       const rateBps = percentToBps(percent);
       if (rateBps == null) { setFormError('Enter the percent, for example 6 for 6.00%.'); return; }
@@ -168,7 +175,7 @@ export function StatutoryRatesPanel() {
     <div className="farm-card" style={{ padding: 14, marginBottom: 14 }}>
       <div className="section-eyebrow" style={{ marginBottom: 8 }}>Statutory rates</div>
       <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
-        Shared across every farm. A payroll run uses the row effective on the period end and stores the result on the payslip. The rate cannot be edited afterwards; an end date can be changed, and a rate no payroll run has been calculated under can be removed. Housing levy is not calculated. No rate is filled in until you add one.
+        Shared across every farm. A payroll run uses the row effective on the period end and stores the result on the payslip. The rate cannot be edited afterwards; an end date can be changed, and a rate no payroll run has been calculated under can be removed. PAYE is charged on pay after the employee contributions marked as reducing it (NSSF and SHIF by default), and the payslip shows that taxable figure. Housing levy is not calculated. No rate is filled in until you add one.
       </p>
       {capLoading && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-dim)' }}>Checking access…</div>}
       {loadError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{loadError}</div>}
@@ -202,18 +209,24 @@ export function StatutoryRatesPanel() {
       {formError && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--status-critical)', marginBottom: 8 }}>{formError}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <Field label="Scheme">
-          <Select value={code} onChange={setCode} placeholder="PAYE, NSSF or SHIF" aria-label="Scheme" className="min-h-11 h-11 w-full">
+          <Select value={code} onChange={(next) => { setCode(next); setReducesBase(payer === 'employee' && (PAYE_RELIEF_DEFAULTS[next] ?? false) && next !== 'PAYE'); }} placeholder="PAYE, NSSF or SHIF" aria-label="Scheme" className="min-h-11 h-11 w-full">
             <option value="PAYE">PAYE</option>
             <option value="NSSF">NSSF</option>
             <option value="SHIF">SHIF</option>
           </Select>
         </Field>
         <Field label="Who pays">
-          <Select value={payer} onChange={setPayer} placeholder="Employee or employer" aria-label="Who pays" className="min-h-11 h-11 w-full">
+          <Select value={payer} onChange={(next) => { setPayer(next); setReducesBase(next === 'employee' && code !== 'PAYE' && (PAYE_RELIEF_DEFAULTS[code] ?? false)); }} placeholder="Employee or employer" aria-label="Who pays" className="min-h-11 h-11 w-full">
             <option value="employee">Employee</option>
             <option value="employer">Employer</option>
           </Select>
         </Field>
+        {payer === 'employee' && code !== '' && code !== 'PAYE' && (
+          <label className="flex min-h-11 items-center gap-3 text-sm">
+            <input type="checkbox" className="size-5" checked={reducesBase} onChange={(e) => setReducesBase(e.target.checked)} />
+            This amount comes off the pay PAYE is charged on
+          </label>
+        )}
         <Field label="Kind">
           <Select value={kind} onChange={setKind} placeholder="Percent, brackets or a fixed amount" aria-label="Kind of rate" className="min-h-11 h-11 w-full">
             <option value="percent">Percent</option>
