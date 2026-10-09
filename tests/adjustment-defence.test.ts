@@ -24,6 +24,7 @@ import { POST as rejectPOST } from '@/app/api/approvals/[id]/reject/route'
 import { POST as purchasesPOST } from '@/app/api/purchases/route'
 import { POST as salesPOST } from '@/app/api/data/sales/route'
 import { POST as payrollPOST } from '@/app/api/payroll/runs/route'
+import { POST as payrollPayPOST } from '@/app/api/payroll/runs/[id]/pay/route'
 import { db } from '@/db'
 import {
   tenants, users, sessions, employees, payslips, payrollRuns,
@@ -238,8 +239,13 @@ run('adjustments that defend themselves (issue #418)', () => {
     expect(bags.payload.data.lot.unitCostCents).toBe(UNIT_COST)
     const payroll = await readJson(await payrollPOST(postRequest('http://localhost/api/payroll/runs', {
       tenantId, periodStart: '2026-03-01', periodEnd: '2026-03-31', memo: 'March wages',
+      employees: [{ employeeId }],
     })))
     expect(payroll.status).toBe(201)
+    const payrollPaid = await readJson(await payrollPayPOST(postRequest('http://localhost/api/payroll/runs/pay', {
+      tenantId, confirmation: 'PAY', payDate: '2026-03-31', paymentMethod: 'Cash', paymentReference: 'MARCH-WAGES',
+    }), { params: Promise.resolve({ id: payroll.payload.data.run.id }) }))
+    expect(payrollPaid.status).toBe(200)
   })
 
   afterAll(async () => {

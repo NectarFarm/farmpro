@@ -24,6 +24,7 @@ import { PATCH as adminCategoryPATCH } from '@/app/api/admin/expense-categories/
 import { GET as purchasesGET, POST as purchasesPOST } from '@/app/api/purchases/route'
 import { POST as salesPOST } from '@/app/api/data/sales/route'
 import { POST as payrollPOST } from '@/app/api/payroll/runs/route'
+import { POST as payrollPayPOST } from '@/app/api/payroll/runs/[id]/pay/route'
 import { db } from '@/db'
 import {
   tenants, users, sessions, farms, productionUnits, employees, payslips, payrollRuns,
@@ -197,8 +198,13 @@ run('expenses that are not stock (issue #416)', () => {
     expect(purchase.status).toBe(201)
     const payroll = await readJson(await payrollPOST(postRequest('http://localhost/api/payroll/runs', {
       tenantId, periodStart: '2026-03-01', periodEnd: '2026-03-31', memo: 'March wages',
+      employees: [{ employeeId }],
     })))
     expect(payroll.status).toBe(201)
+    const payrollPaid = await readJson(await payrollPayPOST(postRequest('http://localhost/api/payroll/runs/pay', {
+      tenantId, confirmation: 'PAY', payDate: '2026-03-31', paymentMethod: 'Cash', paymentReference: 'MARCH-WAGES',
+    }), { params: Promise.resolve({ id: payroll.payload.data.run.id }) }))
+    expect(payrollPaid.status).toBe(200)
 
     const cats = await readJson(await categoriesGET(new Request(`http://localhost/api/expense-categories?tenantId=${tenantId}`)))
     expect(cats.status).toBe(200)

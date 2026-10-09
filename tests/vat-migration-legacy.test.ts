@@ -46,7 +46,8 @@ run('pre-VAT rows across the VAT migration', () => {
       await scratch`insert into accounts (id, code, name, class, normal_balance) values
         (${randomUUID()}, '1001', 'Cash', 'ASSET', 'DEBIT'), (${randomUUID()}, '1002', 'AR', 'ASSET', 'DEBIT'),
         (${randomUUID()}, '2001', 'AP', 'LIABILITY', 'CREDIT'), (${randomUUID()}, '4001', 'Sales', 'REVENUE', 'CREDIT'),
-        (${randomUUID()}, '5001', 'Purchases', 'EXPENSE', 'DEBIT'), (${randomUUID()}, '5010', 'Transport', 'EXPENSE', 'DEBIT')
+        (${randomUUID()}, '5001', 'Purchases', 'EXPENSE', 'DEBIT'), (${randomUUID()}, '5010', 'Transport', 'EXPENSE', 'DEBIT'),
+        (${randomUUID()}, '5002', 'Payroll', 'EXPENSE', 'DEBIT')
         on conflict (code) do nothing`
       const acct = async (code: string) => (await scratch!`select id from accounts where code = ${code}`)[0].id as string
       const march = '2026-03-10T00:00:00.000Z'
@@ -70,6 +71,11 @@ run('pre-VAT rows across the VAT migration', () => {
       await scratch`insert into expense_categories (id, code, name, account_code) values (${cat}, ${'old-' + cat.slice(0, 6)}, 'Transport', '5010')`
       await scratch`insert into expenses (id, tenant_id, payee, category_id, amount_cents, amount_paid_cents, posting_date) values (${e1}, ${t}, 'Matatu', ${cat}, 25000, 25000, ${march})`
       await post('expense', e1, [['5010', 25000, 0], ['1001', 0, 25000]])
+      // A payroll run recorded before the payroll migration (no status).
+      const r1 = randomUUID()
+      const user = randomUUID()
+      await scratch`insert into payroll_runs (id, tenant_id, period_start, period_end, total_amount_cents, employee_count, created_by_user_id, memo) values (${r1}, ${t}, '2026-03-01T00:00:00.000Z', '2026-03-31T00:00:00.000Z', 300000, 1, ${user}, 'March')`
+      await post('payroll_run', r1, [['5002', 300000, 0], ['1001', 0, 300000]])
 
       const figures = async () => {
         const lines = await scratch!`select a.code, sum(l.debit_cents)::bigint as dr, sum(l.credit_cents)::bigint as cr
@@ -99,6 +105,7 @@ run('pre-VAT rows across the VAT migration', () => {
       expect(pl.meta.periodRevenue).toBe((500000 + 123457) / 100)
       expect(pl.meta.periodPurchaseExpense).toBe(10000 / 100)
       expect(pl.meta.periodOperatingExpense).toBe(25000 / 100)
+      expect(pl.meta.periodExpense).toBe((10000 + 300000 + 25000) / 100)
       const tb = await computeTrialBalance(t)
       expect(tb.balanced).toBe(true)
       const tbFigures = tb.rows
